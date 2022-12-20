@@ -6,3 +6,4 @@ pub(crate) mod snapshot;
  * Model
 */
 pub(crate) mod sort;
+pub(crate) mod table_metadata;
