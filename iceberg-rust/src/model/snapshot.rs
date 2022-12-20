@@ -1,4 +1,4 @@
-/**
+/*!
  * Snapshots
 */
 use std::collections::HashMap;

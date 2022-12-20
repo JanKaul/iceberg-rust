@@ -1,4 +1,4 @@
-/**
+/*!
  * Partitioning
 */
 use serde::{

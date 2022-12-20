@@ -1,14 +1,14 @@
-pub(crate) mod bytes;
-pub(crate) mod data_types;
-pub(crate) mod manifest;
-pub(crate) mod manifest_list;
-pub(crate) mod partition;
-pub(crate) mod schema;
-pub(crate) mod snapshot;
-/**
+/*!
  * Model
 */
-pub(crate) mod sort;
-pub(crate) mod table_metadata;
-pub(crate) mod values;
-pub(crate) mod view_metadata;
+pub mod bytes;
+pub mod data_types;
+pub mod manifest;
+pub mod manifest_list;
+pub mod partition;
+pub mod schema;
+pub mod snapshot;
+pub mod sort;
+pub mod table_metadata;
+pub mod values;
+pub mod view_metadata;

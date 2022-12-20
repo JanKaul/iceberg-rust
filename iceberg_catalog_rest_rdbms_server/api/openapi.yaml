@@ -1,0 +1,3960 @@
+openapi: 3.0.3
+info:
+  description: "Defines the specification for the first version of the REST Catalog\
+    \ API. Implementations should ideally support both Iceberg table specs v1 and\
+    \ v2, with priority given to v2."
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+  title: Apache Iceberg REST Catalog API
+  version: 0.0.1
+servers:
+- description: Server URL when the port can be inferred from the scheme
+  url: "{scheme}://{host}/{basePath}"
+  variables:
+    scheme:
+      default: https
+      description: "The scheme of the URI, either http or https."
+    host:
+      default: localhost
+      description: The host address for the specified server
+    basePath:
+      default: ""
+      description: Optional prefix to be appended to all routes
+- description: "Generic base server URL, with all parts configurable"
+  url: "{scheme}://{host}:{port}/{basePath}"
+  variables:
+    scheme:
+      default: https
+      description: "The scheme of the URI, either http or https."
+    host:
+      default: localhost
+      description: The host address for the specified server
+    port:
+      default: "443"
+      description: The port used when addressing the host
+    basePath:
+      default: ""
+      description: Optional prefix to be appended to all routes
+security:
+- OAuth2:
+  - catalog
+- BearerAuth: []
+paths:
+  /v1/config:
+    get:
+      description: " All REST clients should first call this route to get catalog\
+        \ configuration properties from the server to configure the catalog and its\
+        \ HTTP client. Configuration from the server consists of two sets of key/value\
+        \ pairs.\n- defaults -  properties that should be used as default configuration;\
+        \ applied before client configuration\n- overrides - properties that should\
+        \ be used to override client configuration; applied after defaults and client\
+        \ configuration\n\nCatalog configuration is constructed by setting the defaults,\
+        \ then client- provided configuration, and finally overrides. The final property\
+        \ set is then used to configure the catalog.\n\nFor example, a default configuration\
+        \ property might set the size of the client pool, which can be replaced with\
+        \ a client-specific setting. An override might be used to set the warehouse\
+        \ location, which is stored on the server rather than in client configuration.\n\
+        \nCommon catalog configuration settings are documented at https://iceberg.apache.org/configuration/#catalog-properties "
+      operationId: getConfig
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                overrides:
+                  warehouse: s3://bucket/warehouse/
+                defaults:
+                  clients: "4"
+              schema:
+                $ref: '#/components/schemas/CatalogConfig'
+          description: Server specified configuration values.
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: List all catalog configuration settings
+      tags:
+      - Configuration API
+  /v1/oauth/tokens:
+    post:
+      description: |-
+        Exchange credentials for a token using the OAuth2 client credentials flow or token exchange.
+
+        This endpoint is used for three purposes -
+        1. To exchange client credentials (client ID and secret) for an access token This uses the client credentials flow.
+        2. To exchange a client token and an identity token for a more specific access token This uses the token exchange flow.
+        3. To exchange an access token for one with the same claims and a refreshed expiration period This uses the token exchange flow.
+
+        For example, a catalog client may be configured with client credentials from the OAuth2 Authorization flow. This client would exchange its client ID and secret for an access token using the client credentials request with this endpoint (1). Subsequent requests would then use that access token.
+
+        Some clients may also handle sessions that have additional user context. These clients would use the token exchange flow to exchange a user token (the "subject" token) from the session for a more specific access token for that user, using the catalog's access token as the "actor" token (2). The user ID token is the "subject" token and can be any token type allowed by the OAuth2 token exchange flow, including a unsecured JWT token with a sub claim. This request should use the catalog's bearer token in the "Authorization" header.
+
+        Clients may also use the token exchange flow to refresh a token that is about to expire by sending a token exchange request (3). The request's "subject" token should be the expiring token. This request should use the subject token in the "Authorization" header.
+      operationId: getToken
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OAuthTokenRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/getToken_200_response'
+          description: OAuth2 token response for client credentials or token exchange
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/getToken_400_response'
+          description: OAuth2 error response
+        "401":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/getToken_400_response'
+          description: OAuth2 error response
+        "5XX":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/getToken_400_response'
+          description: OAuth2 error response
+      summary: Get a token using an OAuth2 flow
+      tags:
+      - OAuth2 API
+  /v1/{prefix}/namespaces:
+    get:
+      description: "List all namespaces at a certain level, optionally starting from\
+        \ a given parent namespace. For example, if table accounting.tax.paid exists,\
+        \ using 'SELECT NAMESPACE IN accounting' would translate into `GET /namespaces?parent=accounting`\
+        \ and must return a namespace, [\"accounting\", \"tax\"]. If `parent` is not\
+        \ provided, all top-level namespaces should be listed."
+      operationId: listNamespaces
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - allowEmptyValue: true
+        description: "An optional namespace, underneath which to list namespaces.\
+          \ If not provided or empty, all top-level namespaces should be listed. If\
+          \ parent is a multipart namespace, the parts must be separated by the unit\
+          \ separator (`0x1F`) byte."
+        example: accounting%1Ftax
+        explode: true
+        in: query
+        name: parent
+        required: false
+        schema:
+          type: string
+        style: form
+      responses:
+        "200":
+          content:
+            application/json:
+              examples:
+                NonEmptyResponse:
+                  $ref: '#/components/examples/ListNamespacesNonEmptyExample'
+                EmptyResponse:
+                  $ref: '#/components/examples/ListNamespacesEmptyExample'
+              schema:
+                $ref: '#/components/schemas/listNamespaces_200_response'
+          description: A list of namespaces
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                NoSuchNamespaceExample:
+                  $ref: '#/components/examples/NoSuchNamespaceError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Not Found - Namespace provided in the `parent` query parameter
+            is not found.
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: "List namespaces, optionally providing a parent namespace to list underneath"
+      tags:
+      - Catalog API
+    post:
+      description: "Create a namespace, with an optional set of properties. The server\
+        \ might also add properties, such as `last_modified_time` etc."
+      operationId: createNamespace
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNamespaceRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                namespace:
+                - accounting
+                - tax
+                properties:
+                  owner: Ralph
+                  created_at: "1452120468"
+              schema:
+                $ref: '#/components/schemas/createNamespace_200_response'
+          description: "Represents a successful call to create a namespace. Returns\
+            \ the namespace created, as well as any properties that were stored for\
+            \ the namespace, including those the server might have added. Implementations\
+            \ are not required to support namespace properties."
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "406":
+          content:
+            application/json:
+              example:
+                error:
+                  message: The server does not support this operation
+                  type: UnsupportedOperationException
+                  code: 406
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Not Acceptable / Unsupported Operation. The server does not
+            support this operation.
+        "409":
+          content:
+            application/json:
+              examples:
+                NamespaceAlreadyExists:
+                  $ref: '#/components/examples/NamespaceAlreadyExistsError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Conflict - The namespace already exists
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Create a namespace
+      tags:
+      - Catalog API
+  /v1/{prefix}/namespaces/{namespace}:
+    delete:
+      operationId: dropNamespace
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: "Success, no content"
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                NoSuchNamespaceExample:
+                  $ref: '#/components/examples/NoSuchNamespaceError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Not Found - Namespace to delete does not exist.
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Drop a namespace from the catalog. Namespace must be empty.
+      tags:
+      - Catalog API
+    get:
+      description: Return all stored metadata properties for a given namespace
+      operationId: loadNamespaceMetadata
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/loadNamespaceMetadata_200_response'
+          description: "Returns a namespace, as well as any properties stored on the\
+            \ namespace if namespace properties are supported by the server."
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                NoSuchNamespaceExample:
+                  $ref: '#/components/examples/NoSuchNamespaceError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Not Found - Namespace not found
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Load the metadata properties for a namespace
+      tags:
+      - Catalog API
+  /v1/{prefix}/namespaces/{namespace}/properties:
+    post:
+      description: |-
+        Set and/or remove properties on a namespace. The request body specifies a list of properties to remove and a map of key value pairs to update.
+        Properties that are not in the request are not modified or removed by this call.
+        Server implementations are not required to support namespace properties.
+      operationId: updateProperties
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            examples:
+              UpdateAndRemoveProperties:
+                $ref: '#/components/examples/UpdateAndRemoveNamespacePropertiesRequest'
+            schema:
+              $ref: '#/components/schemas/UpdateNamespacePropertiesRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              example:
+                updated:
+                - owner
+                removed:
+                - foo
+                missing:
+                - bar
+              schema:
+                $ref: '#/components/schemas/updateProperties_200_response'
+          description: JSON data response for a synchronous update properties request.
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                NamespaceNotFound:
+                  $ref: '#/components/examples/NoSuchNamespaceError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Not Found - Namespace not found
+        "406":
+          content:
+            application/json:
+              example:
+                error:
+                  message: The server does not support this operation
+                  type: UnsupportedOperationException
+                  code: 406
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Not Acceptable / Unsupported Operation. The server does not
+            support this operation.
+        "422":
+          content:
+            application/json:
+              examples:
+                UnprocessableEntityDuplicateKey:
+                  $ref: '#/components/examples/UnprocessableEntityDuplicateKey'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unprocessable Entity - A property key was included in both
+            `removals` and `updates`
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Set or remove properties on a namespace
+      tags:
+      - Catalog API
+  /v1/{prefix}/namespaces/{namespace}/tables:
+    get:
+      description: Return all table identifiers under this namespace
+      operationId: listTables
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              examples:
+                ListTablesResponseNonEmpty:
+                  $ref: '#/components/examples/ListTablesNonEmptyExample'
+                ListTablesResponseEmpty:
+                  $ref: '#/components/examples/ListTablesEmptyExample'
+              schema:
+                $ref: '#/components/schemas/listTables_200_response'
+          description: A list of table identifiers
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                NamespaceNotFound:
+                  $ref: '#/components/examples/NoSuchNamespaceError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Not Found - The namespace specified does not exist
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: List all table identifiers underneath a given namespace
+      tags:
+      - Catalog API
+    post:
+      description: |-
+        Create a table or start a create transaction, like atomic CTAS.
+
+        If `stage-create` is false, the table is created immediately.
+
+        If `stage-create` is true, the table is not created, but table metadata is initialized and returned. The service should prepare as needed for a commit to the table commit endpoint to complete the create transaction. The client uses the returned metadata to begin a transaction. To commit the transaction, the client sends all create and subsequent changes to the table commit route. Changes from the table create operation include changes like AddSchemaUpdate and SetCurrentSchemaUpdate that set the initial table state.
+      operationId: createTable
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTableRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoadTableResult'
+          description: Table metadata result after creating a table
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                NamespaceNotFound:
+                  $ref: '#/components/examples/NoSuchNamespaceError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Not Found - The namespace specified does not exist
+        "409":
+          content:
+            application/json:
+              examples:
+                NamespaceAlreadyExists:
+                  $ref: '#/components/examples/TableAlreadyExistsError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Conflict - The table already exists
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Create a table in the given namespace
+      tags:
+      - Catalog API
+  /v1/{prefix}/namespaces/{namespace}/tables/{table}:
+    delete:
+      description: Remove a table from the catalog
+      operationId: dropTable
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A table name
+        example: sales
+        explode: false
+        in: path
+        name: table
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: Whether the user requested to purge the underlying table's data
+          and metadata
+        explode: true
+        in: query
+        name: purgeRequested
+        required: false
+        schema:
+          default: false
+          type: boolean
+        style: form
+      responses:
+        "204":
+          description: "Success, no content"
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                TableToDeleteDoesNotExist:
+                  $ref: '#/components/examples/NoSuchTableError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Not Found - NoSuchTableException, Table to drop does not exist"
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Drop a table from the catalog
+      tags:
+      - Catalog API
+    get:
+      description: |-
+        Load a table from the catalog.
+
+        The response contains both configuration and table metadata. The configuration, if non-empty is used as additional configuration for the table that overrides catalog configuration. For example, this configuration may change the FileIO implemented used for the table.
+
+        The response also contains the table's full metadata.
+
+        The catalog configuration may contain credentials that should be used for subsequent requests for the table. The configuration key "token" is used to pass an access token to be used as a bearer token for table requests. Otherwise, a token may be passed using a RFC 8693 token type as a configuration key. For example, "urn:ietf:params:oauth:token-type:jwt=<JWT-token>".
+      operationId: loadTable
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A table name
+        example: sales
+        explode: false
+        in: path
+        name: table
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoadTableResult'
+          description: Table metadata result when loading a table
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                TableToLoadDoesNotExist:
+                  $ref: '#/components/examples/NoSuchTableError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Not Found - NoSuchTableException, table to load does not exist"
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Load a table from the catalog
+      tags:
+      - Catalog API
+    head:
+      description: Check if a table exists within a given namespace. This request
+        does not return a response body.
+      operationId: tableExists
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A table name
+        example: sales
+        explode: false
+        in: path
+        name: table
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          description: OK - Table Exists
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not Found
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Check if a table exists
+      tags:
+      - Catalog API
+    post:
+      description: |-
+        Commit updates to a table.
+
+        Commits have two parts, requirements and updates. Requirements are assertions that will be validated before attempting to make and commit changes. For example, `assert-ref-snapshot-id` will check that a named ref's snapshot ID has a certain value.
+
+        Updates are changes to make to table metadata. For example, after asserting that the current main ref is at the expected snapshot, a commit may add a new child snapshot and set the ref to the new snapshot id.
+
+        Create table transactions that are started by createTable with `stage-create` set to true are committed using this route. Transactions should include all changes to the table, including table initialization, like AddSchemaUpdate and SetCurrentSchemaUpdate. The `assert-create` requirement is used to ensure that the table was not created concurrently.
+      operationId: updateTable
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A table name
+        example: sales
+        explode: false
+        in: path
+        name: table
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommitTableRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/updateTable_200_response'
+          description: |-
+            Response used when a table is successfully updated.
+            The table metadata JSON is returned in the metadata field. The corresponding file location of table metadata must be returned in the metadata-location field. Clients can check whether metadata has changed by comparing metadata locations.
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                TableToUpdateDoesNotExist:
+                  $ref: '#/components/examples/NoSuchTableError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Not Found - NoSuchTableException, table to load does not exist"
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Conflict - CommitFailedException, one or more requirements\
+            \ failed. The client may retry."
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "500":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: CommitStateUnknownException
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: An unknown server-side problem occurred; the commit state is
+            unknown.
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "504":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Gateway timed out during commit
+                  type: CommitStateUnknownException
+                  code: 504
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side gateway timeout occurred; the commit state is
+            unknown.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Bad Gateway
+                  type: InternalServerError
+                  code: 502
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable on the
+            client.
+      summary: Commit updates to a table
+      tags:
+      - Catalog API
+  /v1/{prefix}/tables/rename:
+    post:
+      description: "Rename a table from one identifier to another. It's valid to move\
+        \ a table across namespaces, but the server implementation is not required\
+        \ to support it."
+      operationId: renameTable
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            examples:
+              RenameTableSameNamespace:
+                $ref: '#/components/examples/RenameTableSameNamespace'
+            schema:
+              $ref: '#/components/schemas/RenameTableRequest'
+        description: Current table identifier to rename and new table identifier to
+          rename to
+        required: true
+      responses:
+        "200":
+          description: OK
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                TableToRenameDoesNotExist:
+                  $ref: '#/components/examples/NoSuchTableError'
+                NamespaceToRenameToDoesNotExist:
+                  $ref: '#/components/examples/NoSuchNamespaceError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Not Found - NoSuchTableException, Table to rename does not\
+            \ exist - NoSuchNamespaceException, The target namespace of the new table\
+            \ identifier does not exist"
+        "406":
+          content:
+            application/json:
+              example:
+                error:
+                  message: The server does not support this operation
+                  type: UnsupportedOperationException
+                  code: 406
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Not Acceptable / Unsupported Operation. The server does not
+            support this operation.
+        "409":
+          content:
+            application/json:
+              example:
+                $ref: '#/components/examples/TableAlreadyExistsError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Conflict - The target table identifier to rename to already
+            exists
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Rename a table from its current name to a new name
+      tags:
+      - Catalog API
+  /v1/{prefix}/namespaces/{namespace}/tables/{table}/metrics:
+    post:
+      operationId: reportMetrics
+      parameters:
+      - description: An optional prefix in the path
+        explode: false
+        in: path
+        name: prefix
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A namespace identifier as a single string. Multipart namespace
+          parts should be separated by the unit separator (`0x1F`) byte.
+        examples:
+          singlepart_namespace:
+            value: accounting
+          multipart_namespace:
+            value: accounting%1Ftax
+        explode: false
+        in: path
+        name: namespace
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: A table name
+        example: sales
+        explode: false
+        in: path
+        name: table
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportMetricsRequest'
+        description: The request containing the metrics report to be sent
+        required: true
+      responses:
+        "204":
+          description: "Success, no content"
+        "400":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Malformed request
+                  type: BadRequestException
+                  code: 400
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Indicates a bad request error. It could be caused by an unexpected\
+            \ request body format or other forms of request validation failure, such\
+            \ as invalid json. Usually serves application/json content, although in\
+            \ some cases simple text/plain content might be returned by the server's\
+            \ middleware."
+        "401":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 401
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Unauthorized. Authentication is required and has failed or
+            has not yet been provided.
+        "403":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Not authorized to make this request
+                  type: NotAuthorizedException
+                  code: 403
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: Forbidden. Authenticated user does not have the necessary permissions.
+        "404":
+          content:
+            application/json:
+              examples:
+                TableToLoadDoesNotExist:
+                  $ref: '#/components/examples/NoSuchTableError'
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Not Found - NoSuchTableException, table to load does not exist"
+        "419":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Credentials have timed out
+                  type: AuthenticationTimeoutException
+                  code: 419
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: "Credentials have timed out. If possible, the client should\
+            \ refresh credentials and retry."
+        "503":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Slow down
+                  type: SlowDownException
+                  code: 503
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: |-
+            The service is not ready to handle the request. The client should wait and retry.
+
+            The service may additionally send a Retry-After header to indicate when to retry.
+        "5XX":
+          content:
+            application/json:
+              example:
+                error:
+                  message: Internal Server Error
+                  type: InternalServerError
+                  code: 500
+              schema:
+                $ref: '#/components/schemas/ErrorModel'
+          description: A server-side problem that might not be addressable from the
+            client side. Used for server 5xx errors without more specific documentation
+            in individual routes.
+      summary: Send a metrics report to this endpoint to be processed by the backend
+      tags:
+      - Catalog API
+components:
+  examples:
+    ListTablesEmptyExample:
+      summary: An empty list for a namespace with no tables
+      value:
+        identifiers: []
+    ListNamespacesEmptyExample:
+      summary: An empty list of namespaces
+      value:
+        namespaces: []
+    ListNamespacesNonEmptyExample:
+      summary: A non-empty list of namespaces
+      value:
+        namespaces:
+        - - accounting
+          - tax
+        - - accounting
+          - credits
+    ListTablesNonEmptyExample:
+      summary: A non-empty list of table identifiers
+      value:
+        identifiers:
+        - namespace:
+          - accounting
+          - tax
+          name: paid
+        - namespace:
+          - accounting
+          - tax
+          name: owed
+    MultipartNamespaceAsPathVariable:
+      summary: "A multi-part namespace, as represented in a path parameter"
+      value: accounting%1Ftax
+    NamespaceAsPathVariable:
+      summary: "A single part namespace, as represented in a path paremeter"
+      value: accounting
+    NamespaceAlreadyExistsError:
+      summary: The requested namespace already exists
+      value:
+        error:
+          message: The given namespace already exists
+          type: AlreadyExistsException
+          code: 409
+    NoSuchTableError:
+      summary: The requested table does not
+      value:
+        error:
+          message: The given table does not exist
+          type: NoSuchTableException
+          code: 404
+    NoSuchNamespaceError:
+      summary: The requested namespace does not exist
+      value:
+        error:
+          message: The given namespace does not exist
+          type: NoSuchNamespaceException
+          code: 404
+    RenameTableSameNamespace:
+      summary: Rename a table in the same namespace
+      value:
+        source:
+          namespace:
+          - accounting
+          - tax
+          name: paid
+        destination:
+          namespace:
+          - accounting
+          - tax
+          name: owed
+    TableAlreadyExistsError:
+      summary: The requested table identifier already exists
+      value:
+        error:
+          message: The given table already exists
+          type: AlreadyExistsException
+          code: 409
+    UnprocessableEntityDuplicateKey:
+      summary: The request body either has the same key multiple times in what should
+        be a map with unique keys or the request body has keys in two or more fields
+        which should be disjoint sets.
+      value:
+        error:
+          message: The request cannot be processed as there is a key present multiple
+            times
+          type: UnprocessableEntityException
+          code: 422
+    UpdateAndRemoveNamespacePropertiesRequest:
+      summary: An update namespace properties request with both properties to remove
+        and properties to upsert.
+      value:
+        removals:
+        - foo
+        - bar
+        updates:
+          owner: Raoul
+  parameters:
+    namespace:
+      description: A namespace identifier as a single string. Multipart namespace
+        parts should be separated by the unit separator (`0x1F`) byte.
+      examples:
+        singlepart_namespace:
+          value: accounting
+        multipart_namespace:
+          value: accounting%1Ftax
+      explode: false
+      in: path
+      name: namespace
+      required: true
+      schema:
+        type: string
+      style: simple
+    prefix:
+      description: An optional prefix in the path
+      explode: false
+      in: path
+      name: prefix
+      required: true
+      schema:
+        type: string
+      style: simple
+    table:
+      description: A table name
+      example: sales
+      explode: false
+      in: path
+      name: table
+      required: true
+      schema:
+        type: string
+      style: simple
+  responses:
+    OAuthTokenResponse:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/getToken_200_response'
+      description: OAuth2 token response for client credentials or token exchange
+    OAuthErrorResponse:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/getToken_400_response'
+      description: OAuth2 error response
+    BadRequestErrorResponse:
+      content:
+        application/json:
+          example:
+            error:
+              message: Malformed request
+              type: BadRequestException
+              code: 400
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+      description: "Indicates a bad request error. It could be caused by an unexpected\
+        \ request body format or other forms of request validation failure, such as\
+        \ invalid json. Usually serves application/json content, although in some\
+        \ cases simple text/plain content might be returned by the server's middleware."
+    UnauthorizedResponse:
+      content:
+        application/json:
+          example:
+            error:
+              message: Not authorized to make this request
+              type: NotAuthorizedException
+              code: 401
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+      description: Unauthorized. Authentication is required and has failed or has
+        not yet been provided.
+    ForbiddenResponse:
+      content:
+        application/json:
+          example:
+            error:
+              message: Not authorized to make this request
+              type: NotAuthorizedException
+              code: 403
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+      description: Forbidden. Authenticated user does not have the necessary permissions.
+    UnsupportedOperationResponse:
+      content:
+        application/json:
+          example:
+            error:
+              message: The server does not support this operation
+              type: UnsupportedOperationException
+              code: 406
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+      description: Not Acceptable / Unsupported Operation. The server does not support
+        this operation.
+    IcebergErrorResponse:
+      content:
+        application/json:
+          schema:
+            additionalProperties: false
+            example:
+              error:
+                message: The server does not support this operation
+                type: UnsupportedOperationException
+                code: 406
+            properties:
+              error:
+                $ref: '#/components/schemas/ErrorModel'
+            type: object
+      description: JSON wrapper for all error responses (non-2xx)
+    CreateNamespaceResponse:
+      content:
+        application/json:
+          example:
+            namespace:
+            - accounting
+            - tax
+            properties:
+              owner: Ralph
+              created_at: "1452120468"
+          schema:
+            $ref: '#/components/schemas/createNamespace_200_response'
+      description: "Represents a successful call to create a namespace. Returns the\
+        \ namespace created, as well as any properties that were stored for the namespace,\
+        \ including those the server might have added. Implementations are not required\
+        \ to support namespace properties."
+    GetNamespaceResponse:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/loadNamespaceMetadata_200_response'
+      description: "Returns a namespace, as well as any properties stored on the namespace\
+        \ if namespace properties are supported by the server."
+    ListTablesResponse:
+      content:
+        application/json:
+          examples:
+            ListTablesResponseNonEmpty:
+              $ref: '#/components/examples/ListTablesNonEmptyExample'
+            ListTablesResponseEmpty:
+              $ref: '#/components/examples/ListTablesEmptyExample'
+          schema:
+            $ref: '#/components/schemas/listTables_200_response'
+      description: A list of table identifiers
+    ListNamespacesResponse:
+      content:
+        application/json:
+          examples:
+            NonEmptyResponse:
+              $ref: '#/components/examples/ListNamespacesNonEmptyExample'
+            EmptyResponse:
+              $ref: '#/components/examples/ListNamespacesEmptyExample'
+          schema:
+            $ref: '#/components/schemas/listNamespaces_200_response'
+      description: A list of namespaces
+    AuthenticationTimeoutResponse:
+      content:
+        application/json:
+          example:
+            error:
+              message: Credentials have timed out
+              type: AuthenticationTimeoutException
+              code: 419
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+      description: "Credentials have timed out. If possible, the client should refresh\
+        \ credentials and retry."
+    ServiceUnavailableResponse:
+      content:
+        application/json:
+          example:
+            error:
+              message: Slow down
+              type: SlowDownException
+              code: 503
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+      description: |-
+        The service is not ready to handle the request. The client should wait and retry.
+
+        The service may additionally send a Retry-After header to indicate when to retry.
+    ServerErrorResponse:
+      content:
+        application/json:
+          example:
+            error:
+              message: Internal Server Error
+              type: InternalServerError
+              code: 500
+          schema:
+            $ref: '#/components/schemas/ErrorModel'
+      description: A server-side problem that might not be addressable from the client
+        side. Used for server 5xx errors without more specific documentation in individual
+        routes.
+    UpdateNamespacePropertiesResponse:
+      content:
+        application/json:
+          example:
+            updated:
+            - owner
+            removed:
+            - foo
+            missing:
+            - bar
+          schema:
+            $ref: '#/components/schemas/updateProperties_200_response'
+      description: JSON data response for a synchronous update properties request.
+    CreateTableResponse:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/LoadTableResult'
+      description: Table metadata result after creating a table
+    LoadTableResponse:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/LoadTableResult'
+      description: Table metadata result when loading a table
+    CommitTableResponse:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/updateTable_200_response'
+      description: |-
+        Response used when a table is successfully updated.
+        The table metadata JSON is returned in the metadata field. The corresponding file location of table metadata must be returned in the metadata-location field. Clients can check whether metadata has changed by comparing metadata locations.
+  schemas:
+    ErrorModel:
+      description: JSON error payload returned in a response with further details
+        on the error
+      properties:
+        message:
+          description: Human-readable error message
+          type: string
+        type:
+          description: Internal type definition of the error
+          example: NoSuchNamespaceException
+          type: string
+        code:
+          description: HTTP response code
+          example: 404
+          maximum: 600
+          minimum: 400
+          type: integer
+        stack:
+          items:
+            type: string
+          type: array
+      required:
+      - code
+      - message
+      - type
+      type: object
+    CatalogConfig:
+      description: Server-provided configuration for the catalog.
+      example:
+        defaults: "{}"
+        overrides: "{}"
+      properties:
+        overrides:
+          description: Properties that should be used to override client configuration;
+            applied after defaults and client configuration.
+          type: object
+        defaults:
+          description: Properties that should be used as default configuration; applied
+            before client configuration.
+          type: object
+      required:
+      - defaults
+      - overrides
+      type: object
+    CreateNamespaceRequest:
+      example:
+        namespace:
+        - accounting
+        - tax
+        properties:
+          owner: Hank Bendickson
+      properties:
+        namespace:
+          description: Reference to one or more levels of a namespace
+          example:
+          - accounting
+          - tax
+          items:
+            type: string
+          type: array
+        properties:
+          default: {}
+          description: Configured string to string map of properties for the namespace
+          example:
+            owner: Hank Bendickson
+          type: object
+      required:
+      - namespace
+      type: object
+    UpdateNamespacePropertiesRequest:
+      example:
+        removals:
+        - department
+        - access_group
+        updates:
+          owner: Hank Bendickson
+      properties:
+        removals:
+          example:
+          - department
+          - access_group
+          items:
+            type: string
+          type: array
+          uniqueItems: true
+        updates:
+          example:
+            owner: Hank Bendickson
+          items:
+            type: string
+          type: array
+          uniqueItems: true
+      type: object
+    RenameTableRequest:
+      example:
+        destination:
+          namespace:
+          - accounting
+          - tax
+          name: name
+        source:
+          namespace:
+          - accounting
+          - tax
+          name: name
+      properties:
+        source:
+          $ref: '#/components/schemas/TableIdentifier'
+        destination:
+          $ref: '#/components/schemas/TableIdentifier'
+      required:
+      - destination
+      - source
+      type: object
+    Namespace:
+      description: Reference to one or more levels of a namespace
+      example:
+      - accounting
+      - tax
+      items:
+        type: string
+      type: array
+    TableIdentifier:
+      example:
+        namespace:
+        - accounting
+        - tax
+        name: name
+      properties:
+        namespace:
+          description: Reference to one or more levels of a namespace
+          example:
+          - accounting
+          - tax
+          items:
+            type: string
+          type: array
+        name:
+          nullable: false
+          type: string
+      required:
+      - name
+      - namespace
+      type: object
+    PrimitiveType:
+      example: "[\"long\",\"string\",\"fixed[16]\",\"decimal(10,2)\"]"
+      type: string
+    StructField:
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/Type'
+        required:
+          type: boolean
+        doc:
+          type: string
+      required:
+      - id
+      - name
+      - required
+      - type
+      type: object
+    StructType:
+      properties:
+        type:
+          enum:
+          - struct
+          type: string
+        fields:
+          items:
+            $ref: '#/components/schemas/StructField'
+          type: array
+      required:
+      - fields
+      - type
+      type: object
+    ListType:
+      properties:
+        type:
+          enum:
+          - list
+          type: string
+        element-id:
+          type: integer
+        element:
+          $ref: '#/components/schemas/Type'
+        element-required:
+          type: boolean
+      required:
+      - element
+      - element-id
+      - element-required
+      - type
+      type: object
+    MapType:
+      properties:
+        type:
+          enum:
+          - map
+          type: string
+        key-id:
+          type: integer
+        key:
+          $ref: '#/components/schemas/Type'
+        value-id:
+          type: integer
+        value:
+          $ref: '#/components/schemas/Type'
+        value-required:
+          type: boolean
+      required:
+      - key
+      - key-id
+      - type
+      - value
+      - value-id
+      - value-required
+      type: object
+    Type:
+      oneOf:
+      - $ref: '#/components/schemas/PrimitiveType'
+      - $ref: '#/components/schemas/StructType'
+      - $ref: '#/components/schemas/ListType'
+      - $ref: '#/components/schemas/MapType'
+    Schema:
+      allOf:
+      - $ref: '#/components/schemas/StructType'
+      - $ref: '#/components/schemas/Schema_allOf'
+    Expression:
+      oneOf:
+      - $ref: '#/components/schemas/AndOrExpression'
+      - $ref: '#/components/schemas/NotExpression'
+      - $ref: '#/components/schemas/SetExpression'
+      - $ref: '#/components/schemas/LiteralExpression'
+      - $ref: '#/components/schemas/UnaryExpression'
+    ExpressionType:
+      example: "[\"eq\",\"and\",\"or\",\"not\",\"in\",\"not-in\",\"lt\",\"lt-eq\"\
+        ,\"gt\",\"gt-eq\",\"not-eq\",\"starts-with\",\"not-starts-with\",\"is-null\"\
+        ,\"not-null\",\"is-nan\",\"not-nan\"]"
+      type: string
+    AndOrExpression:
+      properties:
+        type:
+          example: "[\"eq\",\"and\",\"or\",\"not\",\"in\",\"not-in\",\"lt\",\"lt-eq\"\
+            ,\"gt\",\"gt-eq\",\"not-eq\",\"starts-with\",\"not-starts-with\",\"is-null\"\
+            ,\"not-null\",\"is-nan\",\"not-nan\"]"
+          type: string
+        left:
+          $ref: '#/components/schemas/Expression'
+        right:
+          $ref: '#/components/schemas/Expression'
+      required:
+      - left
+      - right
+      - type
+      type: object
+    NotExpression:
+      properties:
+        type:
+          example: "[\"eq\",\"and\",\"or\",\"not\",\"in\",\"not-in\",\"lt\",\"lt-eq\"\
+            ,\"gt\",\"gt-eq\",\"not-eq\",\"starts-with\",\"not-starts-with\",\"is-null\"\
+            ,\"not-null\",\"is-nan\",\"not-nan\"]"
+          type: string
+        child:
+          $ref: '#/components/schemas/Expression'
+      required:
+      - child
+      - type
+      type: object
+    UnaryExpression:
+      properties:
+        type:
+          example: "[\"eq\",\"and\",\"or\",\"not\",\"in\",\"not-in\",\"lt\",\"lt-eq\"\
+            ,\"gt\",\"gt-eq\",\"not-eq\",\"starts-with\",\"not-starts-with\",\"is-null\"\
+            ,\"not-null\",\"is-nan\",\"not-nan\"]"
+          type: string
+        term:
+          $ref: '#/components/schemas/Term'
+        value:
+          type: object
+      required:
+      - term
+      - type
+      - value
+      type: object
+    LiteralExpression:
+      properties:
+        type:
+          example: "[\"eq\",\"and\",\"or\",\"not\",\"in\",\"not-in\",\"lt\",\"lt-eq\"\
+            ,\"gt\",\"gt-eq\",\"not-eq\",\"starts-with\",\"not-starts-with\",\"is-null\"\
+            ,\"not-null\",\"is-nan\",\"not-nan\"]"
+          type: string
+        term:
+          $ref: '#/components/schemas/Term'
+        value:
+          type: object
+      required:
+      - term
+      - type
+      - value
+      type: object
+    SetExpression:
+      properties:
+        type:
+          example: "[\"eq\",\"and\",\"or\",\"not\",\"in\",\"not-in\",\"lt\",\"lt-eq\"\
+            ,\"gt\",\"gt-eq\",\"not-eq\",\"starts-with\",\"not-starts-with\",\"is-null\"\
+            ,\"not-null\",\"is-nan\",\"not-nan\"]"
+          type: string
+        term:
+          $ref: '#/components/schemas/Term'
+        values:
+          items:
+            type: object
+          type: array
+      required:
+      - term
+      - type
+      - values
+      type: object
+    Term:
+      oneOf:
+      - $ref: '#/components/schemas/Reference'
+      - $ref: '#/components/schemas/TransformTerm'
+    Reference:
+      example: "[\"column-name\"]"
+      type: string
+    TransformTerm:
+      properties:
+        type:
+          enum:
+          - transform
+          type: string
+        transform:
+          example: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+            ,\"truncate[16]\"]"
+          type: string
+        term:
+          example: "[\"column-name\"]"
+          type: string
+      required:
+      - term
+      - transform
+      - type
+      type: object
+    Transform:
+      example: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+        ,\"truncate[16]\"]"
+      type: string
+    PartitionField:
+      example:
+        field-id: 2
+        transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+          ,\"truncate[16]\"]"
+        name: name
+        source-id: 7
+      properties:
+        field-id:
+          type: integer
+        source-id:
+          type: integer
+        name:
+          type: string
+        transform:
+          example: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+            ,\"truncate[16]\"]"
+          type: string
+      required:
+      - name
+      - source-id
+      - transform
+      type: object
+    PartitionSpec:
+      example:
+        spec-id: 5
+        fields:
+        - field-id: 2
+          transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+            ,\"truncate[16]\"]"
+          name: name
+          source-id: 7
+        - field-id: 2
+          transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+            ,\"truncate[16]\"]"
+          name: name
+          source-id: 7
+      properties:
+        spec-id:
+          readOnly: true
+          type: integer
+        fields:
+          items:
+            $ref: '#/components/schemas/PartitionField'
+          type: array
+      required:
+      - fields
+      type: object
+    SortDirection:
+      enum:
+      - asc
+      - desc
+      type: string
+    NullOrder:
+      enum:
+      - nulls-first
+      - nulls-last
+      type: string
+    SortField:
+      example:
+        transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+          ,\"truncate[16]\"]"
+        null-order: null
+        source-id: 4
+        direction: null
+      properties:
+        source-id:
+          type: integer
+        transform:
+          example: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+            ,\"truncate[16]\"]"
+          type: string
+        direction:
+          $ref: '#/components/schemas/SortDirection'
+        null-order:
+          $ref: '#/components/schemas/NullOrder'
+      required:
+      - direction
+      - null-order
+      - source-id
+      - transform
+      type: object
+    SortOrder:
+      example:
+        order-id: 2
+        fields:
+        - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+            ,\"truncate[16]\"]"
+          null-order: null
+          source-id: 4
+          direction: null
+        - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+            ,\"truncate[16]\"]"
+          null-order: null
+          source-id: 4
+          direction: null
+      properties:
+        order-id:
+          readOnly: true
+          type: integer
+        fields:
+          items:
+            $ref: '#/components/schemas/SortField'
+          type: array
+      required:
+      - fields
+      - order-id
+      type: object
+    Snapshot:
+      example:
+        summary:
+          additionalProperties: additionalProperties
+          operation: append
+        snapshot-id: 1
+        schema-id: 7
+        manifest-list: manifest-list
+        timestamp-ms: 6
+        sequence-number: 1
+        parent-snapshot-id: 1
+      properties:
+        snapshot-id:
+          type: integer
+        parent-snapshot-id:
+          type: integer
+        sequence-number:
+          type: integer
+        timestamp-ms:
+          type: integer
+        manifest-list:
+          description: Location of the snapshot's manifest list file
+          type: string
+        summary:
+          $ref: '#/components/schemas/Snapshot_summary'
+        schema-id:
+          type: integer
+      required:
+      - manifest-list
+      - snapshot-id
+      - summary
+      - timestamp-ms
+      type: object
+    SnapshotReference:
+      example:
+        max-snapshot-age-ms: 5
+        snapshot-id: 1
+        max-ref-age-ms: 4
+        min-snapshots-to-keep: 9
+        type: tag
+      properties:
+        type:
+          enum:
+          - tag
+          - branch
+          type: string
+        snapshot-id:
+          format: int64
+          type: integer
+        max-ref-age-ms:
+          format: int64
+          type: integer
+        max-snapshot-age-ms:
+          format: int64
+          type: integer
+        min-snapshots-to-keep:
+          type: integer
+      required:
+      - snapshot-id
+      - type
+      type: object
+    SnapshotReferences:
+      additionalProperties:
+        $ref: '#/components/schemas/SnapshotReference'
+      type: object
+    SnapshotLog:
+      items:
+        $ref: '#/components/schemas/SnapshotLog_inner'
+      type: array
+    MetadataLog:
+      items:
+        $ref: '#/components/schemas/MetadataLog_inner'
+      type: array
+    TableMetadata:
+      example:
+        metadata-log:
+        - timestamp-ms: 9
+          metadata-file: metadata-file
+        - timestamp-ms: 9
+          metadata-file: metadata-file
+        current-snapshot-id: 9
+        last-updated-ms: 6
+        format-version: 1
+        table-uuid: table-uuid
+        default-sort-order-id: 7
+        snapshots:
+        - summary:
+            additionalProperties: additionalProperties
+            operation: append
+          snapshot-id: 1
+          schema-id: 7
+          manifest-list: manifest-list
+          timestamp-ms: 6
+          sequence-number: 1
+          parent-snapshot-id: 1
+        - summary:
+            additionalProperties: additionalProperties
+            operation: append
+          snapshot-id: 1
+          schema-id: 7
+          manifest-list: manifest-list
+          timestamp-ms: 6
+          sequence-number: 1
+          parent-snapshot-id: 1
+        last-partition-id: 3
+        snapshot-log:
+        - snapshot-id: 6
+          timestamp-ms: 8
+        - snapshot-id: 6
+          timestamp-ms: 8
+        refs:
+          key:
+            max-snapshot-age-ms: 5
+            snapshot-id: 1
+            max-ref-age-ms: 4
+            min-snapshots-to-keep: 9
+            type: tag
+        current-schema-id: 1
+        schemas:
+        - null
+        - null
+        sort-orders:
+        - order-id: 2
+          fields:
+          - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            null-order: null
+            source-id: 4
+            direction: null
+          - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            null-order: null
+            source-id: 4
+            direction: null
+        - order-id: 2
+          fields:
+          - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            null-order: null
+            source-id: 4
+            direction: null
+          - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            null-order: null
+            source-id: 4
+            direction: null
+        location: location
+        last-column-id: 5
+        default-spec-id: 9
+        partition-specs:
+        - spec-id: 5
+          fields:
+          - field-id: 2
+            transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            name: name
+            source-id: 7
+          - field-id: 2
+            transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            name: name
+            source-id: 7
+        - spec-id: 5
+          fields:
+          - field-id: 2
+            transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            name: name
+            source-id: 7
+          - field-id: 2
+            transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            name: name
+            source-id: 7
+        properties:
+          key: properties
+      properties:
+        format-version:
+          maximum: 2
+          minimum: 1
+          type: integer
+        table-uuid:
+          type: string
+        location:
+          type: string
+        last-updated-ms:
+          type: integer
+        properties:
+          additionalProperties:
+            type: string
+          type: object
+        schemas:
+          items:
+            $ref: '#/components/schemas/Schema'
+          type: array
+        current-schema-id:
+          type: integer
+        last-column-id:
+          type: integer
+        partition-specs:
+          items:
+            $ref: '#/components/schemas/PartitionSpec'
+          type: array
+        default-spec-id:
+          type: integer
+        last-partition-id:
+          type: integer
+        sort-orders:
+          items:
+            $ref: '#/components/schemas/SortOrder'
+          type: array
+        default-sort-order-id:
+          type: integer
+        snapshots:
+          items:
+            $ref: '#/components/schemas/Snapshot'
+          type: array
+        refs:
+          additionalProperties:
+            $ref: '#/components/schemas/SnapshotReference'
+          type: object
+        current-snapshot-id:
+          type: integer
+        snapshot-log:
+          items:
+            $ref: '#/components/schemas/SnapshotLog_inner'
+          type: array
+        metadata-log:
+          items:
+            $ref: '#/components/schemas/MetadataLog_inner'
+          type: array
+      required:
+      - format-version
+      - table-uuid
+      type: object
+    BaseUpdate:
+      properties:
+        action:
+          enum:
+          - upgrade-format-version
+          - add-schema
+          - set-current-schema
+          - add-spec
+          - set-default-spec
+          - add-sort-order
+          - set-default-sort-order
+          - add-snapshot
+          - set-snapshot-ref
+          - remove-snapshots
+          - remove-snapshot-ref
+          - set-location
+          - set-properties
+          - remove-properties
+          type: string
+      required:
+      - action
+      type: object
+    UpgradeFormatVersionUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/UpgradeFormatVersionUpdate_allOf'
+    AddSchemaUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/AddSchemaUpdate_allOf'
+    SetCurrentSchemaUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/SetCurrentSchemaUpdate_allOf'
+    AddPartitionSpecUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/AddPartitionSpecUpdate_allOf'
+    SetDefaultSpecUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/SetDefaultSpecUpdate_allOf'
+    AddSortOrderUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/AddSortOrderUpdate_allOf'
+    SetDefaultSortOrderUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/SetDefaultSortOrderUpdate_allOf'
+    AddSnapshotUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/AddSnapshotUpdate_allOf'
+    SetSnapshotRefUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/SnapshotReference'
+      - $ref: '#/components/schemas/SetSnapshotRefUpdate_allOf'
+    RemoveSnapshotsUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/RemoveSnapshotsUpdate_allOf'
+    RemoveSnapshotRefUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/SetSnapshotRefUpdate_allOf'
+    SetLocationUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/SetLocationUpdate_allOf'
+    SetPropertiesUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/SetPropertiesUpdate_allOf'
+    RemovePropertiesUpdate:
+      allOf:
+      - $ref: '#/components/schemas/BaseUpdate'
+      - $ref: '#/components/schemas/RemovePropertiesUpdate_allOf'
+    TableUpdate:
+      anyOf:
+      - $ref: '#/components/schemas/UpgradeFormatVersionUpdate'
+      - $ref: '#/components/schemas/AddSchemaUpdate'
+      - $ref: '#/components/schemas/SetCurrentSchemaUpdate'
+      - $ref: '#/components/schemas/AddPartitionSpecUpdate'
+      - $ref: '#/components/schemas/SetDefaultSpecUpdate'
+      - $ref: '#/components/schemas/AddSortOrderUpdate'
+      - $ref: '#/components/schemas/SetDefaultSortOrderUpdate'
+      - $ref: '#/components/schemas/AddSnapshotUpdate'
+      - $ref: '#/components/schemas/SetSnapshotRefUpdate'
+      - $ref: '#/components/schemas/RemoveSnapshotsUpdate'
+      - $ref: '#/components/schemas/RemoveSnapshotRefUpdate'
+      - $ref: '#/components/schemas/SetLocationUpdate'
+      - $ref: '#/components/schemas/SetPropertiesUpdate'
+      - $ref: '#/components/schemas/RemovePropertiesUpdate'
+    TableRequirement:
+      description: |-
+        Assertions from the client that must be valid for the commit to succeed. Assertions are identified by `type` -
+        - `assert-create` - the table must not already exist; used for create transactions
+        - `assert-table-uuid` - the table UUID must match the requirement's `uuid`
+        - `assert-ref-snapshot-id` - the table branch or tag identified by the requirement's `ref` must reference the requirement's `snapshot-id`; if `snapshot-id` is `null` or missing, the ref must not already exist
+        - `assert-last-assigned-field-id` - the table's last assigned column id must match the requirement's `last-assigned-field-id`
+        - `assert-current-schema-id` - the table's current schema id must match the requirement's `current-schema-id`
+        - `assert-last-assigned-partition-id` - the table's last assigned partition id must match the requirement's `last-assigned-partition-id`
+        - `assert-default-spec-id` - the table's default spec id must match the requirement's `default-spec-id`
+        - `assert-default-sort-order-id` - the table's default sort order id must match the requirement's `default-sort-order-id`
+      example:
+        last-assigned-field-id: 6
+        ref: ref
+        last-assigned-partition-id: 5
+        snapshot-id: 0
+        current-schema-id: 1
+        default-spec-id: 5
+        requirement: assert-create
+        uuid: uuid
+        default-sort-order-id: 2
+      properties:
+        requirement:
+          enum:
+          - assert-create
+          - assert-table-uuid
+          - assert-ref-snapshot-id
+          - assert-last-assigned-field-id
+          - assert-current-schema-id
+          - assert-last-assigned-partition-id
+          - assert-default-spec-id
+          - assert-default-sort-order-id
+          type: string
+        ref:
+          type: string
+        uuid:
+          type: string
+        snapshot-id:
+          format: int64
+          type: integer
+        last-assigned-field-id:
+          type: integer
+        current-schema-id:
+          type: integer
+        last-assigned-partition-id:
+          type: integer
+        default-spec-id:
+          type: integer
+        default-sort-order-id:
+          type: integer
+      required:
+      - requirement
+      type: object
+    LoadTableResult:
+      description: |-
+        Result used when a table is successfully loaded.
+
+        The table metadata JSON is returned in the `metadata` field. The corresponding file location of table metadata should be returned in the `metadata-location` field, unless the metadata is not yet committed. For example, a create transaction may return metadata that is staged but not committed. Clients can check whether metadata has changed by comparing metadata locations after the table has been created.
+
+        The `config` map returns table-specific configuration for the table's resources, including its HTTP client and FileIO. For example, config may contain a specific FileIO implementation class for the table depending on its underlying storage.
+      example:
+        metadata:
+          metadata-log:
+          - timestamp-ms: 9
+            metadata-file: metadata-file
+          - timestamp-ms: 9
+            metadata-file: metadata-file
+          current-snapshot-id: 9
+          last-updated-ms: 6
+          format-version: 1
+          table-uuid: table-uuid
+          default-sort-order-id: 7
+          snapshots:
+          - summary:
+              additionalProperties: additionalProperties
+              operation: append
+            snapshot-id: 1
+            schema-id: 7
+            manifest-list: manifest-list
+            timestamp-ms: 6
+            sequence-number: 1
+            parent-snapshot-id: 1
+          - summary:
+              additionalProperties: additionalProperties
+              operation: append
+            snapshot-id: 1
+            schema-id: 7
+            manifest-list: manifest-list
+            timestamp-ms: 6
+            sequence-number: 1
+            parent-snapshot-id: 1
+          last-partition-id: 3
+          snapshot-log:
+          - snapshot-id: 6
+            timestamp-ms: 8
+          - snapshot-id: 6
+            timestamp-ms: 8
+          refs:
+            key:
+              max-snapshot-age-ms: 5
+              snapshot-id: 1
+              max-ref-age-ms: 4
+              min-snapshots-to-keep: 9
+              type: tag
+          current-schema-id: 1
+          schemas:
+          - null
+          - null
+          sort-orders:
+          - order-id: 2
+            fields:
+            - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              null-order: null
+              source-id: 4
+              direction: null
+            - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              null-order: null
+              source-id: 4
+              direction: null
+          - order-id: 2
+            fields:
+            - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              null-order: null
+              source-id: 4
+              direction: null
+            - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              null-order: null
+              source-id: 4
+              direction: null
+          location: location
+          last-column-id: 5
+          default-spec-id: 9
+          partition-specs:
+          - spec-id: 5
+            fields:
+            - field-id: 2
+              transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              name: name
+              source-id: 7
+            - field-id: 2
+              transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              name: name
+              source-id: 7
+          - spec-id: 5
+            fields:
+            - field-id: 2
+              transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              name: name
+              source-id: 7
+            - field-id: 2
+              transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              name: name
+              source-id: 7
+          properties:
+            key: properties
+        metadata-location: metadata-location
+        config:
+          key: config
+      properties:
+        metadata-location:
+          description: May be null if the table is staged as part of a transaction
+          type: string
+        metadata:
+          $ref: '#/components/schemas/TableMetadata'
+        config:
+          additionalProperties:
+            type: string
+          type: object
+      required:
+      - metadata
+      type: object
+    CommitTableRequest:
+      example:
+        requirements:
+        - last-assigned-field-id: 6
+          ref: ref
+          last-assigned-partition-id: 5
+          snapshot-id: 0
+          current-schema-id: 1
+          default-spec-id: 5
+          requirement: assert-create
+          uuid: uuid
+          default-sort-order-id: 2
+        - last-assigned-field-id: 6
+          ref: ref
+          last-assigned-partition-id: 5
+          snapshot-id: 0
+          current-schema-id: 1
+          default-spec-id: 5
+          requirement: assert-create
+          uuid: uuid
+          default-sort-order-id: 2
+        updates:
+        - null
+        - null
+      properties:
+        requirements:
+          items:
+            $ref: '#/components/schemas/TableRequirement'
+          type: array
+        updates:
+          items:
+            $ref: '#/components/schemas/TableUpdate'
+          type: array
+      required:
+      - requirements
+      - updates
+      type: object
+    CreateTableRequest:
+      example:
+        schema: null
+        stage-create: true
+        name: name
+        location: location
+        partition-spec:
+          spec-id: 5
+          fields:
+          - field-id: 2
+            transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            name: name
+            source-id: 7
+          - field-id: 2
+            transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            name: name
+            source-id: 7
+        write-order:
+          order-id: 2
+          fields:
+          - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            null-order: null
+            source-id: 4
+            direction: null
+          - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+              ,\"truncate[16]\"]"
+            null-order: null
+            source-id: 4
+            direction: null
+        properties:
+          key: properties
+      properties:
+        name:
+          type: string
+        location:
+          type: string
+        schema:
+          $ref: '#/components/schemas/Schema'
+        partition-spec:
+          $ref: '#/components/schemas/PartitionSpec'
+        write-order:
+          $ref: '#/components/schemas/SortOrder'
+        stage-create:
+          type: boolean
+        properties:
+          additionalProperties:
+            type: string
+          type: object
+      required:
+      - name
+      - schema
+      type: object
+    TokenType:
+      description: |-
+        Token type identifier, from RFC 8693 Section 3
+
+        See https://datatracker.ietf.org/doc/html/rfc8693#section-3
+      enum:
+      - urn:ietf:params:oauth:token-type:access_token
+      - urn:ietf:params:oauth:token-type:refresh_token
+      - urn:ietf:params:oauth:token-type:id_token
+      - urn:ietf:params:oauth:token-type:saml1
+      - urn:ietf:params:oauth:token-type:saml2
+      - urn:ietf:params:oauth:token-type:jwt
+      type: string
+    OAuthClientCredentialsRequest:
+      description: |-
+        OAuth2 client credentials request
+
+        See https://datatracker.ietf.org/doc/html/rfc6749#section-4.4
+      properties:
+        grant_type:
+          enum:
+          - client_credentials
+          type: string
+        scope:
+          type: string
+        client_id:
+          description: |-
+            Client ID
+
+            This can be sent in the request body, but OAuth2 recommends sending it in a Basic Authorization header.
+          type: string
+        client_secret:
+          description: |-
+            Client secret
+
+            This can be sent in the request body, but OAuth2 recommends sending it in a Basic Authorization header.
+          type: string
+      required:
+      - client_id
+      - client_secret
+      - grant_type
+      type: object
+    OAuthTokenExchangeRequest:
+      description: |-
+        OAuth2 token exchange request
+
+        See https://datatracker.ietf.org/doc/html/rfc8693
+      properties:
+        grant_type:
+          enum:
+          - urn:ietf:params:oauth:grant-type:token-exchange
+          type: string
+        scope:
+          type: string
+        requested_token_type:
+          $ref: '#/components/schemas/TokenType'
+        subject_token:
+          description: Subject token for token exchange request
+          type: string
+        subject_token_type:
+          $ref: '#/components/schemas/TokenType'
+        actor_token:
+          description: Actor token for token exchange request
+          type: string
+        actor_token_type:
+          $ref: '#/components/schemas/TokenType'
+      required:
+      - grant_type
+      - subject_token
+      - subject_token_type
+      type: object
+    OAuthTokenRequest:
+      anyOf:
+      - $ref: '#/components/schemas/OAuthClientCredentialsRequest'
+      - $ref: '#/components/schemas/OAuthTokenExchangeRequest'
+    CounterResult:
+      properties:
+        unit:
+          type: string
+        value:
+          format: int64
+          type: integer
+      required:
+      - unit
+      - value
+      type: object
+    TimerResult:
+      properties:
+        time-unit:
+          type: string
+        count:
+          format: int64
+          type: integer
+        total-duration:
+          format: int64
+          type: integer
+      required:
+      - count
+      - time-unit
+      - total-duration
+      type: object
+    MetricResult:
+      anyOf:
+      - $ref: '#/components/schemas/CounterResult'
+      - $ref: '#/components/schemas/TimerResult'
+    Metrics:
+      additionalProperties:
+        $ref: '#/components/schemas/MetricResult'
+      type: object
+    ReportMetricsRequest:
+      anyOf:
+      - $ref: '#/components/schemas/ScanReport'
+      example:
+        report-type: report-type
+      properties:
+        report-type:
+          type: string
+      required:
+      - report-type
+    ScanReport:
+      properties:
+        table-name:
+          type: string
+        snapshot-id:
+          format: int64
+          type: integer
+        filter:
+          $ref: '#/components/schemas/Expression'
+        projection:
+          $ref: '#/components/schemas/Schema'
+        metrics:
+          additionalProperties:
+            $ref: '#/components/schemas/MetricResult'
+          type: object
+      required:
+      - filter
+      - metrics
+      - projection
+      - snapshot-id
+      - table-name
+      type: object
+    getToken_200_response:
+      example:
+        access_token: access_token
+        refresh_token: refresh_token
+        issued_token_type: null
+        scope: scope
+        token_type: bearer
+        expires_in: 0
+      properties:
+        access_token:
+          description: "The access token, for client credentials or token exchange"
+          type: string
+        token_type:
+          description: |-
+            Access token type for client credentials or token exchange
+
+            See https://datatracker.ietf.org/doc/html/rfc6749#section-7.1
+          enum:
+          - bearer
+          - mac
+          - N_A
+          type: string
+        expires_in:
+          description: Lifetime of the access token in seconds for client credentials
+            or token exchange
+          type: integer
+        issued_token_type:
+          $ref: '#/components/schemas/TokenType'
+        refresh_token:
+          description: Refresh token for client credentials or token exchange
+          type: string
+        scope:
+          description: Authorization scope for client credentials or token exchange
+          type: string
+      required:
+      - access_token
+      - token_type
+    getToken_400_response:
+      properties:
+        error:
+          enum:
+          - invalid_request
+          - invalid_client
+          - invalid_grant
+          - unauthorized_client
+          - unsupported_grant_type
+          - invalid_scope
+          type: string
+        error_description:
+          type: string
+        error_uri:
+          type: string
+      required:
+      - error
+    listNamespaces_200_response:
+      example:
+        namespaces:
+        - - accounting
+          - tax
+        - - accounting
+          - tax
+      properties:
+        namespaces:
+          items:
+            $ref: '#/components/schemas/Namespace'
+          type: array
+          uniqueItems: true
+      type: object
+    createNamespace_200_response:
+      example:
+        namespace:
+        - accounting
+        - tax
+        properties:
+          owner: Ralph
+          created_at: "1452120468"
+      properties:
+        namespace:
+          description: Reference to one or more levels of a namespace
+          example:
+          - accounting
+          - tax
+          items:
+            type: string
+          type: array
+        properties:
+          additionalProperties:
+            type: string
+          default: {}
+          description: "Properties stored on the namespace, if supported by the server."
+          example:
+            owner: Ralph
+            created_at: "1452120468"
+          type: object
+      required:
+      - namespace
+      type: object
+    loadNamespaceMetadata_200_response:
+      example:
+        namespace:
+        - accounting
+        - tax
+        properties:
+          owner: Ralph
+          transient_lastDdlTime: "1452120468"
+      properties:
+        namespace:
+          description: Reference to one or more levels of a namespace
+          example:
+          - accounting
+          - tax
+          items:
+            type: string
+          type: array
+        properties:
+          default: {}
+          description: "Properties stored on the namespace, if supported by the server.\
+            \ If the server does not support namespace properties, it should return\
+            \ null for this field. If namespace properties are supported, but none\
+            \ are set, it should return an empty object."
+          example:
+            owner: Ralph
+            transient_lastDdlTime: "1452120468"
+          nullable: true
+          type: object
+      required:
+      - namespace
+      type: object
+    updateProperties_200_response:
+      example:
+        removed:
+        - removed
+        - removed
+        missing:
+        - missing
+        - missing
+        updated:
+        - updated
+        - updated
+      properties:
+        updated:
+          description: List of property keys that were added or updated
+          items:
+            type: string
+          type: array
+          uniqueItems: true
+        removed:
+          description: List of properties that were removed
+          items:
+            type: string
+          type: array
+        missing:
+          description: List of properties requested for removal that were not found
+            in the namespace's properties. Represents a partial success response.
+            Server's do not need to implement this.
+          items:
+            type: string
+          nullable: true
+          type: array
+      required:
+      - removed
+      - updated
+      type: object
+    listTables_200_response:
+      example:
+        identifiers:
+        - namespace:
+          - accounting
+          - tax
+          name: name
+        - namespace:
+          - accounting
+          - tax
+          name: name
+      properties:
+        identifiers:
+          items:
+            $ref: '#/components/schemas/TableIdentifier'
+          type: array
+          uniqueItems: true
+      type: object
+    updateTable_200_response:
+      example:
+        metadata:
+          metadata-log:
+          - timestamp-ms: 9
+            metadata-file: metadata-file
+          - timestamp-ms: 9
+            metadata-file: metadata-file
+          current-snapshot-id: 9
+          last-updated-ms: 6
+          format-version: 1
+          table-uuid: table-uuid
+          default-sort-order-id: 7
+          snapshots:
+          - summary:
+              additionalProperties: additionalProperties
+              operation: append
+            snapshot-id: 1
+            schema-id: 7
+            manifest-list: manifest-list
+            timestamp-ms: 6
+            sequence-number: 1
+            parent-snapshot-id: 1
+          - summary:
+              additionalProperties: additionalProperties
+              operation: append
+            snapshot-id: 1
+            schema-id: 7
+            manifest-list: manifest-list
+            timestamp-ms: 6
+            sequence-number: 1
+            parent-snapshot-id: 1
+          last-partition-id: 3
+          snapshot-log:
+          - snapshot-id: 6
+            timestamp-ms: 8
+          - snapshot-id: 6
+            timestamp-ms: 8
+          refs:
+            key:
+              max-snapshot-age-ms: 5
+              snapshot-id: 1
+              max-ref-age-ms: 4
+              min-snapshots-to-keep: 9
+              type: tag
+          current-schema-id: 1
+          schemas:
+          - null
+          - null
+          sort-orders:
+          - order-id: 2
+            fields:
+            - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              null-order: null
+              source-id: 4
+              direction: null
+            - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              null-order: null
+              source-id: 4
+              direction: null
+          - order-id: 2
+            fields:
+            - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              null-order: null
+              source-id: 4
+              direction: null
+            - transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              null-order: null
+              source-id: 4
+              direction: null
+          location: location
+          last-column-id: 5
+          default-spec-id: 9
+          partition-specs:
+          - spec-id: 5
+            fields:
+            - field-id: 2
+              transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              name: name
+              source-id: 7
+            - field-id: 2
+              transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              name: name
+              source-id: 7
+          - spec-id: 5
+            fields:
+            - field-id: 2
+              transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              name: name
+              source-id: 7
+            - field-id: 2
+              transform: "[\"identity\",\"year\",\"month\",\"day\",\"hour\",\"bucket[256]\"\
+                ,\"truncate[16]\"]"
+              name: name
+              source-id: 7
+          properties:
+            key: properties
+        metadata-location: metadata-location
+      properties:
+        metadata-location:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/TableMetadata'
+      required:
+      - metadata
+      - metadata-location
+      type: object
+    Schema_allOf:
+      properties:
+        schema-id:
+          readOnly: true
+          type: integer
+        identifier-field-ids:
+          items:
+            type: integer
+          type: array
+      type: object
+      example: null
+    Snapshot_summary:
+      example:
+        additionalProperties: additionalProperties
+        operation: append
+      properties:
+        operation:
+          enum:
+          - append
+          - replace
+          - overwrite
+          - delete
+          type: string
+        additionalProperties:
+          type: string
+      required:
+      - operation
+      type: object
+    SnapshotLog_inner:
+      example:
+        snapshot-id: 6
+        timestamp-ms: 8
+      properties:
+        snapshot-id:
+          type: integer
+        timestamp-ms:
+          type: integer
+      required:
+      - snapshot-id
+      - timestamp-ms
+      type: object
+    MetadataLog_inner:
+      example:
+        timestamp-ms: 9
+        metadata-file: metadata-file
+      properties:
+        metadata-file:
+          type: string
+        timestamp-ms:
+          type: integer
+      required:
+      - metadata-file
+      - timestamp-ms
+      type: object
+    UpgradeFormatVersionUpdate_allOf:
+      properties:
+        format-version:
+          type: integer
+      required:
+      - format-version
+      type: object
+      example: null
+    AddSchemaUpdate_allOf:
+      properties:
+        schema:
+          $ref: '#/components/schemas/Schema'
+      required:
+      - schema
+      type: object
+      example: null
+    SetCurrentSchemaUpdate_allOf:
+      properties:
+        schema-id:
+          description: "Schema ID to set as current, or -1 to set last added schema"
+          type: integer
+      required:
+      - schema-id
+      type: object
+      example: null
+    AddPartitionSpecUpdate_allOf:
+      properties:
+        spec:
+          $ref: '#/components/schemas/PartitionSpec'
+      required:
+      - spec
+      type: object
+      example: null
+    SetDefaultSpecUpdate_allOf:
+      properties:
+        spec-id:
+          description: "Partition spec ID to set as the default, or -1 to set last\
+            \ added spec"
+          type: integer
+      required:
+      - spec-id
+      type: object
+      example: null
+    AddSortOrderUpdate_allOf:
+      properties:
+        sort-order:
+          $ref: '#/components/schemas/SortOrder'
+      required:
+      - sort-order
+      type: object
+      example: null
+    SetDefaultSortOrderUpdate_allOf:
+      properties:
+        sort-order-id:
+          description: "Sort order ID to set as the default, or -1 to set last added\
+            \ sort order"
+          type: integer
+      required:
+      - sort-order-id
+      type: object
+      example: null
+    AddSnapshotUpdate_allOf:
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/Snapshot'
+      required:
+      - snapshot
+      type: object
+      example: null
+    SetSnapshotRefUpdate_allOf:
+      properties:
+        ref-name:
+          type: string
+      required:
+      - ref-name
+      type: object
+      example: null
+    RemoveSnapshotsUpdate_allOf:
+      properties:
+        snapshot-ids:
+          items:
+            format: int64
+            type: integer
+          type: array
+      required:
+      - snapshot-ids
+      type: object
+      example: null
+    SetLocationUpdate_allOf:
+      properties:
+        location:
+          type: string
+      required:
+      - location
+      type: object
+      example: null
+    SetPropertiesUpdate_allOf:
+      properties:
+        updates:
+          additionalProperties:
+            type: string
+          type: object
+      required:
+      - updates
+      type: object
+      example: null
+    RemovePropertiesUpdate_allOf:
+      properties:
+        removals:
+          items:
+            type: string
+          type: array
+      required:
+      - removals
+      type: object
+      example: null
+  securitySchemes:
+    OAuth2:
+      flows:
+        clientCredentials:
+          scopes:
+            catalog: Allows interacting with the Config and Catalog APIs
+          tokenUrl: /v1/oauth/tokens
+      type: oauth2
+    BearerAuth:
+      scheme: bearer
+      type: http
+

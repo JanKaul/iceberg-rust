@@ -1,3 +1,6 @@
+/*!
+ * Data Types
+*/
 use std::{fmt, ops::Index};
 
 use anyhow::anyhow;
@@ -5,10 +8,6 @@ use serde::{
     de::{Error, IntoDeserializer},
     Deserialize, Deserializer, Serialize, Serializer,
 };
-
-/**
- * Data Types
-*/
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -35,6 +34,7 @@ impl fmt::Display for Type {
     }
 }
 
+/// Primitive data types
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "lowercase", remote = "Self")]
 pub enum PrimitiveType {
@@ -175,9 +175,11 @@ impl fmt::Display for PrimitiveType {
     }
 }
 
+/// DataType for a specific struct
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename = "struct", tag = "type")]
 pub struct StructType {
+    /// Struct fields
     pub fields: Vec<StructField>,
 }
 

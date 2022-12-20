@@ -3,7 +3,7 @@ Manifest files
 */
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -318,6 +318,7 @@ impl<'de> Deserialize<'de> for FileFormat {
     }
 }
 
+/// Get schema for partition values depending on partition spec and table schema
 pub fn partition_value_schema(
     spec: &[PartitionField],
     table_schema: &StructType,
@@ -1321,12 +1322,7 @@ mod tests {
         let encoded = writer.into_inner().unwrap();
 
         let reader = apache_avro::Reader::new(&encoded[..]).unwrap();
-        let record = reader
-            .into_iter()
-            .next()
-            .context("Manifest Entry Expected")
-            .unwrap()
-            .unwrap();
+        let record = reader.into_iter().next().unwrap().unwrap();
 
         let metadata_entry = apache_avro::from_value::<ManifestEntryV2>(&record)
             .map(ManifestEntry::V2)

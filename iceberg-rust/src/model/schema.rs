@@ -1,10 +1,9 @@
+/*!
+ * Schemas
+*/
 use serde::{Deserialize, Serialize};
 
 use super::data_types::StructType;
-
-/**
- * Schemas
-*/
 
 /// Schema of an iceberg table
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
