@@ -58,14 +58,17 @@ pub struct TableMetadataV2 {
     ///A string to string map of table properties. This is used to control settings that
     /// affect reading and writing and is not intended to be used for arbitrary metadata.
     /// For example, commit.retry.num-retries is used to control the number of commit retries.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<HashMap<String, String>>,
     /// long ID of the current table snapshot; must be the same as the current
     /// ID of the main branch in refs.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_snapshot_id: Option<i64>,
     ///A list of valid snapshots. Valid snapshots are snapshots for which all
     /// data files exist in the file system. A data file must not be deleted
     /// from the file system until the last snapshot in which it was listed is
     /// garbage collected.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshots: Option<Vec<SnapshotV2>>,
     /// A list (optional) of timestamp and snapshot ID pairs that encodes changes
     /// to the current snapshot for the table. Each time the current-snapshot-id
@@ -73,6 +76,7 @@ pub struct TableMetadataV2 {
     /// and the new current-snapshot-id. When snapshots are expired from
     /// the list of valid snapshots, all entries before a snapshot that has
     /// expired should be removed.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshot_log: Option<Vec<SnapshotLog>>,
 
     /// A list (optional) of timestamp and metadata file location pairs
@@ -81,6 +85,7 @@ pub struct TableMetadataV2 {
     /// previous metadata file location should be added to the list.
     /// Tables can be configured to remove oldest metadata log entries and
     /// keep a fixed-size log of the most recent entries after a commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_log: Option<Vec<MetadataLog>>,
 
     /// A list of sort orders, stored as full sort order objects.
@@ -93,6 +98,7 @@ pub struct TableMetadataV2 {
     /// names in the table, and the map values are snapshot reference objects.
     /// There is always a main branch reference pointing to the current-snapshot-id
     /// even if the refs map is null.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub refs: Option<HashMap<String, Reference>>,
 }
 
@@ -102,6 +108,7 @@ pub struct TableMetadataV2 {
 pub struct TableMetadataV1 {
     /// Integer Version for the format.
     /// A UUID that identifies the table
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub table_uuid: Option<Uuid>,
     /// Location tables base location
     pub location: String,
@@ -112,29 +119,37 @@ pub struct TableMetadataV1 {
     /// The table’s current schema.
     pub schema: schema::SchemaV1,
     /// A list of schemas, stored as objects with schema-id.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schemas: Option<Vec<schema::SchemaV1>>,
     /// ID of the table’s current schema.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_schema_id: Option<i32>,
     /// The table’s current partition spec, stored as only fields. Note that this is used by writers to partition data,
     /// but is not used when reading because reads use the specs stored in manifest files.
     pub partition_spec: Vec<PartitionField>,
     /// A list of partition specs, stored as full partition spec objects.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub partition_specs: Option<Vec<PartitionSpec>>,
     /// ID of the “current” spec that writers should use by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_spec_id: Option<i32>,
     /// An integer; the highest assigned partition field ID across all partition specs for the table.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_partition_id: Option<i32>,
     ///A string to string map of table properties. This is used to control settings that
     /// affect reading and writing and is not intended to be used for arbitrary metadata.
     /// For example, commit.retry.num-retries is used to control the number of commit retries.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<HashMap<String, String>>,
     /// long ID of the current table snapshot; must be the same as the current
     /// ID of the main branch in refs.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_snapshot_id: Option<i64>,
     ///A list of valid snapshots. Valid snapshots are snapshots for which all
     /// data files exist in the file system. A data file must not be deleted
     /// from the file system until the last snapshot in which it was listed is
     /// garbage collected.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshots: Option<Vec<SnapshotV1>>,
     /// A list (optional) of timestamp and snapshot ID pairs that encodes changes
     /// to the current snapshot for the table. Each time the current-snapshot-id
@@ -142,6 +157,7 @@ pub struct TableMetadataV1 {
     /// and the new current-snapshot-id. When snapshots are expired from
     /// the list of valid snapshots, all entries before a snapshot that has
     /// expired should be removed.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub snapshot_log: Option<Vec<SnapshotLog>>,
 
     /// A list (optional) of timestamp and metadata file location pairs
@@ -150,6 +166,7 @@ pub struct TableMetadataV1 {
     /// previous metadata file location should be added to the list.
     /// Tables can be configured to remove oldest metadata log entries and
     /// keep a fixed-size log of the most recent entries after a commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_log: Option<Vec<MetadataLog>>,
 
     /// A list of sort orders, stored as full sort order objects.
@@ -434,7 +451,6 @@ mod tests {
             &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),
         )
         .expect("Failed to serialize json");
-        dbg!(&metadata, &metadata_two);
         assert_eq!(metadata, metadata_two);
 
         Ok(())

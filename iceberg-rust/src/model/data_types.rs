@@ -38,7 +38,6 @@ pub enum PrimitiveType {
     /// 64-bit IEEE 753 floating bit.
     Double,
     /// Fixed point decimal
-    #[serde(serialize_with = "serialize_decimal")]
     Decimal {
         /// Precision
         precision: u32,
@@ -58,7 +57,6 @@ pub enum PrimitiveType {
     /// Universally Unique Identifiers
     Uuid,
     /// Fixed length byte array
-    #[serde(serialize_with = "serialize_fixed")]
     Fixed(u64),
     /// Arbitrary-length byte array.
     Binary,
@@ -85,7 +83,13 @@ impl Serialize for PrimitiveType {
     where
         S: serde::Serializer,
     {
-        PrimitiveType::serialize(self, serializer)
+        match self {
+            PrimitiveType::Decimal { precision, scale } => {
+                serialize_decimal(precision, scale, serializer)
+            }
+            PrimitiveType::Fixed(l) => serialize_fixed(l, serializer),
+            _ => PrimitiveType::serialize(self, serializer),
+        }
     }
 }
 
@@ -137,7 +141,7 @@ where
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename = "lowercase", tag = "type")]
+#[serde(rename = "struct", tag = "type")]
 pub struct Struct {
     fields: Vec<StructField>,
 }
@@ -165,11 +169,12 @@ pub struct StructField {
     #[serde(rename = "type")]
     pub field_type: Type,
     /// Fields may have an optional comment or doc string.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(rename = "list", rename_all = "kebab-case", tag = "type")]
 /// A list is a collection of values with some element type. The element field has an integer id that is unique in the table schema.
 /// Elements can be either optional or required. Element types may be any type.
 pub struct List {
@@ -184,7 +189,7 @@ pub struct List {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case", tag = "type")]
+#[serde(rename = "map", rename_all = "kebab-case", tag = "type")]
 /// A map is a collection of key-value pairs with a key type and a value type.
 /// Both the key field and value field each have an integer id that is unique in the table schema.
 /// Map keys are required and map values can be either optional or required.
@@ -230,6 +235,11 @@ mod tests {
             }),
             result.fields[0].field_type
         );
+        let result_two: Struct = serde_json::from_str(
+            &serde_json::to_string(&result).expect("Failed to serialize result"),
+        )
+        .expect("Failed to serialize json");
+        assert_eq!(result, result_two);
     }
 
     #[test]
@@ -253,6 +263,11 @@ mod tests {
             Type::Primitive(PrimitiveType::Fixed(8)),
             result.fields[0].field_type
         );
+        let result_two: Struct = serde_json::from_str(
+            &serde_json::to_string(&result).expect("Failed to serialize result"),
+        )
+        .expect("Failed to serialize json");
+        assert_eq!(result, result_two);
     }
 
     #[test]

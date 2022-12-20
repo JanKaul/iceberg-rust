@@ -7,3 +7,4 @@ pub(crate) mod snapshot;
 */
 pub(crate) mod sort;
 pub(crate) mod table_metadata;
+pub(crate) mod values;

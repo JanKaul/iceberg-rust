@@ -44,6 +44,7 @@ pub struct SnapshotV2 {
     pub snapshot_id: i64,
     /// The snapshot ID of the snapshot’s parent.
     /// Omitted for any snapshot with no parent
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_snapshot_id: Option<i64>,
     /// A monotonically increasing long that tracks the order of
     /// changes to a table.
@@ -57,6 +58,7 @@ pub struct SnapshotV2 {
     /// A string map that summarizes the snapshot changes, including operation.
     pub summary: Summary,
     /// ID of the table’s current schema when the snapshot was created.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schema_id: Option<i64>,
 }
 
@@ -68,18 +70,23 @@ pub struct SnapshotV1 {
     pub snapshot_id: i64,
     /// The snapshot ID of the snapshot’s parent.
     /// Omitted for any snapshot with no parent
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_snapshot_id: Option<i64>,
     /// A timestamp when the snapshot was created, used for garbage
     /// collection and table inspection
     pub timestamp_ms: i64,
     /// The location of a manifest list for this snapshot that
     /// tracks manifest files with additional metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub manifest_list: Option<String>,
     /// A list of manifest file locations. Must be omitted if manifest-list is present
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub manifests: Option<Vec<String>>,
     /// A string map that summarizes the snapshot changes, including operation.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<Summary>,
     /// ID of the table’s current schema when the snapshot was created.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schema_id: Option<i64>,
 }
 
@@ -121,12 +128,15 @@ pub enum Retention {
     Branch {
         /// A positive number for the minimum number of snapshots to keep in a branch while expiring snapshots.
         /// Defaults to table property history.expire.min-snapshots-to-keep.
+        #[serde(skip_serializing_if = "Option::is_none")]
         min_snapshots_to_keep: Option<i32>,
         /// A positive number for the max age of snapshots to keep when expiring, including the latest snapshot.
         /// Defaults to table property history.expire.max-snapshot-age-ms.
+        #[serde(skip_serializing_if = "Option::is_none")]
         max_snapshot_age_ms: Option<i64>,
         /// For snapshot references except the main branch, a positive number for the max age of the snapshot reference to keep while expiring snapshots.
         /// Defaults to table property history.expire.max-ref-age-ms. The main branch never expires.
+        #[serde(skip_serializing_if = "Option::is_none")]
         max_ref_age_ms: Option<i64>,
     },
     #[serde(rename_all = "kebab-case")]

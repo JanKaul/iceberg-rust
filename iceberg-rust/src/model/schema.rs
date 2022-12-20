@@ -27,12 +27,13 @@ impl Schema {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename = "struct", rename_all = "kebab-case", tag = "type")]
+#[serde(rename_all = "kebab-case")]
 /// Names and types of fields in a table.
 pub struct SchemaV2 {
     /// Identifier of the schema
     pub schema_id: i32,
     /// Set of primitive fields that identify rows in a table.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub identifier_field_ids: Option<Vec<i32>>,
 
     #[serde(flatten)]
@@ -41,12 +42,14 @@ pub struct SchemaV2 {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename = "struct", rename_all = "kebab-case", tag = "type")]
+#[serde(rename_all = "kebab-case")]
 /// Names and types of fields in a table.
 pub struct SchemaV1 {
     /// Identifier of the schema
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schema_id: Option<i32>,
     /// Set of primitive fields that identify rows in a table.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub identifier_field_ids: Option<Vec<i32>>,
 
     #[serde(flatten)]
