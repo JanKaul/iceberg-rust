@@ -1,3 +1,4 @@
+pub(crate) mod bytes;
 pub(crate) mod data_types;
 pub(crate) mod manifest;
 pub(crate) mod manifest_list;
