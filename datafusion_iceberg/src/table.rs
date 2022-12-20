@@ -299,6 +299,8 @@ impl TableProvider for DataFusionTable {
 #[cfg(test)]
 mod tests {
 
+    use std::sync::Arc;
+
     use datafusion::{
         arrow::{array::Float32Array, record_batch::RecordBatch},
         prelude::SessionContext,
@@ -308,11 +310,12 @@ mod tests {
             data_types::{PrimitiveType, StructField, StructType, Type},
             schema::SchemaV2,
         },
+        table::Table,
         view::view_builder::ViewBuilder,
     };
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
 
-    use super::*;
+    use crate::DataFusionTable;
 
     #[tokio::test]
     pub async fn test_datafusion_table_scan() {
