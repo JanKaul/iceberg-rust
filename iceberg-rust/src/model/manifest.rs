@@ -1090,58 +1090,6 @@ impl DataFileV2 {
     }
 }
 
-/// Read metadata from the avro reader
-fn read_metadata<R: std::io::Read>(reader: &apache_avro::Reader<R>) -> Result<ManifestMetadata> {
-    let read_string = |key: &str| {
-        reader
-            .user_metadata()
-            .get(key)
-            .map(|id| String::from_utf8(id.to_vec()).map_err(anyhow::Error::from))
-            .transpose()
-    };
-
-    let format_version: Option<FormatVersion> = reader
-        .user_metadata()
-        .get("format-version")
-        .and_then(|n| n[0].try_into().ok());
-    match format_version {
-        Some(FormatVersion::V2) => {
-            let schema = read_string("schema")?.context("Metadata must have table schema")?;
-            let schema_id = read_string("schema-id")?.unwrap();
-            let partition_spec = read_string("partition-spec")?.unwrap();
-            let partition_spec_id = read_string("partition-spec-id")?.unwrap();
-            let content: Content = reader
-                .user_metadata()
-                .get("content")
-                .and_then(|n| n.clone().try_into().ok())
-                .unwrap();
-
-            Ok(ManifestMetadata::V2(ManifestMetadataV2 {
-                schema,
-                schema_id,
-                partition_spec,
-                partition_spec_id,
-                format_version: format_version.unwrap(),
-                content,
-            }))
-        }
-        _ => {
-            let schema = read_string("schema")?.context("Metadata must have table schema")?;
-            let schema_id = read_string("schema-id")?;
-            let partition_spec = read_string("partition-spec")?.unwrap();
-            let partition_spec_id = read_string("partition-spec-id")?;
-
-            Ok(ManifestMetadata::V1(ManifestMetadataV1 {
-                schema,
-                schema_id,
-                partition_spec,
-                partition_spec_id,
-                format_version,
-            }))
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::model::{
