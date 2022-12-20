@@ -1,4 +1,5 @@
 pub(crate) mod data_types;
+pub(crate) mod manifest;
 pub(crate) mod partition;
 pub(crate) mod schema;
 pub(crate) mod snapshot;

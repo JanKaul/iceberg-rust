@@ -1,4 +1,4 @@
-use std::ops::Index;
+use std::{fmt, ops::Index};
 
 use anyhow::anyhow;
 use serde::{
@@ -17,11 +17,22 @@ pub enum Type {
     /// Primitive types
     Primitive(PrimitiveType),
     /// Struct type
-    Struct(Struct),
+    Struct(StructType),
     /// List type.
-    List(List),
+    List(ListType),
     /// Map type
-    Map(Map),
+    Map(MapType),
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Type::Primitive(primitive) => write!(f, "{}", primitive),
+            Type::Struct(_) => write!(f, "struct"),
+            Type::List(_) => write!(f, "list"),
+            Type::Map(_) => write!(f, "map"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -140,13 +151,44 @@ where
     serializer.serialize_str(&format!("fixed[{value}]"))
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename = "struct", tag = "type")]
-pub struct Struct {
-    fields: Vec<StructField>,
+impl fmt::Display for PrimitiveType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PrimitiveType::Boolean => write!(f, "boolean"),
+            PrimitiveType::Int => write!(f, "int"),
+            PrimitiveType::Long => write!(f, "long"),
+            PrimitiveType::Float => write!(f, "float"),
+            PrimitiveType::Double => write!(f, "double"),
+            PrimitiveType::Decimal {
+                precision: _,
+                scale: _,
+            } => write!(f, "decimal"),
+            PrimitiveType::Date => write!(f, "date"),
+            PrimitiveType::Time => write!(f, "time"),
+            PrimitiveType::Timestamp => write!(f, "timestamp"),
+            PrimitiveType::Timestampz => write!(f, "timestampz"),
+            PrimitiveType::String => write!(f, "string"),
+            PrimitiveType::Uuid => write!(f, "uuid"),
+            PrimitiveType::Fixed(_) => write!(f, "fixed"),
+            PrimitiveType::Binary => write!(f, "binary"),
+        }
+    }
 }
 
-impl Index<usize> for Struct {
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename = "struct", tag = "type")]
+pub struct StructType {
+    pub fields: Vec<StructField>,
+}
+
+impl StructType {
+    /// Get structfield at certain index
+    pub fn get(&self, index: usize) -> Option<&StructField> {
+        self.fields.iter().find(|field| field.id as usize == index)
+    }
+}
+
+impl Index<usize> for StructType {
     type Output = StructField;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -177,7 +219,7 @@ pub struct StructField {
 #[serde(rename = "list", rename_all = "kebab-case", tag = "type")]
 /// A list is a collection of values with some element type. The element field has an integer id that is unique in the table schema.
 /// Elements can be either optional or required. Element types may be any type.
-pub struct List {
+pub struct ListType {
     /// Id unique in table schema
     pub element_id: i32,
 
@@ -194,7 +236,7 @@ pub struct List {
 /// Both the key field and value field each have an integer id that is unique in the table schema.
 /// Map keys are required and map values can be either optional or required.
 /// Both map keys and map values may be any type, including nested types.
-pub struct Map {
+pub struct MapType {
     /// Key Id that is unique in table schema
     pub key_id: i32,
     /// Datatype of key
@@ -227,7 +269,7 @@ mod tests {
         }
         "#;
 
-        let result: Struct = serde_json::from_str(&record).unwrap();
+        let result: StructType = serde_json::from_str(&record).unwrap();
         assert_eq!(
             Type::Primitive(PrimitiveType::Decimal {
                 precision: 9,
@@ -235,7 +277,7 @@ mod tests {
             }),
             result.fields[0].field_type
         );
-        let result_two: Struct = serde_json::from_str(
+        let result_two: StructType = serde_json::from_str(
             &serde_json::to_string(&result).expect("Failed to serialize result"),
         )
         .expect("Failed to serialize json");
@@ -258,12 +300,12 @@ mod tests {
         }
         "#;
 
-        let result: Struct = serde_json::from_str(&record).unwrap();
+        let result: StructType = serde_json::from_str(&record).unwrap();
         assert_eq!(
             Type::Primitive(PrimitiveType::Fixed(8)),
             result.fields[0].field_type
         );
-        let result_two: Struct = serde_json::from_str(
+        let result_two: StructType = serde_json::from_str(
             &serde_json::to_string(&result).expect("Failed to serialize result"),
         )
         .expect("Failed to serialize json");
@@ -291,7 +333,7 @@ mod tests {
             }
         "#;
 
-        let result: Struct = serde_json::from_str(&record).unwrap();
+        let result: StructType = serde_json::from_str(&record).unwrap();
         assert_eq!(
             Type::Primitive(PrimitiveType::Uuid),
             result.fields[0].field_type
@@ -318,7 +360,7 @@ mod tests {
             }
         "#;
 
-        let result: List = serde_json::from_str(&record).unwrap();
+        let result: ListType = serde_json::from_str(&record).unwrap();
         assert_eq!(Type::Primitive(PrimitiveType::String), *result.element);
     }
 
@@ -335,7 +377,7 @@ mod tests {
             }
         "#;
 
-        let result: Map = serde_json::from_str(&record).unwrap();
+        let result: MapType = serde_json::from_str(&record).unwrap();
         assert_eq!(Type::Primitive(PrimitiveType::String), *result.key);
         assert_eq!(Type::Primitive(PrimitiveType::Double), *result.value);
     }

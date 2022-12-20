@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use super::{data_types::Struct, partition::PartitionField};
+use super::{data_types::StructType, partition::PartitionField};
 
 /// Metadata of an iceberg table
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -281,7 +281,7 @@ impl From<FormatVersion> for u8 {
 
 impl TableMetadata {
     /// Get current schema of the table
-    pub fn current_schema(&self) -> &Struct {
+    pub fn current_schema(&self) -> &StructType {
         match self {
             TableMetadata::V1(metadata) => &metadata.schema.fields,
             TableMetadata::V2(metadata) => {
