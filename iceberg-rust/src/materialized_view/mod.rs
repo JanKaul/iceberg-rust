@@ -18,8 +18,10 @@ use transaction::MaterializedViewTransaction;
 
 /// Iceberg materialized view
 pub struct MaterializedView {
-    view: View,
-    storage_table: Table,
+    /// The view that stores a part of the materialized view metadata
+    pub view: View,
+    /// The storage table that stores the precomputed data of the materialized view
+    pub storage_table: Table,
 }
 
 /// Public interface of the table.

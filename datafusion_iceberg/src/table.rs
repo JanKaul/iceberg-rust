@@ -76,12 +76,14 @@ impl TableProvider for DataFusionTable {
         match &self.0 {
             Relation::Table(table) => table,
             Relation::View(view) => view,
+            Relation::MaterializedView(materialized_view) => materialized_view,
         }
     }
     fn schema(&self) -> SchemaRef {
         let schema = match &self.0 {
             Relation::Table(table) => table.schema(),
             Relation::View(view) => view.schema().unwrap(),
+            Relation::MaterializedView(materialized_view) => materialized_view.schema().unwrap(),
         };
         Arc::new(iceberg_to_arrow_schema(schema).unwrap())
     }
@@ -89,6 +91,7 @@ impl TableProvider for DataFusionTable {
         match &self.0 {
             Relation::Table(_) => TableType::Base,
             Relation::View(_) => TableType::View,
+            Relation::MaterializedView(_) => TableType::Base,
         }
     }
     async fn scan(
@@ -108,6 +111,23 @@ impl TableProvider for DataFusionTable {
                 ViewTable::try_new(logical_plan, Some(sql.clone()))?
                     .scan(session, projection, filters, limit)
                     .await
+            }
+            Relation::MaterializedView(materialized_view) => {
+                let schema = self.schema();
+                let statistics = self
+                    .statistics()
+                    .await
+                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+                table_scan(
+                    &materialized_view.storage_table,
+                    schema,
+                    statistics,
+                    session,
+                    projection,
+                    filters,
+                    limit,
+                )
+                .await
             }
             Relation::Table(table) => {
                 let schema = self.schema();
