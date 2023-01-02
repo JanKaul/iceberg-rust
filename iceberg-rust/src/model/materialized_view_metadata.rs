@@ -116,6 +116,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(irrefutable_let_patterns)]
     fn metadata_in_view() {
         let metadata = r#"
         {
@@ -146,6 +147,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(irrefutable_let_patterns)]
     fn metadata_in_table() {
         let metadata = r#"
         {

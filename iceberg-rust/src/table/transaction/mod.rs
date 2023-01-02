@@ -9,14 +9,14 @@ use uuid::Uuid;
 use crate::{catalog::relation::Relation, model::schema::SchemaV2, table::Table};
 use anyhow::{anyhow, Result};
 
-use self::operation::Operation;
+use self::operation::Operation as TableOperation;
 
 mod operation;
 
-/// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
+/// Transactions let you perform a sequence of [TableOperation]s that can be committed to be performed with ACID guarantees.
 pub struct TableTransaction<'table> {
     table: &'table mut Table,
-    operations: Vec<Operation>,
+    operations: Vec<TableOperation>,
 }
 
 impl<'table> TableTransaction<'table> {
@@ -29,26 +29,40 @@ impl<'table> TableTransaction<'table> {
     }
     /// Update the schmema of the table
     pub fn update_schema(mut self, schema: SchemaV2) -> Self {
-        self.operations.push(Operation::UpdateSchema(schema));
+        self.update_schema_mut(schema);
+        self
+    }
+    /// Update the schmema of the table
+    #[inline]
+    pub(crate) fn update_schema_mut(&mut self, schema: SchemaV2) -> &mut Self {
+        self.operations.push(TableOperation::UpdateSchema(schema));
         self
     }
     /// Update the spec of the table
     pub fn update_spec(mut self, spec_id: i32) -> Self {
-        self.operations.push(Operation::UpdateSpec(spec_id));
+        self.update_spec_mut(spec_id);
+        self
+    }
+    /// Update the spec of the table
+    #[inline]
+    pub(crate) fn update_spec_mut(&mut self, spec_id: i32) -> &mut Self {
+        self.operations.push(TableOperation::UpdateSpec(spec_id));
         self
     }
     /// Quickly append files to the table
     pub fn fast_append(mut self, files: Vec<String>) -> Self {
-        self.operations.push(Operation::NewFastAppend(files));
+        self.fast_append_mut(files);
         self
     }
-    /// Commit the transaction to perform the [Operation]s with ACID guarantees.
-    pub async fn commit(self) -> Result<()> {
-        // Before executing the transactions operations, update the metadata for a new snapshot
-        self.table.increment_sequence_number();
-        self.table.new_snapshot().await?;
-        // Execute the table operations
-        let table = futures::stream::iter(self.operations)
+    /// Quickly append files to the table
+    #[inline]
+    pub(crate) fn fast_append_mut(&mut self, files: Vec<String>) -> &mut Self {
+        self.operations.push(TableOperation::NewFastAppend(files));
+        self
+    }
+    /// Execute the [ViewOperation]s
+    pub(crate) async fn execute(self) -> Result<&'table mut Table> {
+        futures::stream::iter(self.operations)
             .fold(
                 Ok::<&mut Table, anyhow::Error>(self.table),
                 |table, op| async move {
@@ -57,7 +71,15 @@ impl<'table> TableTransaction<'table> {
                     Ok(table)
                 },
             )
-            .await?;
+            .await
+    }
+    /// Commit the transaction to perform the [TableOperation]s with ACID guarantees.
+    pub async fn commit(self) -> Result<()> {
+        // Before executing the transactions operations, update the metadata for a new snapshot
+        self.table.increment_sequence_number();
+        self.table.new_snapshot().await?;
+        // Execute the table operations
+        let table = self.execute().await?;
         // Write the new state to the object store
         match (table.catalog(), table.identifier()) {
             // In case of a metastore table, write the metadata to object srorage and use the catalog to perform the atomic swap

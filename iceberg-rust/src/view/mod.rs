@@ -15,7 +15,7 @@ use crate::{
     table::TableType,
 };
 
-use self::transaction::Transaction as ViewTransaction;
+use self::transaction::ViewTransaction;
 
 pub mod transaction;
 pub mod view_builder;

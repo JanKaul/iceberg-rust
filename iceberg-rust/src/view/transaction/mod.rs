@@ -1,5 +1,5 @@
 /*!
- * Defines the [Transaction] type for views to perform multiple view [Operation]s with ACID guarantees.
+ * Defines the [ViewTransaction] type for views to perform multiple view [Operation]s with ACID guarantees.
 */
 
 use anyhow::{anyhow, Result};
@@ -15,37 +15,60 @@ use self::operation::Operation as ViewOperation;
 
 use super::View;
 
-/// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
-pub struct Transaction<'view> {
+/// Transactions let you perform a sequence of [ViewOperation]s that can be committed to be performed with ACID guarantees.
+pub struct ViewTransaction<'view> {
     view: &'view mut View,
     operations: Vec<ViewOperation>,
 }
 
-impl<'view> Transaction<'view> {
+impl<'view> ViewTransaction<'view> {
     /// Create a transaction for the given view.
     pub fn new(view: &'view mut View) -> Self {
-        Transaction {
+        ViewTransaction {
             view,
             operations: vec![],
         }
     }
     /// Update the schmema of the view
     pub fn update_schema(mut self, schema: Schema) -> Self {
+        self.update_schema_mut(schema);
+        self
+    }
+    /// Update the schmema of the view
+    #[inline]
+    pub(crate) fn update_schema_mut(&mut self, schema: Schema) -> &mut Self {
         self.operations.push(ViewOperation::UpdateSchema(schema));
         self
     }
     /// Update the location of the view
     pub fn update_location(mut self, location: &str) -> Self {
+        self.update_location_mut(location);
+        self
+    }
+    /// Update the location of the view
+    #[inline]
+    pub(crate) fn update_location_mut(&mut self, location: &str) -> &mut Self {
         self.operations
             .push(ViewOperation::UpdateLocation(location.to_owned()));
         self
     }
-    /// Commit the transaction to perform the [Operation]s with ACID guarantees.
-    pub async fn commit(self) -> Result<()> {
-        // Before executing the transactions operations, update the version number
-        self.view.increment_version_number();
-        // Execute the table operations
-        let view = futures::stream::iter(self.operations)
+    /// Update a table property
+    pub fn update_property(mut self, key: &str, value: &str) -> Self {
+        self.update_property_mut(key, value);
+        self
+    }
+    /// Update a table Property
+    #[inline]
+    pub(crate) fn update_property_mut(&mut self, key: &str, value: &str) -> &mut Self {
+        self.operations.push(ViewOperation::UpdateProperty(
+            key.to_owned(),
+            value.to_owned(),
+        ));
+        self
+    }
+    /// Execute the [ViewOperation]s
+    pub(crate) async fn execute(self) -> Result<&'view mut View> {
+        futures::stream::iter(self.operations)
             .fold(
                 Ok::<&mut View, anyhow::Error>(self.view),
                 |view, op| async move {
@@ -54,7 +77,14 @@ impl<'view> Transaction<'view> {
                     Ok(view)
                 },
             )
-            .await?;
+            .await
+    }
+    /// Commit the transaction to perform the [ViewOperation]s with ACID guarantees.
+    pub async fn commit(self) -> Result<()> {
+        // Before executing the transactions operations, update the version number
+        self.view.increment_version_number();
+        // Execute the table operations
+        let view = self.execute().await?;
         // Write the new state to the object store
         match (view.catalog(), view.identifier()) {
             // In case of a metastore view, write the metadata to object srorage and use the catalog to perform the atomic swap

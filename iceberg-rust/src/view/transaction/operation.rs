@@ -2,6 +2,8 @@
  * Defines the different [Operation]s on a [View].
 */
 
+use std::collections::HashMap;
+
 use anyhow::Result;
 
 use crate::{
@@ -13,8 +15,8 @@ use crate::{
 pub enum Operation {
     /// Update schema
     UpdateSchema(Schema),
-    // /// Update table properties
-    // UpdateProperties,
+    /// Update table properties
+    UpdateProperty(String, String),
     /// Update the table location
     UpdateLocation(String),
 }
@@ -24,7 +26,7 @@ impl Operation {
     pub async fn execute(self, view: &mut View) -> Result<()> {
         match self {
             Operation::UpdateLocation(location) => {
-                view.metadata_location = location;
+                view.metadata_location = location.to_owned();
                 Ok(())
             }
             Operation::UpdateSchema(schema) => match &mut view.metadata {
@@ -47,6 +49,21 @@ impl Operation {
                     }
                 },
             },
+            Operation::UpdateProperty(key, value) => {
+                let properties = view.metadata.properties_mut();
+                match properties {
+                    Some(properties) => {
+                        properties.insert(key, value);
+                        Ok(())
+                    }
+                    None => {
+                        let mut new_properties = HashMap::new();
+                        new_properties.insert(key, value);
+                        *properties = Some(new_properties);
+                        Ok(())
+                    }
+                }
+            }
         }
     }
 }

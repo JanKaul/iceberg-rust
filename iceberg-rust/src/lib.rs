@@ -4,6 +4,7 @@
 */
 pub mod arrow;
 pub mod catalog;
+pub mod materialized_view;
 pub mod model;
 pub mod table;
 pub mod util;

@@ -65,6 +65,18 @@ impl ViewMetadata {
             }
         }
     }
+    /// Get properties
+    pub fn properties(&self) -> Option<&HashMap<String, String>> {
+        match self {
+            ViewMetadata::V1(metadata) => metadata.properties.as_ref(),
+        }
+    }
+    /// Get mutable refrence for properties
+    pub fn properties_mut(&mut self) -> &mut Option<HashMap<String, String>> {
+        match self {
+            ViewMetadata::V1(metadata) => &mut metadata.properties,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]

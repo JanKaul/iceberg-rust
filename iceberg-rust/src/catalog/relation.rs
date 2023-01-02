@@ -4,6 +4,7 @@
 
 use serde::{self, Deserialize, Serialize};
 
+use crate::materialized_view::MaterializedView;
 use crate::model::table_metadata::TableMetadata;
 use crate::model::view_metadata::ViewMetadata;
 use crate::table::Table;
@@ -14,6 +15,8 @@ pub enum Relation {
     Table(Table),
     /// An iceberg view
     View(View),
+    /// An iceberg materialized view
+    MaterializedView(MaterializedView),
 }
 
 impl Relation {
@@ -22,6 +25,7 @@ impl Relation {
         match self {
             Relation::Table(table) => table.metadata_location(),
             Relation::View(view) => view.metadata_location(),
+            Relation::MaterializedView(materialized_view) => materialized_view.metadata_location(),
         }
     }
 }
