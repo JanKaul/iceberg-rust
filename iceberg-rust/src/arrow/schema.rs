@@ -65,7 +65,7 @@ impl TryFrom<&Type> for DataType {
                 PrimitiveType::Float => Ok(DataType::Float32),
                 PrimitiveType::Double => Ok(DataType::Float64),
                 PrimitiveType::Decimal { precision, scale } => {
-                    Ok(DataType::Decimal128(*precision as u8, *scale as u8))
+                    Ok(DataType::Decimal128(*precision as u8, *scale as i8))
                 }
                 PrimitiveType::Date => Ok(DataType::Date64),
                 PrimitiveType::Time => Ok(DataType::Time64(TimeUnit::Millisecond)),

@@ -8,7 +8,7 @@ use object_store::ObjectMeta;
 use std::{any::Any, collections::HashMap, ops::DerefMut, sync::Arc};
 
 use datafusion::{
-    arrow::datatypes::{Schema as ArrowSchema, SchemaRef},
+    arrow::datatypes::{DataType, Schema as ArrowSchema, SchemaRef},
     common::DataFusionError,
     datasource::{
         file_format::{parquet::ParquetFormat, FileFormat},
@@ -23,7 +23,7 @@ use datafusion::{
     physical_plan::{file_format::FileScanConfig, ExecutionPlan},
     prelude::Expr,
     scalar::ScalarValue,
-    sql::{parser::DFParser, planner::SqlToRel},
+    sql::parser::DFParser,
 };
 use url::Url;
 
@@ -94,7 +94,7 @@ impl TableProvider for DataFusionTable {
     async fn scan(
         &self,
         session: &SessionState,
-        projection: &Option<Vec<usize>>,
+        projection: Option<&Vec<usize>>,
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
@@ -104,8 +104,7 @@ impl TableProvider for DataFusionTable {
                     Representation::Sql { sql, .. } => sql,
                 };
                 let statement = DFParser::new(sql)?.parse_statement()?;
-                let planner = SqlToRel::new(session);
-                let logical_plan = planner.statement_to_plan(statement)?;
+                let logical_plan = session.statement_to_plan(statement).await?;
                 ViewTable::try_new(logical_plan, Some(sql.clone()))?
                     .scan(session, projection, filters, limit)
                     .await
@@ -119,7 +118,7 @@ impl TableProvider for DataFusionTable {
                         + &util::strip_prefix(table.metadata().location()).replace('/', "-"),
                 )?;
                 let url: &Url = object_store_url.as_ref();
-                session.runtime_env.register_object_store(
+                session.runtime_env().register_object_store(
                     url.scheme(),
                     url.host_str().unwrap_or_default(),
                     table.object_store(),
@@ -230,11 +229,16 @@ impl TableProvider for DataFusionTable {
                     .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
 
                 // Get all partition columns
-                let table_partition_cols: Vec<String> = table
+                let table_partition_cols: Vec<(String, DataType)> = table
                     .metadata()
                     .default_spec()
                     .iter()
-                    .map(|field| field.name.clone())
+                    .map(|field| {
+                        (
+                            field.name.clone(),
+                            schema.field(field.field_id as usize).data_type().clone(),
+                        )
+                    })
                     .collect();
 
                 // Remove the partition columns from the schema. The values for the partition column are stored in the partition values
@@ -242,7 +246,10 @@ impl TableProvider for DataFusionTable {
                     schema
                         .fields()
                         .iter()
-                        .filter(|f| !table_partition_cols.contains(f.name()))
+                        .filter(|field| {
+                            !table_partition_cols
+                                .contains(&(field.name().clone(), field.data_type().clone()))
+                        })
                         .cloned()
                         .collect(),
                 ));
@@ -253,7 +260,9 @@ impl TableProvider for DataFusionTable {
                     .iter()
                     .enumerate()
                     .filter_map(|(idx, field)| {
-                        if table_partition_cols.contains(field.name()) {
+                        if table_partition_cols
+                            .contains(&(field.name().clone(), field.data_type().clone()))
+                        {
                             Some(idx)
                         } else {
                             None
@@ -286,10 +295,11 @@ impl TableProvider for DataFusionTable {
                     projection,
                     limit,
                     table_partition_cols,
-                    config_options: Default::default(),
+                    output_ordering: None,
+                    infinite_source: false,
                 };
                 ParquetFormat::default()
-                    .create_physical_plan(file_scan_config, filters)
+                    .create_physical_plan(session, file_scan_config, filters)
                     .await
             }
         }

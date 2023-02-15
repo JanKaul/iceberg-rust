@@ -219,7 +219,9 @@ fn any_iter_to_array(
             ScalarValue::Date64(opt.and_then(|value| Some(*value.downcast::<i64>().ok()?)))
         })),
         DataType::Time64(_) => ScalarValue::iter_to_array(iter.map(|opt| {
-            ScalarValue::Time64(opt.and_then(|value| Some(*value.downcast::<i64>().ok()?)))
+            ScalarValue::Time32Millisecond(
+                opt.and_then(|value| Some(*value.downcast::<i32>().ok()?)),
+            )
         })),
         DataType::Timestamp(_, _) => ScalarValue::iter_to_array(iter.map(|opt| {
             ScalarValue::TimestampMillisecond(

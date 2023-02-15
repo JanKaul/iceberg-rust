@@ -12,7 +12,7 @@ license = "Apache-2.0"
 [dependencies]
 anyhow = "1.0.68"
 apache-avro = "0.14.0"
-arrow = "26.0.0"
+arrow = "32.0.0"
 async-trait = "0.1.60"
 chrono = { version = "0.4.19", default-features = false, features = ["serde"] }
 futures = "0.3.25"
