@@ -20,6 +20,7 @@ impl IcebergSchema {
     }
 }
 
+#[async_trait::async_trait]
 impl SchemaProvider for IcebergSchema {
     fn as_any(&self) -> &dyn Any {
         self
@@ -31,10 +32,12 @@ impl SchemaProvider for IcebergSchema {
             Ok(schemas) => schemas.into_iter().map(|x| x.name().to_owned()).collect(),
         }
     }
-    fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
-        self.catalog.table(
-            Identifier::try_new(&[self.schema.levels(), &[name.to_string()]].concat()).unwrap(),
-        )
+    async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
+        self.catalog
+            .table(
+                Identifier::try_new(&[self.schema.levels(), &[name.to_string()]].concat()).unwrap(),
+            )
+            .await
     }
     fn table_exist(&self, name: &str) -> bool {
         self.catalog.table_exists(

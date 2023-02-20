@@ -11,7 +11,7 @@ type NamespaceNode = HashSet<String>;
 
 enum Node {
     Namespace(NamespaceNode),
-    Relation(Arc<dyn TableProvider>),
+    Relation(Identifier),
 }
 
 pub struct Mirror {
@@ -35,16 +35,8 @@ impl Mirror {
                 .await
                 .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
             for identifier in tables {
-                let relation = catalog
-                    .clone()
-                    .load_table(&identifier)
-                    .await
-                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
                 namespace_node.insert(identifier.to_string());
-                storage.insert(
-                    identifier.to_string(),
-                    Node::Relation(Arc::new(DataFusionTable::from(relation))),
-                );
+                storage.insert(identifier.to_string(), Node::Relation(identifier));
             }
             storage.insert(namespace.to_string(), Node::Namespace(namespace_node));
         }
@@ -89,13 +81,13 @@ impl Mirror {
             .collect::<Result<_, anyhow::Error>>()
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))
     }
-    pub fn table(&self, identifier: Identifier) -> Option<Arc<dyn TableProvider>> {
-        self.storage
-            .get(&identifier.to_string())
-            .and_then(|x| match x.value() {
-                Node::Relation(relation) => Some(relation.clone()),
-                Node::Namespace(_) => None,
-            })
+    pub async fn table(&self, identifier: Identifier) -> Option<Arc<dyn TableProvider>> {
+        self.catalog
+            .clone()
+            .load_table(&identifier)
+            .await
+            .map(|x| Arc::new(DataFusionTable::from(x)) as Arc<dyn TableProvider>)
+            .ok()
     }
     pub fn table_exists(&self, identifier: Identifier) -> bool {
         self.storage.contains_key(&identifier.to_string())
@@ -106,7 +98,7 @@ impl Mirror {
         table: Arc<dyn TableProvider>,
     ) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
         self.storage
-            .insert(identifier.to_string(), Node::Relation(table.clone()));
+            .insert(identifier.to_string(), Node::Relation(identifier.clone()));
         match self
             .storage
             .get_mut(&identifier.namespace().to_string())
@@ -147,18 +139,6 @@ impl Mirror {
         &self,
         identifier: Identifier,
     ) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
-        let table = if let (_, Node::Relation(relation)) = self
-            .storage
-            .remove(&identifier.to_string())
-            .ok_or(DataFusionError::Internal(
-                "Can't deregister table, tables doesn't exist.".to_string(),
-            ))? {
-            Ok(relation)
-        } else {
-            Err(DataFusionError::Internal(
-                "Can't deregister table, identifier refers to a namespace.".to_string(),
-            ))
-        }?;
         match self
             .storage
             .get_mut(&identifier.namespace().to_string())
@@ -180,6 +160,7 @@ impl Mirror {
                 cloned_catalog.drop_table(&identifier).await.unwrap();
             })
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
-        Ok(Some(table))
+        // Currently can't synchronously return a table which has to be fetched asynchronously
+        Ok(None)
     }
 }
