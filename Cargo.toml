@@ -1,2 +1,2 @@
 [workspace]
-members = ["iceberg-rust", "datafusion_iceberg", "datafusion_iceberg_catalog_rest", "iceberg_catalog_rest_client_rust", "iceberg_catalog_rest_rdbms_server"]
+members = ["iceberg-rust", "datafusion_iceberg", "datafusion_iceberg_catalog_rest", "iceberg_catalog_rest_client_rust"]
