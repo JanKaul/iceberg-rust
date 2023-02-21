@@ -20,7 +20,7 @@ use datafusion::{
     logical_expr::TableType,
     optimizer::utils::conjunction,
     physical_optimizer::pruning::PruningPredicate,
-    physical_plan::{file_format::FileScanConfig, ExecutionPlan},
+    physical_plan::{file_format::FileScanConfig, ExecutionPlan, Statistics},
     prelude::Expr,
     scalar::ScalarValue,
     sql::parser::DFParser,
@@ -111,199 +111,198 @@ impl TableProvider for DataFusionTable {
             }
             Relation::Table(table) => {
                 let schema = self.schema();
-
-                // Create a unique URI for this particular object store
-                let object_store_url = ObjectStoreUrl::parse(
-                    "iceberg://".to_owned()
-                        + &util::strip_prefix(table.metadata().location()).replace('/', "-"),
-                )?;
-                let url: &Url = object_store_url.as_ref();
-                session.runtime_env().register_object_store(
-                    url.scheme(),
-                    url.host_str().unwrap_or_default(),
-                    table.object_store(),
-                );
-
-                // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
-                // This way data files with the same partition value are mapped to the same vector.
-                let mut file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> =
-                    HashMap::new();
-                // If there is a filter expression the manifests to read are pruned based on the pruning statistics available in the manifest_list file.
-                if let Some(Some(predicate)) =
-                    (!filters.is_empty()).then_some(conjunction(filters.iter().cloned()))
-                {
-                    let pruning_predicate = PruningPredicate::try_new(predicate, schema.clone())?;
-                    let manifests_to_prune =
-                        pruning_predicate.prune(&PruneManifests::from(table))?;
-                    let files = table
-                        .files(Some(manifests_to_prune))
-                        .await
-                        .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
-                    // After the first pruning stage the data_files are pruned again based on the pruning statistics in the manifest files.
-                    let files_to_prune =
-                        pruning_predicate.prune(&PruneDataFiles::new(table, &files))?;
-                    files.into_iter().zip(files_to_prune.into_iter()).for_each(
-                        |(manifest, prune_file)| {
-                            if !prune_file {
-                                let partition_values = manifest
-                                    .partition_values()
-                                    .iter()
-                                    .map(|value| match value {
-                                        Some(v) => ScalarValue::Utf8(Some(
-                                            serde_json::to_string(v).unwrap(),
-                                        )),
-                                        None => ScalarValue::Null,
-                                    })
-                                    .collect::<Vec<ScalarValue>>();
-                                let object_meta = ObjectMeta {
-                                    location: util::strip_prefix(manifest.file_path()).into(),
-                                    size: manifest.file_size_in_bytes() as usize,
-                                    last_modified: {
-                                        let last_updated_ms = table.metadata().last_updated_ms();
-                                        let secs = last_updated_ms / 1000;
-                                        let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-                                        DateTime::from_utc(
-                                            NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(),
-                                            Utc,
-                                        )
-                                    },
-                                };
-                                let file = PartitionedFile {
-                                    object_meta,
-                                    partition_values,
-                                    range: None,
-                                    extensions: None,
-                                };
-                                file_groups
-                                    .entry(file.partition_values.clone())
-                                    .or_default()
-                                    .push(file);
-                            };
-                        },
-                    );
-                } else {
-                    let files = table
-                        .files(None)
-                        .await
-                        .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
-                    files.into_iter().for_each(|manifest| {
-                        let partition_values = manifest
-                            .partition_values()
-                            .iter()
-                            .map(|value| match value {
-                                Some(v) => {
-                                    ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap()))
-                                }
-                                None => ScalarValue::Null,
-                            })
-                            .collect::<Vec<ScalarValue>>();
-                        let object_meta = ObjectMeta {
-                            location: util::strip_prefix(manifest.file_path()).into(),
-                            size: manifest.file_size_in_bytes() as usize,
-                            last_modified: {
-                                let last_updated_ms = table.metadata().last_updated_ms();
-                                let secs = last_updated_ms / 1000;
-                                let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-                                DateTime::from_utc(
-                                    NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(),
-                                    Utc,
-                                )
-                            },
-                        };
-                        let file = PartitionedFile {
-                            object_meta,
-                            partition_values,
-                            range: None,
-                            extensions: None,
-                        };
-                        file_groups
-                            .entry(file.partition_values.clone())
-                            .or_default()
-                            .push(file);
-                    });
-                };
-
                 let statistics = self
                     .statistics()
                     .await
                     .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
-
-                // Get all partition columns
-                let table_partition_cols: Vec<(String, DataType)> = table
-                    .metadata()
-                    .default_spec()
-                    .iter()
-                    .map(|field| {
-                        (
-                            field.name.clone(),
-                            schema.field(field.field_id as usize).data_type().clone(),
-                        )
-                    })
-                    .collect();
-
-                // Remove the partition columns from the schema. The values for the partition column are stored in the partition values
-                let file_schema = Arc::new(ArrowSchema::new(
-                    schema
-                        .fields()
-                        .iter()
-                        .filter(|field| {
-                            !table_partition_cols
-                                .contains(&(field.name().clone(), field.data_type().clone()))
-                        })
-                        .cloned()
-                        .collect(),
-                ));
-
-                // Get the ids of the partition columns
-                let partition_ids: Vec<usize> = schema
-                    .fields()
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, field)| {
-                        if table_partition_cols
-                            .contains(&(field.name().clone(), field.data_type().clone()))
-                        {
-                            Some(idx)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                // Change the projection according to the previous schema change
-                let projection = projection.clone().map(|projection| {
-                    projection
-                        .iter()
-                        .map(|idx| {
-                            if partition_ids.contains(idx) {
-                                file_schema.fields.len()
-                                    + partition_ids.iter().position(|x| x == idx).unwrap()
-                            } else {
-                                partition_ids
-                                    .iter()
-                                    .fold(*idx, |acc, x| if idx > x { acc - 1 } else { acc })
-                            }
-                        })
-                        .collect()
-                });
-
-                let file_scan_config = FileScanConfig {
-                    object_store_url,
-                    file_schema,
-                    file_groups: file_groups.into_values().collect(),
-                    statistics,
-                    projection,
-                    limit,
-                    table_partition_cols,
-                    output_ordering: None,
-                    infinite_source: false,
-                };
-                ParquetFormat::default()
-                    .create_physical_plan(session, file_scan_config, filters)
-                    .await
+                table_scan(
+                    table, schema, statistics, session, projection, filters, limit,
+                )
+                .await
             }
         }
     }
+}
+async fn table_scan(
+    table: &Table,
+    schema: SchemaRef,
+    statistics: Statistics,
+    session: &SessionState,
+    projection: Option<&Vec<usize>>,
+    filters: &[Expr],
+    limit: Option<usize>,
+) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
+    // Create a unique URI for this particular object store
+    let object_store_url = ObjectStoreUrl::parse(
+        "iceberg://".to_owned()
+            + &util::strip_prefix(table.metadata().location()).replace('/', "-"),
+    )?;
+    let url: &Url = object_store_url.as_ref();
+    session.runtime_env().register_object_store(
+        url.scheme(),
+        url.host_str().unwrap_or_default(),
+        table.object_store(),
+    );
+
+    // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
+    // This way data files with the same partition value are mapped to the same vector.
+    let mut file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> = HashMap::new();
+    // If there is a filter expression the manifests to read are pruned based on the pruning statistics available in the manifest_list file.
+    if let Some(Some(predicate)) =
+        (!filters.is_empty()).then_some(conjunction(filters.iter().cloned()))
+    {
+        let pruning_predicate = PruningPredicate::try_new(predicate, schema.clone())?;
+        let manifests_to_prune = pruning_predicate.prune(&PruneManifests::from(table))?;
+        let files = table
+            .files(Some(manifests_to_prune))
+            .await
+            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        // After the first pruning stage the data_files are pruned again based on the pruning statistics in the manifest files.
+        let files_to_prune = pruning_predicate.prune(&PruneDataFiles::new(table, &files))?;
+        files
+            .into_iter()
+            .zip(files_to_prune.into_iter())
+            .for_each(|(manifest, prune_file)| {
+                if !prune_file {
+                    let partition_values = manifest
+                        .partition_values()
+                        .iter()
+                        .map(|value| match value {
+                            Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
+                            None => ScalarValue::Null,
+                        })
+                        .collect::<Vec<ScalarValue>>();
+                    let object_meta = ObjectMeta {
+                        location: util::strip_prefix(manifest.file_path()).into(),
+                        size: manifest.file_size_in_bytes() as usize,
+                        last_modified: {
+                            let last_updated_ms = table.metadata().last_updated_ms();
+                            let secs = last_updated_ms / 1000;
+                            let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
+                            DateTime::from_utc(
+                                NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(),
+                                Utc,
+                            )
+                        },
+                    };
+                    let file = PartitionedFile {
+                        object_meta,
+                        partition_values,
+                        range: None,
+                        extensions: None,
+                    };
+                    file_groups
+                        .entry(file.partition_values.clone())
+                        .or_default()
+                        .push(file);
+                };
+            });
+    } else {
+        let files = table
+            .files(None)
+            .await
+            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        files.into_iter().for_each(|manifest| {
+            let partition_values = manifest
+                .partition_values()
+                .iter()
+                .map(|value| match value {
+                    Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
+                    None => ScalarValue::Null,
+                })
+                .collect::<Vec<ScalarValue>>();
+            let object_meta = ObjectMeta {
+                location: util::strip_prefix(manifest.file_path()).into(),
+                size: manifest.file_size_in_bytes() as usize,
+                last_modified: {
+                    let last_updated_ms = table.metadata().last_updated_ms();
+                    let secs = last_updated_ms / 1000;
+                    let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
+                    DateTime::from_utc(NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(), Utc)
+                },
+            };
+            let file = PartitionedFile {
+                object_meta,
+                partition_values,
+                range: None,
+                extensions: None,
+            };
+            file_groups
+                .entry(file.partition_values.clone())
+                .or_default()
+                .push(file);
+        });
+    };
+
+    // Get all partition columns
+    let table_partition_cols: Vec<(String, DataType)> = table
+        .metadata()
+        .default_spec()
+        .iter()
+        .map(|field| {
+            (
+                field.name.clone(),
+                schema.field(field.field_id as usize).data_type().clone(),
+            )
+        })
+        .collect();
+
+    // Remove the partition columns from the schema. The values for the partition column are stored in the partition values
+    let file_schema = Arc::new(ArrowSchema::new(
+        schema
+            .fields()
+            .iter()
+            .filter(|field| {
+                !table_partition_cols.contains(&(field.name().clone(), field.data_type().clone()))
+            })
+            .cloned()
+            .collect(),
+    ));
+
+    // Get the ids of the partition columns
+    let partition_ids: Vec<usize> = schema
+        .fields()
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, field)| {
+            if table_partition_cols.contains(&(field.name().clone(), field.data_type().clone())) {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Change the projection according to the previous schema change
+    let projection = projection.clone().map(|projection| {
+        projection
+            .iter()
+            .map(|idx| {
+                if partition_ids.contains(idx) {
+                    file_schema.fields.len() + partition_ids.iter().position(|x| x == idx).unwrap()
+                } else {
+                    partition_ids
+                        .iter()
+                        .fold(*idx, |acc, x| if idx > x { acc - 1 } else { acc })
+                }
+            })
+            .collect()
+    });
+
+    let file_scan_config = FileScanConfig {
+        object_store_url,
+        file_schema,
+        file_groups: file_groups.into_values().collect(),
+        statistics,
+        projection,
+        limit,
+        table_partition_cols,
+        output_ordering: None,
+        infinite_source: false,
+    };
+    ParquetFormat::default()
+        .create_physical_plan(session, file_scan_config, filters)
+        .await
 }
 
 #[cfg(test)]
