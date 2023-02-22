@@ -30,8 +30,8 @@ use url::Url;
 use crate::pruning_statistics::{PruneDataFiles, PruneManifests};
 
 use iceberg_rust::{
-    arrow::schema::iceberg_to_arrow_schema, catalog::relation::Relation,
-    model::view_metadata::Representation, table::Table, util, view::View,
+    catalog::relation::Relation, model::view_metadata::Representation, table::Table, util,
+    view::View,
 };
 // mod value;
 
@@ -83,7 +83,7 @@ impl TableProvider for DataFusionTable {
             Relation::Table(table) => table.schema(),
             Relation::View(view) => view.schema().unwrap(),
         };
-        Arc::new(iceberg_to_arrow_schema(schema).unwrap())
+        Arc::new(schema.try_into().unwrap())
     }
     fn table_type(&self) -> TableType {
         match &self.0 {

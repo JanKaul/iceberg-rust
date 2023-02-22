@@ -26,7 +26,6 @@ use datafusion::{
 };
 
 use iceberg_rust::{
-    arrow::schema::iceberg_to_arrow_schema,
     model::{bytes::bytes_to_any, manifest::ManifestEntry},
     table::Table,
 };
@@ -41,7 +40,7 @@ impl<'table> From<&'table Table> for PruneManifests<'table> {
 
 impl<'table> PruningStatistics for PruneManifests<'table> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = iceberg_to_arrow_schema(self.0.schema()).ok()?;
+        let schema: Schema = self.0.schema().try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
         let min_values =
@@ -71,7 +70,7 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
         any_iter_to_array(min_values, datatype).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = iceberg_to_arrow_schema(self.0.schema()).ok()?;
+        let schema: Schema = self.0.schema().try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
         let max_values =
@@ -104,7 +103,7 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
         self.0.manifests().len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = iceberg_to_arrow_schema(self.0.schema()).ok()?;
+        let schema: Schema = self.0.schema().try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let contains_null =
             self.0
@@ -149,7 +148,7 @@ impl<'table, 'manifests> PruneDataFiles<'table, 'manifests> {
 
 impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = iceberg_to_arrow_schema(self.table.schema()).ok()?;
+        let schema: Schema = self.table.schema().try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
         let min_values = self
@@ -164,7 +163,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         any_iter_to_array(min_values, datatype).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = iceberg_to_arrow_schema(self.table.schema()).ok()?;
+        let schema: Schema = self.table.schema().try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
         let max_values = self
@@ -182,7 +181,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         self.files.len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = iceberg_to_arrow_schema(self.table.schema()).ok()?;
+        let schema: Schema = self.table.schema().try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let null_counts = self
             .files
