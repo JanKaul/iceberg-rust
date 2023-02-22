@@ -14,11 +14,13 @@ anyhow = "1.0.68"
 apache-avro = "0.14.0"
 arrow = "32.0.0"
 async-trait = "0.1.60"
+bytes = "1.4.0"
 chrono = { version = "0.4.19", default-features = false, features = ["serde"] }
 futures = "0.3.25"
 getrandom = "0.2.8"
 itertools = "0.10.5"
 object_store = { version = "0.5.2", features = ["aws", "gcp"] }
+parquet = { version = "32.0.0", features = ["async"] }
 rust_decimal = "1.27.0"
 serde = { version = "1.0.151", features = ["derive"] }
 serde_bytes = "0.11.8"

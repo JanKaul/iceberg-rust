@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use object_store::path::Path;
 
 use crate::{
+    file_format::parquet::parquet_metadata,
     model::{
         manifest::{
             partition_value_schema, Content, DataFileV1, DataFileV2, FileFormat, ManifestEntry,
@@ -59,6 +60,7 @@ impl Operation {
             Operation::NewFastAppend(paths) => {
                 let object_store = table.object_store();
                 let table_metadata = table.metadata();
+                let files_metadata = parquet_metadata(paths, object_store.clone()).await?;
                 let manifest_bytes = match table_metadata {
                     TableMetadata::V1(metadata) => {
                         let manifest_schema =
@@ -71,12 +73,12 @@ impl Operation {
                             ))?;
                         let mut manifest_writer =
                             apache_avro::Writer::new(&manifest_schema, Vec::new());
-                        for path in paths {
+                        for file in files_metadata {
                             let manifest_entry = ManifestEntryV1 {
                                 status: Status::Added,
                                 snapshot_id: metadata.current_snapshot_id.unwrap_or(1),
                                 data_file: DataFileV1 {
-                                    file_path: path,
+                                    file_path: file.0,
                                     file_format: FileFormat::Parquet,
                                     partition: Struct::from_iter(
                                         table_metadata
@@ -84,9 +86,9 @@ impl Operation {
                                             .iter()
                                             .map(|field| (field.name.to_owned(), None)),
                                     ),
-                                    record_count: 4,
-                                    file_size_in_bytes: 1200,
-                                    block_size_in_bytes: 400,
+                                    record_count: file.2.file_metadata().num_rows(),
+                                    file_size_in_bytes: file.1.size as i64,
+                                    block_size_in_bytes: file.1.size as i64,
                                     file_ordinal: None,
                                     sort_columns: None,
                                     column_sizes: None,
@@ -116,7 +118,7 @@ impl Operation {
                             ))?;
                         let mut manifest_writer =
                             apache_avro::Writer::new(&manifest_schema, Vec::new());
-                        for path in paths {
+                        for file in files_metadata {
                             let manifest_entry = ManifestEntry::V2(ManifestEntryV2 {
                                 status: Status::Added,
                                 snapshot_id: metadata.current_snapshot_id,
@@ -126,7 +128,7 @@ impl Operation {
                                     .map(|snapshots| snapshots.last().unwrap().sequence_number),
                                 data_file: DataFileV2 {
                                     content: Content::Data,
-                                    file_path: path,
+                                    file_path: file.0,
                                     file_format: FileFormat::Parquet,
                                     partition: Struct::from_iter(
                                         table_metadata
@@ -134,8 +136,8 @@ impl Operation {
                                             .iter()
                                             .map(|field| (field.name.to_owned(), None)),
                                     ),
-                                    record_count: 4,
-                                    file_size_in_bytes: 1200,
+                                    record_count: file.2.file_metadata().num_rows(),
+                                    file_size_in_bytes: file.1.size as i64,
                                     column_sizes: None,
                                     value_counts: None,
                                     null_value_counts: None,
