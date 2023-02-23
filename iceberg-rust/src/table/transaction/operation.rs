@@ -86,6 +86,22 @@ impl Operation {
                     })
                     .collect::<Vec<FieldSummary>>();
 
+                let manifest_list_location: Path = table_metadata
+                    .manifest_list()
+                    .ok_or_else(|| anyhow!("No manifest list in table metadata."))?
+                    .into();
+
+                let manifest_list_bytes: Vec<u8> = object_store
+                    .get(&manifest_list_location)
+                    .await?
+                    .bytes()
+                    .await?
+                    .into();
+
+                let manifest_list_reader = apache_avro::Reader::new(&*manifest_list_bytes)?;
+
+                let manifest_count = apache_avro::Reader::new(&*manifest_list_bytes)?.count();
+
                 let manifest_bytes = match table_metadata {
                     TableMetadata::V1(metadata) => {
                         let manifest_schema =
@@ -186,15 +202,14 @@ impl Operation {
                     }
                 };
                 let manifest_length: i64 = manifest_bytes.len() as i64;
-                let manifest_list_location: Path = table_metadata
-                    .manifest_list()
-                    .ok_or_else(|| anyhow!("No manifest list in table metadata."))?
-                    .into();
+
                 let manifest_location: Path = (manifest_list_location
                     .to_string()
                     .trim_end_matches(".avro")
                     .to_owned()
-                    + "-m0.avro")
+                    + "-m"
+                    + &manifest_count.to_string()
+                    + ".avro")
                     .into();
                 object_store
                     .put(&manifest_location, manifest_bytes.into())
@@ -206,15 +221,9 @@ impl Operation {
                         )?;
                         let mut manifest_list_writer =
                             apache_avro::Writer::new(&manifest_list_schema, Vec::new());
-                        let bytes: Vec<u8> = object_store
-                            .get(&manifest_list_location)
-                            .await?
-                            .bytes()
-                            .await?
-                            .into();
-                        if !bytes.is_empty() {
-                            let reader = apache_avro::Reader::new(&*bytes)?;
-                            manifest_list_writer.extend(reader.filter_map(Result::ok))?;
+                        if !manifest_list_bytes.is_empty() {
+                            manifest_list_writer
+                                .extend(manifest_list_reader.filter_map(Result::ok))?;
                         }
                         let manifest_file = ManifestFile::V1(ManifestFileV1 {
                             manifest_path: manifest_location.to_string(),
@@ -240,15 +249,10 @@ impl Operation {
                         )?;
                         let mut manifest_list_writer =
                             apache_avro::Writer::new(&manifest_list_schema, Vec::new());
-                        let bytes: Vec<u8> = object_store
-                            .get(&manifest_list_location)
-                            .await?
-                            .bytes()
-                            .await?
-                            .into();
-                        if !bytes.is_empty() {
-                            let reader = apache_avro::Reader::new(&*bytes)?;
-                            manifest_list_writer.extend(reader.filter_map(Result::ok))?;
+
+                        if !manifest_list_bytes.is_empty() {
+                            manifest_list_writer
+                                .extend(manifest_list_reader.filter_map(Result::ok))?;
                         }
                         let manifest_file = ManifestFile::V2(ManifestFileV2 {
                             manifest_path: manifest_location.to_string(),
