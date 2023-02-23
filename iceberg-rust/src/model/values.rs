@@ -8,12 +8,14 @@ use std::{
     ops::Deref,
 };
 
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use rust_decimal::Decimal;
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeStruct,
     Deserialize, Deserializer, Serialize,
 };
+use serde_bytes::ByteBuf;
 
 /// Values present in iceberg type
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -62,13 +64,63 @@ pub enum Value {
     Map(HashMap<String, Option<Value>>),
 }
 
+impl Into<ByteBuf> for Value {
+    fn into(self) -> ByteBuf {
+        match self {
+            Self::Boolean(val) => {
+                if val {
+                    ByteBuf::from([0u8])
+                } else {
+                    ByteBuf::from([1u8])
+                }
+            }
+            Self::Int(val) => ByteBuf::from(val.to_le_bytes()),
+            Self::LongInt(val) => ByteBuf::from(val.to_le_bytes()),
+            Self::Double(val) => ByteBuf::from(val.to_le_bytes()),
+            Self::LongFloat(val) => ByteBuf::from(val.to_le_bytes()),
+            Self::Date(val) => ByteBuf::from(
+                (val.signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+                    .num_days() as i32)
+                    .to_le_bytes(),
+            ),
+            Self::Time(val) => ByteBuf::from(
+                (val.signed_duration_since(
+                    NaiveTime::from_num_seconds_from_midnight_opt(0, 0).unwrap(),
+                )
+                .num_microseconds()
+                .unwrap())
+                .to_le_bytes(),
+            ),
+            Self::Timestamp(val) => ByteBuf::from(
+                (val.signed_duration_since(NaiveDateTime::from_timestamp_opt(0, 0).unwrap())
+                    .num_microseconds()
+                    .unwrap())
+                .to_le_bytes(),
+            ),
+            Self::TimestampTZ(val) => ByteBuf::from(
+                (val.signed_duration_since(NaiveDateTime::from_timestamp_opt(0, 0).unwrap())
+                    .num_microseconds()
+                    .unwrap())
+                .to_le_bytes(),
+            ),
+            Self::String(val) => ByteBuf::from(val.as_bytes()),
+            Self::UUID(val) => ByteBuf::from(val.as_bytes().as_slice()),
+            Self::Fixed(_, val) => ByteBuf::from(val),
+            Self::Binary(val) => ByteBuf::from(val),
+            _ => todo!(),
+        }
+    }
+}
+
 /// The partition struct stores the tuple of partition values for each file.
 /// Its type is derived from the partition fields of the partition spec used to write the manifest file.
 /// In v2, the partition struct’s field ids must match the ids from the partition spec.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Struct {
-    fields: Vec<Option<Value>>,
-    lookup: BTreeMap<String, usize>,
+    /// Vector to store the field values
+    pub fields: Vec<Option<Value>>,
+    /// A lookup that matches the field name to the entry in the vector
+    pub lookup: BTreeMap<String, usize>,
 }
 
 impl Deref for Struct {
