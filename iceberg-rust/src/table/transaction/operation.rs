@@ -3,6 +3,7 @@
 */
 
 use anyhow::{anyhow, Result};
+use apache_avro::from_value;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use object_store::path::Path;
 use serde_bytes::ByteBuf;
@@ -37,8 +38,11 @@ pub enum Operation {
     // ReplaceSortOrder,
     // /// Update the table location
     // UpdateLocation,
-    // /// Append new files to the table
-    // NewAppend,
+    /// Append new files to the table
+    NewAppend {
+        paths: Vec<String>,
+        partition_values: Vec<Struct>,
+    },
     /// Quickly append new files to the table
     NewFastAppend {
         paths: Vec<String>,
@@ -211,6 +215,251 @@ impl Operation {
                     + &manifest_count.to_string()
                     + ".avro")
                     .into();
+                object_store
+                    .put(&manifest_location, manifest_bytes.into())
+                    .await?;
+                let manifest_list_bytes = match table_metadata {
+                    TableMetadata::V1(table_metadata) => {
+                        let manifest_list_schema = apache_avro::Schema::parse_str(
+                            &ManifestFile::schema(&FormatVersion::V1),
+                        )?;
+                        let mut manifest_list_writer =
+                            apache_avro::Writer::new(&manifest_list_schema, Vec::new());
+                        if !manifest_list_bytes.is_empty() {
+                            manifest_list_writer
+                                .extend(manifest_list_reader.filter_map(Result::ok))?;
+                        }
+                        let manifest_file = ManifestFile::V1(ManifestFileV1 {
+                            manifest_path: manifest_location.to_string(),
+                            manifest_length: manifest_length,
+                            partition_spec_id: table_metadata.default_spec_id.unwrap_or_default(),
+                            added_snapshot_id: table_metadata.current_snapshot_id.unwrap(),
+                            added_files_count: Some(files_count),
+                            existing_files_count: Some(0),
+                            deleted_files_count: Some(0),
+                            added_rows_count: Some(added_rows_count),
+                            existing_rows_count: Some(0),
+                            deleted_rows_count: Some(0),
+                            partitions: Some(partitions),
+                            key_metadata: None,
+                        });
+                        manifest_list_writer.append_ser(manifest_file)?;
+
+                        manifest_list_writer.into_inner()?
+                    }
+                    TableMetadata::V2(table_metadata) => {
+                        let manifest_list_schema = apache_avro::Schema::parse_str(
+                            &ManifestFile::schema(&FormatVersion::V2),
+                        )?;
+                        let mut manifest_list_writer =
+                            apache_avro::Writer::new(&manifest_list_schema, Vec::new());
+
+                        if !manifest_list_bytes.is_empty() {
+                            manifest_list_writer
+                                .extend(manifest_list_reader.filter_map(Result::ok))?;
+                        }
+                        let manifest_file = ManifestFile::V2(ManifestFileV2 {
+                            manifest_path: manifest_location.to_string(),
+                            manifest_length: manifest_length,
+                            partition_spec_id: table_metadata.default_spec_id,
+                            content: Content::Data,
+                            sequence_number: table_metadata.last_sequence_number,
+                            min_sequence_number: 0,
+                            added_snapshot_id: table_metadata
+                                .current_snapshot_id
+                                .unwrap_or_default(),
+                            added_files_count: files_count,
+                            existing_files_count: 0,
+                            deleted_files_count: 0,
+                            added_rows_count,
+                            existing_rows_count: 0,
+                            deleted_rows_count: 0,
+                            partitions: Some(partitions),
+                            key_metadata: None,
+                        });
+                        manifest_list_writer.append_ser(manifest_file)?;
+
+                        manifest_list_writer.into_inner()?
+                    }
+                };
+                object_store
+                    .put(&manifest_list_location, manifest_list_bytes.into())
+                    .await?;
+                Ok(())
+            }
+            Operation::NewAppend {
+                paths,
+                partition_values,
+            } => {
+                let object_store = table.object_store();
+                let table_metadata = table.metadata();
+                let files_count = paths.len() as i32;
+                let files_metadata = parquet_metadata(paths, object_store.clone()).await?;
+
+                let mut added_rows_count = 0;
+                let mut partitions = table_metadata
+                    .default_spec()
+                    .iter()
+                    .map(|_| FieldSummary {
+                        contains_null: false,
+                        contains_nan: None,
+                        lower_bound: None,
+                        upper_bound: None,
+                    })
+                    .collect::<Vec<FieldSummary>>();
+
+                let manifest_list_location: Path = table_metadata
+                    .manifest_list()
+                    .ok_or_else(|| anyhow!("No manifest list in table metadata."))?
+                    .into();
+
+                let manifest_list_bytes: Vec<u8> = object_store
+                    .get(&manifest_list_location)
+                    .await?
+                    .bytes()
+                    .await?
+                    .into();
+
+                let manifest_list_reader = apache_avro::Reader::new(&*manifest_list_bytes)?;
+
+                let last_manifest = apache_avro::Reader::new(&*manifest_list_bytes)?
+                    .last()
+                    .and_then(|res| res.ok())
+                    .and_then(|value| from_value::<ManifestFile>(&value).ok());
+
+                let manifest_location: Path = match last_manifest.as_ref() {
+                    Some(manifest) => manifest.manifest_path().into(),
+                    None => (manifest_list_location
+                        .to_string()
+                        .trim_end_matches(".avro")
+                        .to_owned()
+                        + "-m0.avro")
+                        .into(),
+                };
+
+                let manifest_bytes = match table_metadata {
+                    TableMetadata::V1(metadata) => {
+                        let manifest_schema =
+                            apache_avro::Schema::parse_str(&ManifestEntry::schema(
+                                &partition_value_schema(
+                                    table_metadata.default_spec(),
+                                    table_metadata.current_schema(),
+                                )?,
+                                &table_metadata.format_version(),
+                            ))?;
+                        let mut manifest_writer =
+                            apache_avro::Writer::new(&manifest_schema, Vec::new());
+                        if let Some(manifest) = last_manifest {
+                            let manifest_bytes: Vec<u8> = object_store
+                                .get(&manifest.manifest_path().into())
+                                .await?
+                                .bytes()
+                                .await?
+                                .into();
+
+                            let manifest_reader = apache_avro::Reader::new(&*manifest_bytes)?;
+                            manifest_writer.extend(manifest_reader.filter_map(Result::ok))?;
+                        }
+                        for (file, partition_values) in
+                            files_metadata.into_iter().zip(partition_values.into_iter())
+                        {
+                            let data_file = parquet_to_datafilev2(
+                                file.0,
+                                file.1,
+                                file.2,
+                                partition_values,
+                                table_metadata.current_schema(),
+                            )?;
+                            added_rows_count += data_file.record_count;
+                            update_partitions(
+                                &mut partitions,
+                                &data_file.partition,
+                                table_metadata.default_spec(),
+                            )?;
+                            let manifest_entry = ManifestEntry::V1(ManifestEntryV1 {
+                                status: Status::Added,
+                                snapshot_id: metadata.current_snapshot_id.unwrap_or(1),
+                                data_file: DataFileV1 {
+                                    file_path: data_file.file_path,
+                                    file_format: data_file.file_format,
+                                    partition: data_file.partition,
+                                    record_count: data_file.record_count,
+                                    file_size_in_bytes: data_file.file_size_in_bytes,
+                                    block_size_in_bytes: data_file.file_size_in_bytes,
+                                    file_ordinal: None,
+                                    sort_columns: None,
+                                    column_sizes: data_file.column_sizes,
+                                    value_counts: data_file.value_counts,
+                                    null_value_counts: data_file.null_value_counts,
+                                    nan_value_counts: data_file.nan_value_counts,
+                                    distinct_counts: data_file.distinct_counts,
+                                    lower_bounds: data_file.lower_bounds,
+                                    upper_bounds: data_file.upper_bounds,
+                                    key_metadata: data_file.key_metadata,
+                                    split_offsets: data_file.split_offsets,
+                                    sort_order_id: data_file.sort_order_id,
+                                },
+                            });
+
+                            manifest_writer.append_ser(manifest_entry)?;
+                        }
+                        manifest_writer.into_inner()?
+                    }
+                    TableMetadata::V2(metadata) => {
+                        let manifest_schema =
+                            apache_avro::Schema::parse_str(&ManifestEntry::schema(
+                                &partition_value_schema(
+                                    table_metadata.default_spec(),
+                                    table_metadata.current_schema(),
+                                )?,
+                                &table_metadata.format_version(),
+                            ))?;
+                        let mut manifest_writer =
+                            apache_avro::Writer::new(&manifest_schema, Vec::new());
+                        if let Some(manifest) = last_manifest {
+                            let manifest_bytes: Vec<u8> = object_store
+                                .get(&manifest.manifest_path().into())
+                                .await?
+                                .bytes()
+                                .await?
+                                .into();
+
+                            let manifest_reader = apache_avro::Reader::new(&*manifest_bytes)?;
+                            manifest_writer.extend(manifest_reader.filter_map(Result::ok))?;
+                        }
+                        for (file, partition_values) in
+                            files_metadata.into_iter().zip(partition_values.into_iter())
+                        {
+                            let data_file = parquet_to_datafilev2(
+                                file.0,
+                                file.1,
+                                file.2,
+                                partition_values,
+                                table_metadata.current_schema(),
+                            )?;
+                            added_rows_count += data_file.record_count;
+                            update_partitions(
+                                &mut partitions,
+                                &data_file.partition,
+                                table_metadata.default_spec(),
+                            )?;
+                            let manifest_entry = ManifestEntry::V2(ManifestEntryV2 {
+                                status: Status::Added,
+                                snapshot_id: metadata.current_snapshot_id,
+                                sequence_number: metadata
+                                    .snapshots
+                                    .as_ref()
+                                    .map(|snapshots| snapshots.last().unwrap().sequence_number),
+                                data_file,
+                            });
+
+                            manifest_writer.append_ser(manifest_entry)?;
+                        }
+                        manifest_writer.into_inner()?
+                    }
+                };
+                let manifest_length: i64 = manifest_bytes.len() as i64;
+
                 object_store
                     .put(&manifest_location, manifest_bytes.into())
                     .await?;
