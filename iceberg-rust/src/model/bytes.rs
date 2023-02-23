@@ -28,7 +28,7 @@ pub fn bytes_to_any(bytes: &[u8], data_type: &Type) -> Result<Box<dyn Any>> {
             PrimitiveType::Timestamp => Ok(Box::new(i64::from_le_bytes(bytes.try_into()?))),
             PrimitiveType::Timestampz => Ok(Box::new(i64::from_le_bytes(bytes.try_into()?))),
             PrimitiveType::String => Ok(Box::new(std::str::from_utf8(bytes)?.to_string())),
-            PrimitiveType::Uuid => Ok(Box::new(i128::from_le_bytes(bytes.try_into()?))),
+            PrimitiveType::Uuid => Ok(Box::new(i128::from_be_bytes(bytes.try_into()?))),
             PrimitiveType::Fixed(_len) => Ok(Box::new(Vec::from(bytes))),
             PrimitiveType::Binary => Ok(Box::new(Vec::from(bytes))),
             PrimitiveType::Decimal {
