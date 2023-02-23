@@ -9,7 +9,7 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(untagged)]
 /// All data types are either primitives or nested types, which are maps, lists, or structs.
 pub enum Type {
@@ -176,7 +176,7 @@ impl fmt::Display for PrimitiveType {
 }
 
 /// DataType for a specific struct
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename = "struct", tag = "type")]
 pub struct StructType {
     /// Struct fields
@@ -184,9 +184,13 @@ pub struct StructType {
 }
 
 impl StructType {
-    /// Get structfield at certain index
+    /// Get structfield with certain id
     pub fn get(&self, index: usize) -> Option<&StructField> {
         self.fields.iter().find(|field| field.id as usize == index)
+    }
+    /// Get structfield with certain name
+    pub fn get_name(&self, name: &str) -> Option<&StructField> {
+        self.fields.iter().find(|field| field.name == name)
     }
 }
 
@@ -198,7 +202,7 @@ impl Index<usize> for StructType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 /// A struct is a tuple of typed values. Each field in the tuple is named and has an integer id that is unique in the table schema.
 /// Each field can be either optional or required, meaning that values can (or cannot) be null. Fields may be any type.
 /// Fields may have an optional comment or doc string. Fields can have default values.
@@ -217,7 +221,7 @@ pub struct StructField {
     pub doc: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename = "list", rename_all = "kebab-case", tag = "type")]
 /// A list is a collection of values with some element type. The element field has an integer id that is unique in the table schema.
 /// Elements can be either optional or required. Element types may be any type.
@@ -232,7 +236,7 @@ pub struct ListType {
     pub element: Box<Type>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename = "map", rename_all = "kebab-case", tag = "type")]
 /// A map is a collection of key-value pairs with a key type and a value type.
 /// Both the key field and value field each have an integer id that is unique in the table schema.

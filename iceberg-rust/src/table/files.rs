@@ -99,6 +99,7 @@ mod tests {
         model::{
             data_types::{PrimitiveType, StructField, StructType, Type},
             schema::SchemaV2,
+            values::Struct,
         },
         table::table_builder::TableBuilder,
     };
@@ -128,28 +129,37 @@ mod tests {
                 ],
             },
         };
-        let mut table =
-            TableBuilder::new_filesystem_table("test/append", schema, Arc::clone(&object_store))
-                .unwrap()
-                .commit()
-                .await
-                .unwrap();
+        let mut table = TableBuilder::new_filesystem_table(
+            "test/append",
+            schema.clone(),
+            Arc::clone(&object_store),
+        )
+        .unwrap()
+        .commit()
+        .await
+        .unwrap();
 
         table
             .new_transaction()
-            .fast_append(vec![
-                "test/append/data/file1.parquet".to_string(),
-                "test/append/data/file2.parquet".to_string(),
-            ])
+            .fast_append(
+                vec![
+                    "test/append/data/file1.parquet".to_string(),
+                    "test/append/data/file2.parquet".to_string(),
+                ],
+                vec![Struct::from_iter([]), Struct::from_iter([])],
+            )
             .commit()
             .await
             .unwrap();
         table
             .new_transaction()
-            .fast_append(vec![
-                "test/append/data/file3.parquet".to_string(),
-                "test/append/data/file4.parquet".to_string(),
-            ])
+            .fast_append(
+                vec![
+                    "test/append/data/file3.parquet".to_string(),
+                    "test/append/data/file4.parquet".to_string(),
+                ],
+                vec![Struct::from_iter([]), Struct::from_iter([])],
+            )
             .commit()
             .await
             .unwrap();

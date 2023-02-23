@@ -6,7 +6,11 @@ use futures::StreamExt;
 use object_store::path::Path;
 use uuid::Uuid;
 
-use crate::{catalog::relation::Relation, model::schema::SchemaV2, table::Table};
+use crate::{
+    catalog::relation::Relation,
+    model::{schema::SchemaV2, values::Struct},
+    table::Table,
+};
 use anyhow::{anyhow, Result};
 
 use self::operation::Operation;
@@ -38,8 +42,11 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Quickly append files to the table
-    pub fn fast_append(mut self, files: Vec<String>) -> Self {
-        self.operations.push(Operation::NewFastAppend(files));
+    pub fn fast_append(mut self, files: Vec<String>, partition_values: Vec<Struct>) -> Self {
+        self.operations.push(Operation::NewFastAppend {
+            paths: files,
+            partition_values,
+        });
         self
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.

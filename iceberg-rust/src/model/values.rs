@@ -28,9 +28,9 @@ pub enum Value {
     /// Stored as 8-byte little-endian
     LongInt(i64),
     /// Stored as 4-byte little-endian
-    Double(f32),
+    Float(f32),
     /// Stored as 8-byte little-endian
-    LongFloat(f64),
+    Double(f64),
     /// Stores days from the 1970-01-01 in an 4-byte little-endian int
     Date(chrono::NaiveDate),
     /// Stores microseconds from midnight in an 8-byte little-endian long
@@ -76,8 +76,8 @@ impl Into<ByteBuf> for Value {
             }
             Self::Int(val) => ByteBuf::from(val.to_le_bytes()),
             Self::LongInt(val) => ByteBuf::from(val.to_le_bytes()),
+            Self::Float(val) => ByteBuf::from(val.to_le_bytes()),
             Self::Double(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::LongFloat(val) => ByteBuf::from(val.to_le_bytes()),
             Self::Date(val) => ByteBuf::from(
                 (val.signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
                     .num_days() as i32)

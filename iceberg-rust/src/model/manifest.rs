@@ -365,7 +365,7 @@ struct KeyValue<T: Serialize + Clone> {
 
 /// Utility struct to convert avro maps to rust hashmaps. Derefences to a Hashmap.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct AvroMap<T: Serialize + Clone>(HashMap<i32, T>);
+pub struct AvroMap<T: Serialize + Clone>(pub HashMap<i32, T>);
 
 impl<T: Serialize + Clone> core::ops::Deref for AvroMap<T> {
     type Target = HashMap<i32, T>;

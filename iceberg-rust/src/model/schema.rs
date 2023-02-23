@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use super::data_types::StructType;
 
 /// Schema of an iceberg table
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(untagged)]
 pub enum Schema {
     /// Version 2 of the table schema
@@ -25,7 +25,7 @@ impl Schema {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Names and types of fields in a table.
 pub struct SchemaV2 {
@@ -40,7 +40,7 @@ pub struct SchemaV2 {
     pub fields: StructType,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Names and types of fields in a table.
 pub struct SchemaV1 {

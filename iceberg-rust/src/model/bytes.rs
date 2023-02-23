@@ -31,10 +31,7 @@ pub fn bytes_to_any(bytes: &[u8], data_type: &Type) -> Result<Box<dyn Any>> {
             PrimitiveType::Uuid => Ok(Box::new(i128::from_be_bytes(bytes.try_into()?))),
             PrimitiveType::Fixed(_len) => Ok(Box::new(Vec::from(bytes))),
             PrimitiveType::Binary => Ok(Box::new(Vec::from(bytes))),
-            PrimitiveType::Decimal {
-                precision: _,
-                scale: _,
-            } => Ok(Box::new(i128::from_le_bytes(bytes.try_into()?))),
+            _ => Err(anyhow!("Decimal cannot be stored as bytes.")),
         },
         _ => Err(anyhow!("Only primitive types can be stored as bytes.")),
     }
