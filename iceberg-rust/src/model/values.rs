@@ -8,7 +8,6 @@ use std::{
     ops::Deref,
 };
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use rust_decimal::Decimal;
 use serde::{
     de::{MapAccess, Visitor},
@@ -32,17 +31,17 @@ pub enum Value {
     /// Stored as 8-byte little-endian
     Double(f64),
     /// Stores days from the 1970-01-01 in an 4-byte little-endian int
-    Date(chrono::NaiveDate),
+    Date(i32),
     /// Stores microseconds from midnight in an 8-byte little-endian long
-    Time(chrono::NaiveTime),
+    Time(i64),
     /// Stores microseconds from 1970-01-01 00:00:00.000000 in an 8-byte little-endian long
-    Timestamp(chrono::naive::NaiveDateTime),
+    Timestamp(i64),
     /// Stores microseconds from 1970-01-01 00:00:00.000000 in an 8-byte little-endian long
-    TimestampTZ(chrono::NaiveDateTime),
+    TimestampTZ(i64),
     /// UTF-8 bytes (without length)
     String(String),
     /// 16-byte big-endian value
-    UUID(uuid::Uuid),
+    UUID(i128),
     /// Binary value
     Fixed(usize, Vec<u8>),
     /// Binary value (without length)
@@ -78,33 +77,12 @@ impl Into<ByteBuf> for Value {
             Self::LongInt(val) => ByteBuf::from(val.to_le_bytes()),
             Self::Float(val) => ByteBuf::from(val.to_le_bytes()),
             Self::Double(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::Date(val) => ByteBuf::from(
-                (val.signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
-                    .num_days() as i32)
-                    .to_le_bytes(),
-            ),
-            Self::Time(val) => ByteBuf::from(
-                (val.signed_duration_since(
-                    NaiveTime::from_num_seconds_from_midnight_opt(0, 0).unwrap(),
-                )
-                .num_microseconds()
-                .unwrap())
-                .to_le_bytes(),
-            ),
-            Self::Timestamp(val) => ByteBuf::from(
-                (val.signed_duration_since(NaiveDateTime::from_timestamp_opt(0, 0).unwrap())
-                    .num_microseconds()
-                    .unwrap())
-                .to_le_bytes(),
-            ),
-            Self::TimestampTZ(val) => ByteBuf::from(
-                (val.signed_duration_since(NaiveDateTime::from_timestamp_opt(0, 0).unwrap())
-                    .num_microseconds()
-                    .unwrap())
-                .to_le_bytes(),
-            ),
+            Self::Date(val) => ByteBuf::from(val.to_le_bytes()),
+            Self::Time(val) => ByteBuf::from(val.to_le_bytes()),
+            Self::Timestamp(val) => ByteBuf::from(val.to_le_bytes()),
+            Self::TimestampTZ(val) => ByteBuf::from(val.to_le_bytes()),
             Self::String(val) => ByteBuf::from(val.as_bytes()),
-            Self::UUID(val) => ByteBuf::from(val.as_bytes().as_slice()),
+            Self::UUID(val) => ByteBuf::from(val.to_be_bytes()),
             Self::Fixed(_, val) => ByteBuf::from(val),
             Self::Binary(val) => ByteBuf::from(val),
             _ => todo!(),
