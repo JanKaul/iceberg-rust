@@ -2,9 +2,11 @@
  * Defines the different [Operation]s on a [Table].
 */
 
+use std::{cell::RefCell, collections::HashSet, rc::Rc, sync::Arc};
+
 use anyhow::{anyhow, Result};
 use apache_avro::from_value;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use futures::{lock::Mutex, stream, StreamExt};
 use object_store::path::Path;
 use serde_bytes::ByteBuf;
 
@@ -40,7 +42,7 @@ pub enum Operation {
     // UpdateLocation,
     /// Append new files to the table
     NewAppend {
-        paths: Vec<String>,
+        partinioned_paths: Vec<Vec<String>>,
         partition_values: Vec<Struct>,
     },
     /// Quickly append new files to the table
@@ -288,25 +290,33 @@ impl Operation {
                 Ok(())
             }
             Operation::NewAppend {
-                paths,
+                partinioned_paths,
                 partition_values,
             } => {
                 let object_store = table.object_store();
                 let table_metadata = table.metadata();
-                let files_count = paths.len() as i32;
-                let files_metadata = parquet_metadata(paths, object_store.clone()).await?;
 
-                let mut added_rows_count = 0;
-                let mut partitions = table_metadata
-                    .default_spec()
+                let partition_values_value = partition_values
                     .iter()
-                    .map(|_| FieldSummary {
-                        contains_null: false,
-                        contains_nan: None,
-                        lower_bound: None,
-                        upper_bound: None,
+                    .map(|values| {
+                        table_metadata
+                            .default_spec()
+                            .iter()
+                            .map(|field| {
+                                values
+                                    .lookup
+                                    .get(&field.name)
+                                    .ok_or_else(|| {
+                                        anyhow!(
+                                            "Partition values missing for column {}.",
+                                            &field.name
+                                        )
+                                    })
+                                    .map(|index| values[*index].clone())
+                            })
+                            .collect::<Result<Vec<_>>>()
                     })
-                    .collect::<Vec<FieldSummary>>();
+                    .collect::<Result<Vec<_>>>()?;
 
                 let manifest_list_location: Path = table_metadata
                     .manifest_list()
@@ -322,214 +332,312 @@ impl Operation {
 
                 let manifest_list_reader = apache_avro::Reader::new(&*manifest_list_bytes)?;
 
-                let last_manifest = apache_avro::Reader::new(&*manifest_list_bytes)?
-                    .last()
-                    .and_then(|res| res.ok())
-                    .and_then(|value| from_value::<ManifestFile>(&value).ok());
+                let manifest_count = apache_avro::Reader::new(&*manifest_list_bytes)?.count();
 
-                let manifest_location: Path = match last_manifest.as_ref() {
-                    Some(manifest) => manifest.manifest_path().into(),
-                    None => (manifest_list_location
-                        .to_string()
-                        .trim_end_matches(".avro")
-                        .to_owned()
-                        + "-m0.avro")
-                        .into(),
-                };
+                let existing_manifests = Rc::new(RefCell::new(HashSet::new()));
 
-                let manifest_bytes = match table_metadata {
-                    TableMetadata::V1(metadata) => {
-                        let manifest_schema =
-                            apache_avro::Schema::parse_str(&ManifestEntry::schema(
-                                &partition_value_schema(
-                                    table_metadata.default_spec(),
-                                    table_metadata.current_schema(),
-                                )?,
-                                &table_metadata.format_version(),
-                            ))?;
-                        let mut manifest_writer =
-                            apache_avro::Writer::new(&manifest_schema, Vec::new());
-                        if let Some(manifest) = last_manifest {
-                            let manifest_bytes: Vec<u8> = object_store
-                                .get(&manifest.manifest_path().into())
-                                .await?
-                                .bytes()
-                                .await?
-                                .into();
+                let manifest_list_schema =
+                    apache_avro::Schema::parse_str(&ManifestFile::schema(&FormatVersion::V1))?;
 
-                            let manifest_reader = apache_avro::Reader::new(&*manifest_bytes)?;
-                            manifest_writer.extend(manifest_reader.filter_map(Result::ok))?;
-                        }
-                        for (file, partition_values) in
-                            files_metadata.into_iter().zip(partition_values.into_iter())
+                let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
+                    &manifest_list_schema,
+                    Vec::new(),
+                )));
+
+                let existing_manifest_iter = manifest_list_reader.filter_map(|manifest| {
+                    let manifest = manifest
+                        .and_then(|value| from_value::<ManifestFile>(&value))
+                        .unwrap();
+                    if let Some(summary) = manifest.partitions() {
+                        if let Some(key) =
+                            partition_values_in_bounds(summary, &partition_values_value)
                         {
-                            let data_file = parquet_to_datafilev2(
-                                file.0,
-                                file.1,
-                                file.2,
-                                partition_values,
-                                table_metadata.current_schema(),
-                            )?;
-                            added_rows_count += data_file.record_count;
-                            update_partitions(
-                                &mut partitions,
-                                &data_file.partition,
-                                table_metadata.default_spec(),
-                            )?;
-                            let manifest_entry = ManifestEntry::V1(ManifestEntryV1 {
-                                status: Status::Added,
-                                snapshot_id: metadata.current_snapshot_id.unwrap_or(1),
-                                data_file: DataFileV1 {
-                                    file_path: data_file.file_path,
-                                    file_format: data_file.file_format,
-                                    partition: data_file.partition,
-                                    record_count: data_file.record_count,
-                                    file_size_in_bytes: data_file.file_size_in_bytes,
-                                    block_size_in_bytes: data_file.file_size_in_bytes,
-                                    file_ordinal: None,
-                                    sort_columns: None,
-                                    column_sizes: data_file.column_sizes,
-                                    value_counts: data_file.value_counts,
-                                    null_value_counts: data_file.null_value_counts,
-                                    nan_value_counts: data_file.nan_value_counts,
-                                    distinct_counts: data_file.distinct_counts,
-                                    lower_bounds: data_file.lower_bounds,
-                                    upper_bounds: data_file.upper_bounds,
-                                    key_metadata: data_file.key_metadata,
-                                    split_offsets: data_file.split_offsets,
-                                    sort_order_id: data_file.sort_order_id,
-                                },
-                            });
-
-                            manifest_writer.append_ser(manifest_entry)?;
+                            let files: Vec<(Vec<String>, Struct)> = partition_values_value
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(i, values)| {
+                                    if key == values
+                                        && !existing_manifests
+                                            .borrow()
+                                            .contains(&partinioned_paths[i])
+                                    {
+                                        existing_manifests
+                                            .borrow_mut()
+                                            .insert(partinioned_paths[i].clone());
+                                        Some((
+                                            partinioned_paths[i].clone(),
+                                            partition_values[i].clone(),
+                                        ))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            Some((Ok(manifest), files))
+                        } else {
+                            None
                         }
-                        manifest_writer.into_inner()?
+                    } else {
+                        None
                     }
-                    TableMetadata::V2(metadata) => {
-                        let manifest_schema =
-                            apache_avro::Schema::parse_str(&ManifestEntry::schema(
-                                &partition_value_schema(
-                                    table_metadata.default_spec(),
-                                    table_metadata.current_schema(),
-                                )?,
-                                &table_metadata.format_version(),
-                            ))?;
-                        let mut manifest_writer =
-                            apache_avro::Writer::new(&manifest_schema, Vec::new());
-                        if let Some(manifest) = last_manifest {
-                            let manifest_bytes: Vec<u8> = object_store
-                                .get(&manifest.manifest_path().into())
-                                .await?
-                                .bytes()
-                                .await?
-                                .into();
+                });
 
-                            let manifest_reader = apache_avro::Reader::new(&*manifest_bytes)?;
-                            manifest_writer.extend(manifest_reader.filter_map(Result::ok))?;
+                let new_manifest_iter = partinioned_paths
+                    .iter()
+                    .zip(partition_values.iter())
+                    .filter_map(|(paths, values)| {
+                        if !existing_manifests.borrow().contains(paths) {
+                            let manifest_location = manifest_list_location
+                                .to_string()
+                                .trim_end_matches(".avro")
+                                .to_owned()
+                                + "-m"
+                                + &manifest_count.to_string()
+                                + ".avro";
+                            let manifest = match &table_metadata {
+                                TableMetadata::V1(table_metadata) => {
+                                    ManifestFile::V1(ManifestFileV1 {
+                                        manifest_path: manifest_location.to_string(),
+                                        manifest_length: 0,
+                                        partition_spec_id: table_metadata
+                                            .default_spec_id
+                                            .unwrap_or_default(),
+                                        added_snapshot_id: table_metadata
+                                            .current_snapshot_id
+                                            .unwrap(),
+                                        added_files_count: Some(0),
+                                        existing_files_count: Some(0),
+                                        deleted_files_count: Some(0),
+                                        added_rows_count: Some(0),
+                                        existing_rows_count: Some(0),
+                                        deleted_rows_count: Some(0),
+                                        partitions: None,
+                                        key_metadata: None,
+                                    })
+                                }
+                                TableMetadata::V2(table_metadata) => {
+                                    ManifestFile::V2(ManifestFileV2 {
+                                        manifest_path: manifest_location.to_string(),
+                                        manifest_length: 0,
+                                        partition_spec_id: table_metadata.default_spec_id,
+                                        content: Content::Data,
+                                        sequence_number: table_metadata.last_sequence_number,
+                                        min_sequence_number: 0,
+                                        added_snapshot_id: table_metadata
+                                            .current_snapshot_id
+                                            .unwrap_or_default(),
+                                        added_files_count: 0,
+                                        existing_files_count: 0,
+                                        deleted_files_count: 0,
+                                        added_rows_count: 0,
+                                        existing_rows_count: 0,
+                                        deleted_rows_count: 0,
+                                        partitions: None,
+                                        key_metadata: None,
+                                    })
+                                }
+                            };
+                            Some((Err(manifest), vec![(paths.clone(), values.clone())]))
+                        } else {
+                            None
                         }
-                        for (file, partition_values) in
-                            files_metadata.into_iter().zip(partition_values.into_iter())
-                        {
-                            let data_file = parquet_to_datafilev2(
-                                file.0,
-                                file.1,
-                                file.2,
-                                partition_values,
-                                table_metadata.current_schema(),
-                            )?;
-                            added_rows_count += data_file.record_count;
-                            update_partitions(
-                                &mut partitions,
-                                &data_file.partition,
-                                table_metadata.default_spec(),
-                            )?;
-                            let manifest_entry = ManifestEntry::V2(ManifestEntryV2 {
-                                status: Status::Added,
-                                snapshot_id: metadata.current_snapshot_id,
-                                sequence_number: metadata
-                                    .snapshots
-                                    .as_ref()
-                                    .map(|snapshots| snapshots.last().unwrap().sequence_number),
-                                data_file,
-                            });
+                    });
 
-                            manifest_writer.append_ser(manifest_entry)?;
+                let manifest_iter = existing_manifest_iter.chain(new_manifest_iter);
+
+                stream::iter(manifest_iter)
+                    .then(|(manifest, files)| {
+                        let object_store = object_store.clone();
+                        async move {
+                            let manifest_schema =
+                                apache_avro::Schema::parse_str(&ManifestEntry::schema(
+                                    &partition_value_schema(
+                                        table_metadata.default_spec(),
+                                        table_metadata.current_schema(),
+                                    )?,
+                                    &table_metadata.format_version(),
+                                ))?;
+
+                            let mut manifest_writer =
+                                apache_avro::Writer::new(&manifest_schema, Vec::new());
+
+                            let mut manifest = match manifest {
+                                Ok(manifest) => {
+                                    let manifest_bytes: Vec<u8> = object_store
+                                        .get(&manifest.manifest_path().into())
+                                        .await?
+                                        .bytes()
+                                        .await?
+                                        .into();
+
+                                    let manifest_reader =
+                                        apache_avro::Reader::new(&*manifest_bytes)?;
+                                    manifest_writer
+                                        .extend(manifest_reader.filter_map(Result::ok))?;
+                                    manifest
+                                }
+                                Err(manifest) => manifest,
+                            };
+                            for (paths, partition_value) in files {
+                                let files_count = manifest.added_files_count().unwrap_or_default()
+                                    + paths.len() as i32;
+                                let files_metadata =
+                                    parquet_metadata(paths, object_store.clone()).await?;
+
+                                let mut added_rows_count = 0;
+                                let mut partitions = match manifest.partitions() {
+                                    Some(partitions) => partitions.clone(),
+                                    None => table_metadata
+                                        .default_spec()
+                                        .iter()
+                                        .map(|_| FieldSummary {
+                                            contains_null: false,
+                                            contains_nan: None,
+                                            lower_bound: None,
+                                            upper_bound: None,
+                                        })
+                                        .collect::<Vec<FieldSummary>>(),
+                                };
+
+                                match table_metadata {
+                                    TableMetadata::V1(metadata) => {
+                                        for file in files_metadata {
+                                            let data_file = parquet_to_datafilev2(
+                                                file.0,
+                                                file.1,
+                                                file.2,
+                                                partition_value.clone(),
+                                                table_metadata.current_schema(),
+                                            )?;
+                                            added_rows_count += data_file.record_count;
+                                            update_partitions(
+                                                &mut partitions,
+                                                &data_file.partition,
+                                                table_metadata.default_spec(),
+                                            )?;
+                                            let manifest_entry =
+                                                ManifestEntry::V1(ManifestEntryV1 {
+                                                    status: Status::Added,
+                                                    snapshot_id: metadata
+                                                        .current_snapshot_id
+                                                        .unwrap_or(1),
+                                                    data_file: DataFileV1 {
+                                                        file_path: data_file.file_path,
+                                                        file_format: data_file.file_format,
+                                                        partition: data_file.partition,
+                                                        record_count: data_file.record_count,
+                                                        file_size_in_bytes: data_file
+                                                            .file_size_in_bytes,
+                                                        block_size_in_bytes: data_file
+                                                            .file_size_in_bytes,
+                                                        file_ordinal: None,
+                                                        sort_columns: None,
+                                                        column_sizes: data_file.column_sizes,
+                                                        value_counts: data_file.value_counts,
+                                                        null_value_counts: data_file
+                                                            .null_value_counts,
+                                                        nan_value_counts: data_file
+                                                            .nan_value_counts,
+                                                        distinct_counts: data_file.distinct_counts,
+                                                        lower_bounds: data_file.lower_bounds,
+                                                        upper_bounds: data_file.upper_bounds,
+                                                        key_metadata: data_file.key_metadata,
+                                                        split_offsets: data_file.split_offsets,
+                                                        sort_order_id: data_file.sort_order_id,
+                                                    },
+                                                });
+
+                                            manifest_writer.append_ser(manifest_entry)?;
+                                        }
+                                    }
+                                    TableMetadata::V2(metadata) => {
+                                        for file in files_metadata {
+                                            let data_file = parquet_to_datafilev2(
+                                                file.0,
+                                                file.1,
+                                                file.2,
+                                                partition_value.clone(),
+                                                table_metadata.current_schema(),
+                                            )?;
+                                            added_rows_count += data_file.record_count;
+                                            update_partitions(
+                                                &mut partitions,
+                                                &data_file.partition,
+                                                table_metadata.default_spec(),
+                                            )?;
+                                            let manifest_entry =
+                                                ManifestEntry::V2(ManifestEntryV2 {
+                                                    status: Status::Added,
+                                                    snapshot_id: metadata.current_snapshot_id,
+                                                    sequence_number: metadata
+                                                        .snapshots
+                                                        .as_ref()
+                                                        .map(|snapshots| {
+                                                            snapshots
+                                                                .last()
+                                                                .unwrap()
+                                                                .sequence_number
+                                                        }),
+                                                    data_file,
+                                                });
+
+                                            manifest_writer.append_ser(manifest_entry)?;
+                                        }
+                                    }
+                                };
+
+                                match &mut manifest {
+                                    ManifestFile::V1(manifest) => {
+                                        manifest.added_files_count =
+                                            match manifest.added_files_count {
+                                                Some(count) => Some(count + files_count),
+                                                None => Some(files_count),
+                                            };
+                                        manifest.added_rows_count = match manifest.added_rows_count
+                                        {
+                                            Some(count) => Some(count + added_rows_count),
+                                            None => Some(added_rows_count),
+                                        };
+                                        manifest.partitions = Some(partitions)
+                                    }
+                                    ManifestFile::V2(manifest) => {
+                                        manifest.added_rows_count += added_rows_count;
+                                        manifest.partitions = Some(partitions)
+                                    }
+                                }
+                            }
+
+                            let manifest_bytes = manifest_writer.into_inner()?;
+
+                            let manifest_length: i64 = manifest_bytes.len() as i64;
+
+                            match &mut manifest {
+                                ManifestFile::V1(manifest) => {
+                                    manifest.manifest_length += manifest_length;
+                                }
+                                ManifestFile::V2(manifest) => {
+                                    manifest.manifest_length += manifest_length;
+                                }
+                            }
+
+                            object_store
+                                .put(&manifest.manifest_path().into(), manifest_bytes.into())
+                                .await?;
+
+                            Ok::<_, anyhow::Error>(manifest)
                         }
-                        manifest_writer.into_inner()?
-                    }
-                };
-                let manifest_length: i64 = manifest_bytes.len() as i64;
-
-                object_store
-                    .put(&manifest_location, manifest_bytes.into())
-                    .await?;
-                let manifest_list_bytes = match table_metadata {
-                    TableMetadata::V1(table_metadata) => {
-                        let manifest_list_schema = apache_avro::Schema::parse_str(
-                            &ManifestFile::schema(&FormatVersion::V1),
-                        )?;
-                        let mut manifest_list_writer =
-                            apache_avro::Writer::new(&manifest_list_schema, Vec::new());
-                        if !manifest_list_bytes.is_empty() {
+                    })
+                    .for_each_concurrent(None, |manifest| {
+                        let manifest_list_writer = manifest_list_writer.clone();
+                        async move {
                             manifest_list_writer
-                                .extend(manifest_list_reader.filter_map(Result::ok))?;
+                                .lock()
+                                .await
+                                .append_ser(manifest.unwrap())
+                                .unwrap();
                         }
-                        let manifest_file = ManifestFile::V1(ManifestFileV1 {
-                            manifest_path: manifest_location.to_string(),
-                            manifest_length: manifest_length,
-                            partition_spec_id: table_metadata.default_spec_id.unwrap_or_default(),
-                            added_snapshot_id: table_metadata.current_snapshot_id.unwrap(),
-                            added_files_count: Some(files_count),
-                            existing_files_count: Some(0),
-                            deleted_files_count: Some(0),
-                            added_rows_count: Some(added_rows_count),
-                            existing_rows_count: Some(0),
-                            deleted_rows_count: Some(0),
-                            partitions: Some(partitions),
-                            key_metadata: None,
-                        });
-                        manifest_list_writer.append_ser(manifest_file)?;
-
-                        manifest_list_writer.into_inner()?
-                    }
-                    TableMetadata::V2(table_metadata) => {
-                        let manifest_list_schema = apache_avro::Schema::parse_str(
-                            &ManifestFile::schema(&FormatVersion::V2),
-                        )?;
-                        let mut manifest_list_writer =
-                            apache_avro::Writer::new(&manifest_list_schema, Vec::new());
-
-                        if !manifest_list_bytes.is_empty() {
-                            manifest_list_writer
-                                .extend(manifest_list_reader.filter_map(Result::ok))?;
-                        }
-                        let manifest_file = ManifestFile::V2(ManifestFileV2 {
-                            manifest_path: manifest_location.to_string(),
-                            manifest_length: manifest_length,
-                            partition_spec_id: table_metadata.default_spec_id,
-                            content: Content::Data,
-                            sequence_number: table_metadata.last_sequence_number,
-                            min_sequence_number: 0,
-                            added_snapshot_id: table_metadata
-                                .current_snapshot_id
-                                .unwrap_or_default(),
-                            added_files_count: files_count,
-                            existing_files_count: 0,
-                            deleted_files_count: 0,
-                            added_rows_count,
-                            existing_rows_count: 0,
-                            deleted_rows_count: 0,
-                            partitions: Some(partitions),
-                            key_metadata: None,
-                        });
-                        manifest_list_writer.append_ser(manifest_file)?;
-
-                        manifest_list_writer.into_inner()?
-                    }
-                };
-                object_store
-                    .put(&manifest_list_location, manifest_list_bytes.into())
-                    .await?;
+                    })
+                    .await;
                 Ok(())
             }
             _ => Ok(()),
@@ -591,11 +699,7 @@ fn update_partitions(
                             bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Date))?
                                 .downcast::<i32>()
                                 .unwrap();
-                        if *current
-                            > (val
-                                .signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
-                                .num_days() as i32)
-                        {
+                        if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -604,14 +708,7 @@ fn update_partitions(
                             bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Time))?
                                 .downcast::<i64>()
                                 .unwrap();
-                        if *current
-                            > (val
-                                .signed_duration_since(
-                                    NaiveTime::from_num_seconds_from_midnight_opt(0, 0).unwrap(),
-                                )
-                                .num_microseconds()
-                                .unwrap())
-                        {
+                        if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -620,14 +717,7 @@ fn update_partitions(
                             bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Timestamp))?
                                 .downcast::<i64>()
                                 .unwrap();
-                        if *current
-                            > (val
-                                .signed_duration_since(
-                                    NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
-                                )
-                                .num_microseconds()
-                                .unwrap())
-                        {
+                        if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -638,14 +728,7 @@ fn update_partitions(
                         )?
                         .downcast::<i64>()
                         .unwrap();
-                        if *current
-                            > (val
-                                .signed_duration_since(
-                                    NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
-                                )
-                                .num_microseconds()
-                                .unwrap())
-                        {
+                        if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -695,11 +778,7 @@ fn update_partitions(
                             bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Date))?
                                 .downcast::<i32>()
                                 .unwrap();
-                        if *current
-                            < (val
-                                .signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
-                                .num_days() as i32)
-                        {
+                        if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -708,14 +787,7 @@ fn update_partitions(
                             bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Time))?
                                 .downcast::<i64>()
                                 .unwrap();
-                        if *current
-                            < (val
-                                .signed_duration_since(
-                                    NaiveTime::from_num_seconds_from_midnight_opt(0, 0).unwrap(),
-                                )
-                                .num_microseconds()
-                                .unwrap())
-                        {
+                        if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -724,14 +796,7 @@ fn update_partitions(
                             bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Timestamp))?
                                 .downcast::<i64>()
                                 .unwrap();
-                        if *current
-                            < (val
-                                .signed_duration_since(
-                                    NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
-                                )
-                                .num_microseconds()
-                                .unwrap())
-                        {
+                        if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -742,14 +807,7 @@ fn update_partitions(
                         )?
                         .downcast::<i64>()
                         .unwrap();
-                        if *current
-                            < (val
-                                .signed_duration_since(
-                                    NaiveDateTime::from_timestamp_opt(0, 0).unwrap(),
-                                )
-                                .num_microseconds()
-                                .unwrap())
-                        {
+                        if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -759,6 +817,201 @@ fn update_partitions(
         }
     }
     Ok(())
+}
+
+/// checks if partition values lie in the bounds of the field summary
+fn partition_values_in_bounds<'values>(
+    partitions: &Vec<FieldSummary>,
+    partition_values: &'values Vec<Vec<Option<Value>>>,
+) -> Option<&'values Vec<Option<Value>>> {
+    partition_values.into_iter().find(|values| {
+        values
+            .iter()
+            .zip(partitions.iter())
+            .all(|(value, summary)| {
+                if let Some(value) = value {
+                    if let (Some(lower_bound), Some(upper_bound)) =
+                        (&summary.lower_bound, &summary.upper_bound)
+                    {
+                        match value {
+                            Value::Int(val) => {
+                                let lower_bound = bytes_to_any(
+                                    &lower_bound,
+                                    &Type::Primitive(PrimitiveType::Int),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i32>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i32."))
+                                })
+                                .unwrap();
+                                let upper_bound = bytes_to_any(
+                                    &upper_bound,
+                                    &Type::Primitive(PrimitiveType::Int),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i32>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i32."))
+                                })
+                                .unwrap();
+                                *lower_bound <= *val && *upper_bound >= *val
+                            }
+                            Value::LongInt(val) => {
+                                let lower_bound = bytes_to_any(
+                                    &lower_bound,
+                                    &Type::Primitive(PrimitiveType::Long),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i64."))
+                                })
+                                .unwrap();
+                                let upper_bound = bytes_to_any(
+                                    &upper_bound,
+                                    &Type::Primitive(PrimitiveType::Long),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i64."))
+                                })
+                                .unwrap();
+                                *lower_bound <= *val && *upper_bound >= *val
+                            }
+                            Value::Float(val) => {
+                                let lower_bound = bytes_to_any(
+                                    &lower_bound,
+                                    &Type::Primitive(PrimitiveType::Float),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<f32>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to f32."))
+                                })
+                                .unwrap();
+                                let upper_bound = bytes_to_any(
+                                    &upper_bound,
+                                    &Type::Primitive(PrimitiveType::Float),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<f32>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to f32."))
+                                })
+                                .unwrap();
+                                *lower_bound <= *val && *upper_bound >= *val
+                            }
+                            Value::Double(val) => {
+                                let lower_bound = bytes_to_any(
+                                    &lower_bound,
+                                    &Type::Primitive(PrimitiveType::Double),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<f64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to f64."))
+                                })
+                                .unwrap();
+                                let upper_bound = bytes_to_any(
+                                    &upper_bound,
+                                    &Type::Primitive(PrimitiveType::Double),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<f64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to f64."))
+                                })
+                                .unwrap();
+                                *lower_bound <= *val && *upper_bound >= *val
+                            }
+                            Value::Date(val) => {
+                                let lower_bound = bytes_to_any(
+                                    &lower_bound,
+                                    &Type::Primitive(PrimitiveType::Date),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i32>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i32."))
+                                })
+                                .unwrap();
+                                let upper_bound = bytes_to_any(
+                                    &upper_bound,
+                                    &Type::Primitive(PrimitiveType::Date),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i32>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i32."))
+                                })
+                                .unwrap();
+                                *lower_bound <= *val && *upper_bound >= *val
+                            }
+                            Value::Time(val) => {
+                                let lower_bound = bytes_to_any(
+                                    &lower_bound,
+                                    &Type::Primitive(PrimitiveType::Time),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i64."))
+                                })
+                                .unwrap();
+                                let upper_bound = bytes_to_any(
+                                    &upper_bound,
+                                    &Type::Primitive(PrimitiveType::Time),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i64."))
+                                })
+                                .unwrap();
+                                *lower_bound <= *val && *upper_bound >= *val
+                            }
+                            Value::Timestamp(val) => {
+                                let lower_bound = bytes_to_any(
+                                    &lower_bound,
+                                    &Type::Primitive(PrimitiveType::Timestamp),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i64."))
+                                })
+                                .unwrap();
+                                let upper_bound = bytes_to_any(
+                                    &upper_bound,
+                                    &Type::Primitive(PrimitiveType::Timestamp),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i64."))
+                                })
+                                .unwrap();
+                                *lower_bound <= *val && *upper_bound >= *val
+                            }
+                            Value::TimestampTZ(val) => {
+                                let lower_bound = bytes_to_any(
+                                    &lower_bound,
+                                    &Type::Primitive(PrimitiveType::Timestampz),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i64."))
+                                })
+                                .unwrap();
+                                let upper_bound = bytes_to_any(
+                                    &upper_bound,
+                                    &Type::Primitive(PrimitiveType::Timestampz),
+                                )
+                                .and_then(|x| {
+                                    x.downcast::<i64>()
+                                        .map_err(|_| anyhow!("Failed to downcast bytes to i64."))
+                                })
+                                .unwrap();
+                                *lower_bound <= *val && *upper_bound >= *val
+                            }
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    summary.contains_null
+                }
+            })
+    })
 }
 
 #[cfg(test)]
