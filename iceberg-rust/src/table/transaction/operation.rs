@@ -6,7 +6,7 @@ use std::{cell::RefCell, collections::HashSet, rc::Rc, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use apache_avro::from_value;
-use futures::{lock::Mutex, stream, StreamExt};
+use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
 use object_store::path::Path;
 use serde_bytes::ByteBuf;
 
@@ -78,7 +78,14 @@ impl Operation {
                 let object_store = table.object_store();
                 let table_metadata = table.metadata();
                 let files_count = paths.len() as i32;
-                let files_metadata = parquet_metadata(paths, object_store.clone()).await?;
+
+                let files_metadata = stream::iter(paths.iter())
+                    .then(|x| {
+                        let object_store = object_store.clone();
+                        async move { parquet_metadata(x, object_store).await }
+                    })
+                    .try_collect::<Vec<_>>()
+                    .await?;
 
                 let mut added_rows_count = 0;
                 let mut partitions = table_metadata
@@ -482,8 +489,14 @@ impl Operation {
                             for (paths, partition_value) in files {
                                 let files_count = manifest.added_files_count().unwrap_or_default()
                                     + paths.len() as i32;
-                                let files_metadata =
-                                    parquet_metadata(paths, object_store.clone()).await?;
+
+                                let files_metadata = stream::iter(paths.iter())
+                                    .then(|x| {
+                                        let object_store = object_store.clone();
+                                        async move { parquet_metadata(x, object_store).await }
+                                    })
+                                    .try_collect::<Vec<_>>()
+                                    .await?;
 
                                 let mut added_rows_count = 0;
                                 let mut partitions = match manifest.partitions() {
