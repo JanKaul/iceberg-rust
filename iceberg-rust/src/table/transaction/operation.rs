@@ -336,8 +336,9 @@ impl Operation {
 
                 let existing_manifests = Rc::new(RefCell::new(HashSet::new()));
 
-                let manifest_list_schema =
-                    apache_avro::Schema::parse_str(&ManifestFile::schema(&FormatVersion::V1))?;
+                let manifest_list_schema = apache_avro::Schema::parse_str(&ManifestFile::schema(
+                    &table_metadata.format_version(),
+                ))?;
 
                 let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
                     &manifest_list_schema,
@@ -722,12 +723,10 @@ fn update_partitions(
                         }
                     }
                     Value::TimestampTZ(val) => {
-                        let current = bytes_to_any(
-                            lower_bound,
-                            &Type::Primitive(PrimitiveType::Timestampz),
-                        )?
-                        .downcast::<i64>()
-                        .unwrap();
+                        let current =
+                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Timestampz))?
+                                .downcast::<i64>()
+                                .unwrap();
                         if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -801,12 +800,10 @@ fn update_partitions(
                         }
                     }
                     Value::TimestampTZ(val) => {
-                        let current = bytes_to_any(
-                            upper_bound,
-                            &Type::Primitive(PrimitiveType::Timestampz),
-                        )?
-                        .downcast::<i64>()
-                        .unwrap();
+                        let current =
+                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Timestampz))?
+                                .downcast::<i64>()
+                                .unwrap();
                         if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -835,24 +832,22 @@ fn partition_values_in_bounds<'values>(
                     {
                         match value {
                             Value::Int(val) => {
-                                let lower_bound = bytes_to_any(
-                                    lower_bound,
-                                    &Type::Primitive(PrimitiveType::Int),
-                                )
-                                .and_then(|x| {
-                                    x.downcast::<i32>()
-                                        .map_err(|_| anyhow!("Failed to downcast bytes to i32."))
-                                })
-                                .unwrap();
-                                let upper_bound = bytes_to_any(
-                                    upper_bound,
-                                    &Type::Primitive(PrimitiveType::Int),
-                                )
-                                .and_then(|x| {
-                                    x.downcast::<i32>()
-                                        .map_err(|_| anyhow!("Failed to downcast bytes to i32."))
-                                })
-                                .unwrap();
+                                let lower_bound =
+                                    bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Int))
+                                        .and_then(|x| {
+                                            x.downcast::<i32>().map_err(|_| {
+                                                anyhow!("Failed to downcast bytes to i32.")
+                                            })
+                                        })
+                                        .unwrap();
+                                let upper_bound =
+                                    bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Int))
+                                        .and_then(|x| {
+                                            x.downcast::<i32>().map_err(|_| {
+                                                anyhow!("Failed to downcast bytes to i32.")
+                                            })
+                                        })
+                                        .unwrap();
                                 *lower_bound <= *val && *upper_bound >= *val
                             }
                             Value::LongInt(val) => {
