@@ -180,7 +180,7 @@ pub struct TableMetadataV1 {
 impl From<TableMetadataV1> for TableMetadataV2 {
     fn from(v1: TableMetadataV1) -> Self {
         let last_partition_id = v1.last_partition_id.unwrap_or_else(|| {
-            (&v1.partition_spec)
+            v1.partition_spec
                 .iter()
                 .map(|field| field.field_id)
                 .fold(0, cmp::max)
@@ -252,9 +252,9 @@ pub struct SnapshotLog {
 /// Iceberg format version
 pub enum FormatVersion {
     /// Iceberg spec version 1
-    V1 = '1' as u8,
+    V1 = b'1',
     /// Iceberg spec version 2
-    V2 = '2' as u8,
+    V2 = b'2',
 }
 
 impl TryFrom<u8> for FormatVersion {
@@ -273,8 +273,8 @@ impl TryFrom<u8> for FormatVersion {
 impl From<FormatVersion> for u8 {
     fn from(value: FormatVersion) -> Self {
         match value {
-            FormatVersion::V1 => '1' as u8,
-            FormatVersion::V2 => '2' as u8,
+            FormatVersion::V1 => b'1',
+            FormatVersion::V2 => b'2',
         }
     }
 }
@@ -445,7 +445,7 @@ mod tests {
             }
         "#;
         let metadata =
-            serde_json::from_str::<TableMetadata>(&data).expect("Failed to deserialize json");
+            serde_json::from_str::<TableMetadata>(data).expect("Failed to deserialize json");
         //test serialise deserialise works.
         let metadata_two: TableMetadata = serde_json::from_str(
             &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),
@@ -589,7 +589,7 @@ mod tests {
           }
         "#;
         let metadata =
-            serde_json::from_str::<TableMetadata>(&data).expect("Failed to deserialize json");
+            serde_json::from_str::<TableMetadata>(data).expect("Failed to deserialize json");
         //test serialise deserialise works.
         let metadata_two: TableMetadata = serde_json::from_str(
             &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),
@@ -609,7 +609,7 @@ mod tests {
                 "table-uuid": "xxxx"
             }
         "#;
-        assert!(serde_json::from_str::<TableMetadataV2>(&data).is_err());
+        assert!(serde_json::from_str::<TableMetadataV2>(data).is_err());
         Ok(())
     }
     #[test]
@@ -619,7 +619,7 @@ mod tests {
                 "format-version" : 1
             }
         "#;
-        assert!(serde_json::from_str::<TableMetadataV2>(&data).is_err());
+        assert!(serde_json::from_str::<TableMetadataV2>(data).is_err());
         Ok(())
     }
 }

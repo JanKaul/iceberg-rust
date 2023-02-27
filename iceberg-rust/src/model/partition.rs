@@ -61,12 +61,12 @@ where
 {
     let bucket = String::deserialize(deserializer)?
         .trim_start_matches(r"bucket[")
-        .trim_end_matches("]")
+        .trim_end_matches(']')
         .to_owned();
 
     bucket
         .parse()
-        .map(|x| Transform::Bucket(x))
+        .map(Transform::Bucket)
         .map_err(D::Error::custom)
 }
 
@@ -83,12 +83,12 @@ where
 {
     let truncate = String::deserialize(deserializer)?
         .trim_start_matches(r"truncate[")
-        .trim_end_matches("]")
+        .trim_end_matches(']')
         .to_owned();
 
     truncate
         .parse()
-        .map(|x| Transform::Truncate(x))
+        .map(Transform::Truncate)
         .map_err(D::Error::custom)
 }
 
@@ -152,7 +152,7 @@ mod tests {
         }
         "#;
 
-        let partition_spec: PartitionSpec = serde_json::from_str(&sort_order).unwrap();
+        let partition_spec: PartitionSpec = serde_json::from_str(sort_order).unwrap();
         assert_eq!(4, partition_spec.fields[0].source_id);
         assert_eq!(1000, partition_spec.fields[0].field_id);
         assert_eq!("ts_day", partition_spec.fields[0].name);

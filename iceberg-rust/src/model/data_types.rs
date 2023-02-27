@@ -111,8 +111,8 @@ where
     let s = String::deserialize(deserializer)?;
     let (precision, scale) = s
         .trim_start_matches(r"decimal(")
-        .trim_end_matches(")")
-        .split_once(",")
+        .trim_end_matches(')')
+        .split_once(',')
         .ok_or_else(|| anyhow!("Decimal requires precision and scale: {s}"))
         .map_err(D::Error::custom)?;
 
@@ -135,12 +135,12 @@ where
 {
     let fixed = String::deserialize(deserializer)?
         .trim_start_matches(r"fixed[")
-        .trim_end_matches("]")
+        .trim_end_matches(']')
         .to_owned();
 
     fixed
         .parse()
-        .map(|x| PrimitiveType::Fixed(x))
+        .map(PrimitiveType::Fixed)
         .map_err(D::Error::custom)
 }
 
@@ -275,7 +275,7 @@ mod tests {
         }
         "#;
 
-        let result: StructType = serde_json::from_str(&record).unwrap();
+        let result: StructType = serde_json::from_str(record).unwrap();
         assert_eq!(
             Type::Primitive(PrimitiveType::Decimal {
                 precision: 9,
@@ -306,7 +306,7 @@ mod tests {
         }
         "#;
 
-        let result: StructType = serde_json::from_str(&record).unwrap();
+        let result: StructType = serde_json::from_str(record).unwrap();
         assert_eq!(
             Type::Primitive(PrimitiveType::Fixed(8)),
             result.fields[0].field_type
@@ -339,7 +339,7 @@ mod tests {
             }
         "#;
 
-        let result: StructType = serde_json::from_str(&record).unwrap();
+        let result: StructType = serde_json::from_str(record).unwrap();
         assert_eq!(
             Type::Primitive(PrimitiveType::Uuid),
             result.fields[0].field_type
@@ -366,7 +366,7 @@ mod tests {
             }
         "#;
 
-        let result: ListType = serde_json::from_str(&record).unwrap();
+        let result: ListType = serde_json::from_str(record).unwrap();
         assert_eq!(Type::Primitive(PrimitiveType::String), *result.element);
     }
 
@@ -383,7 +383,7 @@ mod tests {
             }
         "#;
 
-        let result: MapType = serde_json::from_str(&record).unwrap();
+        let result: MapType = serde_json::from_str(record).unwrap();
         assert_eq!(Type::Primitive(PrimitiveType::String), *result.key);
         assert_eq!(Type::Primitive(PrimitiveType::Double), *result.value);
     }

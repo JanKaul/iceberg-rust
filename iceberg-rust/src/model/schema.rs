@@ -92,7 +92,7 @@ mod tests {
             }
         "#;
 
-        let result: SchemaV2 = serde_json::from_str(&record).unwrap();
+        let result: SchemaV2 = serde_json::from_str(record).unwrap();
         assert_eq!(1, result.schema_id);
         assert_eq!(
             Type::Primitive(PrimitiveType::Uuid),

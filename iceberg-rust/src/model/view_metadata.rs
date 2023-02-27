@@ -251,7 +251,7 @@ mod tests {
           }
         "#;
         let metadata =
-            serde_json::from_str::<ViewMetadata>(&data).expect("Failed to deserialize json");
+            serde_json::from_str::<ViewMetadata>(data).expect("Failed to deserialize json");
         //test serialise deserialise works.
         let metadata_two: ViewMetadata = serde_json::from_str(
             &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),

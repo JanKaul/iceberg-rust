@@ -66,7 +66,7 @@ impl ViewBuilder {
             version_id: 1,
         }];
         let metadata = ViewMetadataV1 {
-            location: base_path.to_owned() + &identifier.to_string().replace(".", "/"),
+            location: base_path.to_owned() + &identifier.to_string().replace('.', "/"),
             schemas: Some(vec![Schema::V2(schema)]),
             current_schema_id: Some(1),
             versions: vec![version],

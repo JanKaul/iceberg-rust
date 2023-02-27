@@ -233,7 +233,7 @@ impl Operation {
                         }
                         let manifest_file = ManifestFile::V1(ManifestFileV1 {
                             manifest_path: manifest_location.to_string(),
-                            manifest_length: manifest_length,
+                            manifest_length,
                             partition_spec_id: table_metadata.default_spec_id.unwrap_or_default(),
                             added_snapshot_id: table_metadata.current_snapshot_id.unwrap(),
                             added_files_count: Some(files_count),
@@ -262,7 +262,7 @@ impl Operation {
                         }
                         let manifest_file = ManifestFile::V2(ManifestFileV2 {
                             manifest_path: manifest_location.to_string(),
-                            manifest_length: manifest_length,
+                            manifest_length,
                             partition_spec_id: table_metadata.default_spec_id,
                             content: Content::Data,
                             sequence_number: table_metadata.last_sequence_number,
@@ -397,7 +397,7 @@ impl Operation {
                             let manifest = match &table_metadata {
                                 TableMetadata::V1(table_metadata) => {
                                     ManifestFile::V1(ManifestFileV1 {
-                                        manifest_path: manifest_location.to_string(),
+                                        manifest_path: manifest_location,
                                         manifest_length: 0,
                                         partition_spec_id: table_metadata
                                             .default_spec_id
@@ -417,7 +417,7 @@ impl Operation {
                                 }
                                 TableMetadata::V2(table_metadata) => {
                                     ManifestFile::V2(ManifestFileV2 {
-                                        manifest_path: manifest_location.to_string(),
+                                        manifest_path: manifest_location,
                                         manifest_length: 0,
                                         partition_spec_id: table_metadata.default_spec_id,
                                         content: Content::Data,
@@ -660,7 +660,7 @@ fn update_partitions(
                 match value {
                     Value::Int(val) => {
                         let current =
-                            bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Int))?
+                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Int))?
                                 .downcast::<i32>()
                                 .unwrap();
                         if *current > *val {
@@ -669,7 +669,7 @@ fn update_partitions(
                     }
                     Value::LongInt(val) => {
                         let current =
-                            bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Long))?
+                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Long))?
                                 .downcast::<i64>()
                                 .unwrap();
                         if *current > *val {
@@ -678,7 +678,7 @@ fn update_partitions(
                     }
                     Value::Float(val) => {
                         let current =
-                            bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Float))?
+                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Float))?
                                 .downcast::<f32>()
                                 .unwrap();
                         if *current > *val {
@@ -687,7 +687,7 @@ fn update_partitions(
                     }
                     Value::Double(val) => {
                         let current =
-                            bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Double))?
+                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Double))?
                                 .downcast::<f64>()
                                 .unwrap();
                         if *current > *val {
@@ -696,7 +696,7 @@ fn update_partitions(
                     }
                     Value::Date(val) => {
                         let current =
-                            bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Date))?
+                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Date))?
                                 .downcast::<i32>()
                                 .unwrap();
                         if *current > *val {
@@ -705,7 +705,7 @@ fn update_partitions(
                     }
                     Value::Time(val) => {
                         let current =
-                            bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Time))?
+                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Time))?
                                 .downcast::<i64>()
                                 .unwrap();
                         if *current > *val {
@@ -714,7 +714,7 @@ fn update_partitions(
                     }
                     Value::Timestamp(val) => {
                         let current =
-                            bytes_to_any(&lower_bound, &Type::Primitive(PrimitiveType::Timestamp))?
+                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Timestamp))?
                                 .downcast::<i64>()
                                 .unwrap();
                         if *current > *val {
@@ -723,7 +723,7 @@ fn update_partitions(
                     }
                     Value::TimestampTZ(val) => {
                         let current = bytes_to_any(
-                            &lower_bound,
+                            lower_bound,
                             &Type::Primitive(PrimitiveType::Timestampz),
                         )?
                         .downcast::<i64>()
@@ -739,7 +739,7 @@ fn update_partitions(
                 match value {
                     Value::Int(val) => {
                         let current =
-                            bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Int))?
+                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Int))?
                                 .downcast::<i32>()
                                 .unwrap();
                         if *current < *val {
@@ -748,7 +748,7 @@ fn update_partitions(
                     }
                     Value::LongInt(val) => {
                         let current =
-                            bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Long))?
+                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Long))?
                                 .downcast::<i64>()
                                 .unwrap();
                         if *current < *val {
@@ -757,7 +757,7 @@ fn update_partitions(
                     }
                     Value::Float(val) => {
                         let current =
-                            bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Float))?
+                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Float))?
                                 .downcast::<f32>()
                                 .unwrap();
                         if *current < *val {
@@ -766,7 +766,7 @@ fn update_partitions(
                     }
                     Value::Double(val) => {
                         let current =
-                            bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Double))?
+                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Double))?
                                 .downcast::<f64>()
                                 .unwrap();
                         if *current < *val {
@@ -775,7 +775,7 @@ fn update_partitions(
                     }
                     Value::Date(val) => {
                         let current =
-                            bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Date))?
+                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Date))?
                                 .downcast::<i32>()
                                 .unwrap();
                         if *current < *val {
@@ -784,7 +784,7 @@ fn update_partitions(
                     }
                     Value::Time(val) => {
                         let current =
-                            bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Time))?
+                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Time))?
                                 .downcast::<i64>()
                                 .unwrap();
                         if *current < *val {
@@ -793,7 +793,7 @@ fn update_partitions(
                     }
                     Value::Timestamp(val) => {
                         let current =
-                            bytes_to_any(&upper_bound, &Type::Primitive(PrimitiveType::Timestamp))?
+                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Timestamp))?
                                 .downcast::<i64>()
                                 .unwrap();
                         if *current < *val {
@@ -802,7 +802,7 @@ fn update_partitions(
                     }
                     Value::TimestampTZ(val) => {
                         let current = bytes_to_any(
-                            &upper_bound,
+                            upper_bound,
                             &Type::Primitive(PrimitiveType::Timestampz),
                         )?
                         .downcast::<i64>()
@@ -824,7 +824,7 @@ fn partition_values_in_bounds<'values>(
     partitions: &Vec<FieldSummary>,
     partition_values: &'values Vec<Vec<Option<Value>>>,
 ) -> Option<&'values Vec<Option<Value>>> {
-    partition_values.into_iter().find(|values| {
+    partition_values.iter().find(|values| {
         values
             .iter()
             .zip(partitions.iter())
@@ -836,7 +836,7 @@ fn partition_values_in_bounds<'values>(
                         match value {
                             Value::Int(val) => {
                                 let lower_bound = bytes_to_any(
-                                    &lower_bound,
+                                    lower_bound,
                                     &Type::Primitive(PrimitiveType::Int),
                                 )
                                 .and_then(|x| {
@@ -845,7 +845,7 @@ fn partition_values_in_bounds<'values>(
                                 })
                                 .unwrap();
                                 let upper_bound = bytes_to_any(
-                                    &upper_bound,
+                                    upper_bound,
                                     &Type::Primitive(PrimitiveType::Int),
                                 )
                                 .and_then(|x| {
@@ -857,7 +857,7 @@ fn partition_values_in_bounds<'values>(
                             }
                             Value::LongInt(val) => {
                                 let lower_bound = bytes_to_any(
-                                    &lower_bound,
+                                    lower_bound,
                                     &Type::Primitive(PrimitiveType::Long),
                                 )
                                 .and_then(|x| {
@@ -866,7 +866,7 @@ fn partition_values_in_bounds<'values>(
                                 })
                                 .unwrap();
                                 let upper_bound = bytes_to_any(
-                                    &upper_bound,
+                                    upper_bound,
                                     &Type::Primitive(PrimitiveType::Long),
                                 )
                                 .and_then(|x| {
@@ -878,7 +878,7 @@ fn partition_values_in_bounds<'values>(
                             }
                             Value::Float(val) => {
                                 let lower_bound = bytes_to_any(
-                                    &lower_bound,
+                                    lower_bound,
                                     &Type::Primitive(PrimitiveType::Float),
                                 )
                                 .and_then(|x| {
@@ -887,7 +887,7 @@ fn partition_values_in_bounds<'values>(
                                 })
                                 .unwrap();
                                 let upper_bound = bytes_to_any(
-                                    &upper_bound,
+                                    upper_bound,
                                     &Type::Primitive(PrimitiveType::Float),
                                 )
                                 .and_then(|x| {
@@ -899,7 +899,7 @@ fn partition_values_in_bounds<'values>(
                             }
                             Value::Double(val) => {
                                 let lower_bound = bytes_to_any(
-                                    &lower_bound,
+                                    lower_bound,
                                     &Type::Primitive(PrimitiveType::Double),
                                 )
                                 .and_then(|x| {
@@ -908,7 +908,7 @@ fn partition_values_in_bounds<'values>(
                                 })
                                 .unwrap();
                                 let upper_bound = bytes_to_any(
-                                    &upper_bound,
+                                    upper_bound,
                                     &Type::Primitive(PrimitiveType::Double),
                                 )
                                 .and_then(|x| {
@@ -920,7 +920,7 @@ fn partition_values_in_bounds<'values>(
                             }
                             Value::Date(val) => {
                                 let lower_bound = bytes_to_any(
-                                    &lower_bound,
+                                    lower_bound,
                                     &Type::Primitive(PrimitiveType::Date),
                                 )
                                 .and_then(|x| {
@@ -929,7 +929,7 @@ fn partition_values_in_bounds<'values>(
                                 })
                                 .unwrap();
                                 let upper_bound = bytes_to_any(
-                                    &upper_bound,
+                                    upper_bound,
                                     &Type::Primitive(PrimitiveType::Date),
                                 )
                                 .and_then(|x| {
@@ -941,7 +941,7 @@ fn partition_values_in_bounds<'values>(
                             }
                             Value::Time(val) => {
                                 let lower_bound = bytes_to_any(
-                                    &lower_bound,
+                                    lower_bound,
                                     &Type::Primitive(PrimitiveType::Time),
                                 )
                                 .and_then(|x| {
@@ -950,7 +950,7 @@ fn partition_values_in_bounds<'values>(
                                 })
                                 .unwrap();
                                 let upper_bound = bytes_to_any(
-                                    &upper_bound,
+                                    upper_bound,
                                     &Type::Primitive(PrimitiveType::Time),
                                 )
                                 .and_then(|x| {
@@ -962,7 +962,7 @@ fn partition_values_in_bounds<'values>(
                             }
                             Value::Timestamp(val) => {
                                 let lower_bound = bytes_to_any(
-                                    &lower_bound,
+                                    lower_bound,
                                     &Type::Primitive(PrimitiveType::Timestamp),
                                 )
                                 .and_then(|x| {
@@ -971,7 +971,7 @@ fn partition_values_in_bounds<'values>(
                                 })
                                 .unwrap();
                                 let upper_bound = bytes_to_any(
-                                    &upper_bound,
+                                    upper_bound,
                                     &Type::Primitive(PrimitiveType::Timestamp),
                                 )
                                 .and_then(|x| {
@@ -983,7 +983,7 @@ fn partition_values_in_bounds<'values>(
                             }
                             Value::TimestampTZ(val) => {
                                 let lower_bound = bytes_to_any(
-                                    &lower_bound,
+                                    lower_bound,
                                     &Type::Primitive(PrimitiveType::Timestampz),
                                 )
                                 .and_then(|x| {
@@ -992,7 +992,7 @@ fn partition_values_in_bounds<'values>(
                                 })
                                 .unwrap();
                                 let upper_bound = bytes_to_any(
-                                    &upper_bound,
+                                    upper_bound,
                                     &Type::Primitive(PrimitiveType::Timestampz),
                                 )
                                 .and_then(|x| {

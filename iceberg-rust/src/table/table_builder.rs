@@ -53,7 +53,7 @@ impl TableBuilder {
         };
         let metadata = TableMetadataV2 {
             table_uuid: Uuid::new_v4(),
-            location: base_path.to_owned() + &identifier.to_string().replace(".", "/"),
+            location: base_path.to_owned() + &identifier.to_string().replace('.', "/"),
             last_sequence_number: 1,
             last_updated_ms: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)

@@ -1211,7 +1211,7 @@ mod tests {
 
         for value in reader {
             let entry = apache_avro::from_value::<ManifestEntryV2>(&value.unwrap())
-                .map(|entry| ManifestEntry::V2(entry))
+                .map(ManifestEntry::V2)
                 .unwrap();
             assert_eq!(manifest_entry, entry)
         }
