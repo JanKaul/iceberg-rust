@@ -5,9 +5,13 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
+    io::Cursor,
     ops::Deref,
 };
 
+use anyhow::{anyhow, Result};
+
+use chrono::{NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
 use serde::{
     de::{MapAccess, Visitor},
@@ -15,6 +19,8 @@ use serde::{
     Deserialize, Deserializer, Serialize,
 };
 use serde_bytes::ByteBuf;
+
+use super::partition::Transform;
 
 /// Values present in iceberg type
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -171,5 +177,146 @@ impl<'de> Deserialize<'de> for Struct {
             Box::leak(vec![].into_boxed_slice()),
             PartitionStructVisitor,
         )
+    }
+}
+
+impl Value {
+    pub fn tranform(&self, transform: Transform) -> Result<Value> {
+        match transform {
+            Transform::Identity => Ok(self.clone()),
+            Transform::Bucket(n) => {
+                let bytes = Cursor::new(<Value as Into<ByteBuf>>::into(self.clone()));
+                let hash = murmur3::murmur3_32(&mut bytes, 0).unwrap();
+                Ok(Value::Int((hash % n) as i32))
+            }
+            Transform::Truncate(w) => match self {
+                Value::Int(i) => Ok(Value::Int(i - i.rem_euclid(w as i32))),
+                Value::LongInt(i) => Ok(Value::LongInt(i - i.rem_euclid(w as i64))),
+                Value::String(s) => {
+                    let mut s = s.clone();
+                    s.truncate(w as usize);
+                    Ok(Value::String(s))
+                }
+                _ => Err(anyhow!(
+                    "Datatype is not supported for truncate partition transform."
+                )),
+            },
+            Transform::Year => match self {
+                Value::Date(date) => Ok(Value::Int(date.clone() / 365)),
+                Value::Timestamp(time) => Ok(Value::Int(
+                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                        .unwrap()
+                        .signed_duration_since(
+                            NaiveDate::from_ymd_opt(1970, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap(),
+                        )
+                        .num_days()
+                        / 364) as i32,
+                )),
+                Value::TimestampTZ(time) => Ok(Value::Int(
+                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                        .unwrap()
+                        .signed_duration_since(
+                            NaiveDate::from_ymd_opt(1970, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap(),
+                        )
+                        .num_days()
+                        / 364) as i32,
+                )),
+                _ => Err(anyhow!(
+                    "Datatype is not supported for year partition transform."
+                )),
+            },
+            Transform::Month => match self {
+                Value::Date(date) => Ok(Value::Int(date.clone() / 30)),
+                Value::Timestamp(time) => Ok(Value::Int(
+                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                        .unwrap()
+                        .signed_duration_since(
+                            NaiveDate::from_ymd_opt(1970, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap(),
+                        )
+                        .num_weeks()) as i32,
+                )),
+                Value::TimestampTZ(time) => Ok(Value::Int(
+                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                        .unwrap()
+                        .signed_duration_since(
+                            NaiveDate::from_ymd_opt(1970, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap(),
+                        )
+                        .num_weeks()) as i32,
+                )),
+                _ => Err(anyhow!(
+                    "Datatype is not supported for month partition transform."
+                )),
+            },
+            Transform::Day => match self {
+                Value::Date(date) => Ok(Value::Int(date.clone())),
+                Value::Timestamp(time) => Ok(Value::Int(
+                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                        .unwrap()
+                        .signed_duration_since(
+                            NaiveDate::from_ymd_opt(1970, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap(),
+                        )
+                        .num_days()) as i32,
+                )),
+                Value::TimestampTZ(time) => Ok(Value::Int(
+                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                        .unwrap()
+                        .signed_duration_since(
+                            NaiveDate::from_ymd_opt(1970, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap(),
+                        )
+                        .num_days()) as i32,
+                )),
+                _ => Err(anyhow!(
+                    "Datatype is not supported for day partition transform."
+                )),
+            },
+            Transform::Hour => match self {
+                Value::Timestamp(time) => Ok(Value::Int(
+                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                        .unwrap()
+                        .signed_duration_since(
+                            NaiveDate::from_ymd_opt(1970, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap(),
+                        )
+                        .num_hours()) as i32,
+                )),
+                Value::TimestampTZ(time) => Ok(Value::Int(
+                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                        .unwrap()
+                        .signed_duration_since(
+                            NaiveDate::from_ymd_opt(1970, 1, 1)
+                                .unwrap()
+                                .and_hms_opt(0, 0, 0)
+                                .unwrap(),
+                        )
+                        .num_hours()) as i32,
+                )),
+                _ => Err(anyhow!(
+                    "Datatype is not supported for hour partition transform."
+                )),
+            },
+            _ => Err(anyhow!(
+                "Partition transform operation currently not supported."
+            )),
+        }
     }
 }
