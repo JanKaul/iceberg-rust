@@ -115,6 +115,17 @@ impl Deref for Struct {
     }
 }
 
+impl Struct {
+    /// Get reference to partition value
+    pub fn get(&self, name: &str) -> Option<&Option<Value>> {
+        self.fields.get(*self.lookup.get(name)?)
+    }
+    /// Get mutable reference to partition value
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Option<Value>> {
+        self.fields.get_mut(*self.lookup.get(name)?)
+    }
+}
+
 impl FromIterator<(String, Option<Value>)> for Struct {
     fn from_iter<I: IntoIterator<Item = (String, Option<Value>)>>(iter: I) -> Self {
         let mut fields = Vec::new();
@@ -181,20 +192,21 @@ impl<'de> Deserialize<'de> for Struct {
 }
 
 impl Value {
-    pub fn tranform(&self, transform: Transform) -> Result<Value> {
+    /// Perform a partition transformation for the given value
+    pub fn tranform(&self, transform: &Transform) -> Result<Value> {
         match transform {
             Transform::Identity => Ok(self.clone()),
             Transform::Bucket(n) => {
-                let bytes = Cursor::new(<Value as Into<ByteBuf>>::into(self.clone()));
+                let mut bytes = Cursor::new(<Value as Into<ByteBuf>>::into(self.clone()));
                 let hash = murmur3::murmur3_32(&mut bytes, 0).unwrap();
                 Ok(Value::Int((hash % n) as i32))
             }
             Transform::Truncate(w) => match self {
-                Value::Int(i) => Ok(Value::Int(i - i.rem_euclid(w as i32))),
-                Value::LongInt(i) => Ok(Value::LongInt(i - i.rem_euclid(w as i64))),
+                Value::Int(i) => Ok(Value::Int(i - i.rem_euclid(*w as i32))),
+                Value::LongInt(i) => Ok(Value::LongInt(i - i.rem_euclid(*w as i64))),
                 Value::String(s) => {
                     let mut s = s.clone();
-                    s.truncate(w as usize);
+                    s.truncate(*w as usize);
                     Ok(Value::String(s))
                 }
                 _ => Err(anyhow!(

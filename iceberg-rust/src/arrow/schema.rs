@@ -10,25 +10,6 @@ use arrow::datatypes::{DataType, Field, Schema as ArrowSchema, TimeUnit};
 
 use crate::model::data_types::{PrimitiveType, StructField, StructType, Type};
 
-// /// Convert iceberg schema into arrow schema
-// pub fn iceberg_to_arrow_schema(schema: &StructType) -> Result<ArrowSchema> {
-//     let fields = schema
-//         .fields
-//         .iter()
-//         .map(|field| {
-//             Ok(Field::new_dict(
-//                 &field.name,
-//                 (&field.field_type).try_into()?,
-//                 !field.required,
-//                 field.id as i64,
-//                 false,
-//             ))
-//         })
-//         .collect::<Result<_, anyhow::Error>>()?;
-//     let metadata = HashMap::new();
-//     Ok(ArrowSchema { fields, metadata })
-// }
-
 impl TryInto<ArrowSchema> for &StructType {
     type Error = anyhow::Error;
 

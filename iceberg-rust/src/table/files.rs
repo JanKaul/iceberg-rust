@@ -99,7 +99,6 @@ mod tests {
         model::{
             data_types::{PrimitiveType, StructField, StructType, Type},
             schema::SchemaV2,
-            values::Struct,
         },
         table::table_builder::TableBuilder,
     };
@@ -141,25 +140,19 @@ mod tests {
 
         table
             .new_transaction()
-            .fast_append(
-                vec![
-                    "test/append/data/file1.parquet".to_string(),
-                    "test/append/data/file2.parquet".to_string(),
-                ],
-                vec![Struct::from_iter([]), Struct::from_iter([])],
-            )
+            .append(vec![
+                "test/append/data/file1.parquet".to_string(),
+                "test/append/data/file2.parquet".to_string(),
+            ])
             .commit()
             .await
             .unwrap();
         table
             .new_transaction()
-            .fast_append(
-                vec![
-                    "test/append/data/file3.parquet".to_string(),
-                    "test/append/data/file4.parquet".to_string(),
-                ],
-                vec![Struct::from_iter([]), Struct::from_iter([])],
-            )
+            .append(vec![
+                "test/append/data/file3.parquet".to_string(),
+                "test/append/data/file4.parquet".to_string(),
+            ])
             .commit()
             .await
             .unwrap();

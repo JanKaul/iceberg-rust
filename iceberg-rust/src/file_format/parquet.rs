@@ -18,7 +18,8 @@ use crate::model::{
     bytes::bytes_to_any,
     data_types::{PrimitiveType, StructType, Type},
     manifest::{AvroMap, Content, DataFileV2, FileFormat},
-    values::Struct,
+    partition::{PartitionField, Transform},
+    values::{Struct, Value},
 };
 
 /// Get parquet metadata for a given path from the object_store
@@ -42,179 +43,150 @@ pub async fn parquet_metadata(
     Ok((path.to_string(), file_metadata, parquet_metadata))
 }
 
-/// Statistics of a datafile
-pub struct DataFileContent {
-    /// Full URI for the file with a FS scheme.
-    pub file_path: String,
-    /// String file format name, avro, orc or parquet
-    pub file_format: FileFormat,
-    /// Number of records in this file
-    pub record_count: i64,
-    /// Total file size in bytes
-    pub file_size_in_bytes: i64,
-    /// Map from column id to total size on disk
-    pub column_sizes: Option<AvroMap<i64>>,
-    /// Map from column id to number of values in the column (including null and NaN values)
-    pub value_counts: Option<AvroMap<i64>>,
-    /// Map from column id to number of null values
-    pub null_value_counts: Option<AvroMap<i64>>,
-    /// Map from column id to number of NaN values
-    pub nan_value_counts: Option<AvroMap<i64>>,
-    /// Map from column id to number of distinct values in the column.
-    pub distinct_counts: Option<AvroMap<i64>>,
-    /// Map from column id to lower bound in the column
-    pub lower_bounds: Option<AvroMap<ByteBuf>>,
-    /// Map from column id to upper bound in the column
-    pub upper_bounds: Option<AvroMap<ByteBuf>>,
-    /// Implementation specific key metadata for encryption
-    pub key_metadata: Option<ByteBuf>,
-    /// Split offsets for the data file.
-    pub split_offsets: Option<Vec<i64>>,
-    /// Field ids used to determine row equality in equality delete files.
-    pub equality_ids: Option<Vec<i32>>,
-    /// ID representing sort order for this file
-    pub sort_order_id: Option<i32>,
-}
-
 /// Read datafile statistics from parquetfile
 pub fn parquet_to_datafilev2(
-    path: String,
     file_metadata: ObjectMeta,
     parquet_metadata: ParquetMetaData,
-    partition: Struct,
     schema: &StructType,
+    partition_spec: &[PartitionField],
 ) -> Result<DataFileV2> {
-    let mut content = DataFileV2 {
-        content: Content::Data,
-        file_path: path,
-        file_format: FileFormat::Parquet,
-        partition,
-        record_count: parquet_metadata.file_metadata().num_rows(),
-        file_size_in_bytes: file_metadata.size as i64,
-        column_sizes: Some(AvroMap(HashMap::new())),
-        value_counts: Some(AvroMap(HashMap::new())),
-        null_value_counts: Some(AvroMap(HashMap::new())),
-        nan_value_counts: None,
-        distinct_counts: Some(AvroMap(HashMap::new())),
-        lower_bounds: Some(AvroMap(HashMap::new())),
-        upper_bounds: Some(AvroMap(HashMap::new())),
-        key_metadata: None,
-        split_offsets: None,
-        equality_ids: None,
-        sort_order_id: None,
-    };
+    let mut partition = partition_spec
+        .iter()
+        .map(|x| {
+            let field = schema
+                .get(x.source_id as usize)
+                .ok_or_else(|| anyhow!("Column with id {} is missing in schema.", x.source_id))?;
+            Ok((field.name.clone(), None))
+        })
+        .collect::<Result<Struct>>()?;
+    let transforms = partition_spec
+        .iter()
+        .map(|x| {
+            let field = schema
+                .get(x.source_id as usize)
+                .ok_or_else(|| anyhow!("Column with id {} is missing in schema.", x.source_id))?;
+            Ok((field.name.clone(), x.transform.clone()))
+        })
+        .collect::<Result<HashMap<String, Transform>>>()?;
+    let mut column_sizes = Some(AvroMap(HashMap::new()));
+    let mut value_counts = Some(AvroMap(HashMap::new()));
+    let mut null_value_counts = Some(AvroMap(HashMap::new()));
+    let mut distinct_counts = Some(AvroMap(HashMap::new()));
+    let mut lower_bounds: Option<AvroMap<ByteBuf>> = Some(AvroMap(HashMap::new()));
+    let mut upper_bounds: Option<AvroMap<ByteBuf>> = Some(AvroMap(HashMap::new()));
+
     for row_group in parquet_metadata.row_groups() {
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
             let id = schema
                     .get_name(column_name)
                     .ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.id;
-            if let Some(column_sizes) = &mut content.column_sizes {
+            if let Some(column_sizes) = &mut column_sizes {
                 if let Some(entry) = column_sizes.0.get_mut(&id) {
                     *entry += column.compressed_size()
                 }
             }
-            if let Some(value_counts) = &mut content.value_counts {
+            if let Some(value_counts) = &mut value_counts {
                 if let Some(entry) = value_counts.0.get_mut(&id) {
                     *entry += row_group.num_rows()
                 }
             }
             if let Some(statistics) = column.statistics() {
-                if let Some(null_value_counts) = &mut content.null_value_counts {
+                if let Some(null_value_counts) = &mut null_value_counts {
                     if let Some(entry) = null_value_counts.0.get_mut(&id) {
                         *entry += statistics.null_count() as i64
                     }
                 }
-                if let Some(distinct_count) = &mut content.distinct_counts {
+                if let Some(distinct_count) = &mut distinct_counts {
                     if let (Some(entry), Some(distinct_count)) =
                         (distinct_count.0.get_mut(&id), statistics.distinct_count())
                     {
                         *entry += distinct_count as i64
                     }
                 }
-                if let Some(lower_bounds) = &mut content.lower_bounds {
+                if let Some(lower_bounds) = &mut lower_bounds {
                     if let Some(entry) = lower_bounds.0.get_mut(&id) {
                         let data_type = &schema.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
                         match data_type {
                             Type::Primitive(prim) => match prim {
                                 PrimitiveType::Date => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i32>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i32>()
-                                        .unwrap();
-                                    if current > new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i32, _>(
+                                        entry,
+                                        statistics.min_bytes(),
+                                        data_type,
+                                        |current, new| current > new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Double => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<f64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<f64>()
-                                        .unwrap();
-                                    if current > new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<f64, _>(
+                                        entry,
+                                        statistics.min_bytes(),
+                                        data_type,
+                                        |current, new| current > new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Float => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<f32>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<f32>()
-                                        .unwrap();
-                                    if current > new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<f32, _>(
+                                        entry,
+                                        statistics.min_bytes(),
+                                        data_type,
+                                        |current, new| current > new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Int => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i32>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i32>()
-                                        .unwrap();
-                                    if current > new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i32, _>(
+                                        entry,
+                                        statistics.min_bytes(),
+                                        data_type,
+                                        |current, new| current > new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Long => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i64>()
-                                        .unwrap();
-                                    if current > new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i64, _>(
+                                        entry,
+                                        statistics.min_bytes(),
+                                        data_type,
+                                        |current, new| current > new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Time => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i64>()
-                                        .unwrap();
-                                    if current > new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i64, _>(
+                                        entry,
+                                        statistics.min_bytes(),
+                                        data_type,
+                                        |current, new| current > new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Timestamp => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i64>()
-                                        .unwrap();
-                                    if current > new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i64, _>(
+                                        entry,
+                                        statistics.min_bytes(),
+                                        data_type,
+                                        |current, new| current > new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Timestampz => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i64>()
-                                        .unwrap();
-                                    if current > new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i64, _>(
+                                        entry,
+                                        statistics.min_bytes(),
+                                        data_type,
+                                        |current, new| current > new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 _ => (),
@@ -223,89 +195,292 @@ pub fn parquet_to_datafilev2(
                         }
                     }
                 }
-                if let Some(upper_bounds) = &mut content.upper_bounds {
+                if let Some(upper_bounds) = &mut upper_bounds {
                     if let Some(entry) = upper_bounds.0.get_mut(&id) {
                         let data_type = &schema.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
                         match data_type {
                             Type::Primitive(prim) => match prim {
                                 PrimitiveType::Date => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i32>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i32>()
-                                        .unwrap();
-                                    if current < new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i32, _>(
+                                        entry,
+                                        statistics.max_bytes(),
+                                        data_type,
+                                        |current, new| current < new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Double => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<f64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<f64>()
-                                        .unwrap();
-                                    if current < new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<f64, _>(
+                                        entry,
+                                        statistics.max_bytes(),
+                                        data_type,
+                                        |current, new| current < new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Float => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<f32>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<f32>()
-                                        .unwrap();
-                                    if current < new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<f32, _>(
+                                        entry,
+                                        statistics.max_bytes(),
+                                        data_type,
+                                        |current, new| current < new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Int => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i32>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i32>()
-                                        .unwrap();
-                                    if current < new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i32, _>(
+                                        entry,
+                                        statistics.max_bytes(),
+                                        data_type,
+                                        |current, new| current < new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Long => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i64>()
-                                        .unwrap();
-                                    if current < new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i64, _>(
+                                        entry,
+                                        statistics.max_bytes(),
+                                        data_type,
+                                        |current, new| current < new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Time => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i64>()
-                                        .unwrap();
-                                    if current < new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i64, _>(
+                                        entry,
+                                        statistics.max_bytes(),
+                                        data_type,
+                                        |current, new| current < new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Timestamp => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i64>()
-                                        .unwrap();
-                                    if current < new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i64, _>(
+                                        entry,
+                                        statistics.max_bytes(),
+                                        data_type,
+                                        |current, new| current < new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
                                     }
                                 }
                                 PrimitiveType::Timestampz => {
-                                    let current =
-                                        bytes_to_any(entry, data_type)?.downcast::<i64>().unwrap();
-                                    let new = bytes_to_any(statistics.min_bytes(), data_type)?
-                                        .downcast::<i64>()
-                                        .unwrap();
-                                    if current < new {
-                                        *entry = ByteBuf::from(statistics.min_bytes())
+                                    if let Some(new) = change_new::<i64, _>(
+                                        entry,
+                                        statistics.max_bytes(),
+                                        data_type,
+                                        |current, new| current < new,
+                                    )? {
+                                        *entry = ByteBuf::from(new)
+                                    }
+                                }
+                                _ => (),
+                            },
+                            _ => (),
+                        }
+                    }
+                }
+                if let Some(partition_value) = partition.get_mut(column_name) {
+                    if partition_value.is_none() {
+                        let data_type = &schema.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
+                        match data_type {
+                            Type::Primitive(prim) => match prim {
+                                PrimitiveType::Date => {
+                                    let transform =
+                                        transforms.get(column_name).ok_or_else(|| {
+                                            anyhow!(
+                                                "Transform for column {} doesn't exist",
+                                                column_name
+                                            )
+                                        })?;
+                                    let min = Value::Date(
+                                        *bytes_to_any(statistics.min_bytes(), data_type)?
+                                            .downcast::<i32>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    let max = Value::Date(
+                                        *bytes_to_any(statistics.max_bytes(), data_type)?
+                                            .downcast::<i32>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    if min == max {
+                                        *partition_value = Some(min)
+                                    }
+                                }
+                                PrimitiveType::Double => {
+                                    let transform =
+                                        transforms.get(column_name).ok_or_else(|| {
+                                            anyhow!(
+                                                "Transform for column {} doesn't exist",
+                                                column_name
+                                            )
+                                        })?;
+                                    let min = Value::Double(
+                                        *bytes_to_any(statistics.min_bytes(), data_type)?
+                                            .downcast::<f64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    let max = Value::Double(
+                                        *bytes_to_any(statistics.max_bytes(), data_type)?
+                                            .downcast::<f64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    if min == max {
+                                        *partition_value = Some(min)
+                                    }
+                                }
+                                PrimitiveType::Float => {
+                                    let transform =
+                                        transforms.get(column_name).ok_or_else(|| {
+                                            anyhow!(
+                                                "Transform for column {} doesn't exist",
+                                                column_name
+                                            )
+                                        })?;
+                                    let min = Value::Float(
+                                        *bytes_to_any(statistics.min_bytes(), data_type)?
+                                            .downcast::<f32>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    let max = Value::Float(
+                                        *bytes_to_any(statistics.max_bytes(), data_type)?
+                                            .downcast::<f32>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    if min == max {
+                                        *partition_value = Some(min)
+                                    }
+                                }
+                                PrimitiveType::Int => {
+                                    let transform =
+                                        transforms.get(column_name).ok_or_else(|| {
+                                            anyhow!(
+                                                "Transform for column {} doesn't exist",
+                                                column_name
+                                            )
+                                        })?;
+                                    let min = Value::Int(
+                                        *bytes_to_any(statistics.min_bytes(), data_type)?
+                                            .downcast::<i32>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    let max = Value::Int(
+                                        *bytes_to_any(statistics.max_bytes(), data_type)?
+                                            .downcast::<i32>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    if min == max {
+                                        *partition_value = Some(min)
+                                    }
+                                }
+                                PrimitiveType::Long => {
+                                    let transform =
+                                        transforms.get(column_name).ok_or_else(|| {
+                                            anyhow!(
+                                                "Transform for column {} doesn't exist",
+                                                column_name
+                                            )
+                                        })?;
+                                    let min = Value::LongInt(
+                                        *bytes_to_any(statistics.min_bytes(), data_type)?
+                                            .downcast::<i64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    let max = Value::LongInt(
+                                        *bytes_to_any(statistics.max_bytes(), data_type)?
+                                            .downcast::<i64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    if min == max {
+                                        *partition_value = Some(min)
+                                    }
+                                }
+                                PrimitiveType::Time => {
+                                    let transform =
+                                        transforms.get(column_name).ok_or_else(|| {
+                                            anyhow!(
+                                                "Transform for column {} doesn't exist",
+                                                column_name
+                                            )
+                                        })?;
+                                    let min = Value::Time(
+                                        *bytes_to_any(statistics.min_bytes(), data_type)?
+                                            .downcast::<i64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    let max = Value::Time(
+                                        *bytes_to_any(statistics.max_bytes(), data_type)?
+                                            .downcast::<i64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    if min == max {
+                                        *partition_value = Some(min)
+                                    }
+                                }
+                                PrimitiveType::Timestamp => {
+                                    let transform =
+                                        transforms.get(column_name).ok_or_else(|| {
+                                            anyhow!(
+                                                "Transform for column {} doesn't exist",
+                                                column_name
+                                            )
+                                        })?;
+                                    let min = Value::Timestamp(
+                                        *bytes_to_any(statistics.min_bytes(), data_type)?
+                                            .downcast::<i64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    let max = Value::Timestamp(
+                                        *bytes_to_any(statistics.max_bytes(), data_type)?
+                                            .downcast::<i64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    if min == max {
+                                        *partition_value = Some(min)
+                                    }
+                                }
+                                PrimitiveType::Timestampz => {
+                                    let transform =
+                                        transforms.get(column_name).ok_or_else(|| {
+                                            anyhow!(
+                                                "Transform for column {} doesn't exist",
+                                                column_name
+                                            )
+                                        })?;
+                                    let min = Value::TimestampTZ(
+                                        *bytes_to_any(statistics.min_bytes(), data_type)?
+                                            .downcast::<i64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    let max = Value::TimestampTZ(
+                                        *bytes_to_any(statistics.max_bytes(), data_type)?
+                                            .downcast::<i64>()
+                                            .unwrap(),
+                                    )
+                                    .tranform(transform)?;
+                                    if min == max {
+                                        *partition_value = Some(min)
                                     }
                                 }
                                 _ => (),
@@ -317,5 +492,41 @@ pub fn parquet_to_datafilev2(
             }
         }
     }
+    let content = DataFileV2 {
+        content: Content::Data,
+        file_path: file_metadata.location.to_string(),
+        file_format: FileFormat::Parquet,
+        partition,
+        record_count: parquet_metadata.file_metadata().num_rows(),
+        file_size_in_bytes: file_metadata.size as i64,
+        column_sizes,
+        value_counts,
+        null_value_counts,
+        nan_value_counts: None,
+        distinct_counts,
+        lower_bounds,
+        upper_bounds,
+        key_metadata: None,
+        split_offsets: None,
+        equality_ids: None,
+        sort_order_id: None,
+    };
     Ok(content)
+}
+
+// Downcasts the bytes to the data type and checks the predicate function
+#[inline]
+fn change_new<'bytes, T: 'static, F: FnOnce(Box<T>, Box<T>) -> bool>(
+    first: &[u8],
+    second: &'bytes [u8],
+    data_type: &Type,
+    f: F,
+) -> Result<Option<&'bytes [u8]>> {
+    let current = bytes_to_any(first, data_type)?.downcast::<T>().unwrap();
+    let new = bytes_to_any(second, data_type)?.downcast::<T>().unwrap();
+    if f(current, new) {
+        Ok(Some(second))
+    } else {
+        Ok(None)
+    }
 }
