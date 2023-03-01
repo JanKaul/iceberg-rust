@@ -8,7 +8,7 @@ use object_store::ObjectMeta;
 use std::{any::Any, collections::HashMap, ops::DerefMut, sync::Arc};
 
 use datafusion::{
-    arrow::datatypes::{DataType, Schema as ArrowSchema, SchemaRef},
+    arrow::datatypes::{DataType, SchemaRef},
     common::DataFusionError,
     datasource::{
         file_format::{parquet::ParquetFormat, FileFormat},
@@ -30,7 +30,10 @@ use url::Url;
 use crate::pruning_statistics::{PruneDataFiles, PruneManifests};
 
 use iceberg_rust::{
-    catalog::relation::Relation, model::view_metadata::Representation, table::Table, util,
+    catalog::relation::Relation,
+    model::{data_types::StructField, view_metadata::Representation},
+    table::Table,
+    util,
     view::View,
 };
 // mod value;
@@ -79,11 +82,28 @@ impl TableProvider for DataFusionTable {
         }
     }
     fn schema(&self) -> SchemaRef {
-        let schema = match &self.0 {
-            Relation::Table(table) => table.schema(),
-            Relation::View(view) => view.schema().unwrap(),
-        };
-        Arc::new(schema.try_into().unwrap())
+        match &self.0 {
+            Relation::Table(table) => {
+                let mut schema = table.schema().clone();
+                // Add the partition columns to the table schema
+                for partition_field in table.metadata().default_spec() {
+                    schema.fields.push(StructField {
+                        id: partition_field.field_id,
+                        name: partition_field.name.clone(),
+                        field_type: schema
+                            .get(partition_field.source_id as usize)
+                            .unwrap()
+                            .field_type
+                            .tranform(&partition_field.transform)
+                            .unwrap(),
+                        required: true,
+                        doc: None,
+                    })
+                }
+                Arc::new((&schema).try_into().unwrap())
+            }
+            Relation::View(view) => Arc::new(view.schema().unwrap().try_into().unwrap()),
+        }
     }
     fn table_type(&self) -> TableType {
         match &self.0 {
@@ -240,61 +260,26 @@ async fn table_scan(
         .default_spec()
         .iter()
         .map(|field| {
-            (
+            Ok((
                 field.name.clone(),
-                schema.field(field.source_id as usize).data_type().clone(),
-            )
+                (&table
+                    .schema()
+                    .get(field.source_id as usize)
+                    .unwrap()
+                    .field_type
+                    .tranform(&field.transform)?)
+                    .try_into()?,
+            ))
         })
-        .collect();
-
-    // Remove the partition columns from the schema. The values for the partition column are stored in the partition values
-    let file_schema = Arc::new(ArrowSchema::new(
-        schema
-            .fields()
-            .iter()
-            .filter(|field| {
-                !table_partition_cols.contains(&(field.name().clone(), field.data_type().clone()))
-            })
-            .cloned()
-            .collect(),
-    ));
-
-    // Get the ids of the partition columns
-    let partition_ids: Vec<usize> = schema
-        .fields()
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, field)| {
-            if table_partition_cols.contains(&(field.name().clone(), field.data_type().clone())) {
-                Some(idx)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Change the projection according to the previous schema change
-    let projection = projection.clone().map(|projection| {
-        projection
-            .iter()
-            .map(|idx| {
-                if partition_ids.contains(idx) {
-                    file_schema.fields.len() + partition_ids.iter().position(|x| x == idx).unwrap()
-                } else {
-                    partition_ids
-                        .iter()
-                        .fold(*idx, |acc, x| if idx > x { acc - 1 } else { acc })
-                }
-            })
-            .collect()
-    });
+        .collect::<Result<Vec<_>>>()
+        .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
 
     let file_scan_config = FileScanConfig {
         object_store_url,
-        file_schema,
+        file_schema: schema,
         file_groups: file_groups.into_values().collect(),
         statistics,
-        projection,
+        projection: projection.cloned(),
         limit,
         table_partition_cols,
         output_ordering: None,

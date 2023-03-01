@@ -3,11 +3,13 @@
 */
 use std::{fmt, ops::Index};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use serde::{
     de::{Error, IntoDeserializer},
     Deserialize, Deserializer, Serialize, Serializer,
 };
+
+use super::partition::Transform;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(untagged)]
@@ -253,6 +255,24 @@ pub struct MapType {
     pub value_required: bool,
     /// Datatype of value
     pub value: Box<Type>,
+}
+
+impl Type {
+    /// Perform a partition transformation for the given type
+    pub fn tranform(&self, transform: &Transform) -> Result<Type> {
+        match transform {
+            Transform::Identity => Ok(self.clone()),
+            Transform::Bucket(_) => Ok(Type::Primitive(PrimitiveType::Int)),
+            Transform::Truncate(_) => Ok(self.clone()),
+            Transform::Year => Ok(Type::Primitive(PrimitiveType::Int)),
+            Transform::Month => Ok(Type::Primitive(PrimitiveType::Int)),
+            Transform::Day => Ok(Type::Primitive(PrimitiveType::Int)),
+            Transform::Hour => Ok(Type::Primitive(PrimitiveType::Int)),
+            _ => Err(anyhow!(
+                "Partition transform operation currently not supported."
+            )),
+        }
+    }
 }
 
 #[cfg(test)]
