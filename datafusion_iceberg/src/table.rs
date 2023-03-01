@@ -242,7 +242,7 @@ async fn table_scan(
         .map(|field| {
             (
                 field.name.clone(),
-                schema.field(field.field_id as usize).data_type().clone(),
+                schema.field(field.source_id as usize).data_type().clone(),
             )
         })
         .collect();
