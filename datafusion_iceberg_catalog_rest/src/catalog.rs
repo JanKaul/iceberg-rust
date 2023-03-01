@@ -96,7 +96,7 @@ mod tests {
         );
 
         let catalog: Arc<dyn Catalog> = Arc::new(RestCatalog::new(
-            "my_catalog".to_owned(),
+            "my_catalog",
             configuration(),
             object_store,
         ));

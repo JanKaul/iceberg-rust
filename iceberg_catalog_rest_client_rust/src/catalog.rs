@@ -27,12 +27,12 @@ pub struct RestCatalog {
 
 impl RestCatalog {
     pub fn new(
-        name: String,
+        name: &str,
         configuration: configuration::Configuration,
         object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         RestCatalog {
-            name,
+            name: name.to_string(),
             configuration,
             object_store,
         }
@@ -229,7 +229,7 @@ pub mod tests {
     async fn test_create_update_drop_table() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let catalog: Arc<dyn Catalog> = Arc::new(RestCatalog::new(
-            "my_catalog".to_owned(),
+            "my_catalog",
             configuration(),
             object_store,
         ));

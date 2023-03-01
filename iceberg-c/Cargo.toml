@@ -1,0 +1,14 @@
+[package]
+name = "iceberg-rust-c"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iceberg-rust = { path = "../iceberg-rust" }
+datafusion_iceberg = { path = "../datafusion_iceberg" }
+iceberg_catalog_rest_client = { path = "../iceberg_catalog_rest_client_rust" }
+object_store = { version = "0.5.4", features=["aws"]}
+reqwest = { version = "0.11.14", features=["json", "multipart"] }
+tokio = "1.25.0"
