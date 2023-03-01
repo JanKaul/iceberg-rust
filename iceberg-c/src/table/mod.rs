@@ -4,7 +4,6 @@ use self::transaction::CTableTransaction;
 
 pub mod transaction;
 
-#[repr(C)]
 pub struct CTable(pub Table);
 
 #[no_mangle]

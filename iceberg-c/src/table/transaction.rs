@@ -7,7 +7,6 @@ use iceberg_rust::table::transaction::TableTransaction;
 
 use crate::block_on;
 
-#[repr(C)]
 pub struct CTableTransaction<'a>(pub TableTransaction<'a>);
 
 #[no_mangle]

@@ -2,7 +2,6 @@ use iceberg_rust::catalog::relation::Relation;
 
 use crate::table::CTable;
 
-#[repr(C)]
 pub struct CRelation(pub Relation);
 
 #[no_mangle]

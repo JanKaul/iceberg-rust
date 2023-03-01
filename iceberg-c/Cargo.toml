@@ -1,5 +1,5 @@
 [package]
-name = "iceberg-rust-c"
+name = "iceberg-c"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,8 +7,10 @@ edition = "2021"
 
 [dependencies]
 iceberg-rust = { path = "../iceberg-rust" }
-datafusion_iceberg = { path = "../datafusion_iceberg" }
 iceberg_catalog_rest_client = { path = "../iceberg_catalog_rest_client_rust" }
-object_store = { version = "0.5.4", features=["aws"]}
+object_store = { version = "0.5.2", features=["aws"]}
 reqwest = { version = "0.11.14", features=["json", "multipart"] }
-tokio = "1.25.0"
+tokio = { version = "1.25.0", features = ["rt-multi-thread"] } 
+
+[build-dependencies]
+cbindgen = "0.24.3"

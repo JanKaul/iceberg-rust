@@ -5,7 +5,6 @@ use std::{
 
 use object_store::{aws::AmazonS3Builder, ObjectStore};
 
-#[repr(C)]
 pub struct CObjectStore(pub Arc<dyn ObjectStore>);
 
 #[no_mangle]
