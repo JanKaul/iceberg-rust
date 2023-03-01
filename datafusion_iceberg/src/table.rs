@@ -314,7 +314,7 @@ mod tests {
     #[tokio::test]
     pub async fn test_datafusion_table_scan() {
         let object_store: Arc<dyn ObjectStore> =
-            Arc::new(LocalFileSystem::new_with_prefix("./tests").unwrap());
+            Arc::new(LocalFileSystem::new_with_prefix("../iceberg-tests/nyc_taxis").unwrap());
 
         let table = Arc::new(DataFusionTable::from(
             Table::load_file_system_table("/home/iceberg/warehouse/nyc/taxis", &object_store)
@@ -352,7 +352,7 @@ mod tests {
     #[tokio::test]
     pub async fn test_datafusion_view_scan() {
         let object_store: Arc<dyn ObjectStore> =
-            Arc::new(LocalFileSystem::new_with_prefix("./tests").unwrap());
+            Arc::new(LocalFileSystem::new_with_prefix("../iceberg-tests/nyc_taxis").unwrap());
 
         let memory_object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
