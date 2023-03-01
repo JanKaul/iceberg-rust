@@ -40,97 +40,73 @@ impl<'table> From<&'table Table> for PruneManifests<'table> {
 
 impl<'table> PruningStatistics for PruneManifests<'table> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = self.0.schema().try_into().ok()?;
-        let column_id = schema.index_of(&column.name).ok()?;
-        let datatype = schema.field_with_name(&column.name).ok()?.data_type();
-        let min_values =
-            self.0
-                .manifests()
-                .iter()
-                .filter_map(|manifest| match manifest.partitions() {
-                    Some(partitions) => {
-                        let id = manifest.partition_spec_id();
-                        let partition_spec = self.0.metadata().get_spec(id)?;
-                        partition_spec
-                            .iter()
-                            .zip(partitions)
-                            .map(|(field, summary)| {
-                                if field.source_id == column_id as i32 {
-                                    summary.lower_bound.as_ref().and_then(|min| {
-                                        bytes_to_any(min, &datatype.try_into().ok()?).ok()
-                                    })
-                                } else {
-                                    None
-                                }
-                            })
-                            .next()
-                    }
-                    None => None,
-                });
-        any_iter_to_array(min_values, datatype).ok()
+        let partition_spec = self.0.metadata().default_spec();
+        let schema = self.0.schema();
+        let (index, partition_field) = partition_spec
+            .iter()
+            .enumerate()
+            .find(|(_, partition_field)| partition_field.name == column.name)?;
+        let data_type = schema
+            .get(partition_field.source_id as usize)
+            .as_ref()?
+            .field_type
+            .tranform(&partition_field.transform)
+            .ok()?
+            .try_into()
+            .ok()?;
+        let min_values = self.0.manifests().iter().filter_map(|manifest| {
+            manifest.partitions().as_ref().and_then(|partitions| {
+                partitions[index]
+                    .lower_bound
+                    .as_ref()
+                    .map(|min| bytes_to_any(min, &data_type).ok())
+            })
+        });
+        any_iter_to_array(min_values, &(&data_type).try_into().ok()?).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = self.0.schema().try_into().ok()?;
-        let column_id = schema.index_of(&column.name).ok()?;
-        let datatype = schema.field_with_name(&column.name).ok()?.data_type();
-        let max_values =
-            self.0
-                .manifests()
-                .iter()
-                .filter_map(|manifest| match manifest.partitions() {
-                    Some(partitions) => {
-                        let id = manifest.partition_spec_id();
-                        let partition_spec = self.0.metadata().get_spec(id)?;
-                        partition_spec
-                            .iter()
-                            .zip(partitions)
-                            .map(|(field, summary)| {
-                                if field.source_id == column_id as i32 {
-                                    summary.upper_bound.as_ref().and_then(|min| {
-                                        bytes_to_any(min, &datatype.try_into().ok()?).ok()
-                                    })
-                                } else {
-                                    None
-                                }
-                            })
-                            .next()
-                    }
-                    None => None,
-                });
-        any_iter_to_array(max_values, datatype).ok()
+        let partition_spec = self.0.metadata().default_spec();
+        let schema = self.0.schema();
+        let (index, partition_field) = partition_spec
+            .iter()
+            .enumerate()
+            .find(|(_, partition_field)| partition_field.name == column.name)?;
+        let data_type = schema
+            .get(partition_field.source_id as usize)
+            .as_ref()?
+            .field_type
+            .tranform(&partition_field.transform)
+            .ok()?
+            .try_into()
+            .ok()?;
+        let max_values = self.0.manifests().iter().filter_map(|manifest| {
+            manifest.partitions().as_ref().and_then(|partitions| {
+                partitions[index]
+                    .upper_bound
+                    .as_ref()
+                    .map(|max| bytes_to_any(max, &data_type).ok())
+            })
+        });
+        any_iter_to_array(max_values, &(&data_type).try_into().ok()?).ok()
     }
     fn num_containers(&self) -> usize {
         self.0.manifests().len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = self.0.schema().try_into().ok()?;
-        let column_id = schema.index_of(&column.name).ok()?;
-        let contains_null =
-            self.0
-                .manifests()
-                .iter()
-                .filter_map(|manifest| match manifest.partitions() {
-                    Some(partitions) => {
-                        let id = manifest.partition_spec_id();
-                        let partition_spec = self.0.metadata().get_spec(id)?;
-                        partition_spec
-                            .iter()
-                            .zip(partitions)
-                            .map(|(field, summary)| {
-                                if field.source_id == column_id as i32 {
-                                    if !summary.contains_null {
-                                        Some(0)
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    None
-                                }
-                            })
-                            .next()
-                    }
-                    None => None,
-                });
+        let partition_spec = self.0.metadata().default_spec();
+        let (index, _) = partition_spec
+            .iter()
+            .enumerate()
+            .find(|(_, partition_field)| partition_field.name == column.name)?;
+        let contains_null = self.0.manifests().iter().filter_map(|manifest| {
+            manifest.partitions().as_ref().map(|partitions| {
+                if !partitions[index].contains_null {
+                    Some(0)
+                } else {
+                    None
+                }
+            })
+        });
         ScalarValue::iter_to_array(contains_null.map(ScalarValue::Int32)).ok()
     }
 }
