@@ -3,5 +3,5 @@ fn main() {
         .with_crate(".")
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file("iceberg.h");
+        .write_to_file("iceberg_c.h");
 }
