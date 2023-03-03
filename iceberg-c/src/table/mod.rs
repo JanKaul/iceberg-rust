@@ -1,5 +1,6 @@
 use iceberg_rust::table::{transaction::TableTransaction, Table};
 
+pub mod table_builder;
 pub mod transaction;
 
 /// Create new table transaction

@@ -48,6 +48,15 @@ Box<TableTransaction> table_new_transaction(Table *table);
 /// Destructor for table
 void table_free(Option<Box<Table>> _catalog);
 
+/// Create new metastore table
+Box<TableBuilder> table_builder_new_metastore(const char *base_path,
+                                              const char *schema,
+                                              const char *identifier,
+                                              const CCatalog *catalog);
+
+/// Commit table builder and create table
+Box<Table> table_builder_commit(Box<TableBuilder> table_builder);
+
 /// Add new append operation to transaction
 Box<TableTransaction> table_transaction_new_append(Box<TableTransaction> transaction,
                                                    const char *const *paths,

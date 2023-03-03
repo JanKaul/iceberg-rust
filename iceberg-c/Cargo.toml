@@ -13,6 +13,7 @@ iceberg-rust = { path = "../iceberg-rust" }
 iceberg_catalog_rest_client = { path = "../iceberg_catalog_rest_client_rust" }
 object_store = { version = "0.5.2", features=["aws"]}
 reqwest = { version = "0.11.14", features=["json", "multipart"] }
+serde_json = "1.0.93"
 tokio = { version = "1.25.0", features = ["rt-multi-thread"] } 
 
 [build-dependencies]
