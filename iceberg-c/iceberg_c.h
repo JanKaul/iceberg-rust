@@ -1,68 +1,83 @@
-#include <cstdarg>
-#include <cstdint>
-#include <cstdlib>
-#include <ostream>
-#include <new>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
 
-struct ArcCatalog;
+typedef struct ArcCatalog ArcCatalog;
 
-struct ArcObjectStore;
+typedef struct ArcObjectStore ArcObjectStore;
 
-template<typename T = void>
-struct Box;
+/**
+ * Constructor for rest catalog
+ */
+struct ArcCatalog *catalog_new_rest(const char *name,
+                                    const char *base_bath,
+                                    const char *access_token,
+                                    const struct ArcObjectStore *object_store);
 
-template<typename T = void>
-struct Option;
+/**
+ * Destructor for catalog
+ */
+void catalog_free(struct ArcCatalog *_object_store);
 
-extern "C" {
+/**
+ * Load a table
+ */
+Relation *catalog_load_table(const struct ArcCatalog *catalog, const char *identifier);
 
-/// Constructor for rest catalog
-Box<ArcCatalog> catalog_new_rest(const char *name,
-                                 const char *base_bath,
-                                 const char *access_token,
-                                 const ArcObjectStore *object_store);
+/**
+ * Constructor for aws object_store
+ */
+struct ArcObjectStore *object_store_new_aws(const char *region,
+                                            const char *bucket,
+                                            const char *access_token);
 
-/// Destructor for catalog
-void catalog_free(Option<Box<ArcCatalog>> _object_store);
+/**
+ * Free object store memory
+ */
+void object_store_free(struct ArcObjectStore *_object_store);
 
-/// Load a table
-Box<Relation> catalog_load_table(const ArcCatalog *catalog, const char *identifier);
+/**
+ * Convert relation to table. Panics if conversion fails.
+ */
+Table *relation_to_table(Relation *relation);
 
-/// Constructor for aws object_store
-Box<ArcObjectStore> object_store_new_aws(const char *region,
-                                         const char *bucket,
-                                         const char *access_token);
+/**
+ * Destructor for relation
+ */
+void relation_free(Relation *_catalog);
 
-/// Free object store memory
-void object_store_free(Option<Box<ArcObjectStore>> _object_store);
+/**
+ * Create new table transaction
+ */
+TableTransaction *table_new_transaction(Table *table);
 
-/// Convert relation to table. Panics if conversion fails.
-Box<Table> relation_to_table(Box<Relation> relation);
+/**
+ * Destructor for table
+ */
+void table_free(Table *_catalog);
 
-/// Destructor for relation
-void relation_free(Option<Box<Relation>> _catalog);
+/**
+ * Create new metastore table
+ */
+TableBuilder *table_builder_new_metastore(const char *base_path,
+                                          const char *schema,
+                                          const char *identifier,
+                                          const struct ArcCatalog *catalog);
 
-/// Create new table transaction
-Box<TableTransaction> table_new_transaction(Table *table);
+/**
+ * Commit table builder and create table
+ */
+Table *table_builder_commit(TableBuilder *table_builder);
 
-/// Destructor for table
-void table_free(Option<Box<Table>> _catalog);
+/**
+ * Add new append operation to transaction
+ */
+TableTransaction *table_transaction_new_append(TableTransaction *transaction,
+                                               const char *const *paths,
+                                               unsigned int num_paths);
 
-/// Create new metastore table
-Box<TableBuilder> table_builder_new_metastore(const char *base_path,
-                                              const char *schema,
-                                              const char *identifier,
-                                              const ArcCatalog *catalog);
-
-/// Commit table builder and create table
-Box<Table> table_builder_commit(Box<TableBuilder> table_builder);
-
-/// Add new append operation to transaction
-Box<TableTransaction> table_transaction_new_append(Box<TableTransaction> transaction,
-                                                   const char *const *paths,
-                                                   unsigned int num_paths);
-
-/// Commit transaction freeing its memmory
-void table_transaction_commit(Box<TableTransaction> transaction);
-
-} // extern "C"
+/**
+ * Commit transaction freeing its memmory
+ */
+void table_transaction_commit(TableTransaction *transaction);
