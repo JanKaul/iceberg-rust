@@ -1,3 +1,9 @@
+typedef void* Relation;
+typedef void* Table;
+typedef void* TableTransaction;
+typedef void* TableBuilder;
+
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
