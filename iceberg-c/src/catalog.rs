@@ -4,12 +4,13 @@ use std::{
 };
 
 use iceberg_catalog_rest_client::{apis::configuration::Configuration, catalog::RestCatalog};
-use iceberg_rust::catalog::{identifier::Identifier, Catalog};
+use iceberg_rust::catalog::{identifier::Identifier, relation::Relation, Catalog};
 
-use crate::{block_on, object_store::CObjectStore, realtion::CRelation};
+use crate::{block_on, object_store::CObjectStore};
 
 pub struct CCatalog(pub Arc<dyn Catalog>);
 
+/// Constructor for rest catalog
 #[no_mangle]
 pub extern "C" fn catalog_new_rest(
     name: *const c_char,
@@ -36,15 +37,20 @@ pub extern "C" fn catalog_new_rest(
     ))))
 }
 
+/// Destructor for catalog
+#[no_mangle]
+pub extern "C" fn catalog_free(_object_store: Option<Box<CCatalog>>) {}
+
+/// Load a table
 #[no_mangle]
 pub extern "C" fn catalog_load_table(
     catalog: &CCatalog,
     identifier: *const c_char,
-) -> Box<CRelation> {
+) -> Box<Relation> {
     let identifier = unsafe { CStr::from_ptr(identifier) };
     let identifier = Identifier::parse(identifier.to_str().unwrap()).unwrap();
 
     let relation = block_on(catalog.0.clone().load_table(&identifier)).unwrap();
 
-    Box::new(CRelation(relation))
+    Box::new(relation)
 }

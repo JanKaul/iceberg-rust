@@ -7,6 +7,7 @@ use object_store::{aws::AmazonS3Builder, ObjectStore};
 
 pub struct CObjectStore(pub Arc<dyn ObjectStore>);
 
+/// Constructor for aws object_store
 #[no_mangle]
 pub extern "C" fn object_store_new_aws(
     region: *const c_char,
@@ -28,5 +29,6 @@ pub extern "C" fn object_store_new_aws(
     Box::new(CObjectStore(object_store))
 }
 
+/// Free object store memory
 #[no_mangle]
-pub extern "C" fn object_store_free(_object_store: Box<CObjectStore>) {}
+pub extern "C" fn object_store_free(_object_store: Option<Box<CObjectStore>>) {}

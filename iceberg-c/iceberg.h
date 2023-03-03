@@ -11,35 +11,49 @@ struct CCatalog;
 
 struct CObjectStore;
 
-struct CRelation;
-
-struct CTable;
-
-struct CTableTransaction;
+template<typename T = void>
+struct Option;
 
 extern "C" {
 
+/// Constructor for rest catalog
 Box<CCatalog> catalog_new_rest(const char *name,
                                const char *base_bath,
                                const char *access_token,
                                const CObjectStore *object_store);
 
-Box<CRelation> catalog_load_table(const CCatalog *catalog, const char *identifier);
+/// Destructor for catalog
+void catalog_free(Option<Box<CCatalog>> _object_store);
 
+/// Load a table
+Box<Relation> catalog_load_table(const CCatalog *catalog, const char *identifier);
+
+/// Constructor for aws object_store
 Box<CObjectStore> object_store_new_aws(const char *region,
                                        const char *bucket,
                                        const char *access_token);
 
-void object_store_free(Box<CObjectStore> _object_store);
+/// Free object store memory
+void object_store_free(Option<Box<CObjectStore>> _object_store);
 
-Box<CTable> relation_to_table(Box<CRelation> relation);
+/// Convert relation to table. Panics if conversion fails.
+Box<Table> relation_to_table(Box<Relation> relation);
 
-Box<CTableTransaction> table_new_transaction(CTable *table);
+/// Destructor for relation
+void relation_free(Option<Box<Relation>> _catalog);
 
-Box<CTableTransaction> table_transaction_new_append(Box<CTableTransaction> transaction,
-                                                    const char *const *paths,
-                                                    unsigned int num_paths);
+/// Create new table transaction
+Box<TableTransaction> table_new_transaction(Table *table);
 
-void table_transaction_commit(Box<CTableTransaction> transaction);
+/// Destructor for table
+void table_free(Option<Box<Table>> _catalog);
+
+/// Add new append operation to transaction
+Box<TableTransaction> table_transaction_new_append(Box<TableTransaction> transaction,
+                                                   const char *const *paths,
+                                                   unsigned int num_paths);
+
+/// Commit transaction freeing its memmory
+void table_transaction_commit(Box<TableTransaction> transaction);
 
 } // extern "C"
