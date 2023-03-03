@@ -5,7 +5,7 @@ use std::{
 
 use object_store::{aws::AmazonS3Builder, ObjectStore};
 
-pub struct CObjectStore(pub Arc<dyn ObjectStore>);
+pub struct ArcObjectStore(pub Arc<dyn ObjectStore>);
 
 /// Constructor for aws object_store
 #[no_mangle]
@@ -13,7 +13,7 @@ pub extern "C" fn object_store_new_aws(
     region: *const c_char,
     bucket: *const c_char,
     access_token: *const c_char,
-) -> Box<CObjectStore> {
+) -> Box<ArcObjectStore> {
     let region = unsafe { CStr::from_ptr(region) };
     let bucket = unsafe { CStr::from_ptr(bucket) };
     let access_token = unsafe { CStr::from_ptr(access_token) };
@@ -26,9 +26,9 @@ pub extern "C" fn object_store_new_aws(
             .build()
             .expect("Failed to create aws object store"),
     );
-    Box::new(CObjectStore(object_store))
+    Box::new(ArcObjectStore(object_store))
 }
 
 /// Free object store memory
 #[no_mangle]
-pub extern "C" fn object_store_free(_object_store: Option<Box<CObjectStore>>) {}
+pub extern "C" fn object_store_free(_object_store: Option<Box<ArcObjectStore>>) {}

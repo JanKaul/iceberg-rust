@@ -4,12 +4,12 @@
 #include <ostream>
 #include <new>
 
+struct ArcCatalog;
+
+struct ArcObjectStore;
+
 template<typename T = void>
 struct Box;
-
-struct CCatalog;
-
-struct CObjectStore;
 
 template<typename T = void>
 struct Option;
@@ -17,24 +17,24 @@ struct Option;
 extern "C" {
 
 /// Constructor for rest catalog
-Box<CCatalog> catalog_new_rest(const char *name,
-                               const char *base_bath,
-                               const char *access_token,
-                               const CObjectStore *object_store);
+Box<ArcCatalog> catalog_new_rest(const char *name,
+                                 const char *base_bath,
+                                 const char *access_token,
+                                 const ArcObjectStore *object_store);
 
 /// Destructor for catalog
-void catalog_free(Option<Box<CCatalog>> _object_store);
+void catalog_free(Option<Box<ArcCatalog>> _object_store);
 
 /// Load a table
-Box<Relation> catalog_load_table(const CCatalog *catalog, const char *identifier);
+Box<Relation> catalog_load_table(const ArcCatalog *catalog, const char *identifier);
 
 /// Constructor for aws object_store
-Box<CObjectStore> object_store_new_aws(const char *region,
-                                       const char *bucket,
-                                       const char *access_token);
+Box<ArcObjectStore> object_store_new_aws(const char *region,
+                                         const char *bucket,
+                                         const char *access_token);
 
 /// Free object store memory
-void object_store_free(Option<Box<CObjectStore>> _object_store);
+void object_store_free(Option<Box<ArcObjectStore>> _object_store);
 
 /// Convert relation to table. Panics if conversion fails.
 Box<Table> relation_to_table(Box<Relation> relation);
@@ -52,7 +52,7 @@ void table_free(Option<Box<Table>> _catalog);
 Box<TableBuilder> table_builder_new_metastore(const char *base_path,
                                               const char *schema,
                                               const char *identifier,
-                                              const CCatalog *catalog);
+                                              const ArcCatalog *catalog);
 
 /// Commit table builder and create table
 Box<Table> table_builder_commit(Box<TableBuilder> table_builder);

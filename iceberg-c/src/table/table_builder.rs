@@ -6,7 +6,7 @@ use iceberg_rust::{
     table::{table_builder::TableBuilder, Table},
 };
 
-use crate::{block_on, catalog::CCatalog};
+use crate::{block_on, catalog::ArcCatalog};
 
 /// Create new metastore table
 #[no_mangle]
@@ -14,7 +14,7 @@ pub extern "C" fn table_builder_new_metastore(
     base_path: *const c_char,
     schema: *const c_char,
     identifier: *const c_char,
-    catalog: &CCatalog,
+    catalog: &ArcCatalog,
 ) -> Box<TableBuilder> {
     let base_path = unsafe { CStr::from_ptr(base_path) };
     let schema = unsafe { CStr::from_ptr(schema) };

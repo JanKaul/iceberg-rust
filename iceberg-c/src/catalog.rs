@@ -6,9 +6,9 @@ use std::{
 use iceberg_catalog_rest_client::{apis::configuration::Configuration, catalog::RestCatalog};
 use iceberg_rust::catalog::{identifier::Identifier, relation::Relation, Catalog};
 
-use crate::{block_on, object_store::CObjectStore};
+use crate::{block_on, object_store::ArcObjectStore};
 
-pub struct CCatalog(pub Arc<dyn Catalog>);
+pub struct ArcCatalog(pub Arc<dyn Catalog>);
 
 /// Constructor for rest catalog
 #[no_mangle]
@@ -16,8 +16,8 @@ pub extern "C" fn catalog_new_rest(
     name: *const c_char,
     base_bath: *const c_char,
     access_token: *const c_char,
-    object_store: &CObjectStore,
-) -> Box<CCatalog> {
+    object_store: &ArcObjectStore,
+) -> Box<ArcCatalog> {
     let name = unsafe { CStr::from_ptr(name) };
     let base_bath = unsafe { CStr::from_ptr(base_bath) };
     let access_token = unsafe { CStr::from_ptr(access_token) };
@@ -30,7 +30,7 @@ pub extern "C" fn catalog_new_rest(
         bearer_access_token: Some(access_token.to_str().unwrap().to_owned()),
         api_key: None,
     };
-    Box::new(CCatalog(Arc::new(RestCatalog::new(
+    Box::new(ArcCatalog(Arc::new(RestCatalog::new(
         name.to_str().unwrap(),
         configuration,
         object_store.0.clone(),
@@ -39,12 +39,12 @@ pub extern "C" fn catalog_new_rest(
 
 /// Destructor for catalog
 #[no_mangle]
-pub extern "C" fn catalog_free(_object_store: Option<Box<CCatalog>>) {}
+pub extern "C" fn catalog_free(_object_store: Option<Box<ArcCatalog>>) {}
 
 /// Load a table
 #[no_mangle]
 pub extern "C" fn catalog_load_table(
-    catalog: &CCatalog,
+    catalog: &ArcCatalog,
     identifier: *const c_char,
 ) -> Box<Relation> {
     let identifier = unsafe { CStr::from_ptr(identifier) };
