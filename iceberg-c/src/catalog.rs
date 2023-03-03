@@ -54,3 +54,14 @@ pub extern "C" fn catalog_load_table(
 
     Box::new(relation)
 }
+
+/// Check if table exists
+#[no_mangle]
+pub extern "C" fn catalog_table_exists(catalog: &ArcCatalog, identifier: *const c_char) -> bool {
+    let identifier = unsafe { CStr::from_ptr(identifier) };
+    let identifier = Identifier::parse(identifier.to_str().unwrap()).unwrap();
+
+    let exists = block_on(catalog.0.clone().table_exists(&identifier)).unwrap();
+
+    exists
+}

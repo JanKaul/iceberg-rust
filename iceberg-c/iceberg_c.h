@@ -32,11 +32,24 @@ void catalog_free(struct ArcCatalog *_object_store);
 Relation *catalog_load_table(const struct ArcCatalog *catalog, const char *identifier);
 
 /**
- * Constructor for aws object_store
+ * Check if table exists
  */
-struct ArcObjectStore *object_store_new_aws(const char *region,
-                                            const char *bucket,
-                                            const char *access_token);
+bool catalog_table_exists(const struct ArcCatalog *catalog, const char *identifier);
+
+/**
+ * Constructor for aws object_store with an access token
+ */
+struct ArcObjectStore *object_store_new_aws_token(const char *region,
+                                                  const char *bucket,
+                                                  const char *access_token);
+
+/**
+ * Constructor for aws object_store with an access_key_id and secret_access_key
+ */
+struct ArcObjectStore *object_store_new_aws_access_key(const char *region,
+                                                       const char *bucket,
+                                                       const char *access_key_id,
+                                                       const char *secret_access_key);
 
 /**
  * Free object store memory
