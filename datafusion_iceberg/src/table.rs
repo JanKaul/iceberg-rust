@@ -19,6 +19,7 @@ use datafusion::{
     execution::context::SessionState,
     logical_expr::TableType,
     optimizer::utils::conjunction,
+    physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
     physical_plan::{file_format::FileScanConfig, ExecutionPlan, Statistics},
     prelude::Expr,
@@ -158,20 +159,26 @@ async fn table_scan(
             + &util::strip_prefix(table.metadata().location()).replace('/', "-"),
     )?;
     let url: &Url = object_store_url.as_ref();
-    session.runtime_env().register_object_store(
-        url.scheme(),
-        url.host_str().unwrap_or_default(),
-        table.object_store(),
-    );
+    session
+        .runtime_env()
+        .register_object_store(url, table.object_store());
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
     let mut file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> = HashMap::new();
     // If there is a filter expression the manifests to read are pruned based on the pruning statistics available in the manifest_list file.
-    if let Some(Some(predicate)) =
-        (!filters.is_empty()).then_some(conjunction(filters.iter().cloned()))
-    {
-        let pruning_predicate = PruningPredicate::try_new(predicate, schema.clone())?;
+    let physical_predicate = if let Some(predicate) = conjunction(filters.iter().cloned()) {
+        Some(create_physical_expr(
+            &predicate,
+            &schema.as_ref().clone().try_into()?,
+            &schema,
+            session.execution_props(),
+        )?)
+    } else {
+        None
+    };
+    if let Some(physical_predicate) = physical_predicate.clone() {
+        let pruning_predicate = PruningPredicate::try_new(physical_predicate, schema.clone())?;
         let manifests_to_prune = pruning_predicate.prune(&PruneManifests::from(table))?;
         let files = table
             .files(Some(manifests_to_prune))
@@ -285,8 +292,9 @@ async fn table_scan(
         output_ordering: None,
         infinite_source: false,
     };
+
     ParquetFormat::default()
-        .create_physical_plan(session, file_scan_config, filters)
+        .create_physical_plan(session, file_scan_config, physical_predicate.as_ref())
         .await
 }
 

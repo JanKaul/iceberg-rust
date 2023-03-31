@@ -12,23 +12,23 @@ license = "Apache-2.0"
 [dependencies]
 anyhow = { workspace = true }
 apache-avro = "0.14.0"
-arrow = "32.0.0"
+arrow = "34.0.0"
 async-trait = { workspace = true }
 bytes = "1.4.0"
-chrono = { version = "0.4.19", default-features = false, features = ["serde"] }
+chrono = { workspace = true }
 futures = { workspace = true }
 getrandom = "0.2.8"
 itertools = "0.10.5"
 murmur3 = "0.5.2"
 object_store = { workspace = true }
-parquet = { version = "32.0.0", features = ["async"] }
+parquet = { version = "34.0.0", features = ["async"] }
 rust_decimal = "1.27.0"
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_bytes = "0.11.8"
 serde_json = { workspace = true }
 serde_repr = "0.1.10"
-url = "2.3.1"
+url = { workspace = true }
 uuid = { version = "1.2.2", features = ["serde", "v4"] }
 
 [dev-dependencies]
