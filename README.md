@@ -1,5 +1,23 @@
 # Rust implementation of [Apache Iceberg](https://iceberg.apache.org)
 
+## [Iceberg-rust](iceberg-rust/README.md)
+
+Low level rust implementation of the Apache iceberg specification. Can be used to access iceberg catalogs and create and load iceberg tables.
+
+## [Datafusion_iceberg](datafusion_iceberg/README.md)
+
+Use apache iceberg with datafusion. Provides implementations of `TableProvider`, `SchemaProvider` and `CatalogProvider`. Currently only supports reading iceberg tables.
+
+## [Iceberg REST Catalog](iceberg_catalog_rest_client_rust/README.md)
+
+Is a http client for the Iceberg REST Catalog API that implements the rust Iceberg catalog trait.
+
+## [Iceberg-c](iceberg-c/README.md)
+
+C bindings for iceberg-rust
+
+# Example
+
 ```rust
 use std::sync::Arc;
 
