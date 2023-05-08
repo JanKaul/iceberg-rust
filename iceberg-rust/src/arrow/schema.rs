@@ -4,9 +4,9 @@
 
 use anyhow::{anyhow, Result};
 
-use std::{collections::HashMap, convert::TryInto};
+use std::{collections::HashMap, convert::TryInto, sync::Arc};
 
-use arrow::datatypes::{DataType, Field, Schema as ArrowSchema, TimeUnit};
+use arrow::datatypes::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
 
 use crate::model::data_types::{PrimitiveType, StructField, StructType, Type};
 
@@ -75,14 +75,14 @@ impl TryFrom<&Type> for DataType {
                 PrimitiveType::Timestamp => Ok(DataType::Timestamp(TimeUnit::Millisecond, None)),
                 PrimitiveType::Timestampz => Ok(DataType::Timestamp(
                     TimeUnit::Millisecond,
-                    Some("UTC".to_string()),
+                    Some(Arc::from("UTC")),
                 )),
                 PrimitiveType::String => Ok(DataType::Utf8),
                 PrimitiveType::Uuid => Ok(DataType::Utf8),
                 PrimitiveType::Fixed(len) => Ok(DataType::FixedSizeBinary(*len as i32)),
                 PrimitiveType::Binary => Ok(DataType::Binary),
             },
-            Type::List(list) => Ok(DataType::List(Box::new(Field::new_dict(
+            Type::List(list) => Ok(DataType::List(Arc::new(Field::new_dict(
                 "",
                 (&list.element as &Type).try_into()?,
                 !list.element_required,
@@ -105,9 +105,9 @@ impl TryFrom<&Type> for DataType {
                     .collect::<Result<_, anyhow::Error>>()?,
             )),
             Type::Map(map) => Ok(DataType::Map(
-                Box::new(Field::new_dict(
+                Arc::new(Field::new_dict(
                     "entries",
-                    DataType::Struct(vec![
+                    DataType::Struct(Fields::from(vec![
                         Field::new_dict(
                             "key",
                             (&map.key as &Type).try_into()?,
@@ -122,7 +122,7 @@ impl TryFrom<&Type> for DataType {
                             map.value_id as i64,
                             false,
                         ),
-                    ]),
+                    ])),
                     false,
                     0,
                     false,

@@ -12,7 +12,7 @@ license = "Apache-2.0"
 [dependencies]
 anyhow = { workspace = true }
 apache-avro = "0.14.0"
-arrow = "34.0.0"
+arrow = "37.0.0"
 async-trait = { workspace = true }
 bytes = "1.4.0"
 chrono = { workspace = true }
@@ -21,7 +21,7 @@ getrandom = "0.2.8"
 itertools = "0.10.5"
 murmur3 = "0.5.2"
 object_store = { workspace = true }
-parquet = { version = "34.0.0", features = ["async"] }
+parquet = { version = "37.0.0", features = ["async"] }
 rust_decimal = "1.27.0"
 serde = { workspace = true }
 serde_derive = { workspace = true }
@@ -29,7 +29,7 @@ serde_bytes = "0.11.8"
 serde_json = { workspace = true }
 serde_repr = "0.1.10"
 url = { workspace = true }
-uuid = { version = "1.2.2", features = ["serde", "v4"] }
+uuid = { version = "1.3.2", features = ["serde", "v4","v1"] }
 
 [dev-dependencies]
 tokio = "1.21.0"
