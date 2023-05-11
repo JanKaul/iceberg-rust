@@ -21,7 +21,7 @@ getrandom = "0.2.8"
 itertools = "0.10.5"
 murmur3 = "0.5.2"
 object_store = { workspace = true }
-parquet = { version = "37.0.0", features = ["async"] }
+parquet = { version = "37.0.0", features = ["async","object_store"] }
 rust_decimal = "1.27.0"
 serde = { workspace = true }
 serde_derive = { workspace = true }

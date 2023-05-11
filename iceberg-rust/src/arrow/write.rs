@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::table::Table;
 
 /// Write arrow record batches to an iceberg table
-pub async fn write_arrow_to_parquet(
+pub async fn write_single_parquet(
     table: &mut Table,
     batches: Pin<Box<dyn Stream<Item = Result<RecordBatch>>>>,
 ) -> Result<()> {

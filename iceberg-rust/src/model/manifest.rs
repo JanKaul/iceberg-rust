@@ -206,6 +206,13 @@ impl ManifestEntry {
             ManifestEntry::V2(entry) => &entry.data_file.file_path,
         }
     }
+    /// Full URI for the file with a FS scheme.
+    pub fn file_format(&self) -> &FileFormat {
+        match self {
+            ManifestEntry::V1(entry) => &entry.data_file.file_format,
+            ManifestEntry::V2(entry) => &entry.data_file.file_format,
+        }
+    }
     /// Total file size in bytes
     pub fn file_size_in_bytes(&self) -> i64 {
         match self {

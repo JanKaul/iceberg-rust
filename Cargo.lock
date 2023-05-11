@@ -2055,6 +2055,7 @@ dependencies = [
  "lz4",
  "num",
  "num-bigint",
+ "object_store",
  "paste",
  "seq-macro",
  "snap",
