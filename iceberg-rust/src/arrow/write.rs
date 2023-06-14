@@ -4,12 +4,9 @@
 
 use futures::{lock::Mutex, StreamExt, TryStreamExt};
 use object_store::ObjectStore;
-use std::{
-    pin::Pin,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
 };
 use tokio::io::AsyncWrite;
 
@@ -20,45 +17,7 @@ use futures::{stream, Stream};
 use parquet::{arrow::AsyncArrowWriter, format::FileMetaData};
 use uuid::Uuid;
 
-use crate::table::Table;
-
 const MAX_PARQUET_SIZE: usize = 128_000_000;
-
-/// Write a partitioned arrow record batch stream to an iceberg table
-pub async fn write_partitioned(
-    table: &mut Table,
-    partitioned_batches: Vec<Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>>,
-) -> Result<u64, ArrowError> {
-    let metadata = table.metadata();
-    let location = metadata.location();
-    let schema: Arc<ArrowSchema> = Arc::new(
-        metadata
-            .current_schema()
-            .try_into()
-            .map_err(|err: anyhow::Error| ArrowError::from_external_error(err.into()))?,
-    );
-    let object_store = table.object_store();
-
-    let files = stream::iter(partitioned_batches.into_iter())
-        .then(|batches| {
-            let object_store = object_store.clone();
-            let schema = schema.clone();
-            async move { write_parquet_files(location, &schema, batches, object_store).await }
-        })
-        .try_concat()
-        .await?;
-
-    let count = files.iter().fold(0, |count, x| count + x.1.num_rows) as u64;
-
-    table
-        .new_transaction()
-        .append(files)
-        .commit()
-        .await
-        .map_err(|err| ArrowError::from_external_error(err.into()))?;
-
-    Ok(count)
-}
 
 /// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
 pub async fn write_parquet_files(
