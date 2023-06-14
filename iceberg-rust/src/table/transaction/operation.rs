@@ -11,12 +11,13 @@ use anyhow::{anyhow, Result};
 use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt};
 use object_store::path::Path;
+use parquet::format::FileMetaData;
 use serde_bytes::ByteBuf;
 
 use std::ops::Deref;
 
 use crate::{
-    file_format::parquet::{parquet_metadata, parquet_to_datafilev2},
+    file_format::parquet::parquet_to_datafilev2,
     model::{
         bytes::bytes_to_any,
         data_types::{PrimitiveType, StructType, Type},
@@ -46,7 +47,7 @@ pub enum Operation {
     // /// Update the table location
     // UpdateLocation,
     /// Append new files to the table
-    NewAppend { paths: Vec<String> },
+    NewAppend { paths: Vec<(String, FileMetaData)> },
     // /// Quickly append new files to the table
     // NewFastAppend {
     //     paths: Vec<String>,
@@ -82,18 +83,9 @@ impl Operation {
                 let datafiles = Arc::new(Mutex::new(HashMap::new()));
 
                 stream::iter(paths.iter())
-                    .then(|x| {
-                        let object_store = object_store.clone();
-                        async move { parquet_metadata(x, object_store).await }
-                    })
-                    .map(|result| {
-                        let (path, file_metadata, parquet_metadata) = result?;
-                        let datafile = parquet_to_datafilev2(
-                            file_metadata,
-                            parquet_metadata,
-                            schema,
-                            partition_spec,
-                        )?;
+                    .map(|(path, file_metadata)| {
+                        let datafile =
+                            parquet_to_datafilev2(path, file_metadata, schema, partition_spec)?;
                         Ok::<_, anyhow::Error>((path, datafile))
                     })
                     .for_each_concurrent(None, |result| {
@@ -162,7 +154,7 @@ impl Operation {
                         }
                     });
 
-                let new_manifest_iter = stream::iter(paths.iter()).filter_map(|path| {
+                let new_manifest_iter = stream::iter(paths.iter()).filter_map(|(path, _)| {
                     let existing_manifests = existing_manifests.clone();
                     let manifest_list_location = manifest_list_location.as_ref();
                     async move {
@@ -332,7 +324,7 @@ impl Operation {
                                                     snapshots.last().unwrap().sequence_number
                                                 },
                                             ),
-                                            data_file: data_file,
+                                            data_file,
                                         })
                                     }
                                 };
@@ -572,7 +564,7 @@ fn update_partitions(
 /// checks if partition values lie in the bounds of the field summary
 fn datafiles_in_bounds<'values>(
     partitions: &Vec<FieldSummary>,
-    datafiles: &'values HashMap<String, DataFileV2>,
+    datafiles: &'values HashMap<&String, DataFileV2>,
     partition_spec: &[PartitionField],
     schema: &StructType,
 ) -> Vec<String> {

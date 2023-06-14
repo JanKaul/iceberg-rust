@@ -4,6 +4,7 @@
 
 use futures::StreamExt;
 use object_store::path::Path;
+use parquet::format::FileMetaData;
 use uuid::Uuid;
 
 use crate::{catalog::relation::Relation, model::schema::SchemaV2, table::Table};
@@ -38,7 +39,7 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Quickly append files to the table
-    pub fn append(mut self, files: Vec<String>) -> Self {
+    pub fn append(mut self, files: Vec<(String, FileMetaData)>) -> Self {
         self.operations.push(Operation::NewAppend { paths: files });
         self
     }

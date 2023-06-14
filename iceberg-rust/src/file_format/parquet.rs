@@ -9,8 +9,11 @@ use anyhow::{anyhow, Result};
 use futures::TryFutureExt;
 use object_store::{path::Path, ObjectMeta, ObjectStore};
 use parquet::{
-    arrow::async_reader::fetch_parquet_metadata, errors::ParquetError,
-    file::metadata::ParquetMetaData,
+    arrow::async_reader::fetch_parquet_metadata,
+    errors::ParquetError,
+    file::metadata::{ParquetMetaData, RowGroupMetaData},
+    format::FileMetaData,
+    schema::types::{from_thrift, SchemaDescriptor},
 };
 use serde_bytes::ByteBuf;
 
@@ -45,8 +48,8 @@ pub async fn parquet_metadata(
 
 /// Read datafile statistics from parquetfile
 pub fn parquet_to_datafilev2(
-    file_metadata: ObjectMeta,
-    parquet_metadata: ParquetMetaData,
+    location: &str,
+    file_metadata: &FileMetaData,
     schema: &StructType,
     partition_spec: &[PartitionField],
 ) -> Result<DataFileV2> {
@@ -68,6 +71,10 @@ pub fn parquet_to_datafilev2(
             Ok((field.name.clone(), x.transform.clone()))
         })
         .collect::<Result<HashMap<String, Transform>>>()?;
+    let parquet_schema = Arc::new(SchemaDescriptor::new(from_thrift(&file_metadata.schema)?));
+
+    let mut file_size = 0;
+
     let mut column_sizes = Some(AvroMap(HashMap::new()));
     let mut value_counts = Some(AvroMap(HashMap::new()));
     let mut null_value_counts = Some(AvroMap(HashMap::new()));
@@ -75,7 +82,11 @@ pub fn parquet_to_datafilev2(
     let mut lower_bounds: Option<AvroMap<ByteBuf>> = Some(AvroMap(HashMap::new()));
     let mut upper_bounds: Option<AvroMap<ByteBuf>> = Some(AvroMap(HashMap::new()));
 
-    for row_group in parquet_metadata.row_groups() {
+    for row_group in &file_metadata.row_groups {
+        let row_group = RowGroupMetaData::from_thrift(parquet_schema.clone(), row_group.clone())?;
+
+        file_size += row_group.compressed_size();
+
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
             let id = schema
@@ -494,11 +505,11 @@ pub fn parquet_to_datafilev2(
     }
     let content = DataFileV2 {
         content: Content::Data,
-        file_path: file_metadata.location.to_string(),
+        file_path: location.to_string(),
         file_format: FileFormat::Parquet,
         partition,
-        record_count: parquet_metadata.file_metadata().num_rows(),
-        file_size_in_bytes: file_metadata.size as i64,
+        record_count: file_metadata.num_rows,
+        file_size_in_bytes: file_size,
         column_sizes,
         value_counts,
         null_value_counts,
