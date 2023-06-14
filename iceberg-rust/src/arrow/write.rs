@@ -2,7 +2,11 @@
  * Functions to write arrow record batches to an iceberg table
 */
 
-use futures::{lock::Mutex, StreamExt, TryStreamExt};
+use futures::{
+    channel::mpsc::{channel, Receiver, Sender},
+    lock::Mutex,
+    StreamExt, TryStreamExt,
+};
 use object_store::ObjectStore;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
@@ -10,10 +14,8 @@ use std::sync::{
 };
 use tokio::io::AsyncWrite;
 
-use anyhow::anyhow;
-
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
-use futures::{stream, Stream};
+use futures::Stream;
 use parquet::{arrow::AsyncArrowWriter, format::FileMetaData};
 use uuid::Uuid;
 
@@ -26,19 +28,25 @@ pub async fn write_parquet_files(
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>>,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<Vec<(String, FileMetaData)>, ArrowError> {
-    let writers = Arc::new(Mutex::new(vec![
+    let current_writer = Arc::new(Mutex::new(
         create_arrow_writer(location, schema, object_store.clone()).await?,
-    ]));
+    ));
+
+    let (writer_sender, writer_reciever): (
+        Sender<(String, AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>)>,
+        Receiver<(String, AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>)>,
+    ) = channel(32);
 
     let num_bytes = Arc::new(AtomicUsize::new(0));
 
     batches
         .for_each_concurrent(None, |batch| {
-            let writers = writers.clone();
+            let current_writer = current_writer.clone();
+            let mut writer_sender = writer_sender.clone();
             let num_bytes = num_bytes.clone();
             let object_store = object_store.clone();
             async move {
-                let mut writers = writers.lock().await;
+                let mut current_writer = current_writer.lock().await;
                 let current =
                     num_bytes.fetch_update(Ordering::Release, Ordering::Acquire, |current| {
                         if current > MAX_PARQUET_SIZE {
@@ -48,20 +56,16 @@ pub async fn write_parquet_files(
                         }
                     });
                 if current.is_ok() {
-                    let new_writer = create_arrow_writer(location, schema, object_store)
-                        .await
-                        .unwrap();
-                    writers.push(new_writer);
+                    let finished_writer = std::mem::replace(
+                        &mut *current_writer,
+                        create_arrow_writer(location, schema, object_store)
+                            .await
+                            .unwrap(),
+                    );
+                    writer_sender.try_send(finished_writer).unwrap();
                 }
                 if let Ok(batch) = batch {
-                    let len = writers.len();
-                    writers
-                        .get_mut(len - 1)
-                        .unwrap()
-                        .1
-                        .write(&batch)
-                        .await
-                        .unwrap();
+                    current_writer.1.write(&batch).await.unwrap();
                     let batch_size = record_batch_size(&batch);
                     num_bytes.fetch_add(batch_size, Ordering::AcqRel);
                 }
@@ -69,23 +73,13 @@ pub async fn write_parquet_files(
         })
         .await;
 
-    stream::iter(
-        Arc::try_unwrap(writers)
-            .map_err(|_| {
-                ArrowError::from_external_error(
-                    anyhow!("Failed to get writers. There are still outstanding references.")
-                        .into(),
-                )
-            })?
-            .into_inner()
-            .into_iter(),
-    )
-    .then(|writer| async move {
-        let metadata = writer.1.close().await?;
-        Ok::<_, ArrowError>((writer.0, metadata))
-    })
-    .try_collect::<Vec<_>>()
-    .await
+    writer_reciever
+        .then(|writer| async move {
+            let metadata = writer.1.close().await?;
+            Ok::<_, ArrowError>((writer.0, metadata))
+        })
+        .try_collect::<Vec<_>>()
+        .await
 }
 
 async fn create_arrow_writer(
