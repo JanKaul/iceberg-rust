@@ -7,7 +7,7 @@ use datafusion::{
 };
 use iceberg_rust::catalog::{identifier::Identifier, namespace::Namespace};
 
-use crate::mirror::Mirror;
+use crate::catalog::mirror::Mirror;
 
 pub struct IcebergSchema {
     schema: Namespace,

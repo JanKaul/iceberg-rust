@@ -1,3 +1,4 @@
+pub mod catalog;
 mod pruning_statistics;
 mod statistics;
 pub mod table;
