@@ -1,11 +1,12 @@
 use anyhow::anyhow;
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
-use datafusion_iceberg::DataFusionTable;
 use futures::{executor::LocalPool, task::LocalSpawnExt};
 use std::{collections::HashSet, sync::Arc};
 
 use iceberg_rust::catalog::{identifier::Identifier, namespace::Namespace, Catalog};
+
+use crate::DataFusionTable;
 
 type NamespaceNode = HashSet<String>;
 
