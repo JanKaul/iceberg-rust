@@ -14,19 +14,6 @@ typedef struct ArcCatalog ArcCatalog;
 typedef struct ArcObjectStore ArcObjectStore;
 
 /**
- * Constructor for rest catalog
- */
-struct ArcCatalog *catalog_new_rest(const char *name,
-                                    const char *base_bath,
-                                    const char *access_token,
-                                    const struct ArcObjectStore *object_store);
-
-/**
- * Destructor for catalog
- */
-void catalog_free(struct ArcCatalog *_object_store);
-
-/**
  * Load a table
  */
 Relation *catalog_load_table(const struct ArcCatalog *catalog, const char *identifier);
