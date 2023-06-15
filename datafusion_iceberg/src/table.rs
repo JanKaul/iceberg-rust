@@ -289,7 +289,7 @@ async fn table_scan(
         projection: projection.cloned(),
         limit,
         table_partition_cols,
-        output_ordering: None,
+        output_ordering: vec![],
         infinite_source: false,
     };
 

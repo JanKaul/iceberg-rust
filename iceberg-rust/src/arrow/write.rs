@@ -2,26 +2,91 @@
  * Functions to write arrow record batches to an iceberg table
 */
 
-use futures::{lock::Mutex, stream::StreamExt};
-use std::{pin::Pin, sync::Arc};
+use futures::{
+    channel::mpsc::{channel, Receiver, Sender},
+    lock::Mutex,
+    StreamExt, TryStreamExt,
+};
+use object_store::ObjectStore;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
+use tokio::io::AsyncWrite;
 
-use anyhow::{anyhow, Result};
-
-use arrow::{error::ArrowError, record_batch::RecordBatch};
+use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
-use parquet::arrow::AsyncArrowWriter;
+use parquet::{arrow::AsyncArrowWriter, format::FileMetaData};
 use uuid::Uuid;
 
-use crate::table::Table;
+const MAX_PARQUET_SIZE: usize = 128_000_000;
 
-/// Write arrow record batches to an iceberg table
-pub async fn write_single_parquet(
-    table: &mut Table,
-    batches: Pin<Box<dyn Stream<Item = Result<RecordBatch>>>>,
-) -> Result<()> {
-    let location = table.metadata().location();
-    let object_store = table.object_store();
+/// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
+pub async fn write_parquet_files(
+    location: &str,
+    schema: &ArrowSchema,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>>,
+    object_store: Arc<dyn ObjectStore>,
+) -> Result<Vec<(String, FileMetaData)>, ArrowError> {
+    let current_writer = Arc::new(Mutex::new(
+        create_arrow_writer(location, schema, object_store.clone()).await?,
+    ));
 
+    let (writer_sender, writer_reciever): (
+        Sender<(String, AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>)>,
+        Receiver<(String, AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>)>,
+    ) = channel(32);
+
+    let num_bytes = Arc::new(AtomicUsize::new(0));
+
+    batches
+        .for_each_concurrent(None, |batch| {
+            let current_writer = current_writer.clone();
+            let mut writer_sender = writer_sender.clone();
+            let num_bytes = num_bytes.clone();
+            let object_store = object_store.clone();
+            async move {
+                let mut current_writer = current_writer.lock().await;
+                let current =
+                    num_bytes.fetch_update(Ordering::Release, Ordering::Acquire, |current| {
+                        if current > MAX_PARQUET_SIZE {
+                            Some(0)
+                        } else {
+                            None
+                        }
+                    });
+                if current.is_ok() {
+                    let finished_writer = std::mem::replace(
+                        &mut *current_writer,
+                        create_arrow_writer(location, schema, object_store)
+                            .await
+                            .unwrap(),
+                    );
+                    writer_sender.try_send(finished_writer).unwrap();
+                }
+                if let Ok(batch) = batch {
+                    current_writer.1.write(&batch).await.unwrap();
+                    let batch_size = record_batch_size(&batch);
+                    num_bytes.fetch_add(batch_size, Ordering::AcqRel);
+                }
+            }
+        })
+        .await;
+
+    writer_reciever
+        .then(|writer| async move {
+            let metadata = writer.1.close().await?;
+            Ok::<_, ArrowError>((writer.0, metadata))
+        })
+        .try_collect::<Vec<_>>()
+        .await
+}
+
+async fn create_arrow_writer(
+    location: &str,
+    schema: &arrow::datatypes::Schema,
+    object_store: Arc<dyn ObjectStore>,
+) -> Result<(String, AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>), ArrowError> {
     let mut rand = [0u8; 6];
     getrandom::getrandom(&mut rand)
         .map_err(|err| ArrowError::ExternalError(Box::new(err)))
@@ -33,37 +98,19 @@ pub async fn write_single_parquet(
     let (_, writer) = object_store
         .put_multipart(&parquet_path.clone().into())
         .await
-        .map_err(|err| anyhow::Error::msg(err))?;
+        .map_err(|err| ArrowError::from_external_error(err.into()))?;
 
-    let arrow_schema = table.metadata().current_schema().try_into()?;
+    Ok((
+        parquet_path,
+        AsyncArrowWriter::try_new(writer, Arc::new(schema.clone()), 0, None)?,
+    ))
+}
 
-    let arrow_writer = Arc::new(Mutex::new(AsyncArrowWriter::try_new(
-        writer,
-        Arc::new(arrow_schema),
-        0,
-        None,
-    )?));
-
-    batches
-        .for_each_concurrent(None, |batch| {
-            let arrow_writer = arrow_writer.clone();
-            async move {
-                if let Ok(batch) = batch {
-                    arrow_writer.lock().await.write(&batch).await.unwrap();
-                }
-            }
-        })
-        .await;
-
-    Arc::try_unwrap(arrow_writer)
-        .map_err(|_| anyhow!("Failed to unwrap Arc"))?
-        .into_inner()
-        .close()
-        .await?;
-
-    table
-        .new_transaction()
-        .append(vec![parquet_path])
-        .commit()
-        .await
+fn record_batch_size(batch: &RecordBatch) -> usize {
+    batch
+        .schema()
+        .fields
+        .iter()
+        .fold(0, |acc, x| acc + x.size())
+        * batch.num_rows()
 }
