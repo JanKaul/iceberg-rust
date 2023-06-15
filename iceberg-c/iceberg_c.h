@@ -90,13 +90,6 @@ TableBuilder *table_builder_new_metastore(const char *base_path,
 Table *table_builder_commit(TableBuilder *table_builder);
 
 /**
- * Add new append operation to transaction
- */
-TableTransaction *table_transaction_new_append(TableTransaction *transaction,
-                                               const char *const *paths,
-                                               unsigned int num_paths);
-
-/**
  * Commit transaction freeing its memmory
  */
 void table_transaction_commit(TableTransaction *transaction);
