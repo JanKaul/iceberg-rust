@@ -58,6 +58,13 @@ impl Display for Identifier {
     }
 }
 
+impl TryFrom<&str> for Identifier {
+    type Error = anyhow::Error;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::parse(value)
+    }
+}
+
 #[cfg(test)]
 
 mod tests {
@@ -65,19 +72,19 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let identifier = Identifier::try_new(&["level1".to_string(),
+        let identifier = Identifier::try_new(&[
+            "level1".to_string(),
             "level2".to_string(),
-            "table".to_string()])
+            "table".to_string(),
+        ])
         .unwrap();
         assert_eq!(&format!("{}", identifier), "level1.level2.table");
     }
     #[test]
     #[should_panic]
     fn test_empty() {
-        let _ = Identifier::try_new(&["level1".to_string(),
-            "level2".to_string(),
-            "".to_string()])
-        .unwrap();
+        let _ = Identifier::try_new(&["level1".to_string(), "level2".to_string(), "".to_string()])
+            .unwrap();
     }
     #[test]
     #[should_panic]
