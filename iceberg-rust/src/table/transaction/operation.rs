@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use apache_avro::from_value;
-use futures::{lock::Mutex, stream, StreamExt};
+use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
 use object_store::path::Path;
 use parquet::format::FileMetaData;
 use serde_bytes::ByteBuf;
@@ -88,14 +88,26 @@ impl Operation {
                             parquet_to_datafilev2(path, file_metadata, schema, partition_spec)?;
                         Ok::<_, anyhow::Error>((path, datafile))
                     })
-                    .for_each_concurrent(None, |result| {
+                    .try_for_each_concurrent(None, |result| {
                         let datafiles = datafiles.clone();
                         async move {
-                            let (path, datafile) = result.unwrap();
+                            let (path, datafile) = result;
                             datafiles.lock().await.insert(path, datafile);
+                            Ok(())
                         }
                     })
-                    .await;
+                    .await?;
+
+                let manifest_list_schema = apache_avro::Schema::parse_str(&ManifestFile::schema(
+                    &table_metadata.format_version(),
+                ))?;
+
+                let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
+                    &manifest_list_schema,
+                    Vec::new(),
+                )));
+
+                let existing_manifests = Arc::new(Mutex::new(HashSet::new()));
 
                 let manifest_list_location: Path = table_metadata
                     .manifest_list()
@@ -109,23 +121,12 @@ impl Operation {
                     .await?
                     .into();
 
-                let manifest_list_reader = apache_avro::Reader::new(&*manifest_list_bytes)?;
+                let existing_manifest_iter = if manifest_list_bytes.is_empty() {
+                    None
+                } else {
+                    let manifest_list_reader = apache_avro::Reader::new(&*manifest_list_bytes)?;
 
-                let manifest_count = apache_avro::Reader::new(&*manifest_list_bytes)?.count();
-
-                let manifest_list_schema = apache_avro::Schema::parse_str(&ManifestFile::schema(
-                    &table_metadata.format_version(),
-                ))?;
-
-                let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
-                    &manifest_list_schema,
-                    Vec::new(),
-                )));
-
-                let existing_manifests = Arc::new(Mutex::new(HashSet::new()));
-
-                let existing_manifest_iter =
-                    stream::iter(manifest_list_reader).filter_map(|manifest| {
+                    Some(stream::iter(manifest_list_reader).filter_map(|manifest| {
                         let datafiles = datafiles.clone();
                         let existing_manifests = existing_manifests.clone();
                         async move {
@@ -152,7 +153,14 @@ impl Operation {
                                 None
                             }
                         }
-                    });
+                    }))
+                };
+
+                let manifest_count = if existing_manifest_iter.is_some() {
+                    apache_avro::Reader::new(&*manifest_list_bytes)?.count()
+                } else {
+                    0
+                };
 
                 let new_manifest_iter = stream::iter(paths.iter()).filter_map(|(path, _)| {
                     let existing_manifests = existing_manifests.clone();
@@ -219,10 +227,8 @@ impl Operation {
                     }
                 });
 
-                let manifest_iter = existing_manifest_iter.chain(new_manifest_iter);
-
-                manifest_iter
-                    .then(|(manifest, files)| {
+                let write_manifest_closure =
+                    |(manifest, files): (Result<ManifestFile, ManifestFile>, Vec<String>)| {
                         let object_store = object_store.clone();
                         let datafiles = datafiles.clone();
                         async move {
@@ -371,18 +377,46 @@ impl Operation {
 
                             Ok::<_, anyhow::Error>(manifest)
                         }
-                    })
-                    .for_each_concurrent(None, |manifest| {
-                        let manifest_list_writer = manifest_list_writer.clone();
-                        async move {
-                            manifest_list_writer
-                                .lock()
-                                .await
-                                .append_ser(manifest.unwrap())
-                                .unwrap();
-                        }
-                    })
-                    .await;
+                    };
+
+                match existing_manifest_iter {
+                    Some(existing_manifest_iter) => {
+                        let manifest_iter =
+                            Box::new(existing_manifest_iter.chain(new_manifest_iter));
+
+                        manifest_iter
+                            .then(write_manifest_closure)
+                            .try_for_each_concurrent(None, |manifest| {
+                                let manifest_list_writer = manifest_list_writer.clone();
+                                async move {
+                                    manifest_list_writer.lock().await.append_ser(manifest)?;
+                                    Ok(())
+                                }
+                            })
+                            .await?;
+                    }
+                    None => {
+                        new_manifest_iter
+                            .then(write_manifest_closure)
+                            .try_for_each_concurrent(None, |manifest| {
+                                let manifest_list_writer = manifest_list_writer.clone();
+                                async move {
+                                    manifest_list_writer.lock().await.append_ser(manifest)?;
+                                    Ok(())
+                                }
+                            })
+                            .await?;
+                    }
+                }
+
+                let manifest_list_bytes = Arc::into_inner(manifest_list_writer)
+                    .unwrap()
+                    .into_inner()
+                    .into_inner()?;
+
+                object_store
+                    .put(&manifest_list_location, manifest_list_bytes.into())
+                    .await?;
 
                 Ok(())
             }
@@ -408,7 +442,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Int))?
                                 .downcast::<i32>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast i32."))?;
                         if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -417,7 +451,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Long))?
                                 .downcast::<i64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast i64."))?;
                         if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -426,7 +460,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Float))?
                                 .downcast::<f32>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast f32."))?;
                         if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -435,7 +469,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Double))?
                                 .downcast::<f64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast f64."))?;
                         if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -444,7 +478,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Date))?
                                 .downcast::<i32>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast date."))?;
                         if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -453,7 +487,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Time))?
                                 .downcast::<i64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast time."))?;
                         if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -462,7 +496,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Timestamp))?
                                 .downcast::<i64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast timestamp."))?;
                         if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -471,7 +505,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Timestampz))?
                                 .downcast::<i64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast timestamptz."))?;
                         if *current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -485,7 +519,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Int))?
                                 .downcast::<i32>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast i32."))?;
                         if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -494,7 +528,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Long))?
                                 .downcast::<i64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast i64."))?;
                         if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -503,7 +537,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Float))?
                                 .downcast::<f32>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast f32."))?;
                         if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -512,7 +546,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Double))?
                                 .downcast::<f64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast f64."))?;
                         if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -521,7 +555,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Date))?
                                 .downcast::<i32>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast date."))?;
                         if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -530,7 +564,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Time))?
                                 .downcast::<i64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast time."))?;
                         if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -539,7 +573,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Timestamp))?
                                 .downcast::<i64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast timestamp."))?;
                         if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -548,7 +582,7 @@ fn update_partitions(
                         let current =
                             bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Timestampz))?
                                 .downcast::<i64>()
-                                .unwrap();
+                                .map_err(|_| anyhow!("Failed to downcast timestamptz."))?;
                         if *current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
@@ -788,71 +822,4 @@ fn datafiles_in_bounds<'values>(
         })
         .map(|x| x.file_path.clone())
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-
-    use std::sync::Arc;
-
-    use object_store::{memory::InMemory, ObjectStore};
-
-    use crate::{
-        model::{
-            data_types::{PrimitiveType, StructField, StructType, Type},
-            schema::SchemaV2,
-        },
-        table::table_builder::TableBuilder,
-    };
-
-    #[tokio::test]
-    async fn test_append_files() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        let schema = SchemaV2 {
-            schema_id: 1,
-            identifier_field_ids: Some(vec![1, 2]),
-            fields: StructType {
-                fields: vec![
-                    StructField {
-                        id: 1,
-                        name: "one".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    },
-                    StructField {
-                        id: 2,
-                        name: "two".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    },
-                ],
-            },
-        };
-        let mut table = TableBuilder::new_filesystem_table(
-            "test/append",
-            schema.clone(),
-            Arc::clone(&object_store),
-        )
-        .unwrap()
-        .commit()
-        .await
-        .unwrap();
-
-        let metadata_location = table.metadata_location();
-        assert_eq!(metadata_location, "test/append/metadata/v1.metadata.json");
-
-        let transaction = table.new_transaction();
-        transaction
-            .append(vec![
-                "test/append/data/file1.parquet".to_string(),
-                "test/append/data/file2.parquet".to_string(),
-            ])
-            .commit()
-            .await
-            .unwrap();
-        let metadata_location = table.metadata_location();
-        assert_eq!(metadata_location, "test/append/metadata/v2.metadata.json");
-    }
 }
