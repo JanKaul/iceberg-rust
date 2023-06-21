@@ -136,7 +136,7 @@ impl ManifestEntry {
                 },
                 {
                     "name": "snapshot_id",
-                    "type": "long"
+                    "type": "long",
                     "field_id": 1
                 },
                 {
@@ -556,7 +556,7 @@ impl DataFileV1 {
                 },
                 {
                     "name": "block_size_in_bytes",
-                    "type": "long"
+                    "type": "long",
                     "field_id": 105
                 },
                 {

@@ -1,0 +1,6 @@
+#V2
+select * from 'iceberg-tests/nyc_taxis_append/home/iceberg/warehouse/nyc/taxis/metadata/snap-9126138428047105059c1c85167-aeca-4220-b7ed-c0bec33f5497.avro';
+CREATE EXTERNAL TABLE manifest_list\nSTORED AS AVRO\nLOCATION '/home/jan/workspace/github/iceberg-rust/iceberg-tests/nyc_taxis_append/home/iceberg/warehouse/nyc/taxis/metadata/snap-9126138428047105059c1c85167-aeca-4220-b7ed-c0bec33f5497.avro';
+\\q
+CREATE EXTERNAL TABLE manifest_list\nSTORED AS AVRO\nLOCATION '/home/jan/workspace/github/iceberg-rust/iceberg-tests/nyc_taxis_append/home/iceberg/warehouse/nyc/taxis/metadata/snap-9126138428047105059c1c85167-aeca-4220-b7ed-c0bec33f5497.avro';
+\\q
