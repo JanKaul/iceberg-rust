@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::schema::Schema;
 
-use super::data_types::StructType;
+use super::{data_types::StructType, table_metadata::VersionNumber};
 
 /// Metadata of an iceberg view
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -71,6 +71,8 @@ impl ViewMetadata {
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 1 of the view metadata.
 pub struct ViewMetadataV1 {
+    /// An integer version number for the view format; must be 1
+    pub format_version: VersionNumber<1>,
     /// The view’s base location. This is used to determine where to store manifest files and view metadata files.
     pub location: String,
     ///	Current version of the view. Set to ‘1’ when the view is first created.
