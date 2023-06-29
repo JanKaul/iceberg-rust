@@ -13,6 +13,7 @@ use crate::catalog::identifier::Identifier;
 use crate::catalog::relation::Relation;
 use crate::model::partition::{PartitionField, Transform};
 use crate::model::sort::{NullOrder, SortDirection, SortField, SortOrder};
+use crate::model::table_metadata::VersionNumber;
 use crate::model::{partition::PartitionSpec, schema::SchemaV2, table_metadata::TableMetadataV2};
 use crate::table::Table;
 use anyhow::{anyhow, Result};
@@ -52,6 +53,7 @@ impl TableBuilder {
             }],
         };
         let metadata = TableMetadataV2 {
+            format_version: VersionNumber,
             table_uuid: Uuid::new_v4(),
             location: base_path.to_owned() + &identifier.to_string().replace('.', "/"),
             last_sequence_number: 1,
@@ -104,6 +106,7 @@ impl TableBuilder {
             }],
         };
         let metadata = TableMetadataV2 {
+            format_version: VersionNumber,
             table_uuid: Uuid::new_v4(),
             location: location.to_string(),
             last_sequence_number: 1,

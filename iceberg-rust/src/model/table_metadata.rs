@@ -3,7 +3,7 @@ Defines the [table metadata](https://iceberg.apache.org/spec/#table-metadata).
 The main struct here is [TableMetadataV2] which defines the data for a table.
 */
 
-use anyhow::{anyhow, Ok};
+use anyhow::anyhow;
 
 use std::{cmp, collections::HashMap};
 
@@ -31,10 +31,11 @@ pub enum TableMetadata {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case", tag = "format-version")]
+#[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the table metadata.
 pub struct TableMetadataV2 {
     /// Integer Version for the format.
+    pub format_version: VersionNumber<2>,
     /// A UUID that identifies the table
     pub table_uuid: Uuid,
     /// Location tables base location
@@ -103,10 +104,11 @@ pub struct TableMetadataV2 {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case", tag = "format-version")]
+#[serde(rename_all = "kebab-case")]
 /// Fields for the version 1 of the table metadata.
 pub struct TableMetadataV1 {
     /// Integer Version for the format.
+    pub format_version: VersionNumber<1>,
     /// A UUID that identifies the table
     #[serde(skip_serializing_if = "Option::is_none")]
     pub table_uuid: Option<Uuid>,
@@ -177,6 +179,33 @@ pub struct TableMetadataV1 {
     pub default_sort_order_id: i64,
 }
 
+/// Helper to serialize and deserialize the format version.
+#[derive(Debug, PartialEq, Eq)]
+pub struct VersionNumber<const V: u8>;
+
+impl<const V: u8> Serialize for VersionNumber<V> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u8(V)
+    }
+}
+
+impl<'de, const V: u8> Deserialize<'de> for VersionNumber<V> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = u8::deserialize(deserializer)?;
+        if value == V {
+            Ok(VersionNumber::<V>)
+        } else {
+            Err(serde::de::Error::custom("Invalid Version"))
+        }
+    }
+}
+
 impl From<TableMetadataV1> for TableMetadataV2 {
     fn from(v1: TableMetadataV1) -> Self {
         let last_partition_id = v1.last_partition_id.unwrap_or_else(|| {
@@ -190,6 +219,7 @@ impl From<TableMetadataV1> for TableMetadataV2 {
             .unwrap_or_else(|| v1.schema.schema_id.unwrap_or(0));
         let default_spec_id = v1.default_spec_id.unwrap_or(0);
         TableMetadataV2 {
+            format_version: VersionNumber,
             table_uuid: v1.table_uuid.unwrap_or_else(Uuid::new_v4),
             location: v1.location,
             last_sequence_number: 0,
