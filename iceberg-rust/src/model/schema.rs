@@ -3,7 +3,7 @@
 */
 use serde::{Deserialize, Serialize};
 
-use super::data_types::StructType;
+use super::types::StructType;
 
 /// Schema of an iceberg table
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -68,7 +68,7 @@ impl From<SchemaV1> for SchemaV2 {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::data_types::{PrimitiveType, Type};
+    use crate::model::types::{PrimitiveType, Type};
 
     use super::*;
 

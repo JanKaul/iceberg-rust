@@ -12,7 +12,7 @@ use object_store::{path::Path, ObjectStore};
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{
-        data_types::StructType,
+        types::StructType,
         manifest_list::{ManifestFile, ManifestFileV1, ManifestFileV2},
         snapshot::{Operation, SnapshotV1, SnapshotV2, Summary},
         table_metadata::{FormatVersion, TableMetadata},
@@ -338,7 +338,7 @@ mod tests {
 
     use crate::{
         model::{
-            data_types::{PrimitiveType, StructField, StructType, Type},
+            types::{PrimitiveType, StructField, StructType, Type},
             schema::SchemaV2,
         },
         table::table_builder::TableBuilder,

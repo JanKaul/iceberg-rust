@@ -18,7 +18,7 @@ use parquet::{
 use serde_bytes::ByteBuf;
 
 use crate::model::{
-    data_types::{PrimitiveType, StructType, Type},
+    types::{PrimitiveType, StructType, Type},
     manifest::{AvroMap, Content, DataFileV2, FileFormat},
     partition::{PartitionField, Transform},
     values::{Struct, Value},

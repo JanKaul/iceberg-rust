@@ -19,7 +19,7 @@ use std::ops::Deref;
 use crate::{
     file_format::parquet::parquet_to_datafilev2,
     model::{
-        data_types::StructType,
+        types::StructType,
         manifest::{
             partition_value_schema, Content, DataFileV1, DataFileV2, ManifestEntry,
             ManifestEntryV1, ManifestEntryV2, Status,

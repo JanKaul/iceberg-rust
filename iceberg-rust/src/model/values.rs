@@ -22,7 +22,7 @@ use serde::{
 use serde_bytes::ByteBuf;
 
 use super::{
-    data_types::{PrimitiveType, Type},
+    types::{PrimitiveType, Type},
     partition::Transform,
 };
 
