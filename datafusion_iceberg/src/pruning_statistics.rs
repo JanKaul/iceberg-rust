@@ -26,7 +26,7 @@ use datafusion::{
 };
 
 use iceberg_rust::{
-    model::{bytes::bytes_to_any, manifest::ManifestEntry},
+    model::{manifest::ManifestEntry, values::Value},
     table::Table,
 };
 
@@ -59,7 +59,7 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
                 partitions[index]
                     .lower_bound
                     .as_ref()
-                    .map(|min| bytes_to_any(min, &data_type).ok())
+                    .map(|min| Some(Value::from_bytes(min, &data_type).ok()?.into_any()))
             })
         });
         any_iter_to_array(min_values, &(&data_type).try_into().ok()?).ok()
@@ -84,7 +84,7 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
                 partitions[index]
                     .upper_bound
                     .as_ref()
-                    .map(|max| bytes_to_any(max, &data_type).ok())
+                    .map(|max| Some(Value::from_bytes(max, &data_type).ok()?.into_any()))
             })
         });
         any_iter_to_array(max_values, &(&data_type).try_into().ok()?).ok()
@@ -131,9 +131,13 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .files
             .iter()
             .map(|manifest| match &manifest.lower_bounds() {
-                Some(map) => map
-                    .get(&(column_id as i32))
-                    .and_then(|value| bytes_to_any(value, &datatype.try_into().ok()?).ok()),
+                Some(map) => map.get(&(column_id as i32)).and_then(|value| {
+                    Some(
+                        Value::from_bytes(value, &datatype.try_into().ok()?)
+                            .ok()?
+                            .into_any(),
+                    )
+                }),
                 None => None,
             });
         any_iter_to_array(min_values, datatype).ok()
@@ -146,9 +150,13 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .files
             .iter()
             .map(|manifest| match &manifest.upper_bounds() {
-                Some(map) => map
-                    .get(&(column_id as i32))
-                    .and_then(|value| bytes_to_any(value, &datatype.try_into().ok()?).ok()),
+                Some(map) => map.get(&(column_id as i32)).and_then(|value| {
+                    Some(
+                        Value::from_bytes(value, &datatype.try_into().ok()?)
+                            .ok()?
+                            .into_any(),
+                    )
+                }),
                 None => None,
             });
         any_iter_to_array(max_values, datatype).ok()

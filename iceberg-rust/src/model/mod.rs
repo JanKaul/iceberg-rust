@@ -1,8 +1,7 @@
 /*!
  * Model
 */
-pub mod bytes;
-pub mod data_types;
+pub mod types;
 pub mod manifest;
 pub mod manifest_list;
 pub mod partition;

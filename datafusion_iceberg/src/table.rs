@@ -32,7 +32,7 @@ use crate::pruning_statistics::{PruneDataFiles, PruneManifests};
 
 use iceberg_rust::{
     catalog::relation::Relation,
-    model::{data_types::StructField, view_metadata::Representation},
+    model::{types::StructField, view_metadata::Representation},
     table::Table,
     util,
     view::View,
@@ -309,7 +309,7 @@ mod tests {
     };
     use iceberg_rust::{
         model::{
-            data_types::{PrimitiveType, StructField, StructType, Type},
+            types::{PrimitiveType, StructField, StructType, Type},
             schema::SchemaV2,
         },
         table::Table,

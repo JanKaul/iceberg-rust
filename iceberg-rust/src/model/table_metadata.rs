@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use super::{data_types::StructType, partition::PartitionField};
+use super::{types::StructType, partition::PartitionField};
 
 /// Metadata of an iceberg table
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]

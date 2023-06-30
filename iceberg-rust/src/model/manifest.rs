@@ -9,7 +9,7 @@ use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use super::{
-    data_types::StructType, partition::PartitionField, table_metadata::FormatVersion,
+    types::StructType, partition::PartitionField, table_metadata::FormatVersion,
     values::Struct,
 };
 
@@ -1101,7 +1101,7 @@ impl DataFileV2 {
 #[cfg(test)]
 mod tests {
     use crate::model::{
-        data_types::{PrimitiveType, StructField, StructType, Type},
+        types::{PrimitiveType, StructField, StructType, Type},
         partition::{PartitionField, PartitionSpec, Transform},
         schema::SchemaV2,
         values::Value,

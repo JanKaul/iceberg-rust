@@ -11,7 +11,7 @@ use object_store::{path::Path, ObjectStore};
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
-    model::{data_types::StructType, view_metadata::ViewMetadata},
+    model::{types::StructType, view_metadata::ViewMetadata},
     table::TableType,
 };
 
@@ -162,7 +162,7 @@ mod tests {
 
     use crate::{
         model::{
-            data_types::{PrimitiveType, StructField, StructType, Type},
+            types::{PrimitiveType, StructField, StructType, Type},
             schema::SchemaV2,
         },
         view::view_builder::ViewBuilder,

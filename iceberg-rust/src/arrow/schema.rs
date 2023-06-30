@@ -8,7 +8,7 @@ use std::{collections::HashMap, convert::TryInto, sync::Arc};
 
 use arrow::datatypes::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
 
-use crate::model::data_types::{PrimitiveType, StructField, StructType, Type};
+use crate::model::types::{PrimitiveType, StructField, StructType, Type};
 
 impl TryInto<ArrowSchema> for &StructType {
     type Error = anyhow::Error;

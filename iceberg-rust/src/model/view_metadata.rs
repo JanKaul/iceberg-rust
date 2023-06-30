@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::schema::Schema;
 
-use super::{data_types::StructType, table_metadata::VersionNumber};
+use super::{types::StructType, table_metadata::VersionNumber};
 
 /// Metadata of an iceberg view
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
