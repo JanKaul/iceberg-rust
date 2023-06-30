@@ -3,6 +3,7 @@
  */
 
 use std::{
+    any::Any,
     collections::{BTreeMap, HashMap},
     fmt,
     io::Cursor,
@@ -20,7 +21,10 @@ use serde::{
 };
 use serde_bytes::ByteBuf;
 
-use super::partition::Transform;
+use super::{
+    data_types::{PrimitiveType, Type},
+    partition::Transform,
+};
 
 /// Values present in iceberg type
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -329,6 +333,85 @@ impl Value {
             _ => Err(anyhow!(
                 "Partition transform operation currently not supported."
             )),
+        }
+    }
+
+    #[inline]
+    /// Create iceberg value from bytes
+    pub fn from_bytes(bytes: &[u8], data_type: &Type) -> Result<Self, anyhow::Error> {
+        match data_type {
+            Type::Primitive(primitive) => match primitive {
+                PrimitiveType::Boolean => {
+                    if bytes.len() == 1 && bytes[0] == 0u8 {
+                        Ok(Value::Boolean(false))
+                    } else {
+                        Ok(Value::Boolean(true))
+                    }
+                }
+                PrimitiveType::Int => Ok(Value::Int(i32::from_le_bytes(bytes.try_into()?))),
+                PrimitiveType::Long => Ok(Value::LongInt(i64::from_le_bytes(bytes.try_into()?))),
+                PrimitiveType::Float => Ok(Value::Float(f32::from_le_bytes(bytes.try_into()?))),
+                PrimitiveType::Double => Ok(Value::Double(f64::from_le_bytes(bytes.try_into()?))),
+                PrimitiveType::Date => Ok(Value::Date(i32::from_le_bytes(bytes.try_into()?))),
+                PrimitiveType::Time => Ok(Value::Time(i64::from_le_bytes(bytes.try_into()?))),
+                PrimitiveType::Timestamp => {
+                    Ok(Value::Timestamp(i64::from_le_bytes(bytes.try_into()?)))
+                }
+                PrimitiveType::Timestampz => {
+                    Ok(Value::TimestampTZ(i64::from_le_bytes(bytes.try_into()?)))
+                }
+                PrimitiveType::String => Ok(Value::String(std::str::from_utf8(bytes)?.to_string())),
+                PrimitiveType::Uuid => Ok(Value::UUID(i128::from_be_bytes(bytes.try_into()?))),
+                PrimitiveType::Fixed(len) => Ok(Value::Fixed(*len as usize, Vec::from(bytes))),
+                PrimitiveType::Binary => Ok(Value::Binary(Vec::from(bytes))),
+                _ => Err(anyhow!("Decimal cannot be stored as bytes.")),
+            },
+            _ => Err(anyhow!("Only primitive types can be stored as bytes.")),
+        }
+    }
+
+    /// Get datatype of value
+    pub fn datatype(&self) -> Type {
+        match self {
+            &Value::Boolean(_) => Type::Primitive(PrimitiveType::Boolean),
+            &Value::Int(_) => Type::Primitive(PrimitiveType::Int),
+            &Value::LongInt(_) => Type::Primitive(PrimitiveType::Long),
+            &Value::Float(_) => Type::Primitive(PrimitiveType::Float),
+            &Value::Double(_) => Type::Primitive(PrimitiveType::Double),
+            &Value::Date(_) => Type::Primitive(PrimitiveType::Date),
+            &Value::Time(_) => Type::Primitive(PrimitiveType::Time),
+            &Value::Timestamp(_) => Type::Primitive(PrimitiveType::Timestamp),
+            &Value::TimestampTZ(_) => Type::Primitive(PrimitiveType::Timestampz),
+            &Value::Fixed(len, _) => Type::Primitive(PrimitiveType::Fixed(len as u64)),
+            &Value::Binary(_) => Type::Primitive(PrimitiveType::Binary),
+            &Value::String(_) => Type::Primitive(PrimitiveType::String),
+            &Value::UUID(_) => Type::Primitive(PrimitiveType::Uuid),
+            &Value::Decimal(dec) => Type::Primitive(PrimitiveType::Decimal {
+                precision: 38,
+                scale: dec.scale(),
+            }),
+            _ => unimplemented!(),
+        }
+    }
+
+    /// Convert Value to the any type
+    pub fn into_any(self) -> Box<dyn Any> {
+        match self {
+            Value::Boolean(any) => Box::new(any),
+            Value::Int(any) => Box::new(any),
+            Value::LongInt(any) => Box::new(any),
+            Value::Float(any) => Box::new(any),
+            Value::Double(any) => Box::new(any),
+            Value::Date(any) => Box::new(any),
+            Value::Time(any) => Box::new(any),
+            Value::Timestamp(any) => Box::new(any),
+            Value::TimestampTZ(any) => Box::new(any),
+            Value::Fixed(_, any) => Box::new(any),
+            Value::Binary(any) => Box::new(any),
+            Value::String(any) => Box::new(any),
+            Value::UUID(any) => Box::new(any),
+            Value::Decimal(any) => Box::new(any),
+            _ => unimplemented!(),
         }
     }
 }

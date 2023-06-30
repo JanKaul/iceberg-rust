@@ -19,8 +19,7 @@ use std::ops::Deref;
 use crate::{
     file_format::parquet::parquet_to_datafilev2,
     model::{
-        bytes::bytes_to_any,
-        data_types::{PrimitiveType, StructType, Type},
+        data_types::StructType,
         manifest::{
             partition_value_schema, Content, DataFileV1, DataFileV2, ManifestEntry,
             ManifestEntryV1, ManifestEntryV2, Status,
@@ -437,76 +436,45 @@ fn update_partitions(
             .ok_or_else(|| anyhow!("Couldn't find column {} in partition values", &field.name))?];
         if let Some(value) = value {
             if let Some(lower_bound) = &mut summary.lower_bound {
-                match value {
-                    Value::Int(val) => {
-                        let current =
-                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Int))?
-                                .downcast::<i32>()
-                                .map_err(|_| anyhow!("Failed to downcast i32."))?;
-                        if *current > *val {
+                let current = Value::from_bytes(lower_bound, &value.datatype())?;
+                match (value, current) {
+                    (Value::Int(val), Value::Int(current)) => {
+                        if current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::LongInt(val) => {
-                        let current =
-                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Long))?
-                                .downcast::<i64>()
-                                .map_err(|_| anyhow!("Failed to downcast i64."))?;
-                        if *current > *val {
+                    (Value::LongInt(val), Value::LongInt(current)) => {
+                        if current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Float(val) => {
-                        let current =
-                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Float))?
-                                .downcast::<f32>()
-                                .map_err(|_| anyhow!("Failed to downcast f32."))?;
-                        if *current > *val {
+                    (Value::Float(val), Value::Float(current)) => {
+                        if current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Double(val) => {
-                        let current =
-                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Double))?
-                                .downcast::<f64>()
-                                .map_err(|_| anyhow!("Failed to downcast f64."))?;
-                        if *current > *val {
+                    (Value::Double(val), Value::Double(current)) => {
+                        if current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Date(val) => {
-                        let current =
-                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Date))?
-                                .downcast::<i32>()
-                                .map_err(|_| anyhow!("Failed to downcast date."))?;
-                        if *current > *val {
+                    (Value::Date(val), Value::Date(current)) => {
+                        if current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Time(val) => {
-                        let current =
-                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Time))?
-                                .downcast::<i64>()
-                                .map_err(|_| anyhow!("Failed to downcast time."))?;
-                        if *current > *val {
+                    (Value::Time(val), Value::Time(current)) => {
+                        if current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Timestamp(val) => {
-                        let current =
-                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Timestamp))?
-                                .downcast::<i64>()
-                                .map_err(|_| anyhow!("Failed to downcast timestamp."))?;
-                        if *current > *val {
+                    (Value::Timestamp(val), Value::Timestamp(current)) => {
+                        if current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::TimestampTZ(val) => {
-                        let current =
-                            bytes_to_any(lower_bound, &Type::Primitive(PrimitiveType::Timestampz))?
-                                .downcast::<i64>()
-                                .map_err(|_| anyhow!("Failed to downcast timestamptz."))?;
-                        if *current > *val {
+                    (Value::TimestampTZ(val), Value::TimestampTZ(current)) => {
+                        if current > *val {
                             *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -514,76 +482,45 @@ fn update_partitions(
                 }
             }
             if let Some(upper_bound) = &mut summary.upper_bound {
-                match value {
-                    Value::Int(val) => {
-                        let current =
-                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Int))?
-                                .downcast::<i32>()
-                                .map_err(|_| anyhow!("Failed to downcast i32."))?;
-                        if *current < *val {
+                let current = Value::from_bytes(upper_bound, &value.datatype())?;
+                match (value, current) {
+                    (Value::Int(val), Value::Int(current)) => {
+                        if current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::LongInt(val) => {
-                        let current =
-                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Long))?
-                                .downcast::<i64>()
-                                .map_err(|_| anyhow!("Failed to downcast i64."))?;
-                        if *current < *val {
+                    (Value::LongInt(val), Value::LongInt(current)) => {
+                        if current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Float(val) => {
-                        let current =
-                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Float))?
-                                .downcast::<f32>()
-                                .map_err(|_| anyhow!("Failed to downcast f32."))?;
-                        if *current < *val {
+                    (Value::Float(val), Value::Float(current)) => {
+                        if current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Double(val) => {
-                        let current =
-                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Double))?
-                                .downcast::<f64>()
-                                .map_err(|_| anyhow!("Failed to downcast f64."))?;
-                        if *current < *val {
+                    (Value::Double(val), Value::Double(current)) => {
+                        if current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Date(val) => {
-                        let current =
-                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Date))?
-                                .downcast::<i32>()
-                                .map_err(|_| anyhow!("Failed to downcast date."))?;
-                        if *current < *val {
+                    (Value::Date(val), Value::Date(current)) => {
+                        if current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Time(val) => {
-                        let current =
-                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Time))?
-                                .downcast::<i64>()
-                                .map_err(|_| anyhow!("Failed to downcast time."))?;
-                        if *current < *val {
+                    (Value::Time(val), Value::Time(current)) => {
+                        if current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::Timestamp(val) => {
-                        let current =
-                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Timestamp))?
-                                .downcast::<i64>()
-                                .map_err(|_| anyhow!("Failed to downcast timestamp."))?;
-                        if *current < *val {
+                    (Value::Timestamp(val), Value::Timestamp(current)) => {
+                        if current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
-                    Value::TimestampTZ(val) => {
-                        let current =
-                            bytes_to_any(upper_bound, &Type::Primitive(PrimitiveType::Timestampz))?
-                                .downcast::<i64>()
-                                .map_err(|_| anyhow!("Failed to downcast timestamptz."))?;
-                        if *current < *val {
+                    (Value::TimestampTZ(val), Value::TimestampTZ(current)) => {
+                        if current < *val {
                             *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
                         }
                     }
@@ -625,191 +562,51 @@ fn datafiles_in_bounds<'values>(
                         if let (Some(lower_bound), Some(upper_bound)) =
                             (&summary.lower_bound, &summary.upper_bound)
                         {
-                            match value {
-                                Value::Int(val) => {
-                                    let lower_bound = bytes_to_any(
-                                        lower_bound,
-                                        &Type::Primitive(PrimitiveType::Int),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i32>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i32.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    let upper_bound = bytes_to_any(
-                                        upper_bound,
-                                        &Type::Primitive(PrimitiveType::Int),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i32>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i32.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    *lower_bound <= *val && *upper_bound >= *val
-                                }
-                                Value::LongInt(val) => {
-                                    let lower_bound = bytes_to_any(
-                                        lower_bound,
-                                        &Type::Primitive(PrimitiveType::Long),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    let upper_bound = bytes_to_any(
-                                        upper_bound,
-                                        &Type::Primitive(PrimitiveType::Long),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    *lower_bound <= *val && *upper_bound >= *val
-                                }
-                                Value::Float(val) => {
-                                    let lower_bound = bytes_to_any(
-                                        lower_bound,
-                                        &Type::Primitive(PrimitiveType::Float),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<f32>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to f32.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    let upper_bound = bytes_to_any(
-                                        upper_bound,
-                                        &Type::Primitive(PrimitiveType::Float),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<f32>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to f32.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    *lower_bound <= *val && *upper_bound >= *val
-                                }
-                                Value::Double(val) => {
-                                    let lower_bound = bytes_to_any(
-                                        lower_bound,
-                                        &Type::Primitive(PrimitiveType::Double),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<f64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to f64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    let upper_bound = bytes_to_any(
-                                        upper_bound,
-                                        &Type::Primitive(PrimitiveType::Double),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<f64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to f64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    *lower_bound <= *val && *upper_bound >= *val
-                                }
-                                Value::Date(val) => {
-                                    let lower_bound = bytes_to_any(
-                                        lower_bound,
-                                        &Type::Primitive(PrimitiveType::Date),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i32>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i32.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    let upper_bound = bytes_to_any(
-                                        upper_bound,
-                                        &Type::Primitive(PrimitiveType::Date),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i32>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i32.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    *lower_bound <= *val && *upper_bound >= *val
-                                }
-                                Value::Time(val) => {
-                                    let lower_bound = bytes_to_any(
-                                        lower_bound,
-                                        &Type::Primitive(PrimitiveType::Time),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    let upper_bound = bytes_to_any(
-                                        upper_bound,
-                                        &Type::Primitive(PrimitiveType::Time),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    *lower_bound <= *val && *upper_bound >= *val
-                                }
-                                Value::Timestamp(val) => {
-                                    let lower_bound = bytes_to_any(
-                                        lower_bound,
-                                        &Type::Primitive(PrimitiveType::Timestamp),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    let upper_bound = bytes_to_any(
-                                        upper_bound,
-                                        &Type::Primitive(PrimitiveType::Timestamp),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    *lower_bound <= *val && *upper_bound >= *val
-                                }
-                                Value::TimestampTZ(val) => {
-                                    let lower_bound = bytes_to_any(
-                                        lower_bound,
-                                        &Type::Primitive(PrimitiveType::Timestampz),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    let upper_bound = bytes_to_any(
-                                        upper_bound,
-                                        &Type::Primitive(PrimitiveType::Timestampz),
-                                    )
-                                    .and_then(|x| {
-                                        x.downcast::<i64>().map_err(|_| {
-                                            anyhow!("Failed to downcast bytes to i64.")
-                                        })
-                                    })
-                                    .unwrap();
-                                    *lower_bound <= *val && *upper_bound >= *val
-                                }
+                            let lower_bound =
+                                Value::from_bytes(lower_bound, &value.datatype()).unwrap();
+                            let upper_bound =
+                                Value::from_bytes(upper_bound, &value.datatype()).unwrap();
+                            match (value, lower_bound, upper_bound) {
+                                (
+                                    Value::Int(val),
+                                    Value::Int(lower_bound),
+                                    Value::Int(upper_bound),
+                                ) => lower_bound <= *val && upper_bound >= *val,
+                                (
+                                    Value::LongInt(val),
+                                    Value::LongInt(lower_bound),
+                                    Value::LongInt(upper_bound),
+                                ) => lower_bound <= *val && upper_bound >= *val,
+                                (
+                                    Value::Float(val),
+                                    Value::Float(lower_bound),
+                                    Value::Float(upper_bound),
+                                ) => lower_bound <= *val && upper_bound >= *val,
+                                (
+                                    Value::Double(val),
+                                    Value::Double(lower_bound),
+                                    Value::Double(upper_bound),
+                                ) => lower_bound <= *val && upper_bound >= *val,
+                                (
+                                    Value::Date(val),
+                                    Value::Date(lower_bound),
+                                    Value::Date(upper_bound),
+                                ) => lower_bound <= *val && upper_bound >= *val,
+                                (
+                                    Value::Time(val),
+                                    Value::Time(lower_bound),
+                                    Value::Time(upper_bound),
+                                ) => lower_bound <= *val && upper_bound >= *val,
+                                (
+                                    Value::Timestamp(val),
+                                    Value::Timestamp(lower_bound),
+                                    Value::Timestamp(upper_bound),
+                                ) => lower_bound <= *val && upper_bound >= *val,
+                                (
+                                    Value::TimestampTZ(val),
+                                    Value::TimestampTZ(lower_bound),
+                                    Value::TimestampTZ(upper_bound),
+                                ) => lower_bound <= *val && upper_bound >= *val,
                                 _ => false,
                             }
                         } else {
