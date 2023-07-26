@@ -1,3 +1,6 @@
+| :exclamation:  The development of the rust implementation of iceberg has moved to the official Apache repository [https://github.com/apache/iceberg-rust](https://github.com/apache/iceberg-rust)  |
+|-----------------------------------------|
+
 # Rust implementation of [Apache Iceberg](https://iceberg.apache.org)
 
 ## [Iceberg-rust](iceberg-rust/README.md)
