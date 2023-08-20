@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use super::{types::StructType, partition::PartitionField};
+use super::{partition::PartitionField, types::StructType};
 
 /// Metadata of an iceberg table
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -408,6 +408,14 @@ impl TableMetadata {
         match self {
             TableMetadata::V1(_) => FormatVersion::V1,
             TableMetadata::V2(_) => FormatVersion::V2,
+        }
+    }
+
+    /// Get properties of the table
+    pub fn properties(&self) -> &Option<HashMap<String, String>> {
+        match self {
+            TableMetadata::V1(metadata) => &metadata.properties,
+            TableMetadata::V2(metadata) => &metadata.properties,
         }
     }
 }

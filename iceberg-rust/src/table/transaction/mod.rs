@@ -43,6 +43,11 @@ impl<'table> TableTransaction<'table> {
         self.operations.push(Operation::NewAppend { paths: files });
         self
     }
+    /// Update the properties of the table
+    pub fn update_properties(mut self, entries: Vec<(String, String)>) -> Self {
+        self.operations.push(Operation::UpdateProperties(entries));
+        self
+    }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<()> {
         // Before executing the transactions operations, update the metadata for a new snapshot

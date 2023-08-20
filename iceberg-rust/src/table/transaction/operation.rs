@@ -19,7 +19,6 @@ use std::ops::Deref;
 use crate::{
     file_format::parquet::parquet_to_datafilev2,
     model::{
-        types::StructType,
         manifest::{
             partition_value_schema, Content, DataFileV1, DataFileV2, ManifestEntry,
             ManifestEntryV1, ManifestEntryV2, Status,
@@ -28,6 +27,7 @@ use crate::{
         partition::PartitionField,
         schema::SchemaV2,
         table_metadata::TableMetadata,
+        types::StructType,
         values::{Struct, Value},
     },
     table::Table,
@@ -40,13 +40,15 @@ pub enum Operation {
     /// Update spec
     UpdateSpec(i32),
     // /// Update table properties
-    // UpdateProperties,
-    // /// Replace the sort order
+    UpdateProperties(Vec<(String, String)>),
+    /// Replace the sort order
     // ReplaceSortOrder,
     // /// Update the table location
     // UpdateLocation,
     /// Append new files to the table
-    NewAppend { paths: Vec<(String, FileMetaData)> },
+    NewAppend {
+        paths: Vec<(String, FileMetaData)>,
+    },
     // /// Quickly append new files to the table
     // NewFastAppend {
     //     paths: Vec<String>,
@@ -417,6 +419,24 @@ impl Operation {
                     .put(&manifest_list_location, manifest_list_bytes.into())
                     .await?;
 
+                Ok(())
+            }
+            Operation::UpdateProperties(entries) => {
+                let properties = match &mut table.metadata {
+                    TableMetadata::V2(metadata) => &mut metadata.properties,
+                    TableMetadata::V1(metadata) => &mut metadata.properties,
+                };
+                if properties.is_none() {
+                    *properties = Some(HashMap::new());
+                }
+                match properties {
+                    Some(properties) => {
+                        entries.into_iter().for_each(|(key, value)| {
+                            properties.insert(key, value);
+                        });
+                    }
+                    None => (),
+                }
                 Ok(())
             }
             _ => Ok(()),
