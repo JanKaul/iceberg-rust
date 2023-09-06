@@ -1,7 +1,7 @@
 use std::{any::Any, sync::Arc};
 
 use datafusion::{
-    catalog::{catalog::CatalogProvider, schema::SchemaProvider},
+    catalog::{schema::SchemaProvider, CatalogProvider},
     error::Result,
 };
 use iceberg_rust::catalog::{namespace::Namespace, Catalog};

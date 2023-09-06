@@ -12,7 +12,7 @@ license = "Apache-2.0"
 [dependencies]
 anyhow = { workspace = true }
 apache-avro = "0.14.0"
-arrow = "40.0.0"
+arrow = "45.0.0"
 async-trait = { workspace = true }
 bytes = "1.4.0"
 chrono = { workspace = true }
@@ -21,7 +21,7 @@ getrandom = "0.2.8"
 itertools = "0.10.5"
 murmur3 = "0.5.2"
 object_store = { workspace = true }
-parquet = { version = "40.0.0", features = ["async","object_store"] }
+parquet = { version = "45.0.0", features = ["async","object_store"] }
 rust_decimal = "1.27.0"
 serde = { workspace = true }
 serde_derive = { workspace = true }

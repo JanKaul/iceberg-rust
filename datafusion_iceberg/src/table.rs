@@ -14,6 +14,7 @@ use datafusion::{
         file_format::{parquet::ParquetFormat, FileFormat},
         listing::PartitionedFile,
         object_store::ObjectStoreUrl,
+        physical_plan::FileScanConfig,
         TableProvider, ViewTable,
     },
     execution::context::SessionState,
@@ -21,7 +22,7 @@ use datafusion::{
     optimizer::utils::conjunction,
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
-    physical_plan::{file_format::FileScanConfig, ExecutionPlan, Statistics},
+    physical_plan::{ExecutionPlan, Statistics},
     prelude::Expr,
     scalar::ScalarValue,
     sql::parser::DFParser,
@@ -211,6 +212,7 @@ async fn table_scan(
                                 Utc,
                             )
                         },
+                        e_tag: None,
                     };
                     let file = PartitionedFile {
                         object_meta,
@@ -247,6 +249,7 @@ async fn table_scan(
                     let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
                     DateTime::from_utc(NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(), Utc)
                 },
+                e_tag: None,
             };
             let file = PartitionedFile {
                 object_meta,
@@ -309,8 +312,8 @@ mod tests {
     };
     use iceberg_rust::{
         model::{
-            types::{PrimitiveType, StructField, StructType, Type},
             schema::SchemaV2,
+            types::{PrimitiveType, StructField, StructType, Type},
         },
         table::Table,
         view::view_builder::ViewBuilder,
