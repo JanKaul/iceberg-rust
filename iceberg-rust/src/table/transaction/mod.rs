@@ -7,7 +7,9 @@ use object_store::path::Path;
 use parquet::format::FileMetaData;
 use uuid::Uuid;
 
-use crate::{catalog::relation::Relation, model::schema::SchemaV2, table::Table};
+use crate::{
+    catalog::relation::Relation, model::schema::SchemaV2, table::Table, util::strip_prefix,
+};
 use anyhow::{anyhow, Result};
 
 use self::operation::Operation;
@@ -69,29 +71,31 @@ impl<'table> TableTransaction<'table> {
             // In case of a metastore table, write the metadata to object srorage and use the catalog to perform the atomic swap
             (Some(catalog), Some(identifier)) => {
                 let object_store = catalog.object_store();
-                let location = &table.metadata().location();
                 let transaction_uuid = Uuid::new_v4();
                 let version = &table.metadata().last_sequence_number();
                 let metadata_json = serde_json::to_string(&table.metadata())
                     .map_err(|err| anyhow!(err.to_string()))?;
-                let metadata_file_location: Path = (location.to_string()
+                let metadata_file_location = table.metadata().location().to_string()
                     + "/metadata/"
                     + &version.to_string()
                     + "-"
                     + &transaction_uuid.to_string()
-                    + ".metadata.json")
-                    .into();
+                    + ".metadata.json";
                 object_store
-                    .put(&metadata_file_location, metadata_json.into())
+                    .put(
+                        &strip_prefix(&metadata_file_location).into(),
+                        metadata_json.into(),
+                    )
                     .await
                     .map_err(|err| anyhow!(err.to_string()))?;
                 let previous_metadata_file_location = table.metadata_location();
+                dbg!(&metadata_file_location, &previous_metadata_file_location);
                 if let Relation::Table(new_table) = catalog
                     .clone()
                     .update_table(
                         identifier.clone(),
                         metadata_file_location.as_ref(),
-                        previous_metadata_file_location,
+                        &previous_metadata_file_location,
                     )
                     .await?
                 {
@@ -106,7 +110,7 @@ impl<'table> TableTransaction<'table> {
             // In case of a filesystem table, write the metadata to the object storage and perform the atomic swap of the metadata file
             (_, _) => {
                 let object_store = table.object_store();
-                let location = &table.metadata().location();
+                let location = table.metadata().location();
                 let uuid = Uuid::new_v4();
                 let version = &table.metadata().last_sequence_number();
                 let metadata_json = serde_json::to_string(&table.metadata())
@@ -131,7 +135,7 @@ impl<'table> TableTransaction<'table> {
                     .delete(&temp_path)
                     .await
                     .map_err(|err| anyhow!(err.to_string()))?;
-                let new_table = Table::load_file_system_table(location, &object_store).await?;
+                let new_table = Table::load_file_system_table(&location, &object_store).await?;
                 *table = new_table;
                 Ok(())
             }

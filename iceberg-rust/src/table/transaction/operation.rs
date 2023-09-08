@@ -10,7 +10,6 @@ use std::{
 use anyhow::{anyhow, Result};
 use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
-use object_store::path::Path;
 use parquet::format::FileMetaData;
 use serde_bytes::ByteBuf;
 
@@ -31,6 +30,7 @@ use crate::{
         values::{Struct, Value},
     },
     table::Table,
+    util::strip_prefix,
 };
 
 ///Table operations
@@ -84,15 +84,14 @@ impl Operation {
                 let datafiles = Arc::new(Mutex::new(HashMap::new()));
 
                 stream::iter(paths.iter())
-                    .map(|(path, file_metadata)| {
+                    .then(|(path, file_metadata)| async move {
                         let datafile =
                             parquet_to_datafilev2(path, file_metadata, schema, partition_spec)?;
                         Ok::<_, anyhow::Error>((path, datafile))
                     })
-                    .try_for_each_concurrent(None, |result| {
+                    .try_for_each_concurrent(None, |(path, datafile)| {
                         let datafiles = datafiles.clone();
                         async move {
-                            let (path, datafile) = result;
                             datafiles.lock().await.insert(path, datafile);
                             Ok(())
                         }
@@ -110,19 +109,19 @@ impl Operation {
 
                 let existing_manifests = Arc::new(Mutex::new(HashSet::new()));
 
-                let manifest_list_location: Path = table_metadata
+                let manifest_list_location = table_metadata
                     .manifest_list()
-                    .ok_or_else(|| anyhow!("No manifest list in table metadata."))?
-                    .into();
+                    .ok_or_else(|| anyhow!("No manifest list in table metadata."))?;
 
                 let manifest_list_bytes: Vec<u8> = object_store
-                    .get(&manifest_list_location)
+                    .get(&strip_prefix(manifest_list_location).as_str().into())
                     .await?
                     .bytes()
                     .await?
                     .into();
 
-                let existing_manifest_iter = if manifest_list_bytes.is_empty() {
+                // Check if file has content "null", if so manifest_list file is empty
+                let existing_manifest_iter = if &manifest_list_bytes == &vec![110, 117, 108, 108] {
                     None
                 } else {
                     let manifest_list_reader = apache_avro::Reader::new(&*manifest_list_bytes)?;
@@ -165,7 +164,6 @@ impl Operation {
 
                 let new_manifest_iter = stream::iter(paths.iter()).filter_map(|(path, _)| {
                     let existing_manifests = existing_manifests.clone();
-                    let manifest_list_location = manifest_list_location.as_ref();
                     async move {
                         if !existing_manifests.lock().await.contains(path) {
                             let manifest_location = manifest_list_location
@@ -248,7 +246,9 @@ impl Operation {
                             let mut manifest = match manifest {
                                 Ok(manifest) => {
                                     let manifest_bytes: Vec<u8> = object_store
-                                        .get(&manifest.manifest_path().into())
+                                        .get(
+                                            &strip_prefix(manifest.manifest_path()).as_str().into(),
+                                        )
                                         .await?
                                         .bytes()
                                         .await?
@@ -373,7 +373,10 @@ impl Operation {
                             }
 
                             object_store
-                                .put(&manifest.manifest_path().into(), manifest_bytes.into())
+                                .put(
+                                    &strip_prefix(manifest.manifest_path()).as_str().into(),
+                                    manifest_bytes.into(),
+                                )
                                 .await?;
 
                             Ok::<_, anyhow::Error>(manifest)
@@ -416,7 +419,10 @@ impl Operation {
                     .into_inner()?;
 
                 object_store
-                    .put(&manifest_list_location, manifest_list_bytes.into())
+                    .put(
+                        &strip_prefix(manifest_list_location).as_str().into(),
+                        manifest_list_bytes.into(),
+                    )
                     .await?;
 
                 Ok(())

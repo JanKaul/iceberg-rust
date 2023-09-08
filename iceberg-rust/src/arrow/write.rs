@@ -32,7 +32,7 @@ pub async fn write_parquet_files(
         create_arrow_writer(location, schema, object_store.clone()).await?,
     ));
 
-    let (writer_sender, writer_reciever): (
+    let (mut writer_sender, writer_reciever): (
         Sender<(String, AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>)>,
         Receiver<(String, AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>)>,
     ) = channel(32);
@@ -72,6 +72,12 @@ pub async fn write_parquet_files(
             }
         })
         .await;
+
+    let last = Arc::try_unwrap(current_writer).unwrap().into_inner();
+
+    writer_sender.try_send(last).unwrap();
+
+    writer_sender.close_channel();
 
     writer_reciever
         .then(|writer| async move {

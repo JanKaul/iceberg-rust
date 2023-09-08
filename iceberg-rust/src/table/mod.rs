@@ -12,13 +12,13 @@ use object_store::{path::Path, ObjectStore};
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{
-        types::StructType,
         manifest_list::{ManifestFile, ManifestFileV1, ManifestFileV2},
         snapshot::{Operation, SnapshotV1, SnapshotV2, Summary},
         table_metadata::{FormatVersion, TableMetadata},
+        types::StructType,
     },
     table::transaction::TableTransaction,
-    util,
+    util::{self, strip_prefix},
 };
 
 pub mod files;
@@ -193,16 +193,16 @@ impl Table {
                     Some(old_manifest_list_location) => {
                         object_store
                             .copy(
-                                &old_manifest_list_location.into(),
-                                &new_manifest_list_location.clone().into(),
+                                &strip_prefix(&old_manifest_list_location).as_str().into(),
+                                &strip_prefix(&new_manifest_list_location).as_str().into(),
                             )
                             .await?
                     }
                     None => {
                         object_store
                             .put(
-                                &new_manifest_list_location.clone().into(),
-                                Vec::new().into(),
+                                &strip_prefix(&new_manifest_list_location).as_str().into(),
+                                "null".as_bytes().into(),
                             )
                             .await?;
                     }
@@ -239,16 +239,16 @@ impl Table {
                     Some(old_manifest_list_location) => {
                         object_store
                             .copy(
-                                &old_manifest_list_location.into(),
-                                &new_manifest_list_location.clone().into(),
+                                &strip_prefix(&old_manifest_list_location).as_str().into(),
+                                &strip_prefix(&new_manifest_list_location).as_str().into(),
                             )
                             .await?
                     }
                     None => {
                         object_store
                             .put(
-                                &new_manifest_list_location.clone().into(),
-                                Vec::new().into(),
+                                &strip_prefix(&new_manifest_list_location).as_str().into(),
+                                "null".as_bytes().into(),
                             )
                             .await?;
                     }
@@ -338,8 +338,8 @@ mod tests {
 
     use crate::{
         model::{
-            types::{PrimitiveType, StructField, StructType, Type},
             schema::SchemaV2,
+            types::{PrimitiveType, StructField, StructType, Type},
         },
         table::table_builder::TableBuilder,
     };
