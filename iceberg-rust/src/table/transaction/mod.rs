@@ -54,7 +54,12 @@ impl<'table> TableTransaction<'table> {
     pub async fn commit(self) -> Result<()> {
         // Before executing the transactions operations, update the metadata for a new snapshot
         self.table.increment_sequence_number();
-        self.table.new_snapshot().await?;
+        if self.operations.iter().any(|op| match op {
+            Operation::NewAppend { paths: _ } => true,
+            _ => false,
+        }) {
+            self.table.new_snapshot().await?;
+        }
         // Execute the table operations
         let table = futures::stream::iter(self.operations)
             .fold(
