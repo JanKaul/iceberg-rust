@@ -94,7 +94,6 @@ impl<'table> TableTransaction<'table> {
                     .await
                     .map_err(|err| anyhow!(err.to_string()))?;
                 let previous_metadata_file_location = table.metadata_location();
-                dbg!(&metadata_file_location, &previous_metadata_file_location);
                 if let Relation::Table(new_table) = catalog
                     .clone()
                     .update_table(
