@@ -18,7 +18,7 @@ use datafusion::{
         TableProvider, ViewTable,
     },
     execution::context::SessionState,
-    logical_expr::TableType,
+    logical_expr::{TableSource, TableType},
     optimizer::utils::conjunction,
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
@@ -299,6 +299,23 @@ async fn table_scan(
     ParquetFormat::default()
         .create_physical_plan(session, file_scan_config, physical_predicate.as_ref())
         .await
+}
+
+pub(crate) struct IcebergTableSource(DataFusionTable);
+
+impl TableSource for IcebergTableSource {
+    fn as_any(&self) -> &dyn Any {
+        self.0.as_any()
+    }
+    fn schema(&self) -> SchemaRef {
+        self.0.schema()
+    }
+}
+
+impl DataFusionTable {
+    pub(crate) fn into_table_source(self) -> IcebergTableSource {
+        IcebergTableSource(self)
+    }
 }
 
 #[cfg(test)]
