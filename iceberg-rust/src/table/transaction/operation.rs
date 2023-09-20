@@ -26,7 +26,7 @@ use crate::{
         partition::PartitionField,
         schema::SchemaV2,
         table_metadata::TableMetadata,
-        types::StructType,
+        types::{StructField, StructType},
         values::{Struct, Value},
     },
     table::Table,
@@ -226,17 +226,23 @@ impl Operation {
                     }
                 });
 
+                let partition_columns = Arc::new(
+                    partition_spec
+                        .iter()
+                        .map(|x| schema.get(x.field_id as usize))
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or(anyhow!("Partition column not in schema."))?,
+                );
+
                 let write_manifest_closure =
                     |(manifest, files): (Result<ManifestFile, ManifestFile>, Vec<String>)| {
                         let object_store = object_store.clone();
                         let datafiles = datafiles.clone();
+                        let partition_columns = partition_columns.clone();
                         async move {
                             let manifest_schema =
                                 apache_avro::Schema::parse_str(&ManifestEntry::schema(
-                                    &partition_value_schema(
-                                        table_metadata.default_spec(),
-                                        table_metadata.current_schema(),
-                                    )?,
+                                    &partition_value_schema(table_metadata.default_spec(), schema)?,
                                     &table_metadata.format_version(),
                                 ))?;
 
@@ -292,7 +298,7 @@ impl Operation {
                                 update_partitions(
                                     &mut partitions,
                                     &data_file.partition,
-                                    table_metadata.default_spec(),
+                                    &partition_columns,
                                 )?;
 
                                 let manifest_entry = match table_metadata {
@@ -453,9 +459,9 @@ impl Operation {
 fn update_partitions(
     partitions: &mut Vec<FieldSummary>,
     partition_values: &Struct,
-    partition_spec: &[PartitionField],
+    partition_columns: &[&StructField],
 ) -> Result<()> {
-    for (field, summary) in partition_spec.iter().zip(partitions.iter_mut()) {
+    for (field, summary) in partition_columns.iter().zip(partitions.iter_mut()) {
         let value = &partition_values.fields[*partition_values
             .lookup
             .get(&field.name)
