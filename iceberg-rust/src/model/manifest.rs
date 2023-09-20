@@ -344,7 +344,7 @@ pub fn partition_value_schema(
                 {
                     "name": ""#
                     .to_owned()
-                    + &field.name
+                    + &schema_field.name
                     + r#"", 
                     "type":  ["null",""#
                     + &format!("{}", &data_type)
@@ -1136,7 +1136,7 @@ mod tests {
                 content: Content::Data,
                 file_path: "/".to_string(),
                 file_format: FileFormat::Parquet,
-                partition: Struct::from_iter(vec![("ts_day".to_owned(), Some(Value::Int(1)))]),
+                partition: Struct::from_iter(vec![("day".to_owned(), Some(Value::Int(1)))]),
                 record_count: 4,
                 file_size_in_bytes: 1200,
                 column_sizes: None,
@@ -1250,7 +1250,7 @@ mod tests {
                 content: Content::Data,
                 file_path: "/".to_string(),
                 file_format: FileFormat::Parquet,
-                partition: Struct::from_iter(vec![("ts_day".to_owned(), Some(Value::Int(1)))]),
+                partition: Struct::from_iter(vec![("day".to_owned(), Some(Value::Int(1)))]),
                 record_count: 4,
                 file_size_in_bytes: 1200,
                 column_sizes: None,
@@ -1356,7 +1356,7 @@ mod tests {
 
     #[test]
     pub fn test_partition_values() {
-        let partition_values = Struct::from_iter(vec![("ts_day".to_owned(), Some(Value::Int(1)))]);
+        let partition_values = Struct::from_iter(vec![("day".to_owned(), Some(Value::Int(1)))]);
 
         let table_schema = SchemaV2 {
             schema_id: 0,
