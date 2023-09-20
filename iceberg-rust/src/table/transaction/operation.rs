@@ -229,7 +229,7 @@ impl Operation {
                 let partition_columns = Arc::new(
                     partition_spec
                         .iter()
-                        .map(|x| schema.get(x.field_id as usize))
+                        .map(|x| schema.get(x.source_id as usize))
                         .collect::<Option<Vec<_>>>()
                         .ok_or(anyhow!("Partition column not in schema."))?,
                 );
