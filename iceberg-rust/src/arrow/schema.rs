@@ -147,7 +147,7 @@ impl TryFrom<&DataType> for Type {
                 precision: *precision as u32,
                 scale: *scale as u32,
             })),
-            DataType::Date64 => Ok(Type::Primitive(PrimitiveType::Date)),
+            DataType::Date32 => Ok(Type::Primitive(PrimitiveType::Date)),
             DataType::Time64(_) => Ok(Type::Primitive(PrimitiveType::Time)),
             DataType::Timestamp(_, _) => Ok(Type::Primitive(PrimitiveType::Timestamp)),
             DataType::Utf8 => Ok(Type::Primitive(PrimitiveType::String)),
