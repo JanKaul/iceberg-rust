@@ -9,7 +9,9 @@ use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use super::{
-    types::StructType, partition::PartitionField, table_metadata::FormatVersion,
+    partition::PartitionField,
+    table_metadata::FormatVersion,
+    types::{PrimitiveType, StructType, Type},
     values::Struct,
 };
 
@@ -336,6 +338,7 @@ pub fn partition_value_schema(
             let schema_field = table_schema
                 .get(field.source_id as usize)
                 .ok_or_else(|| anyhow!("Column {} not in table schema.", &field.source_id))?;
+            let data_type = avro_schema_datatype(&schema_field.field_type);
             Ok::<_, anyhow::Error>(
                 r#"
                 {
@@ -344,7 +347,7 @@ pub fn partition_value_schema(
                     + &field.name
                     + r#"", 
                     "type":  ["null",""#
-                    + &format!("{}", &schema_field.field_type)
+                    + &format!("{}", &data_type)
                     + r#""],
                     "default": null
                 },"#,
@@ -362,6 +365,19 @@ pub fn partition_value_schema(
         .trim_end_matches(',')
         .to_owned()
         + r#"]}"#)
+}
+
+fn avro_schema_datatype(data_type: &Type) -> Type {
+    match data_type {
+        Type::Primitive(prim) => match prim {
+            PrimitiveType::Date => Type::Primitive(PrimitiveType::Int),
+            PrimitiveType::Time => Type::Primitive(PrimitiveType::Long),
+            PrimitiveType::Timestamp => Type::Primitive(PrimitiveType::Long),
+            PrimitiveType::Timestampz => Type::Primitive(PrimitiveType::Long),
+            p => Type::Primitive(p.clone()),
+        },
+        t => t.clone(),
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -1101,9 +1117,9 @@ impl DataFileV2 {
 #[cfg(test)]
 mod tests {
     use crate::model::{
-        types::{PrimitiveType, StructField, StructType, Type},
         partition::{PartitionField, PartitionSpec, Transform},
         schema::SchemaV2,
+        types::{PrimitiveType, StructField, StructType, Type},
         values::Value,
     };
 

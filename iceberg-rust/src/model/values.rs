@@ -22,8 +22,8 @@ use serde::{
 use serde_bytes::ByteBuf;
 
 use super::{
-    types::{PrimitiveType, Type},
     partition::Transform,
+    types::{PrimitiveType, Type},
 };
 
 /// Values present in iceberg type
@@ -51,7 +51,7 @@ pub enum Value {
     /// UTF-8 bytes (without length)
     String(String),
     /// 16-byte big-endian value
-    UUID(i128),
+    UUID([u8; 16]),
     /// Binary value
     Fixed(usize, Vec<u8>),
     /// Binary value (without length)
@@ -92,7 +92,7 @@ impl Into<ByteBuf> for Value {
             Self::Timestamp(val) => ByteBuf::from(val.to_le_bytes()),
             Self::TimestampTZ(val) => ByteBuf::from(val.to_le_bytes()),
             Self::String(val) => ByteBuf::from(val.as_bytes()),
-            Self::UUID(val) => ByteBuf::from(val.to_be_bytes()),
+            Self::UUID(val) => ByteBuf::from(val),
             Self::Fixed(_, val) => ByteBuf::from(val),
             Self::Binary(val) => ByteBuf::from(val),
             _ => todo!(),
@@ -361,7 +361,7 @@ impl Value {
                     Ok(Value::TimestampTZ(i64::from_le_bytes(bytes.try_into()?)))
                 }
                 PrimitiveType::String => Ok(Value::String(std::str::from_utf8(bytes)?.to_string())),
-                PrimitiveType::Uuid => Ok(Value::UUID(i128::from_be_bytes(bytes.try_into()?))),
+                PrimitiveType::Uuid => Ok(Value::UUID(bytes.try_into()?)),
                 PrimitiveType::Fixed(len) => Ok(Value::Fixed(*len as usize, Vec::from(bytes))),
                 PrimitiveType::Binary => Ok(Value::Binary(Vec::from(bytes))),
                 _ => Err(anyhow!("Decimal cannot be stored as bytes.")),

@@ -6,44 +6,19 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 
-use futures::TryFutureExt;
-use object_store::{path::Path, ObjectMeta, ObjectStore};
 use parquet::{
-    arrow::async_reader::fetch_parquet_metadata,
-    errors::ParquetError,
-    file::metadata::{ParquetMetaData, RowGroupMetaData},
+    file::metadata::RowGroupMetaData,
     format::FileMetaData,
     schema::types::{from_thrift, SchemaDescriptor},
 };
 use serde_bytes::ByteBuf;
 
 use crate::model::{
-    types::{PrimitiveType, StructType, Type},
     manifest::{AvroMap, Content, DataFileV2, FileFormat},
     partition::{PartitionField, Transform},
+    types::{PrimitiveType, StructType, Type},
     values::{Struct, Value},
 };
-
-/// Get parquet metadata for a given path from the object_store
-pub async fn parquet_metadata(
-    path: &str,
-    object_store: Arc<dyn ObjectStore>,
-) -> Result<(String, ObjectMeta, ParquetMetaData)> {
-    let path: Path = path.into();
-    let file_metadata = object_store.head(&path).await.map_err(anyhow::Error::msg)?;
-    let parquet_metadata = fetch_parquet_metadata(
-        |range| {
-            object_store
-                .get_range(&path, range)
-                .map_err(|err| ParquetError::General(err.to_string()))
-        },
-        file_metadata.size,
-        None,
-    )
-    .await
-    .map_err(anyhow::Error::msg)?;
-    Ok((path.to_string(), file_metadata, parquet_metadata))
-}
 
 /// Read datafile statistics from parquetfile
 pub fn parquet_to_datafilev2(
