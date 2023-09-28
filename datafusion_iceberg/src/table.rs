@@ -323,11 +323,13 @@ mod tests {
 
     use std::sync::Arc;
 
+    use anyhow::anyhow;
     use datafusion::{
         arrow::{array::Float32Array, record_batch::RecordBatch},
         prelude::SessionContext,
     };
     use iceberg_rust::{
+        catalog::{identifier::Identifier, memory::MemoryCatalog, relation::Relation, Catalog},
         model::{
             schema::SchemaV2,
             types::{PrimitiveType, StructField, StructType, Type},
@@ -344,11 +346,22 @@ mod tests {
         let object_store: Arc<dyn ObjectStore> =
             Arc::new(LocalFileSystem::new_with_prefix("../iceberg-tests/nyc_taxis").unwrap());
 
-        let table = Arc::new(DataFusionTable::from(
-            Table::load_file_system_table("/home/iceberg/warehouse/nyc/taxis", &object_store)
-                .await
-                .unwrap(),
-        ));
+        let catalog: Arc<dyn Catalog> =
+            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
+        let identifier = Identifier::parse("test.table1").unwrap();
+
+        catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
+
+        let table = if let Relation::Table(table) = catalog
+            .load_table(&identifier)
+            .await
+            .expect("Failed to load table")
+        {
+            Ok(Arc::new(DataFusionTable::from(table)))
+        } else {
+            Err(anyhow!("Relation must be a table"))
+        }
+        .unwrap();
 
         let ctx = SessionContext::new();
 
@@ -384,11 +397,22 @@ mod tests {
 
         let memory_object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
-        let table = Arc::new(DataFusionTable::from(
-            Table::load_file_system_table("/home/iceberg/warehouse/nyc/taxis", &object_store)
-                .await
-                .unwrap(),
-        ));
+        let catalog: Arc<dyn Catalog> =
+            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
+        let identifier = Identifier::parse("test.table1").unwrap();
+
+        catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
+
+        let table = if let Relation::Table(table) = catalog
+            .load_table(&identifier)
+            .await
+            .expect("Failed to load table")
+        {
+            Ok(Arc::new(DataFusionTable::from(table)))
+        } else {
+            Err(anyhow!("Relation must be a table"))
+        }
+        .unwrap();
 
         let ctx = SessionContext::new();
 
