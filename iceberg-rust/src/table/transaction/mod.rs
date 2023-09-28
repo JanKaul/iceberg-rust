@@ -3,7 +3,6 @@
 */
 
 use futures::StreamExt;
-use object_store::path::Path;
 use parquet::format::FileMetaData;
 use uuid::Uuid;
 
@@ -111,38 +110,9 @@ impl<'table> TableTransaction<'table> {
                     ))
                 }
             }
-            // In case of a filesystem table, write the metadata to the object storage and perform the atomic swap of the metadata file
-            (_, _) => {
-                let object_store = table.object_store();
-                let location = table.metadata().location();
-                let uuid = Uuid::new_v4();
-                let version = &table.metadata().last_sequence_number();
-                let metadata_json = serde_json::to_string(&table.metadata())
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let temp_path: Path =
-                    (location.to_string() + "/metadata/" + &uuid.to_string() + ".metadata.json")
-                        .into();
-                let final_path: Path = (location.to_string()
-                    + "/metadata/v"
-                    + &version.to_string()
-                    + ".metadata.json")
-                    .into();
-                object_store
-                    .put(&temp_path, metadata_json.into())
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                object_store
-                    .copy_if_not_exists(&temp_path, &final_path)
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                object_store
-                    .delete(&temp_path)
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let new_table = Table::load_file_system_table(&location, &object_store).await?;
-                *table = new_table;
-                Ok(())
-            }
+            _ => Err(anyhow!(
+                "Updating the table for the transaction didn't return a table."
+            )),
         }
     }
 }

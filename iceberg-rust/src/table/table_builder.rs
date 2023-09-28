@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use object_store::path::Path;
-use object_store::ObjectStore;
 use uuid::Uuid;
 
 use crate::catalog::identifier::Identifier;
@@ -81,59 +80,6 @@ impl TableBuilder {
             table_type: TableType::Metastore(identifier, catalog),
         })
     }
-    /// Creates a new [TableBuilder] to create a FileSystem Table with some default metadata entries already set.
-    pub fn new_filesystem_table(
-        location: &str,
-        schema: SchemaV2,
-        object_store: Arc<dyn ObjectStore>,
-    ) -> Result<Self> {
-        let partition_spec = PartitionSpec {
-            spec_id: 1,
-            fields: vec![PartitionField {
-                name: "default".to_string(),
-                field_id: 1,
-                source_id: 1,
-                transform: Transform::Void,
-            }],
-        };
-        let sort_order = SortOrder {
-            order_id: 1,
-            fields: vec![SortField {
-                source_id: 1,
-                transform: Transform::Void,
-                direction: SortDirection::Descending,
-                null_order: NullOrder::Last,
-            }],
-        };
-        let metadata = TableMetadataV2 {
-            format_version: VersionNumber,
-            table_uuid: Uuid::new_v4(),
-            location: location.to_string(),
-            last_sequence_number: 1,
-            last_updated_ms: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .map_err(|err| anyhow!(err.to_string()))?
-                .as_millis() as i64,
-            last_column_id: schema.fields.fields.len() as i32,
-            schemas: vec![schema],
-            current_schema_id: 1,
-            partition_specs: vec![partition_spec],
-            default_spec_id: 1,
-            last_partition_id: 1,
-            properties: None,
-            current_snapshot_id: None,
-            snapshots: None,
-            snapshot_log: None,
-            metadata_log: None,
-            sort_orders: vec![sort_order],
-            default_sort_order_id: 0,
-            refs: None,
-        };
-        Ok(TableBuilder {
-            metadata,
-            table_type: TableType::FileSystem(object_store),
-        })
-    }
     /// Building a table writes the metadata file and commits the table to either the metastore or the filesystem
     pub async fn commit(self) -> Result<Table> {
         match self.table_type {
@@ -162,35 +108,6 @@ impl TableBuilder {
                 } else {
                     Err(anyhow!("Building the table failed because registering the table in the catalog didn't return a table."))
                 }
-            }
-            TableType::FileSystem(object_store) => {
-                let location = &self.metadata.location;
-                let uuid = Uuid::new_v4();
-                let version = &self.metadata.last_sequence_number;
-                let metadata_json = serde_json::to_string(&self.metadata)
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let temp_path: Path =
-                    (location.to_string() + "/metadata/" + &uuid.to_string() + ".metadata.json")
-                        .into();
-                let final_path: Path = (location.to_string()
-                    + "/metadata/v"
-                    + &version.to_string()
-                    + ".metadata.json")
-                    .into();
-                object_store
-                    .put(&temp_path, metadata_json.into())
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                object_store
-                    .copy_if_not_exists(&temp_path, &final_path)
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                object_store
-                    .delete(&temp_path)
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let table = Table::load_file_system_table(location, &object_store).await?;
-                Ok(table)
             }
         }
     }

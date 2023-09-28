@@ -4,10 +4,9 @@ Defining the [Table] struct that represents an iceberg table.
 
 use std::{collections::HashMap, io::Cursor, sync::Arc, time::SystemTime};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use apache_avro::types::Value as AvroValue;
-use futures::StreamExt;
-use object_store::{path::Path, ObjectStore};
+use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
@@ -29,8 +28,6 @@ pub mod transaction;
 /// - FileSystem(https://iceberg.apache.org/spec/#file-system-tables)
 /// - Metastore(https://iceberg.apache.org/spec/#metastore-tables)
 pub enum TableType {
-    /// Filesystem table
-    FileSystem(Arc<dyn ObjectStore>),
     /// Metastore table
     Metastore(Identifier, Arc<dyn Catalog>),
 }
@@ -60,83 +57,21 @@ impl Table {
             manifests,
         })
     }
-    /// Load a filesystem table from an objectstore
-    pub async fn load_file_system_table(
-        location: &str,
-        object_store: &Arc<dyn ObjectStore>,
-    ) -> Result<Self> {
-        let path: Path = (location.to_string() + "/metadata/").into();
-        let files = object_store
-            .list(Some(&path))
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
-        let version = files
-            .fold(Ok::<i64, anyhow::Error>(0), |acc, x| async move {
-                match (acc, x) {
-                    (Ok(acc), Ok(object_meta)) => {
-                        let name = object_meta
-                            .location
-                            .parts()
-                            .last()
-                            .ok_or_else(|| anyhow!("Metadata location path is empty."))?;
-                        if name.as_ref().ends_with(".metadata.json") {
-                            let version: i64 = name
-                                .as_ref()
-                                .trim_start_matches('v')
-                                .trim_end_matches(".metadata.json")
-                                .parse()?;
-                            if version > acc {
-                                Ok(version)
-                            } else {
-                                Ok(acc)
-                            }
-                        } else {
-                            Ok(acc)
-                        }
-                    }
-                    (Err(err), _) => Err(anyhow!(err.to_string())),
-                    (_, Err(err)) => Err(anyhow!(err.to_string())),
-                }
-            })
-            .await?;
-        let metadata_location = path.to_string() + "/v" + &version.to_string() + ".metadata.json";
-        let bytes = &object_store
-            .get(&metadata_location.clone().into())
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?
-            .bytes()
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
-        let metadata: TableMetadata = serde_json::from_str(
-            std::str::from_utf8(bytes).map_err(|err| anyhow!(err.to_string()))?,
-        )
-        .map_err(|err| anyhow!(err.to_string()))?;
-        let manifests = get_manifests(&metadata, Arc::clone(object_store)).await?;
-        Ok(Table {
-            metadata,
-            table_type: TableType::FileSystem(Arc::clone(object_store)),
-            metadata_location,
-            manifests,
-        })
-    }
     /// Get the table identifier in the catalog. Returns None of it is a filesystem table.
     pub fn identifier(&self) -> Option<&Identifier> {
         match &self.table_type {
-            TableType::FileSystem(_) => None,
             TableType::Metastore(identifier, _) => Some(identifier),
         }
     }
     /// Get the catalog associated to the table. Returns None if the table is a filesystem table
     pub fn catalog(&self) -> Option<&Arc<dyn Catalog>> {
         match &self.table_type {
-            TableType::FileSystem(_) => None,
             TableType::Metastore(_, catalog) => Some(catalog),
         }
     }
     /// Get the object_store associated to the table
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         match &self.table_type {
-            TableType::FileSystem(object_store) => Arc::clone(object_store),
             TableType::Metastore(_, catalog) => catalog.object_store(),
         }
     }

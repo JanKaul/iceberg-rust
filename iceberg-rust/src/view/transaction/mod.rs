@@ -94,38 +94,9 @@ impl<'view> Transaction<'view> {
                     ))
                 }
             }
-            // In case of a filesystem table, write the metadata to the object storage and perform the atomic swap of the metadata file
-            (_, _) => {
-                let object_store = view.object_store();
-                let location = &view.metadata().location();
-                let uuid = Uuid::new_v4();
-                let version = &view.metadata().current_version_id();
-                let metadata_json = serde_json::to_string(&view.metadata())
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let temp_path: Path =
-                    (location.to_string() + "/metadata/" + &uuid.to_string() + ".metadata.json")
-                        .into();
-                let final_path: Path = (location.to_string()
-                    + "/metadata/v"
-                    + &version.to_string()
-                    + ".metadata.json")
-                    .into();
-                object_store
-                    .put(&temp_path, metadata_json.into())
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                object_store
-                    .copy_if_not_exists(&temp_path, &final_path)
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                object_store
-                    .delete(&temp_path)
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let new_view = View::load_file_system_view(location, &object_store).await?;
-                *view = new_view;
-                Ok(())
-            }
+            _ => Err(anyhow!(
+                "Updating the table for the transaction didn't return a table."
+            )),
         }
     }
 }

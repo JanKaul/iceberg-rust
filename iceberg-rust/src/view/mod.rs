@@ -2,12 +2,11 @@
  * Defines the [View] struct that represents an iceberg view.
 */
 
-use anyhow::{anyhow, Result};
-use futures::StreamExt;
+use anyhow::Result;
 
 use std::sync::Arc;
 
-use object_store::{path::Path, ObjectStore};
+use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
@@ -45,81 +44,21 @@ impl View {
             metadata_location: metadata_location.to_string(),
         })
     }
-    /// Load a filesystem view from an objectstore
-    pub async fn load_file_system_view(
-        location: &str,
-        object_store: &Arc<dyn ObjectStore>,
-    ) -> Result<Self> {
-        let path: Path = (location.to_string() + "/metadata/").into();
-        let files = object_store
-            .list(Some(&path))
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
-        let version = files
-            .fold(Ok::<i64, anyhow::Error>(0), |acc, x| async move {
-                match (acc, x) {
-                    (Ok(acc), Ok(object_meta)) => {
-                        let name = object_meta
-                            .location
-                            .parts()
-                            .last()
-                            .ok_or_else(|| anyhow!("Metadata location path is empty."))?;
-                        if name.as_ref().ends_with(".metadata.json") {
-                            let version: i64 = name
-                                .as_ref()
-                                .trim_start_matches('v')
-                                .trim_end_matches(".metadata.json")
-                                .parse()?;
-                            if version > acc {
-                                Ok(version)
-                            } else {
-                                Ok(acc)
-                            }
-                        } else {
-                            Ok(acc)
-                        }
-                    }
-                    (Err(err), _) => Err(anyhow!(err.to_string())),
-                    (_, Err(err)) => Err(anyhow!(err.to_string())),
-                }
-            })
-            .await?;
-        let metadata_location = path.to_string() + "/v" + &version.to_string() + ".metadata.json";
-        let bytes = &object_store
-            .get(&metadata_location.clone().into())
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?
-            .bytes()
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
-        let metadata: ViewMetadata = serde_json::from_str(
-            std::str::from_utf8(bytes).map_err(|err| anyhow!(err.to_string()))?,
-        )
-        .map_err(|err| anyhow!(err.to_string()))?;
-        Ok(View {
-            metadata,
-            table_type: TableType::FileSystem(Arc::clone(object_store)),
-            metadata_location,
-        })
-    }
     /// Get the table identifier in the catalog. Returns None of it is a filesystem view.
     pub fn identifier(&self) -> Option<&Identifier> {
         match &self.table_type {
-            TableType::FileSystem(_) => None,
             TableType::Metastore(identifier, _) => Some(identifier),
         }
     }
     /// Get the catalog associated to the view. Returns None if the view is a filesystem view
     pub fn catalog(&self) -> Option<&Arc<dyn Catalog>> {
         match &self.table_type {
-            TableType::FileSystem(_) => None,
             TableType::Metastore(_, catalog) => Some(catalog),
         }
     }
     /// Get the object_store associated to the view
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         match &self.table_type {
-            TableType::FileSystem(object_store) => Arc::clone(object_store),
             TableType::Metastore(_, catalog) => catalog.object_store(),
         }
     }
@@ -161,9 +100,10 @@ mod tests {
     use object_store::{memory::InMemory, ObjectStore};
 
     use crate::{
+        catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
         model::{
-            types::{PrimitiveType, StructField, StructType, Type},
             schema::SchemaV2,
+            types::{PrimitiveType, StructField, StructType, Type},
         },
         view::view_builder::ViewBuilder,
     };
@@ -171,6 +111,8 @@ mod tests {
     #[tokio::test]
     async fn test_increment_sequence_number() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let catalog: Arc<dyn Catalog> = Arc::new(MemoryCatalog::new("test", object_store).unwrap());
+        let identifier = Identifier::parse("test.view1").unwrap();
         let schema = SchemaV2 {
             schema_id: 1,
             identifier_field_ids: Some(vec![1, 2]),
@@ -193,23 +135,23 @@ mod tests {
                 ],
             },
         };
-        let mut view = ViewBuilder::new_filesystem_view(
+        let mut view = ViewBuilder::new_metastore_view(
             "SELECT trip_distance FROM nyc_taxis",
             "test/view1",
             schema,
-            Arc::clone(&object_store),
+            identifier,
+            catalog,
         )
         .unwrap()
         .commit()
         .await
         .unwrap();
 
-        let metadata_location = view.metadata_location();
-        assert_eq!(metadata_location, "test/view1/metadata/v1.metadata.json");
+        let metadata_location1 = view.metadata_location().to_owned();
 
         let transaction = view.new_transaction();
         transaction.commit().await.unwrap();
-        let metadata_location = view.metadata_location();
-        assert_eq!(metadata_location, "test/view1/metadata/v2.metadata.json");
+        let metadata_location2 = view.metadata_location();
+        assert_ne!(metadata_location1, metadata_location2);
     }
 }
