@@ -337,6 +337,7 @@ mod tests {
     use object_store::{memory::InMemory, ObjectStore};
 
     use crate::{
+        catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
         model::{
             schema::SchemaV2,
             types::{PrimitiveType, StructField, StructType, Type},
@@ -347,6 +348,8 @@ mod tests {
     #[tokio::test]
     async fn test_increment_sequence_number() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let catalog: Arc<dyn Catalog> = Arc::new(MemoryCatalog::new("test", object_store).unwrap());
+        let identifier = Identifier::parse("test.table1").unwrap();
         let schema = SchemaV2 {
             schema_id: 1,
             identifier_field_ids: Some(vec![1, 2]),
@@ -370,18 +373,17 @@ mod tests {
             },
         };
         let mut table =
-            TableBuilder::new_filesystem_table("test/table1", schema, Arc::clone(&object_store))
-                .unwrap()
+            TableBuilder::new_metastore_table("/", schema, identifier.clone(), catalog.clone())
+                .expect("Failed to create table builder.")
                 .commit()
                 .await
-                .unwrap();
+                .expect("Failed to create table.");
 
-        let metadata_location = table.metadata_location();
-        assert_eq!(metadata_location, "test/table1/metadata/v1.metadata.json");
+        let metadata_location1 = table.metadata_location().to_string();
 
         let transaction = table.new_transaction();
         transaction.commit().await.unwrap();
-        let metadata_location = table.metadata_location();
-        assert_eq!(metadata_location, "test/table1/metadata/v2.metadata.json");
+        let metadata_location2 = table.metadata_location();
+        assert_ne!(metadata_location1, metadata_location2);
     }
 }
