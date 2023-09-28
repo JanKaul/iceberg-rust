@@ -18,6 +18,8 @@ use self::relation::Relation;
 
 pub mod relation;
 
+pub mod memory;
+
 /// Trait to create, replace and drop tables in an iceberg catalog.
 #[async_trait::async_trait]
 pub trait Catalog: Send + Sync {
