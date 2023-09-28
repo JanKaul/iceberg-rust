@@ -334,7 +334,6 @@ mod tests {
             schema::SchemaV2,
             types::{PrimitiveType, StructField, StructType, Type},
         },
-        table::Table,
         view::view_builder::ViewBuilder,
     };
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
@@ -399,11 +398,14 @@ mod tests {
 
         let catalog: Arc<dyn Catalog> =
             Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
+        let memory_catalog: Arc<dyn Catalog> =
+            Arc::new(MemoryCatalog::new("test", memory_object_store.clone()).unwrap());
         let identifier = Identifier::parse("test.table1").unwrap();
 
         catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
 
         let table = if let Relation::Table(table) = catalog
+            .clone()
             .load_table(&identifier)
             .await
             .expect("Failed to load table")
@@ -440,12 +442,14 @@ mod tests {
                 ],
             },
         };
+        let view_identifier = Identifier::parse("test.view1").unwrap();
         let view = Arc::new(DataFusionTable::from(
-            ViewBuilder::new_filesystem_view(
+            ViewBuilder::new_metastore_view(
                 "SELECT vendor_id, MIN(trip_distance) FROM nyc_taxis GROUP BY vendor_id",
                 "test/nyc_taxis_view",
                 schema,
-                Arc::clone(&memory_object_store),
+                view_identifier,
+                memory_catalog,
             )
             .expect("Failed to create filesystem view builder.")
             .commit()
