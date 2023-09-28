@@ -92,6 +92,7 @@ fn avro_value_to_manifest_entry(
 #[cfg(test)]
 mod tests {
 
+    use anyhow::anyhow;
     use futures::stream::{self, StreamExt};
     use futures::{TryFutureExt, TryStreamExt};
     use itertools::Itertools;
@@ -101,7 +102,10 @@ mod tests {
     use parquet::{arrow::async_reader::fetch_parquet_metadata, errors::ParquetError};
     use std::sync::Arc;
 
-    use crate::table::Table;
+    use crate::catalog::identifier::Identifier;
+    use crate::catalog::memory::MemoryCatalog;
+    use crate::catalog::relation::Relation;
+    use crate::catalog::Catalog;
 
     #[tokio::test]
     async fn test_files_stream() {
@@ -109,10 +113,22 @@ mod tests {
             LocalFileSystem::new_with_prefix("../iceberg-tests/nyc_taxis_append").unwrap(),
         );
 
-        let mut table =
-            Table::load_file_system_table("/home/iceberg/warehouse/nyc/taxis", &object_store)
-                .await
-                .expect("Fialed to create filesystem table.");
+        let catalog: Arc<dyn Catalog> =
+            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
+        let identifier = Identifier::parse("test.table1").unwrap();
+
+        catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
+
+        let mut table = if let Relation::Table(table) = catalog
+            .load_table(&identifier)
+            .await
+            .expect("Failed to load table")
+        {
+            Ok(table)
+        } else {
+            Err(anyhow!("Relation must be a table"))
+        }
+        .unwrap();
 
         let parquet_files = vec!["/home/iceberg/warehouse/nyc/taxis/data/vendor_id=1/00000-0-03c9b632-a796-4f56-97b0-a638a6f6d6f4-00001.parquet",
             "/home/iceberg/warehouse/nyc/taxis/data/vendor_id=1/00003-3-ae86257a-5d0b-4c42-9782-f08ec510637e-00001.parquet",
@@ -188,7 +204,7 @@ mod tests {
             .iter()
             .contains(&files.next().unwrap().as_str()));
         object_store
-            .delete(&"/home/iceberg/warehouse/nyc/taxis/metadata/v1.metadata.json".into())
+            .delete(&table.metadata_location().into())
             .await
             .unwrap();
     }
