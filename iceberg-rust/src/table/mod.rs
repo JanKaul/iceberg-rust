@@ -12,8 +12,8 @@ use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{
         manifest_list::{ManifestFile, ManifestFileV1, ManifestFileV2},
-        snapshot::{Operation, SnapshotV1, SnapshotV2, Summary},
-        table_metadata::{FormatVersion, TableMetadataEnum},
+        snapshot::{Operation, SnapshotV2, Summary},
+        table_metadata::{FormatVersion, TableMetadata},
         types::StructType,
     },
     table::transaction::TableTransaction,
@@ -36,7 +36,7 @@ pub enum TableType {
 pub struct Table {
     identifier: Identifier,
     catalog: Arc<dyn Catalog>,
-    metadata: TableMetadataEnum,
+    metadata: TableMetadata,
     metadata_location: String,
     manifests: Vec<ManifestFile>,
 }
@@ -44,10 +44,10 @@ pub struct Table {
 /// Public interface of the table.
 impl Table {
     /// Create a new metastore Table
-    pub async fn new_metastore_table(
+    pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
-        metadata: TableMetadataEnum,
+        metadata: TableMetadata,
         metadata_location: &str,
     ) -> Result<Self> {
         let manifests = get_manifests(&metadata, catalog.object_store()).await?;
@@ -73,10 +73,13 @@ impl Table {
     }
     /// Get the metadata of the table
     pub fn schema(&self) -> &StructType {
-        self.metadata.current_schema()
+        self.metadata
+            .schemas
+            .get(&self.metadata.current_schema_id)
+            .unwrap()
     }
     /// Get the metadata of the table
-    pub fn metadata(&self) -> &TableMetadataEnum {
+    pub fn metadata(&self) -> &TableMetadata {
         &self.metadata
     }
     /// Get the location of the current metadata file
@@ -97,12 +100,7 @@ impl Table {
 impl Table {
     /// Increment the sequence number of the table. Is typically used when commiting a new table transaction.
     pub(crate) fn increment_sequence_number(&mut self) {
-        match &mut self.metadata {
-            TableMetadataEnum::V1(_) => (),
-            TableMetadataEnum::V2(metadata) => {
-                metadata.last_sequence_number += 1;
-            }
-        }
+        self.metadata.last_sequence_number += 1;
     }
 
     /// Create a new table snapshot based on the manifest_list file of the previous snapshot.
@@ -111,114 +109,65 @@ impl Table {
         getrandom::getrandom(&mut bytes).unwrap();
         let snapshot_id = i64::from_le_bytes(bytes);
         let object_store = self.object_store();
-        let old_manifest_list_location = self.metadata.manifest_list().map(|st| st.to_string());
-        match &mut self.metadata {
-            TableMetadataEnum::V1(metadata) => {
-                let new_manifest_list_location = metadata.location.to_string()
-                    + "/metadata/snap-"
-                    + &snapshot_id.to_string()
-                    + &uuid::Uuid::new_v4().to_string()
-                    + ".avro";
-                // If there is a previous snapshot with a manifest_list file, that file gets copied for the new snapshot. If not, a new empty file is created.
-                match old_manifest_list_location {
-                    Some(old_manifest_list_location) => {
-                        object_store
-                            .copy(
-                                &strip_prefix(&old_manifest_list_location).as_str().into(),
-                                &strip_prefix(&new_manifest_list_location).as_str().into(),
-                            )
-                            .await?
-                    }
-                    None => {
-                        object_store
-                            .put(
-                                &strip_prefix(&new_manifest_list_location).as_str().into(),
-                                "null".as_bytes().into(),
-                            )
-                            .await?;
-                    }
-                };
-                let snapshot = SnapshotV1 {
-                    snapshot_id,
-                    parent_snapshot_id: metadata.current_snapshot_id,
-                    timestamp_ms: SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as i64,
-                    manifest_list: Some(new_manifest_list_location),
-                    manifests: None,
-                    summary: None,
-                    schema_id: metadata.current_schema_id.map(|id| id as i64),
-                };
-                if let Some(snapshots) = &mut metadata.snapshots {
-                    snapshots.push(snapshot);
-                    metadata.current_snapshot_id = Some(snapshot_id)
-                } else {
-                    metadata.snapshots = Some(vec![snapshot]);
-                    metadata.current_snapshot_id = Some(snapshot_id)
-                };
-                Ok(())
+        let metadata = &mut self.metadata;
+        let old_manifest_list_location = metadata.current_snapshot()?.map(|x| &x.manifest_list);
+        let new_manifest_list_location = metadata.location.to_string()
+            + "/metadata/snap-"
+            + &snapshot_id.to_string()
+            + &uuid::Uuid::new_v4().to_string()
+            + ".avro";
+        // If there is a previous snapshot with a manifest_list file, that file gets copied for the new snapshot. If not, a new empty file is created.
+        match old_manifest_list_location {
+            Some(old_manifest_list_location) => {
+                object_store
+                    .copy(
+                        &strip_prefix(&old_manifest_list_location).as_str().into(),
+                        &strip_prefix(&new_manifest_list_location).as_str().into(),
+                    )
+                    .await?
             }
-            TableMetadataEnum::V2(metadata) => {
-                let new_manifest_list_location = metadata.location.to_string()
-                    + "/metadata/snap-"
-                    + &snapshot_id.to_string()
-                    + &uuid::Uuid::new_v4().to_string()
-                    + ".avro";
-                // If there is a previous snapshot with a manifest_list file, that file gets copied for the new snapshot. If not, a new empty file is created.
-                match old_manifest_list_location {
-                    Some(old_manifest_list_location) => {
-                        object_store
-                            .copy(
-                                &strip_prefix(&old_manifest_list_location).as_str().into(),
-                                &strip_prefix(&new_manifest_list_location).as_str().into(),
-                            )
-                            .await?
-                    }
-                    None => {
-                        object_store
-                            .put(
-                                &strip_prefix(&new_manifest_list_location).as_str().into(),
-                                "null".as_bytes().into(),
-                            )
-                            .await?;
-                    }
-                };
-                let snapshot = SnapshotV2 {
-                    snapshot_id,
-                    parent_snapshot_id: metadata.current_snapshot_id,
-                    sequence_number: metadata.last_sequence_number + 1,
-                    timestamp_ms: SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as i64,
-                    manifest_list: new_manifest_list_location,
-                    summary: Summary {
-                        operation: Operation::Append,
-                        other: HashMap::new(),
-                    },
-                    schema_id: Some(metadata.current_schema_id as i64),
-                };
-                if let Some(snapshots) = &mut metadata.snapshots {
-                    snapshots.push(snapshot);
-                    metadata.current_snapshot_id = Some(snapshot_id)
-                } else {
-                    metadata.snapshots = Some(vec![snapshot]);
-                    metadata.current_snapshot_id = Some(snapshot_id)
-                };
-                Ok(())
+            None => {
+                object_store
+                    .put(
+                        &strip_prefix(&new_manifest_list_location).as_str().into(),
+                        "null".as_bytes().into(),
+                    )
+                    .await?;
             }
-        }
+        };
+        let snapshot = SnapshotV2 {
+            snapshot_id,
+            parent_snapshot_id: metadata.current_snapshot_id,
+            sequence_number: metadata.last_sequence_number + 1,
+            timestamp_ms: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64,
+            manifest_list: new_manifest_list_location,
+            summary: Summary {
+                operation: Operation::Append,
+                other: HashMap::new(),
+            },
+            schema_id: Some(metadata.current_schema_id as i64),
+        };
+        if let Some(snapshots) = &mut metadata.snapshots {
+            snapshots.insert(snapshot_id, snapshot);
+            metadata.current_snapshot_id = Some(snapshot_id)
+        } else {
+            metadata.snapshots = Some(HashMap::from_iter(vec![(snapshot_id, snapshot)]));
+            metadata.current_snapshot_id = Some(snapshot_id)
+        };
+        Ok(())
     }
 }
 
 // Return all manifest files associated to the latest table snapshot. Reads the related manifest_list file and returns its entries.
 // If the manifest list file is empty returns an empty vector.
 pub(crate) async fn get_manifests(
-    metadata: &TableMetadataEnum,
+    metadata: &TableMetadata,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<Vec<ManifestFile>> {
-    match metadata.manifest_list() {
+    match metadata.current_snapshot()?.map(|x| &x.manifest_list) {
         Some(manifest_list) => {
             let bytes: Cursor<Vec<u8>> = Cursor::new(
                 object_store
@@ -233,7 +182,9 @@ pub(crate) async fn get_manifests(
             if !bytes.get_ref().is_empty() {
                 let reader = apache_avro::Reader::new(bytes)?;
                 reader
-                    .map(|record| avro_value_to_manifest_file(record, metadata.format_version()))
+                    .map(|record| {
+                        avro_value_to_manifest_file(record, metadata.format_version.clone())
+                    })
                     .collect()
             } else {
                 Ok(Vec::new())

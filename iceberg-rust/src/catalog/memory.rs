@@ -146,7 +146,7 @@ impl Catalog for MemoryCatalog {
         let catalog: Arc<dyn Catalog> = self;
         match metadata {
             RelationMetadata::Table(metadata) => Ok(Relation::Table(
-                Table::new_metastore_table(
+                Table::new(
                     identifier.clone(),
                     Arc::clone(&catalog),
                     metadata,

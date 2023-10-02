@@ -40,7 +40,7 @@ impl<'table> From<&'table Table> for PruneManifests<'table> {
 
 impl<'table> PruningStatistics for PruneManifests<'table> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = self.0.metadata().default_spec();
+        let partition_spec = &self.0.metadata().default_partition_spec().ok()?.fields;
         let schema = self.0.schema();
         let (index, partition_field) = partition_spec
             .iter()
@@ -65,9 +65,10 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
         any_iter_to_array(min_values, &(&data_type).try_into().ok()?).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = self.0.metadata().default_spec();
+        let partition_spec = self.0.metadata().default_partition_spec().ok()?;
         let schema = self.0.schema();
         let (index, partition_field) = partition_spec
+            .fields
             .iter()
             .enumerate()
             .find(|(_, partition_field)| partition_field.name == column.name)?;
@@ -93,8 +94,9 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
         self.0.manifests().len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = self.0.metadata().default_spec();
+        let partition_spec = self.0.metadata().default_partition_spec().ok()?;
         let (index, _) = partition_spec
+            .fields
             .iter()
             .enumerate()
             .find(|(_, partition_field)| partition_field.name == column.name)?;

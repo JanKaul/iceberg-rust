@@ -54,7 +54,7 @@ impl Table {
                 ));
                 let reader = apache_avro::Reader::new(bytes)?;
                 Ok(stream::iter(reader.map(|record| {
-                    avro_value_to_manifest_entry(record, &self.metadata().format_version())
+                    avro_value_to_manifest_entry(record, &self.metadata().format_version)
                 })))
             })
             .flat_map(|reader| reader.try_flatten_stream())

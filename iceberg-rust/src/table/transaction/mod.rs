@@ -77,10 +77,10 @@ impl<'table> TableTransaction<'table> {
         // Write the new state to the object store
 
         let transaction_uuid = Uuid::new_v4();
-        let version = &table.metadata().last_sequence_number();
+        let version = &&table.metadata().last_sequence_number;
         let metadata_json =
             serde_json::to_string(&table.metadata()).map_err(|err| anyhow!(err.to_string()))?;
-        let metadata_file_location = table.metadata().location().to_string()
+        let metadata_file_location = table.metadata().location.to_string()
             + "/metadata/"
             + &version.to_string()
             + "-"

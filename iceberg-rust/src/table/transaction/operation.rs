@@ -25,7 +25,7 @@ use crate::{
         manifest_list::{FieldSummary, ManifestFile, ManifestFileV1, ManifestFileV2},
         partition::PartitionField,
         schema::SchemaV2,
-        table_metadata::TableMetadataEnum,
+        table_metadata::FormatVersion,
         types::{StructField, StructType},
         values::{Struct, Value},
     },
@@ -78,15 +78,19 @@ impl Operation {
             Operation::NewAppend { paths } => {
                 let object_store = table.object_store();
                 let table_metadata = table.metadata();
-                let partition_spec = table_metadata.default_spec();
-                let schema = table_metadata.current_schema();
+                let partition_spec = table_metadata.default_partition_spec()?;
+                let schema = table_metadata.current_schema()?;
 
                 let datafiles = Arc::new(Mutex::new(HashMap::new()));
 
                 stream::iter(paths.iter())
                     .then(|(path, file_metadata)| async move {
-                        let datafile =
-                            parquet_to_datafilev2(path, file_metadata, schema, partition_spec)?;
+                        let datafile = parquet_to_datafilev2(
+                            path,
+                            file_metadata,
+                            schema,
+                            &partition_spec.fields,
+                        )?;
                         Ok::<_, anyhow::Error>((path, datafile))
                     })
                     .try_for_each_concurrent(None, |(path, datafile)| {
@@ -99,7 +103,7 @@ impl Operation {
                     .await?;
 
                 let manifest_list_schema = apache_avro::Schema::parse_str(&ManifestFile::schema(
-                    &table_metadata.format_version(),
+                    &table_metadata.format_version,
                 ))?;
 
                 let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
@@ -109,9 +113,10 @@ impl Operation {
 
                 let existing_manifests = Arc::new(Mutex::new(HashSet::new()));
 
-                let manifest_list_location = table_metadata
-                    .manifest_list()
-                    .ok_or_else(|| anyhow!("No manifest list in table metadata."))?;
+                let manifest_list_location = &table_metadata
+                    .current_snapshot()?
+                    .ok_or_else(|| anyhow!("No manifest list in table metadata."))?
+                    .manifest_list;
 
                 let manifest_list_bytes: Vec<u8> = object_store
                     .get(&strip_prefix(manifest_list_location).as_str().into())
@@ -138,7 +143,7 @@ impl Operation {
                                 let files = datafiles_in_bounds(
                                     summary,
                                     datafiles.lock().await.deref(),
-                                    partition_spec,
+                                    &partition_spec.fields,
                                     schema,
                                 );
                                 if !files.is_empty() {
@@ -173,48 +178,40 @@ impl Operation {
                                 + "-m"
                                 + &manifest_count.to_string()
                                 + ".avro";
-                            let manifest = match &table_metadata {
-                                TableMetadataEnum::V1(table_metadata) => {
-                                    ManifestFile::V1(ManifestFileV1 {
-                                        manifest_path: manifest_location,
-                                        manifest_length: 0,
-                                        partition_spec_id: table_metadata
-                                            .default_spec_id
-                                            .unwrap_or_default(),
-                                        added_snapshot_id: table_metadata
-                                            .current_snapshot_id
-                                            .unwrap(),
-                                        added_files_count: Some(0),
-                                        existing_files_count: Some(0),
-                                        deleted_files_count: Some(0),
-                                        added_rows_count: Some(0),
-                                        existing_rows_count: Some(0),
-                                        deleted_rows_count: Some(0),
-                                        partitions: None,
-                                        key_metadata: None,
-                                    })
-                                }
-                                TableMetadataEnum::V2(table_metadata) => {
-                                    ManifestFile::V2(ManifestFileV2 {
-                                        manifest_path: manifest_location,
-                                        manifest_length: 0,
-                                        partition_spec_id: table_metadata.default_spec_id,
-                                        content: Content::Data,
-                                        sequence_number: table_metadata.last_sequence_number,
-                                        min_sequence_number: 0,
-                                        added_snapshot_id: table_metadata
-                                            .current_snapshot_id
-                                            .unwrap_or_default(),
-                                        added_files_count: 0,
-                                        existing_files_count: 0,
-                                        deleted_files_count: 0,
-                                        added_rows_count: 0,
-                                        existing_rows_count: 0,
-                                        deleted_rows_count: 0,
-                                        partitions: None,
-                                        key_metadata: None,
-                                    })
-                                }
+                            let manifest = match &table_metadata.format_version {
+                                FormatVersion::V1 => ManifestFile::V1(ManifestFileV1 {
+                                    manifest_path: manifest_location,
+                                    manifest_length: 0,
+                                    partition_spec_id: table_metadata.default_spec_id,
+                                    added_snapshot_id: table_metadata.current_snapshot_id.unwrap(),
+                                    added_files_count: Some(0),
+                                    existing_files_count: Some(0),
+                                    deleted_files_count: Some(0),
+                                    added_rows_count: Some(0),
+                                    existing_rows_count: Some(0),
+                                    deleted_rows_count: Some(0),
+                                    partitions: None,
+                                    key_metadata: None,
+                                }),
+                                FormatVersion::V2 => ManifestFile::V2(ManifestFileV2 {
+                                    manifest_path: manifest_location,
+                                    manifest_length: 0,
+                                    partition_spec_id: table_metadata.default_spec_id,
+                                    content: Content::Data,
+                                    sequence_number: table_metadata.last_sequence_number,
+                                    min_sequence_number: 0,
+                                    added_snapshot_id: table_metadata
+                                        .current_snapshot_id
+                                        .unwrap_or_default(),
+                                    added_files_count: 0,
+                                    existing_files_count: 0,
+                                    deleted_files_count: 0,
+                                    added_rows_count: 0,
+                                    existing_rows_count: 0,
+                                    deleted_rows_count: 0,
+                                    partitions: None,
+                                    key_metadata: None,
+                                }),
                             };
                             Some((
                                 Err::<ManifestFile, ManifestFile>(manifest),
@@ -228,6 +225,7 @@ impl Operation {
 
                 let partition_columns = Arc::new(
                     partition_spec
+                        .fields
                         .iter()
                         .map(|x| schema.get(x.source_id as usize))
                         .collect::<Option<Vec<_>>>()
@@ -242,8 +240,11 @@ impl Operation {
                         async move {
                             let manifest_schema =
                                 apache_avro::Schema::parse_str(&ManifestEntry::schema(
-                                    &partition_value_schema(table_metadata.default_spec(), schema)?,
-                                    &table_metadata.format_version(),
+                                    &partition_value_schema(
+                                        &table_metadata.default_partition_spec()?.fields,
+                                        schema,
+                                    )?,
+                                    &table_metadata.format_version,
                                 ))?;
 
                             let mut manifest_writer =
@@ -276,7 +277,8 @@ impl Operation {
                                 let mut partitions = match manifest.partitions() {
                                     Some(partitions) => partitions.clone(),
                                     None => table_metadata
-                                        .default_spec()
+                                        .default_partition_spec()?
+                                        .fields
                                         .iter()
                                         .map(|_| FieldSummary {
                                             contains_null: false,
@@ -301,45 +303,41 @@ impl Operation {
                                     &partition_columns,
                                 )?;
 
-                                let manifest_entry = match table_metadata {
-                                    TableMetadataEnum::V1(metadata) => {
-                                        ManifestEntry::V1(ManifestEntryV1 {
-                                            status: Status::Added,
-                                            snapshot_id: metadata.current_snapshot_id.unwrap_or(1),
-                                            data_file: DataFileV1 {
-                                                file_path: data_file.file_path,
-                                                file_format: data_file.file_format,
-                                                partition: data_file.partition,
-                                                record_count: data_file.record_count,
-                                                file_size_in_bytes: data_file.file_size_in_bytes,
-                                                block_size_in_bytes: data_file.file_size_in_bytes,
-                                                file_ordinal: None,
-                                                sort_columns: None,
-                                                column_sizes: data_file.column_sizes,
-                                                value_counts: data_file.value_counts,
-                                                null_value_counts: data_file.null_value_counts,
-                                                nan_value_counts: data_file.nan_value_counts,
-                                                distinct_counts: data_file.distinct_counts,
-                                                lower_bounds: data_file.lower_bounds,
-                                                upper_bounds: data_file.upper_bounds,
-                                                key_metadata: data_file.key_metadata,
-                                                split_offsets: data_file.split_offsets,
-                                                sort_order_id: data_file.sort_order_id,
-                                            },
-                                        })
-                                    }
-                                    TableMetadataEnum::V2(metadata) => {
-                                        ManifestEntry::V2(ManifestEntryV2 {
-                                            status: Status::Added,
-                                            snapshot_id: metadata.current_snapshot_id,
-                                            sequence_number: metadata.snapshots.as_ref().map(
-                                                |snapshots| {
-                                                    snapshots.last().unwrap().sequence_number
-                                                },
-                                            ),
-                                            data_file,
-                                        })
-                                    }
+                                let manifest_entry = match table_metadata.format_version {
+                                    FormatVersion::V1 => ManifestEntry::V1(ManifestEntryV1 {
+                                        status: Status::Added,
+                                        snapshot_id: table_metadata
+                                            .current_snapshot_id
+                                            .unwrap_or(1),
+                                        data_file: DataFileV1 {
+                                            file_path: data_file.file_path,
+                                            file_format: data_file.file_format,
+                                            partition: data_file.partition,
+                                            record_count: data_file.record_count,
+                                            file_size_in_bytes: data_file.file_size_in_bytes,
+                                            block_size_in_bytes: data_file.file_size_in_bytes,
+                                            file_ordinal: None,
+                                            sort_columns: None,
+                                            column_sizes: data_file.column_sizes,
+                                            value_counts: data_file.value_counts,
+                                            null_value_counts: data_file.null_value_counts,
+                                            nan_value_counts: data_file.nan_value_counts,
+                                            distinct_counts: data_file.distinct_counts,
+                                            lower_bounds: data_file.lower_bounds,
+                                            upper_bounds: data_file.upper_bounds,
+                                            key_metadata: data_file.key_metadata,
+                                            split_offsets: data_file.split_offsets,
+                                            sort_order_id: data_file.sort_order_id,
+                                        },
+                                    }),
+                                    FormatVersion::V2 => ManifestEntry::V2(ManifestEntryV2 {
+                                        status: Status::Added,
+                                        snapshot_id: table_metadata.current_snapshot_id,
+                                        sequence_number: table_metadata
+                                            .current_snapshot()?
+                                            .map(|x| x.sequence_number),
+                                        data_file,
+                                    }),
                                 };
 
                                 manifest_writer.append_ser(manifest_entry)?;
@@ -434,10 +432,7 @@ impl Operation {
                 Ok(())
             }
             Operation::UpdateProperties(entries) => {
-                let properties = match &mut table.metadata {
-                    TableMetadataEnum::V2(metadata) => &mut metadata.properties,
-                    TableMetadataEnum::V1(metadata) => &mut metadata.properties,
-                };
+                let properties = &mut table.metadata.properties;
                 if properties.is_none() {
                     *properties = Some(HashMap::new());
                 }

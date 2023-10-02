@@ -88,7 +88,7 @@ impl TableProvider for DataFusionTable {
             Relation::Table(table) => {
                 let mut schema = table.schema().clone();
                 // Add the partition columns to the table schema
-                for partition_field in table.metadata().default_spec() {
+                for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
                     schema.fields.push(StructField {
                         id: partition_field.field_id,
                         name: partition_field.name.clone(),
@@ -156,8 +156,7 @@ async fn table_scan(
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
     // Create a unique URI for this particular object store
     let object_store_url = ObjectStoreUrl::parse(
-        "iceberg://".to_owned()
-            + &util::strip_prefix(table.metadata().location()).replace('/', "-"),
+        "iceberg://".to_owned() + &util::strip_prefix(&table.metadata().location).replace('/', "-"),
     )?;
     let url: &Url = object_store_url.as_ref();
     session
@@ -204,7 +203,7 @@ async fn table_scan(
                         location: util::strip_prefix(manifest.file_path()).into(),
                         size: manifest.file_size_in_bytes() as usize,
                         last_modified: {
-                            let last_updated_ms = table.metadata().last_updated_ms();
+                            let last_updated_ms = table.metadata().last_updated_ms;
                             let secs = last_updated_ms / 1000;
                             let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
                             DateTime::from_utc(
@@ -244,7 +243,7 @@ async fn table_scan(
                 location: util::strip_prefix(manifest.file_path()).into(),
                 size: manifest.file_size_in_bytes() as usize,
                 last_modified: {
-                    let last_updated_ms = table.metadata().last_updated_ms();
+                    let last_updated_ms = table.metadata().last_updated_ms;
                     let secs = last_updated_ms / 1000;
                     let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
                     DateTime::from_utc(NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(), Utc)
@@ -267,7 +266,9 @@ async fn table_scan(
     // Get all partition columns
     let table_partition_cols: Vec<(String, DataType)> = table
         .metadata()
-        .default_spec()
+        .default_partition_spec()
+        .map_err(|err| DataFusionError::Internal(format!("{}", err)))?
+        .fields
         .iter()
         .map(|field| {
             Ok((

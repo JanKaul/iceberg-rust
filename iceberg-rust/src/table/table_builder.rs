@@ -2,6 +2,7 @@
 Defining the [TableBuilder] struct for creating catalog tables and starting create/replace transactions
 */
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -12,8 +13,8 @@ use crate::catalog::identifier::Identifier;
 use crate::catalog::relation::Relation;
 use crate::model::partition::{PartitionField, Transform};
 use crate::model::sort::{NullOrder, SortDirection, SortField, SortOrder};
-use crate::model::table_metadata::VersionNumber;
-use crate::model::{partition::PartitionSpec, schema::SchemaV2, table_metadata::TableMetadataV2};
+use crate::model::table_metadata::{FormatVersion, TableMetadata};
+use crate::model::{partition::PartitionSpec, schema::SchemaV2};
 use crate::table::Table;
 use anyhow::{anyhow, Result};
 
@@ -22,7 +23,7 @@ use super::{Catalog, TableType};
 ///Builder pattern to create a table
 pub struct TableBuilder {
     table_type: TableType,
-    metadata: TableMetadataV2,
+    metadata: TableMetadata,
 }
 
 impl TableBuilder {
@@ -51,8 +52,8 @@ impl TableBuilder {
                 null_order: NullOrder::Last,
             }],
         };
-        let metadata = TableMetadataV2 {
-            format_version: VersionNumber,
+        let metadata = TableMetadata {
+            format_version: FormatVersion::V2,
             table_uuid: Uuid::new_v4(),
             location: base_path.to_owned() + &identifier.to_string().replace('.', "/"),
             last_sequence_number: 1,
@@ -61,9 +62,9 @@ impl TableBuilder {
                 .map_err(|err| anyhow!(err.to_string()))?
                 .as_millis() as i64,
             last_column_id: schema.fields.fields.len() as i32,
-            schemas: vec![schema],
+            schemas: HashMap::from_iter(vec![(1, schema.fields)]),
             current_schema_id: 1,
-            partition_specs: vec![partition_spec],
+            partition_specs: HashMap::from_iter(vec![(1, partition_spec)]),
             default_spec_id: 1,
             last_partition_id: 1,
             properties: None,
@@ -71,7 +72,7 @@ impl TableBuilder {
             snapshots: None,
             snapshot_log: None,
             metadata_log: None,
-            sort_orders: vec![sort_order],
+            sort_orders: HashMap::from_iter(vec![(0, sort_order)]),
             default_sort_order_id: 0,
             refs: None,
         };
@@ -113,7 +114,9 @@ impl TableBuilder {
     }
     /// Sets a partition spec for the table.
     pub fn with_partition_spec(mut self, partition_spec: PartitionSpec) -> Self {
-        self.metadata.partition_specs.push(partition_spec);
+        self.metadata
+            .partition_specs
+            .insert(*&partition_spec.spec_id, partition_spec);
         self
     }
 }
