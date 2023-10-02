@@ -254,12 +254,11 @@ mod tests {
                 ],
             },
         };
-        let mut table =
-            TableBuilder::new_metastore_table("/", schema, identifier.clone(), catalog.clone())
-                .expect("Failed to create table builder.")
-                .commit()
-                .await
-                .expect("Failed to create table.");
+        let mut table = TableBuilder::new("/", schema, identifier.clone(), catalog.clone())
+            .expect("Failed to create table builder.")
+            .commit()
+            .await
+            .expect("Failed to create table.");
 
         let metadata_location1 = table.metadata_location().to_string();
 

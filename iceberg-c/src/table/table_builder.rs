@@ -22,7 +22,7 @@ pub extern "C" fn table_builder_new_metastore(
     let identifier = unsafe { CStr::from_ptr(identifier) };
     let identifier = Identifier::parse(identifier.to_str().unwrap()).unwrap();
     Box::new(
-        TableBuilder::new_metastore_table(
+        TableBuilder::new(
             base_path.to_str().unwrap(),
             schema,
             identifier,

@@ -28,7 +28,7 @@ pub struct TableBuilder {
 
 impl TableBuilder {
     /// Creates a new [TableBuilder] to create a Metastore Table with some default metadata entries already set.
-    pub fn new_metastore_table(
+    pub fn new(
         base_path: &str,
         schema: SchemaV2,
         identifier: Identifier,
