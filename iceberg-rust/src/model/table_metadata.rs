@@ -172,11 +172,11 @@ pub struct TableMetadataV1 {
     pub metadata_log: Option<Vec<MetadataLog>>,
 
     /// A list of sort orders, stored as full sort order objects.
-    pub sort_orders: Vec<sort::SortOrder>,
+    pub sort_orders: Option<Vec<sort::SortOrder>>,
     /// Default sort order id of the table. Note that this could be used by
     /// writers, but is not used when reading because reads use the specs
     /// stored in manifest files.
-    pub default_sort_order_id: i64,
+    pub default_sort_order_id: Option<i64>,
 }
 
 /// Helper to serialize and deserialize the format version.
@@ -250,8 +250,8 @@ impl From<TableMetadataV1> for TableMetadataV2 {
             }),
             snapshot_log: v1.snapshot_log,
             metadata_log: v1.metadata_log,
-            sort_orders: v1.sort_orders,
-            default_sort_order_id: v1.default_sort_order_id,
+            sort_orders: v1.sort_orders.unwrap_or_else(|| Vec::new()),
+            default_sort_order_id: v1.default_sort_order_id.unwrap_or(0),
             refs: None,
         }
     }
