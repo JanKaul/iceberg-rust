@@ -34,7 +34,8 @@ pub enum TableType {
 
 /// Iceberg table
 pub struct Table {
-    table_type: TableType,
+    identifier: Identifier,
+    catalog: Arc<dyn Catalog>,
     metadata: TableMetadata,
     metadata_location: String,
     manifests: Vec<ManifestFile>,
@@ -51,29 +52,24 @@ impl Table {
     ) -> Result<Self> {
         let manifests = get_manifests(&metadata, catalog.object_store()).await?;
         Ok(Table {
-            table_type: TableType::Metastore(identifier, catalog),
+            identifier,
+            catalog,
             metadata,
             metadata_location: metadata_location.to_string(),
             manifests,
         })
     }
     /// Get the table identifier in the catalog. Returns None of it is a filesystem table.
-    pub fn identifier(&self) -> Option<&Identifier> {
-        match &self.table_type {
-            TableType::Metastore(identifier, _) => Some(identifier),
-        }
+    pub fn identifier(&self) -> &Identifier {
+        &self.identifier
     }
     /// Get the catalog associated to the table. Returns None if the table is a filesystem table
-    pub fn catalog(&self) -> Option<&Arc<dyn Catalog>> {
-        match &self.table_type {
-            TableType::Metastore(_, catalog) => Some(catalog),
-        }
+    pub fn catalog(&self) -> Arc<dyn Catalog> {
+        self.catalog.clone()
     }
     /// Get the object_store associated to the table
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        match &self.table_type {
-            TableType::Metastore(_, catalog) => catalog.object_store(),
-        }
+        self.catalog.object_store()
     }
     /// Get the metadata of the table
     pub fn schema(&self) -> &StructType {

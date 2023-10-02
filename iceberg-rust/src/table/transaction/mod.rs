@@ -51,6 +51,10 @@ impl<'table> TableTransaction<'table> {
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<()> {
+        let object_store = self.table.object_store();
+        let catalog = self.table.catalog();
+        let identifier = self.table.identifier.clone();
+
         // Before executing the transactions operations, update the metadata for a new snapshot
         self.table.increment_sequence_number();
         if self.operations.iter().any(|op| match op {
@@ -71,48 +75,40 @@ impl<'table> TableTransaction<'table> {
             )
             .await?;
         // Write the new state to the object store
-        match (table.catalog(), table.identifier()) {
-            // In case of a metastore table, write the metadata to object srorage and use the catalog to perform the atomic swap
-            (Some(catalog), Some(identifier)) => {
-                let object_store = catalog.object_store();
-                let transaction_uuid = Uuid::new_v4();
-                let version = &table.metadata().last_sequence_number();
-                let metadata_json = serde_json::to_string(&table.metadata())
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let metadata_file_location = table.metadata().location().to_string()
-                    + "/metadata/"
-                    + &version.to_string()
-                    + "-"
-                    + &transaction_uuid.to_string()
-                    + ".metadata.json";
-                object_store
-                    .put(
-                        &strip_prefix(&metadata_file_location).into(),
-                        metadata_json.into(),
-                    )
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let previous_metadata_file_location = table.metadata_location();
-                if let Relation::Table(new_table) = catalog
-                    .clone()
-                    .update_table(
-                        identifier.clone(),
-                        metadata_file_location.as_ref(),
-                        &previous_metadata_file_location,
-                    )
-                    .await?
-                {
-                    *table = new_table;
-                    Ok(())
-                } else {
-                    Err(anyhow!(
-                        "Updating the table for the transaction didn't return a table."
-                    ))
-                }
-            }
-            _ => Err(anyhow!(
+
+        let transaction_uuid = Uuid::new_v4();
+        let version = &table.metadata().last_sequence_number();
+        let metadata_json =
+            serde_json::to_string(&table.metadata()).map_err(|err| anyhow!(err.to_string()))?;
+        let metadata_file_location = table.metadata().location().to_string()
+            + "/metadata/"
+            + &version.to_string()
+            + "-"
+            + &transaction_uuid.to_string()
+            + ".metadata.json";
+        object_store
+            .put(
+                &strip_prefix(&metadata_file_location).into(),
+                metadata_json.into(),
+            )
+            .await
+            .map_err(|err| anyhow!(err.to_string()))?;
+        let previous_metadata_file_location = table.metadata_location();
+        if let Relation::Table(new_table) = catalog
+            .clone()
+            .update_table(
+                identifier,
+                metadata_file_location.as_ref(),
+                &previous_metadata_file_location,
+            )
+            .await?
+        {
+            *table = new_table;
+            Ok(())
+        } else {
+            Err(anyhow!(
                 "Updating the table for the transaction didn't return a table."
-            )),
+            ))
         }
     }
 }
