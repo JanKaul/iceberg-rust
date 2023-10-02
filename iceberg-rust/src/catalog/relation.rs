@@ -4,7 +4,7 @@
 
 use serde::{self, Deserialize, Serialize};
 
-use crate::model::table_metadata::TableMetadata;
+use crate::model::table_metadata::TableMetadataEnum;
 use crate::model::view_metadata::ViewMetadata;
 use crate::table::Table;
 use crate::view::View;
@@ -31,7 +31,7 @@ impl Relation {
 #[serde(untagged)]
 pub enum RelationMetadata {
     /// Table metadata
-    Table(TableMetadata),
+    Table(TableMetadataEnum),
     /// View metadata
     View(ViewMetadata),
 }

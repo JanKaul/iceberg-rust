@@ -41,7 +41,7 @@ pub struct SortField {
     pub null_order: NullOrder,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// A sort order is defined by a sort order id and a list of sort fields.
 /// The order of the sort fields within the list defines the order in which the sort is applied to the data.

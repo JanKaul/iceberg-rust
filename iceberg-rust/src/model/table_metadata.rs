@@ -4,6 +4,7 @@ The main struct here is [TableMetadataV2] which defines the data for a table.
 */
 
 use anyhow::anyhow;
+use itertools::Itertools;
 
 use std::{cmp, collections::HashMap};
 
@@ -18,12 +19,346 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use super::{partition::PartitionField, types::StructType};
+use super::{
+    partition::PartitionField,
+    schema::{SchemaV1, SchemaV2},
+    snapshot::Retention,
+    types::StructType,
+};
+
+static MAIN_BRANCH: &str = "main";
+static DEFAULT_SORT_ORDER_ID: i64 = 0;
+static DEFAULT_SPEC_ID: i32 = 0;
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[serde(try_from = "TableMetadataEnum", into = "TableMetadataEnum")]
+/// Fields for the version 2 of the table metadata.
+pub struct TableMetadata {
+    /// Integer Version for the format.
+    pub format_version: FormatVersion,
+    /// A UUID that identifies the table
+    pub table_uuid: Uuid,
+    /// Location tables base location
+    pub location: String,
+    /// The tables highest sequence number
+    pub last_sequence_number: i64,
+    /// Timestamp in milliseconds from the unix epoch when the table was last updated.
+    pub last_updated_ms: i64,
+    /// An integer; the highest assigned column ID for the table.
+    pub last_column_id: i32,
+    /// A list of schemas, stored as objects with schema-id.
+    pub schemas: HashMap<i32, StructType>,
+    /// ID of the table’s current schema.
+    pub current_schema_id: i32,
+    /// A list of partition specs, stored as full partition spec objects.
+    pub partition_specs: HashMap<i32, PartitionSpec>,
+    /// ID of the “current” spec that writers should use by default.
+    pub default_spec_id: i32,
+    /// An integer; the highest assigned partition field ID across all partition specs for the table.
+    pub last_partition_id: i32,
+    ///A string to string map of table properties. This is used to control settings that
+    /// affect reading and writing and is not intended to be used for arbitrary metadata.
+    /// For example, commit.retry.num-retries is used to control the number of commit retries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, String>>,
+    /// long ID of the current table snapshot; must be the same as the current
+    /// ID of the main branch in refs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_snapshot_id: Option<i64>,
+    ///A list of valid snapshots. Valid snapshots are snapshots for which all
+    /// data files exist in the file system. A data file must not be deleted
+    /// from the file system until the last snapshot in which it was listed is
+    /// garbage collected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshots: Option<HashMap<i64, SnapshotV2>>,
+    /// A list (optional) of timestamp and snapshot ID pairs that encodes changes
+    /// to the current snapshot for the table. Each time the current-snapshot-id
+    /// is changed, a new entry should be added with the last-updated-ms
+    /// and the new current-snapshot-id. When snapshots are expired from
+    /// the list of valid snapshots, all entries before a snapshot that has
+    /// expired should be removed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snapshot_log: Option<Vec<SnapshotLog>>,
+
+    /// A list (optional) of timestamp and metadata file location pairs
+    /// that encodes changes to the previous metadata files for the table.
+    /// Each time a new metadata file is created, a new entry of the
+    /// previous metadata file location should be added to the list.
+    /// Tables can be configured to remove oldest metadata log entries and
+    /// keep a fixed-size log of the most recent entries after a commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_log: Option<Vec<MetadataLog>>,
+
+    /// A list of sort orders, stored as full sort order objects.
+    pub sort_orders: HashMap<i64, sort::SortOrder>,
+    /// Default sort order id of the table. Note that this could be used by
+    /// writers, but is not used when reading because reads use the specs
+    /// stored in manifest files.
+    pub default_sort_order_id: i64,
+    ///A map of snapshot references. The map keys are the unique snapshot reference
+    /// names in the table, and the map values are snapshot reference objects.
+    /// There is always a main branch reference pointing to the current-snapshot-id
+    /// even if the refs map is null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refs: Option<HashMap<String, Reference>>,
+}
+
+impl TryFrom<TableMetadataEnum> for TableMetadata {
+    type Error = anyhow::Error;
+    fn try_from(value: TableMetadataEnum) -> Result<Self, anyhow::Error> {
+        match value {
+            TableMetadataEnum::V2(value) => value.try_into(),
+            TableMetadataEnum::V1(value) => value.try_into(),
+        }
+    }
+}
+
+impl From<TableMetadata> for TableMetadataEnum {
+    fn from(value: TableMetadata) -> Self {
+        match value.format_version {
+            FormatVersion::V2 => TableMetadataEnum::V2(value.into()),
+            FormatVersion::V1 => TableMetadataEnum::V1(value.into()),
+        }
+    }
+}
+
+impl TryFrom<TableMetadataV2> for TableMetadata {
+    type Error = anyhow::Error;
+    fn try_from(value: TableMetadataV2) -> Result<Self, anyhow::Error> {
+        let current_snapshot_id = if let &Some(-1) = &value.current_snapshot_id {
+            None
+        } else {
+            value.current_snapshot_id
+        };
+        let schemas = HashMap::from_iter(
+            value
+                .schemas
+                .into_iter()
+                .map(|schema| Ok((schema.schema_id, schema.fields)))
+                .collect::<Result<Vec<_>, anyhow::Error>>()?,
+        );
+        Ok(TableMetadata {
+            format_version: FormatVersion::V2,
+            table_uuid: value.table_uuid,
+            location: value.location,
+            last_sequence_number: value.last_sequence_number,
+            last_updated_ms: value.last_updated_ms,
+            last_column_id: value.last_column_id,
+            current_schema_id: if schemas.keys().contains(&value.current_schema_id) {
+                Ok(value.current_schema_id)
+            } else {
+                Err(anyhow!(
+                    "No schema exists with the schema id {}",
+                    &value.current_schema_id
+                ))
+            }?,
+            schemas,
+            partition_specs: HashMap::from_iter(
+                value.partition_specs.into_iter().map(|x| (x.spec_id, x)),
+            ),
+            default_spec_id: value.default_spec_id,
+            last_partition_id: value.last_partition_id,
+            properties: value.properties,
+            current_snapshot_id,
+            snapshots: value.snapshots.map(|snapshots| {
+                HashMap::from_iter(snapshots.into_iter().map(|x| (x.snapshot_id, x)))
+            }),
+            snapshot_log: value.snapshot_log,
+            metadata_log: value.metadata_log,
+            sort_orders: HashMap::from_iter(
+                value
+                    .sort_orders
+                    .into_iter()
+                    .map(|x| (x.order_id as i64, x)),
+            ),
+            default_sort_order_id: value.default_sort_order_id,
+            refs: value.refs,
+        })
+    }
+}
+
+impl TryFrom<TableMetadataV1> for TableMetadata {
+    type Error = anyhow::Error;
+    fn try_from(value: TableMetadataV1) -> Result<Self, anyhow::Error> {
+        let schemas = value
+            .schemas
+            .map(|schemas| {
+                Ok::<_, anyhow::Error>(HashMap::from_iter(
+                    schemas
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, schema)| {
+                            Ok((schema.schema_id.unwrap_or(i as i32), schema.fields))
+                        })
+                        .collect::<Result<Vec<_>, anyhow::Error>>()?
+                        .into_iter(),
+                ))
+            })
+            .or_else(|| {
+                Some(Ok(HashMap::from_iter(vec![(
+                    value.schema.schema_id.unwrap_or(0),
+                    value.schema.fields,
+                )])))
+            })
+            .transpose()?
+            .unwrap_or_default();
+        let partition_specs = HashMap::from_iter(
+            value
+                .partition_specs
+                .unwrap_or_else(|| {
+                    vec![PartitionSpec {
+                        spec_id: DEFAULT_SPEC_ID,
+                        fields: value.partition_spec,
+                    }]
+                })
+                .into_iter()
+                .map(|x| (x.spec_id, x)),
+        );
+        Ok(TableMetadata {
+            format_version: FormatVersion::V1,
+            table_uuid: value.table_uuid.unwrap_or_default(),
+            location: value.location,
+            last_sequence_number: 0,
+            last_updated_ms: value.last_updated_ms,
+            last_column_id: value.last_column_id,
+            current_schema_id: value
+                .current_schema_id
+                .unwrap_or_else(|| schemas.keys().copied().max().unwrap_or_default()),
+            default_spec_id: value
+                .default_spec_id
+                .unwrap_or_else(|| partition_specs.keys().copied().max().unwrap_or_default()),
+            last_partition_id: value
+                .last_partition_id
+                .unwrap_or_else(|| partition_specs.keys().copied().max().unwrap_or_default()),
+            partition_specs,
+            schemas,
+
+            properties: value.properties,
+            current_snapshot_id: if let &Some(-1) = &value.current_snapshot_id {
+                None
+            } else {
+                value.current_snapshot_id
+            },
+            snapshots: value
+                .snapshots
+                .map(|snapshots| {
+                    Ok::<_, anyhow::Error>(HashMap::from_iter(
+                        snapshots
+                            .into_iter()
+                            .map(|x| Ok((x.snapshot_id, x.into())))
+                            .collect::<Result<Vec<_>, anyhow::Error>>()?,
+                    ))
+                })
+                .transpose()?,
+            snapshot_log: value.snapshot_log,
+            metadata_log: value.metadata_log,
+            sort_orders: match value.sort_orders {
+                Some(sort_orders) => {
+                    HashMap::from_iter(sort_orders.into_iter().map(|x| (x.order_id as i64, x)))
+                }
+                None => HashMap::new(),
+            },
+            default_sort_order_id: value.default_sort_order_id.unwrap_or(DEFAULT_SORT_ORDER_ID),
+            refs: Some(HashMap::from_iter(vec![(
+                MAIN_BRANCH.to_string(),
+                Reference {
+                    snapshot_id: value.current_snapshot_id.unwrap_or_default(),
+                    retention: Retention::Branch {
+                        min_snapshots_to_keep: None,
+                        max_snapshot_age_ms: None,
+                        max_ref_age_ms: None,
+                    },
+                },
+            )])),
+        })
+    }
+}
+
+impl From<TableMetadata> for TableMetadataV2 {
+    fn from(v: TableMetadata) -> Self {
+        TableMetadataV2 {
+            format_version: VersionNumber::<2>,
+            table_uuid: v.table_uuid,
+            location: v.location,
+            last_sequence_number: v.last_sequence_number,
+            last_updated_ms: v.last_updated_ms,
+            last_column_id: v.last_column_id,
+            schemas: v
+                .schemas
+                .into_iter()
+                .map(|(schema_id, fields)| SchemaV2 {
+                    schema_id,
+                    fields,
+                    identifier_field_ids: None,
+                })
+                .collect(),
+            current_schema_id: v.current_schema_id,
+            partition_specs: v.partition_specs.into_values().collect(),
+            default_spec_id: v.default_spec_id,
+            last_partition_id: v.last_partition_id,
+            properties: v.properties,
+            current_snapshot_id: v.current_snapshot_id.or(Some(-1)),
+            snapshots: v
+                .snapshots
+                .map(|snapshots| snapshots.into_values().collect()),
+            snapshot_log: v.snapshot_log,
+            metadata_log: v.metadata_log,
+            sort_orders: v.sort_orders.into_values().collect(),
+            default_sort_order_id: v.default_sort_order_id,
+            refs: v.refs,
+        }
+    }
+}
+
+impl From<TableMetadata> for TableMetadataV1 {
+    fn from(v: TableMetadata) -> Self {
+        TableMetadataV1 {
+            format_version: VersionNumber::<1>,
+            table_uuid: Some(v.table_uuid),
+            location: v.location,
+            last_updated_ms: v.last_updated_ms,
+            last_column_id: v.last_column_id,
+            schema: SchemaV1 {
+                schema_id: Some(v.current_schema_id),
+                identifier_field_ids: None,
+                fields: v.schemas.get(&v.current_schema_id).unwrap().clone(),
+            },
+            schemas: Some(
+                v.schemas
+                    .into_iter()
+                    .map(|(schema_id, fields)| SchemaV1 {
+                        schema_id: Some(schema_id),
+                        fields,
+                        identifier_field_ids: None,
+                    })
+                    .collect(),
+            ),
+            current_schema_id: Some(v.current_schema_id),
+            partition_spec: v
+                .partition_specs
+                .get(&v.default_spec_id)
+                .map(|x| x.fields.clone())
+                .unwrap_or_default(),
+            partition_specs: Some(v.partition_specs.into_values().collect()),
+            default_spec_id: Some(v.default_spec_id),
+            last_partition_id: Some(v.last_partition_id),
+            properties: v.properties,
+            current_snapshot_id: v.current_snapshot_id.or(Some(-1)),
+            snapshots: v
+                .snapshots
+                .map(|snapshots| snapshots.into_values().map(|x| x.into()).collect()),
+            snapshot_log: v.snapshot_log,
+            metadata_log: v.metadata_log,
+            sort_orders: Some(v.sort_orders.into_values().collect()),
+            default_sort_order_id: Some(v.default_sort_order_id),
+        }
+    }
+}
 
 /// Metadata of an iceberg table
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
-pub enum TableMetadata {
+pub enum TableMetadataEnum {
     /// Version 2 of the table metadata
     V2(TableMetadataV2),
     /// Version 1 of the table metadata
@@ -257,7 +592,7 @@ impl From<TableMetadataV1> for TableMetadataV2 {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Encodes changes to the previous metadata files for the table
 pub struct MetadataLog {
@@ -267,7 +602,7 @@ pub struct MetadataLog {
     pub timestamp_ms: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// A log of when each snapshot was made.
 pub struct SnapshotLog {
@@ -309,12 +644,12 @@ impl From<FormatVersion> for u8 {
     }
 }
 
-impl TableMetadata {
+impl TableMetadataEnum {
     /// Get current schema of the table
     pub fn current_schema(&self) -> &StructType {
         match self {
-            TableMetadata::V1(metadata) => &metadata.schema.fields,
-            TableMetadata::V2(metadata) => {
+            TableMetadataEnum::V1(metadata) => &metadata.schema.fields,
+            TableMetadataEnum::V2(metadata) => {
                 &metadata
                     .schemas
                     .iter()
@@ -327,8 +662,8 @@ impl TableMetadata {
     /// Get the default partition spec for the table
     pub fn default_spec(&self) -> &[PartitionField] {
         match self {
-            TableMetadata::V1(metadata) => &metadata.partition_spec,
-            TableMetadata::V2(metadata) => {
+            TableMetadataEnum::V1(metadata) => &metadata.partition_spec,
+            TableMetadataEnum::V2(metadata) => {
                 &metadata
                     .partition_specs
                     .iter()
@@ -341,12 +676,12 @@ impl TableMetadata {
     /// Get the partition spec with thte given spec_id for the table
     pub fn get_spec(&self, id: i32) -> Option<&[PartitionField]> {
         match self {
-            TableMetadata::V1(metadata) => metadata
+            TableMetadataEnum::V1(metadata) => metadata
                 .partition_specs
                 .as_ref()
                 .and_then(|spec| spec.iter().find(|spec| spec.spec_id == id))
                 .map(|spec| spec.fields.as_slice()),
-            TableMetadata::V2(metadata) => metadata
+            TableMetadataEnum::V2(metadata) => metadata
                 .partition_specs
                 .iter()
                 .find(|spec| spec.spec_id == id)
@@ -356,7 +691,7 @@ impl TableMetadata {
     /// Get the manifest_list for the current snapshot of the table
     pub fn manifest_list(&self) -> Option<&str> {
         match self {
-            TableMetadata::V1(metadata) => metadata
+            TableMetadataEnum::V1(metadata) => metadata
                 .snapshots
                 .as_ref()
                 .zip(metadata.current_snapshot_id.as_ref())
@@ -366,7 +701,7 @@ impl TableMetadata {
                         .find(|snapshot| snapshot.snapshot_id == *id)
                         .and_then(|snapshot| snapshot.manifest_list.as_deref())
                 }),
-            TableMetadata::V2(metadata) => metadata
+            TableMetadataEnum::V2(metadata) => metadata
                 .snapshots
                 .as_ref()
                 .zip(metadata.current_snapshot_id.as_ref())
@@ -381,41 +716,41 @@ impl TableMetadata {
     /// Get the base location of the table
     pub fn location(&self) -> &str {
         match self {
-            TableMetadata::V1(metadata) => &metadata.location,
-            TableMetadata::V2(metadata) => &metadata.location,
+            TableMetadataEnum::V1(metadata) => &metadata.location,
+            TableMetadataEnum::V2(metadata) => &metadata.location,
         }
     }
     /// Get the last_sequence_number of the table
     pub fn last_sequence_number(&self) -> i64 {
         match self {
-            TableMetadata::V1(metadata) => metadata
+            TableMetadataEnum::V1(metadata) => metadata
                 .snapshots
                 .as_ref()
                 .map(|snapshots| snapshots.len() as i64)
                 .unwrap_or(1),
-            TableMetadata::V2(metadata) => metadata.last_sequence_number,
+            TableMetadataEnum::V2(metadata) => metadata.last_sequence_number,
         }
     }
     /// Timestamp in milliseconds from the unix epoch when the table was last updated.
     pub fn last_updated_ms(&self) -> i64 {
         match self {
-            TableMetadata::V1(metadata) => metadata.last_updated_ms,
-            TableMetadata::V2(metadata) => metadata.last_updated_ms,
+            TableMetadataEnum::V1(metadata) => metadata.last_updated_ms,
+            TableMetadataEnum::V2(metadata) => metadata.last_updated_ms,
         }
     }
     /// Get the format version of the table
     pub fn format_version(&self) -> FormatVersion {
         match self {
-            TableMetadata::V1(_) => FormatVersion::V1,
-            TableMetadata::V2(_) => FormatVersion::V2,
+            TableMetadataEnum::V1(_) => FormatVersion::V1,
+            TableMetadataEnum::V2(_) => FormatVersion::V2,
         }
     }
 
     /// Get properties of the table
     pub fn properties(&self) -> &Option<HashMap<String, String>> {
         match self {
-            TableMetadata::V1(metadata) => &metadata.properties,
-            TableMetadata::V2(metadata) => &metadata.properties,
+            TableMetadataEnum::V1(metadata) => &metadata.properties,
+            TableMetadataEnum::V2(metadata) => &metadata.properties,
         }
     }
 }
@@ -425,7 +760,7 @@ mod tests {
 
     use anyhow::Result;
 
-    use crate::model::table_metadata::TableMetadata;
+    use crate::model::table_metadata::TableMetadataEnum;
 
     use super::TableMetadataV2;
 
@@ -483,9 +818,9 @@ mod tests {
             }
         "#;
         let metadata =
-            serde_json::from_str::<TableMetadata>(data).expect("Failed to deserialize json");
+            serde_json::from_str::<TableMetadataEnum>(data).expect("Failed to deserialize json");
         //test serialise deserialise works.
-        let metadata_two: TableMetadata = serde_json::from_str(
+        let metadata_two: TableMetadataEnum = serde_json::from_str(
             &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),
         )
         .expect("Failed to serialize json");
@@ -627,9 +962,9 @@ mod tests {
           }
         "#;
         let metadata =
-            serde_json::from_str::<TableMetadata>(data).expect("Failed to deserialize json");
+            serde_json::from_str::<TableMetadataEnum>(data).expect("Failed to deserialize json");
         //test serialise deserialise works.
-        let metadata_two: TableMetadata = serde_json::from_str(
+        let metadata_two: TableMetadataEnum = serde_json::from_str(
             &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),
         )
         .expect("Failed to serialize json");

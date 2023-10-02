@@ -25,7 +25,7 @@ use crate::{
         manifest_list::{FieldSummary, ManifestFile, ManifestFileV1, ManifestFileV2},
         partition::PartitionField,
         schema::SchemaV2,
-        table_metadata::TableMetadata,
+        table_metadata::TableMetadataEnum,
         types::{StructField, StructType},
         values::{Struct, Value},
     },
@@ -174,7 +174,7 @@ impl Operation {
                                 + &manifest_count.to_string()
                                 + ".avro";
                             let manifest = match &table_metadata {
-                                TableMetadata::V1(table_metadata) => {
+                                TableMetadataEnum::V1(table_metadata) => {
                                     ManifestFile::V1(ManifestFileV1 {
                                         manifest_path: manifest_location,
                                         manifest_length: 0,
@@ -194,7 +194,7 @@ impl Operation {
                                         key_metadata: None,
                                     })
                                 }
-                                TableMetadata::V2(table_metadata) => {
+                                TableMetadataEnum::V2(table_metadata) => {
                                     ManifestFile::V2(ManifestFileV2 {
                                         manifest_path: manifest_location,
                                         manifest_length: 0,
@@ -302,7 +302,7 @@ impl Operation {
                                 )?;
 
                                 let manifest_entry = match table_metadata {
-                                    TableMetadata::V1(metadata) => {
+                                    TableMetadataEnum::V1(metadata) => {
                                         ManifestEntry::V1(ManifestEntryV1 {
                                             status: Status::Added,
                                             snapshot_id: metadata.current_snapshot_id.unwrap_or(1),
@@ -328,7 +328,7 @@ impl Operation {
                                             },
                                         })
                                     }
-                                    TableMetadata::V2(metadata) => {
+                                    TableMetadataEnum::V2(metadata) => {
                                         ManifestEntry::V2(ManifestEntryV2 {
                                             status: Status::Added,
                                             snapshot_id: metadata.current_snapshot_id,
@@ -435,8 +435,8 @@ impl Operation {
             }
             Operation::UpdateProperties(entries) => {
                 let properties = match &mut table.metadata {
-                    TableMetadata::V2(metadata) => &mut metadata.properties,
-                    TableMetadata::V1(metadata) => &mut metadata.properties,
+                    TableMetadataEnum::V2(metadata) => &mut metadata.properties,
+                    TableMetadataEnum::V1(metadata) => &mut metadata.properties,
                 };
                 if properties.is_none() {
                     *properties = Some(HashMap::new());
