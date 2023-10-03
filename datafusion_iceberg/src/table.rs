@@ -452,7 +452,7 @@ mod tests {
         };
         let view_identifier = Identifier::parse("test.view1").unwrap();
         let view = Arc::new(DataFusionTable::from(
-            ViewBuilder::new_metastore_view(
+            ViewBuilder::new(
                 "SELECT vendor_id, MIN(trip_distance) FROM nyc_taxis GROUP BY vendor_id",
                 "test/nyc_taxis_view",
                 schema,

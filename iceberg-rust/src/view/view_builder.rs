@@ -2,6 +2,7 @@
 Defining the [ViewBuilder] struct for creating catalog views and starting create/replace transactions
 */
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -11,9 +12,8 @@ use uuid::Uuid;
 use crate::catalog::identifier::Identifier;
 use crate::catalog::relation::Relation;
 use crate::model::schema::SchemaV2;
-use crate::model::table_metadata::VersionNumber;
 use crate::model::view_metadata::{
-    Operation, Representation, Summary, Version, VersionLogStruct, ViewMetadataV1,
+    FormatVersion, Operation, Representation, Summary, Version, VersionLogStruct, ViewMetadata,
 };
 use anyhow::{anyhow, Result};
 
@@ -23,12 +23,12 @@ use super::{Catalog, TableType};
 ///Builder pattern to create a view
 pub struct ViewBuilder {
     table_type: TableType,
-    metadata: ViewMetadataV1,
+    metadata: ViewMetadata,
 }
 
 impl ViewBuilder {
     /// Creates a new [TableBuilder] to create a Metastore view with some default metadata entries already set.
-    pub fn new_metastore_view(
+    pub fn new(
         sql: &str,
         base_path: &str,
         schema: SchemaV2,
@@ -64,12 +64,12 @@ impl ViewBuilder {
                 .as_millis() as i64,
             version_id: 1,
         }];
-        let metadata = ViewMetadataV1 {
-            format_version: VersionNumber,
+        let metadata = ViewMetadata {
+            format_version: FormatVersion::V1,
             location: base_path.to_owned() + &identifier.to_string().replace('.', "/"),
-            schemas: Some(vec![schema]),
+            schemas: Some(HashMap::from_iter(vec![(1, schema.try_into()?)])),
             current_schema_id: Some(1),
-            versions: vec![version],
+            versions: HashMap::from_iter(vec![(1, version)]),
             current_version_id: 1,
             version_log,
             properties: None,

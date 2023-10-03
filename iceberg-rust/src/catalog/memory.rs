@@ -155,7 +155,7 @@ impl Catalog for MemoryCatalog {
                 .await?,
             )),
             RelationMetadata::View(metadata) => Ok(Relation::View(
-                View::new_metastore_view(
+                View::new(
                     identifier.clone(),
                     Arc::clone(&catalog),
                     metadata,

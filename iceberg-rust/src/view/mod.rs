@@ -34,7 +34,7 @@ pub struct View {
 /// Public interface of the table.
 impl View {
     /// Create a new metastore view
-    pub async fn new_metastore_view(
+    pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
         metadata: ViewMetadata,
@@ -128,7 +128,7 @@ mod tests {
                 ],
             },
         };
-        let mut view = ViewBuilder::new_metastore_view(
+        let mut view = ViewBuilder::new(
             "SELECT trip_distance FROM nyc_taxis",
             "test/view1",
             schema,
