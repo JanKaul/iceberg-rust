@@ -62,7 +62,7 @@ impl TableBuilder {
                 .map_err(|err| anyhow!(err.to_string()))?
                 .as_millis() as i64,
             last_column_id: schema.fields.fields.len() as i32,
-            schemas: HashMap::from_iter(vec![(1, schema.fields)]),
+            schemas: HashMap::from_iter(vec![(1, schema.try_into()?)]),
             current_schema_id: 1,
             partition_specs: HashMap::from_iter(vec![(1, partition_spec)]),
             default_spec_id: 1,

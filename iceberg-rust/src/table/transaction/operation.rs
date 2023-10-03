@@ -24,9 +24,9 @@ use crate::{
         },
         manifest_list::{FieldSummary, ManifestFile, ManifestFileV1, ManifestFileV2},
         partition::PartitionField,
-        schema::SchemaV2,
+        schema::{Schema, SchemaV2},
         table_metadata::FormatVersion,
-        types::{StructField, StructType},
+        types::StructField,
         values::{Struct, Value},
     },
     table::Table,
@@ -227,7 +227,7 @@ impl Operation {
                     partition_spec
                         .fields
                         .iter()
-                        .map(|x| schema.get(x.source_id as usize))
+                        .map(|x| schema.fields.get(x.source_id as usize))
                         .collect::<Option<Vec<_>>>()
                         .ok_or(anyhow!("Partition column not in schema."))?,
                 );
@@ -564,7 +564,7 @@ fn datafiles_in_bounds<'values>(
     partitions: &Vec<FieldSummary>,
     datafiles: &'values HashMap<&String, DataFileV2>,
     partition_spec: &[PartitionField],
-    schema: &StructType,
+    schema: &Schema,
 ) -> Vec<String> {
     datafiles
         .values()
@@ -573,6 +573,7 @@ fn datafiles_in_bounds<'values>(
                 .into_iter()
                 .map(|field| {
                     let name = &schema
+                        .fields
                         .get(field.source_id.try_into().unwrap())
                         .ok_or_else(|| anyhow!(""))
                         .unwrap()

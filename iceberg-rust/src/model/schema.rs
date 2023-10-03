@@ -5,22 +5,59 @@ use serde::{Deserialize, Serialize};
 
 use super::types::StructType;
 
-/// Schema of an iceberg table
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-#[serde(untagged)]
-pub enum Schema {
-    /// Version 2 of the table schema
-    V2(SchemaV2),
-    /// Version 1 of the table schema
-    V1(SchemaV1),
+#[serde(rename_all = "kebab-case")]
+/// Names and types of fields in a table.
+pub struct Schema {
+    /// Identifier of the schema
+    pub schema_id: i32,
+    /// Set of primitive fields that identify rows in a table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identifier_field_ids: Option<Vec<i32>>,
+
+    #[serde(flatten)]
+    /// The struct fields
+    pub fields: StructType,
 }
 
-impl Schema {
-    /// Struct fields of the schema
-    pub fn fields(&self) -> &StructType {
-        match self {
-            Schema::V2(schema) => &schema.fields,
-            Schema::V1(schema) => &schema.fields,
+impl TryFrom<SchemaV2> for Schema {
+    type Error = anyhow::Error;
+    fn try_from(value: SchemaV2) -> Result<Self, Self::Error> {
+        Ok(Schema {
+            schema_id: value.schema_id,
+            identifier_field_ids: value.identifier_field_ids,
+            fields: value.fields,
+        })
+    }
+}
+
+impl TryFrom<SchemaV1> for Schema {
+    type Error = anyhow::Error;
+    fn try_from(value: SchemaV1) -> Result<Self, Self::Error> {
+        Ok(Schema {
+            schema_id: value.schema_id.unwrap_or(0),
+            identifier_field_ids: value.identifier_field_ids,
+            fields: value.fields,
+        })
+    }
+}
+
+impl From<Schema> for SchemaV2 {
+    fn from(value: Schema) -> Self {
+        SchemaV2 {
+            schema_id: value.schema_id,
+            identifier_field_ids: value.identifier_field_ids,
+            fields: value.fields,
+        }
+    }
+}
+
+impl From<Schema> for SchemaV1 {
+    fn from(value: Schema) -> Self {
+        SchemaV1 {
+            schema_id: Some(value.schema_id),
+            identifier_field_ids: value.identifier_field_ids,
+            fields: value.fields,
         }
     }
 }

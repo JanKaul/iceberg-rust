@@ -16,7 +16,8 @@ use serde_bytes::ByteBuf;
 use crate::model::{
     manifest::{AvroMap, Content, DataFileV2, FileFormat},
     partition::{PartitionField, Transform},
-    types::{PrimitiveType, StructType, Type},
+    schema::Schema,
+    types::{PrimitiveType, Type},
     values::{Struct, Value},
 };
 
@@ -24,13 +25,14 @@ use crate::model::{
 pub fn parquet_to_datafilev2(
     location: &str,
     file_metadata: &FileMetaData,
-    schema: &StructType,
+    schema: &Schema,
     partition_spec: &[PartitionField],
 ) -> Result<DataFileV2> {
     let mut partition = partition_spec
         .iter()
         .map(|x| {
             let field = schema
+                .fields
                 .get(x.source_id as usize)
                 .ok_or_else(|| anyhow!("Column with id {} is missing in schema.", x.source_id))?;
             Ok((field.name.clone(), None))
@@ -40,6 +42,7 @@ pub fn parquet_to_datafilev2(
         .iter()
         .map(|x| {
             let field = schema
+                .fields
                 .get(x.source_id as usize)
                 .ok_or_else(|| anyhow!("Column with id {} is missing in schema.", x.source_id))?;
             Ok((field.name.clone(), x.transform.clone()))
@@ -63,7 +66,7 @@ pub fn parquet_to_datafilev2(
 
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
-            let id = schema
+            let id = schema.fields
                     .get_name(column_name)
                     .ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.id;
             if let Some(column_sizes) = &mut column_sizes {
@@ -91,7 +94,7 @@ pub fn parquet_to_datafilev2(
                 }
                 if let Some(lower_bounds) = &mut lower_bounds {
                     if let Some(entry) = lower_bounds.0.get_mut(&id) {
-                        let data_type = &schema.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
+                        let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
                         let bytes = statistics.min_bytes();
                         let current = Value::from_bytes(entry, data_type)?;
                         let new = Value::from_bytes(statistics.min_bytes(), data_type)?;
@@ -142,7 +145,7 @@ pub fn parquet_to_datafilev2(
                 }
                 if let Some(upper_bounds) = &mut upper_bounds {
                     if let Some(entry) = upper_bounds.0.get_mut(&id) {
-                        let data_type = &schema.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
+                        let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
                         let bytes = statistics.max_bytes();
                         let current = Value::from_bytes(entry, data_type)?;
                         let new = Value::from_bytes(statistics.min_bytes(), data_type)?;
@@ -193,7 +196,7 @@ pub fn parquet_to_datafilev2(
                 }
                 if let Some(partition_value) = partition.get_mut(column_name) {
                     if partition_value.is_none() {
-                        let data_type = &schema.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
+                        let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
                         match data_type {
                             Type::Primitive(prim) => match prim {
                                 PrimitiveType::Date => {

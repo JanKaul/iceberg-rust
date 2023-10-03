@@ -41,12 +41,13 @@ impl<'table> From<&'table Table> for PruneManifests<'table> {
 impl<'table> PruningStatistics for PruneManifests<'table> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
         let partition_spec = &self.0.metadata().default_partition_spec().ok()?.fields;
-        let schema = self.0.schema();
+        let schema = self.0.schema().ok()?;
         let (index, partition_field) = partition_spec
             .iter()
             .enumerate()
             .find(|(_, partition_field)| partition_field.name == column.name)?;
         let data_type = schema
+            .fields
             .get(partition_field.source_id as usize)
             .as_ref()?
             .field_type
@@ -66,13 +67,14 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
         let partition_spec = self.0.metadata().default_partition_spec().ok()?;
-        let schema = self.0.schema();
+        let schema = self.0.schema().ok()?;
         let (index, partition_field) = partition_spec
             .fields
             .iter()
             .enumerate()
             .find(|(_, partition_field)| partition_field.name == column.name)?;
         let data_type = schema
+            .fields
             .get(partition_field.source_id as usize)
             .as_ref()?
             .field_type
@@ -126,7 +128,7 @@ impl<'table, 'manifests> PruneDataFiles<'table, 'manifests> {
 
 impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = self.table.schema().try_into().ok()?;
+        let schema: Schema = (&self.table.schema().ok()?.fields).try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
         let min_values = self
@@ -145,7 +147,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         any_iter_to_array(min_values, datatype).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = self.table.schema().try_into().ok()?;
+        let schema: Schema = (&self.table.schema().ok()?.fields).try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
         let max_values = self
@@ -167,7 +169,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         self.files.len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = self.table.schema().try_into().ok()?;
+        let schema: Schema = (&self.table.schema().ok()?.fields).try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let null_counts = self
             .files

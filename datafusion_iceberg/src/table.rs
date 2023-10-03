@@ -86,13 +86,14 @@ impl TableProvider for DataFusionTable {
     fn schema(&self) -> SchemaRef {
         match &self.0 {
             Relation::Table(table) => {
-                let mut schema = table.schema().clone();
+                let mut schema = table.schema().unwrap().clone();
                 // Add the partition columns to the table schema
                 for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
-                    schema.fields.push(StructField {
+                    schema.fields.fields.push(StructField {
                         id: partition_field.field_id,
                         name: partition_field.name.clone(),
                         field_type: schema
+                            .fields
                             .get(partition_field.source_id as usize)
                             .unwrap()
                             .field_type
@@ -102,9 +103,9 @@ impl TableProvider for DataFusionTable {
                         doc: None,
                     })
                 }
-                Arc::new((&schema).try_into().unwrap())
+                Arc::new((&schema.fields).try_into().unwrap())
             }
-            Relation::View(view) => Arc::new(view.schema().unwrap().try_into().unwrap()),
+            Relation::View(view) => Arc::new((&view.schema().unwrap().fields).try_into().unwrap()),
         }
     }
     fn table_type(&self) -> TableType {
@@ -122,7 +123,12 @@ impl TableProvider for DataFusionTable {
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
         match &self.0 {
             Relation::View(view) => {
-                let sql = match view.metadata().representation() {
+                let sql = match &view
+                    .metadata()
+                    .current_version()
+                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?
+                    .representations[0]
+                {
                     Representation::Sql { sql, .. } => sql,
                 };
                 let statement = DFParser::new(sql)?.parse_statement()?;
@@ -274,7 +280,8 @@ async fn table_scan(
             Ok((
                 field.name.clone(),
                 (&table
-                    .schema()
+                    .schema()?
+                    .fields
                     .get(field.source_id as usize)
                     .unwrap()
                     .field_type

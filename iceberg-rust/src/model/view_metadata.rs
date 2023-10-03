@@ -4,67 +4,66 @@
 
 use std::collections::HashMap;
 
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::model::schema::Schema;
+use super::{
+    schema::{Schema, SchemaV2},
+    table_metadata::VersionNumber,
+};
 
-use super::{types::StructType, table_metadata::VersionNumber};
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[serde(try_from = "ViewMetadataEnum", into = "ViewMetadataEnum")]
+/// Fields for the version 1 of the view metadata.
+pub struct ViewMetadata {
+    /// An integer version number for the view format; must be 1
+    pub format_version: FormatVersion,
+    /// The view’s base location. This is used to determine where to store manifest files and view metadata files.
+    pub location: String,
+    ///	Current version of the view. Set to ‘1’ when the view is first created.
+    pub current_version_id: i64,
+    /// An array of structs describing the last known versions of the view. Controlled by the table property: “version.history.num-entries”. See section Versions.
+    pub versions: HashMap<i64, Version>,
+    /// A list of timestamp and version ID pairs that encodes changes to the current version for the view.
+    /// Each time the current-version-id is changed, a new entry should be added with the last-updated-ms and the new current-version-id.
+    pub version_log: Vec<VersionLogStruct>,
+    /// A string to string map of view properties. This is used for metadata such as “comment” and for settings that affect view maintenance.
+    /// This is not intended to be used for arbitrary metadata.
+    pub properties: Option<HashMap<String, String>>,
+    ///	A list of schemas, the same as the ‘schemas’ field from Iceberg table spec.
+    pub schemas: Option<HashMap<i32, Schema>>,
+    ///	ID of the current schema of the view
+    pub current_schema_id: Option<i32>,
+}
+
+impl ViewMetadata {
+    /// Get current schema
+    #[inline]
+    pub fn current_schema(&self) -> Result<&Schema, anyhow::Error> {
+        self.schemas
+            .as_ref()
+            .and_then(|schema| {
+                self.current_schema_id
+                    .and_then(|schema_id| schema.get(&schema_id))
+            })
+            .ok_or_else(|| anyhow!("Schema not found"))
+    }
+    /// Get current version
+    #[inline]
+    pub fn current_version(&self) -> Result<&Version, anyhow::Error> {
+        self.versions
+            .get(&self.current_version_id)
+            .ok_or_else(|| anyhow!("Version {} not found", self.current_version_id))
+    }
+}
 
 /// Metadata of an iceberg view
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
-pub enum ViewMetadata {
+pub enum ViewMetadataEnum {
     /// Version 1 of the table metadata
     V1(ViewMetadataV1),
-}
-
-impl ViewMetadata {
-    /// Get current schema of the table
-    pub fn current_schema(&self) -> Option<&StructType> {
-        match self {
-            ViewMetadata::V1(metadata) => metadata
-                .schemas
-                .as_ref()?
-                .iter()
-                .find(|schema| match schema {
-                    Schema::V2(schema) => {
-                        if let Some(id) = metadata.current_schema_id {
-                            schema.schema_id == id
-                        } else {
-                            false
-                        }
-                    }
-                    Schema::V1(schema) => schema.schema_id == metadata.current_schema_id,
-                })
-                .or(metadata.schemas.as_ref()?.iter().last())
-                .map(|x| x.fields()),
-        }
-    }
-    /// Get the base location of the table
-    pub fn location(&self) -> &str {
-        match self {
-            ViewMetadata::V1(metadata) => &metadata.location,
-        }
-    }
-    /// Get the last_sequence_number of the table
-    pub fn current_version_id(&self) -> i64 {
-        match self {
-            ViewMetadata::V1(metadata) => metadata.current_version_id,
-        }
-    }
-    /// Get the last_sequence_number of the table
-    pub fn representation(&self) -> &Representation {
-        match self {
-            ViewMetadata::V1(metadata) => {
-                &metadata
-                    .versions
-                    .iter()
-                    .find(|version| version.version_id == metadata.current_version_id)
-                    .unwrap()
-                    .representations[0]
-            }
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -86,12 +85,78 @@ pub struct ViewMetadataV1 {
     /// This is not intended to be used for arbitrary metadata.
     pub properties: Option<HashMap<String, String>>,
     ///	A list of schemas, the same as the ‘schemas’ field from Iceberg table spec.
-    pub schemas: Option<Vec<Schema>>,
+    pub schemas: Option<Vec<SchemaV2>>,
     ///	ID of the current schema of the view
     pub current_schema_id: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
+#[repr(u8)]
+/// Iceberg format version
+pub enum FormatVersion {
+    /// Iceberg spec version 1
+    V1 = b'1',
+}
+
+impl TryFrom<ViewMetadataEnum> for ViewMetadata {
+    type Error = anyhow::Error;
+    fn try_from(value: ViewMetadataEnum) -> Result<Self, Self::Error> {
+        match value {
+            ViewMetadataEnum::V1(metadata) => metadata.try_into(),
+        }
+    }
+}
+
+impl From<ViewMetadata> for ViewMetadataEnum {
+    fn from(value: ViewMetadata) -> Self {
+        match value.format_version {
+            FormatVersion::V1 => ViewMetadataEnum::V1(value.into()),
+        }
+    }
+}
+
+impl TryFrom<ViewMetadataV1> for ViewMetadata {
+    type Error = anyhow::Error;
+    fn try_from(value: ViewMetadataV1) -> Result<Self, Self::Error> {
+        Ok(ViewMetadata {
+            format_version: FormatVersion::V1,
+            location: value.location,
+            current_version_id: value.current_version_id,
+            versions: HashMap::from_iter(value.versions.into_iter().map(|x| (x.version_id, x))),
+            version_log: value.version_log,
+            properties: value.properties,
+            schemas: match value.schemas {
+                Some(schemas) => Some(HashMap::from_iter(
+                    schemas
+                        .into_iter()
+                        .map(|x| Ok((x.schema_id, x.try_into()?)))
+                        .collect::<Result<Vec<_>, anyhow::Error>>()?,
+                )),
+                None => None,
+            },
+            current_schema_id: value.current_schema_id,
+        })
+    }
+}
+
+impl From<ViewMetadata> for ViewMetadataV1 {
+    fn from(value: ViewMetadata) -> Self {
+        ViewMetadataV1 {
+            format_version: VersionNumber::<1>,
+            location: value.location,
+            current_version_id: value.current_version_id,
+            versions: value.versions.into_values().collect(),
+            version_log: value.version_log,
+            properties: value.properties,
+            schemas: value
+                .schemas
+                .map(|schemas| schemas.into_values().map(|x| x.into()).collect()),
+            current_schema_id: value.current_schema_id,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the view metadata.
 pub struct Version {
@@ -105,7 +170,7 @@ pub struct Version {
     pub representations: Vec<Representation>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the view metadata.
 pub struct VersionLogStruct {
@@ -157,7 +222,7 @@ impl<'de> Deserialize<'de> for Operation {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the view metadata.
 pub struct Summary {
@@ -167,7 +232,7 @@ pub struct Summary {
     pub engine_version: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case", tag = "type")]
 /// Fields for the version 2 of the view metadata.
 pub enum Representation {
@@ -199,7 +264,7 @@ mod tests {
 
     use anyhow::Result;
 
-    use crate::model::view_metadata::ViewMetadata;
+    use crate::model::view_metadata::ViewMetadataEnum;
 
     #[test]
     fn test_deserialize_view_data_v1() -> Result<()> {
@@ -253,9 +318,9 @@ mod tests {
           }
         "#;
         let metadata =
-            serde_json::from_str::<ViewMetadata>(data).expect("Failed to deserialize json");
+            serde_json::from_str::<ViewMetadataEnum>(data).expect("Failed to deserialize json");
         //test serialise deserialise works.
-        let metadata_two: ViewMetadata = serde_json::from_str(
+        let metadata_two: ViewMetadataEnum = serde_json::from_str(
             &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),
         )
         .expect("Failed to serialize json");

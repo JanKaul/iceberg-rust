@@ -10,8 +10,9 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use super::{
     partition::PartitionField,
+    schema::Schema,
     table_metadata::FormatVersion,
-    types::{PrimitiveType, StructType, Type},
+    types::{PrimitiveType, Type},
     values::Struct,
 };
 
@@ -328,14 +329,12 @@ impl<'de> Deserialize<'de> for FileFormat {
 }
 
 /// Get schema for partition values depending on partition spec and table schema
-pub fn partition_value_schema(
-    spec: &[PartitionField],
-    table_schema: &StructType,
-) -> Result<String> {
+pub fn partition_value_schema(spec: &[PartitionField], table_schema: &Schema) -> Result<String> {
     Ok(spec
         .iter()
         .map(|field| {
             let schema_field = table_schema
+                .fields
                 .get(field.source_id as usize)
                 .ok_or_else(|| anyhow!("Column {} not in table schema.", &field.source_id))?;
             let data_type = avro_schema_datatype(&schema_field.field_type);
@@ -1180,7 +1179,8 @@ mod tests {
             }],
         };
 
-        let partition_schema = partition_value_schema(&spec.fields, &table_schema.fields).unwrap();
+        let partition_schema =
+            partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();
 
         let raw_schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2);
 
@@ -1294,7 +1294,8 @@ mod tests {
             }],
         };
 
-        let partition_schema = partition_value_schema(&spec.fields, &table_schema.fields).unwrap();
+        let partition_schema =
+            partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();
 
         let raw_schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2);
 
@@ -1382,7 +1383,8 @@ mod tests {
             }],
         };
 
-        let raw_schema = partition_value_schema(&spec.fields, &table_schema.fields).unwrap();
+        let raw_schema =
+            partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();
 
         dbg!(&raw_schema);
 

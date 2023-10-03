@@ -19,7 +19,7 @@ impl DataFusionTable {
                             min_value: None,
                             distinct_count: None
                         };
-                        table.schema().fields.len()
+                        table.schema()?.fields.fields.len()
                     ]),
                     is_exact: true,
                 }),
@@ -37,7 +37,7 @@ impl DataFusionTable {
                                 min_value: None,
                                 distinct_count: None
                             };
-                            table.schema().fields.len()
+                            table.schema()?.fields.fields.len()
                         ]),
                         is_exact: true,
                     })

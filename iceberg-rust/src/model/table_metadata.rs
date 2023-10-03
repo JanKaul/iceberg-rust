@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use super::types::StructType;
+use super::schema::Schema;
 
 static MAIN_BRANCH: &str = "main";
 static DEFAULT_SORT_ORDER_ID: i64 = 0;
@@ -42,7 +42,7 @@ pub struct TableMetadata {
     /// An integer; the highest assigned column ID for the table.
     pub last_column_id: i32,
     /// A list of schemas, stored as objects with schema-id.
-    pub schemas: HashMap<i32, StructType>,
+    pub schemas: HashMap<i32, Schema>,
     /// ID of the table’s current schema.
     pub current_schema_id: i32,
     /// A list of partition specs, stored as full partition spec objects.
@@ -101,7 +101,7 @@ pub struct TableMetadata {
 impl TableMetadata {
     /// Get current schema
     #[inline]
-    pub fn current_schema(&self) -> Result<&StructType, anyhow::Error> {
+    pub fn current_schema(&self) -> Result<&Schema, anyhow::Error> {
         self.schemas
             .get(&self.current_schema_id)
             .ok_or_else(|| anyhow!("Schema {} not found", self.current_schema_id))
@@ -139,7 +139,7 @@ mod _serde {
 
     use crate::model::{
         partition::{PartitionField, PartitionSpec},
-        schema::{self, SchemaV1, SchemaV2},
+        schema,
         snapshot::{Reference, Retention, SnapshotV1, SnapshotV2},
         sort,
     };
@@ -339,7 +339,7 @@ mod _serde {
                 value
                     .schemas
                     .into_iter()
-                    .map(|schema| Ok((schema.schema_id, schema.fields)))
+                    .map(|schema| Ok((schema.schema_id, schema.try_into()?)))
                     .collect::<Result<Vec<_>, anyhow::Error>>()?,
             );
             Ok(TableMetadata {
@@ -393,7 +393,7 @@ mod _serde {
                             .into_iter()
                             .enumerate()
                             .map(|(i, schema)| {
-                                Ok((schema.schema_id.unwrap_or(i as i32), schema.fields))
+                                Ok((schema.schema_id.unwrap_or(i as i32), schema.try_into()?))
                             })
                             .collect::<Result<Vec<_>, anyhow::Error>>()?
                             .into_iter(),
@@ -402,7 +402,7 @@ mod _serde {
                 .or_else(|| {
                     Some(Ok(HashMap::from_iter(vec![(
                         value.schema.schema_id.unwrap_or(0),
-                        value.schema.fields,
+                        value.schema.try_into().ok()?,
                     )])))
                 })
                 .transpose()?
@@ -484,15 +484,7 @@ mod _serde {
                 last_sequence_number: v.last_sequence_number,
                 last_updated_ms: v.last_updated_ms,
                 last_column_id: v.last_column_id,
-                schemas: v
-                    .schemas
-                    .into_iter()
-                    .map(|(schema_id, fields)| SchemaV2 {
-                        schema_id,
-                        fields,
-                        identifier_field_ids: None,
-                    })
-                    .collect(),
+                schemas: v.schemas.into_values().map(|x| x.into()).collect(),
                 current_schema_id: v.current_schema_id,
                 partition_specs: v.partition_specs.into_values().collect(),
                 default_spec_id: v.default_spec_id,
@@ -519,21 +511,8 @@ mod _serde {
                 location: v.location,
                 last_updated_ms: v.last_updated_ms,
                 last_column_id: v.last_column_id,
-                schema: SchemaV1 {
-                    schema_id: Some(v.current_schema_id),
-                    identifier_field_ids: None,
-                    fields: v.schemas.get(&v.current_schema_id).unwrap().clone(),
-                },
-                schemas: Some(
-                    v.schemas
-                        .into_iter()
-                        .map(|(schema_id, fields)| SchemaV1 {
-                            schema_id: Some(schema_id),
-                            fields,
-                            identifier_field_ids: None,
-                        })
-                        .collect(),
-                ),
+                schema: v.schemas.get(&v.current_schema_id).unwrap().clone().into(),
+                schemas: Some(v.schemas.into_values().map(|x| x.into()).collect()),
                 current_schema_id: Some(v.current_schema_id),
                 partition_spec: v
                     .partition_specs

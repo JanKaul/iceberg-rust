@@ -42,6 +42,9 @@ impl<'view> Transaction<'view> {
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<()> {
+        let catalog = self.view.catalog();
+        let object_store = catalog.object_store();
+        let identifier = self.view.identifier().clone();
         // Before executing the transactions operations, update the version number
         self.view.increment_version_number();
         // Execute the table operations
@@ -55,48 +58,39 @@ impl<'view> Transaction<'view> {
                 },
             )
             .await?;
-        // Write the new state to the object store
-        match (view.catalog(), view.identifier()) {
-            // In case of a metastore view, write the metadata to object srorage and use the catalog to perform the atomic swap
-            (Some(catalog), Some(identifier)) => {
-                let object_store = catalog.object_store();
-                let location = &view.metadata().location();
-                let transaction_uuid = Uuid::new_v4();
-                let version = &view.metadata().current_version_id();
-                let metadata_json = serde_json::to_string(&view.metadata())
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let metadata_file_location: Path = (location.to_string()
-                    + "/metadata/"
-                    + &version.to_string()
-                    + "-"
-                    + &transaction_uuid.to_string()
-                    + ".metadata.json")
-                    .into();
-                object_store
-                    .put(&metadata_file_location, metadata_json.into())
-                    .await
-                    .map_err(|err| anyhow!(err.to_string()))?;
-                let previous_metadata_file_location = view.metadata_location();
-                if let Relation::View(new_view) = catalog
-                    .clone()
-                    .update_table(
-                        identifier.clone(),
-                        metadata_file_location.as_ref(),
-                        previous_metadata_file_location,
-                    )
-                    .await?
-                {
-                    *view = new_view;
-                    Ok(())
-                } else {
-                    Err(anyhow!(
-                        "Updating the table for the transaction didn't return a table."
-                    ))
-                }
-            }
-            _ => Err(anyhow!(
+
+        let location = &&view.metadata().location;
+        let transaction_uuid = Uuid::new_v4();
+        let version = &&view.metadata().current_version_id;
+        let metadata_json =
+            serde_json::to_string(&view.metadata()).map_err(|err| anyhow!(err.to_string()))?;
+        let metadata_file_location: Path = (location.to_string()
+            + "/metadata/"
+            + &version.to_string()
+            + "-"
+            + &transaction_uuid.to_string()
+            + ".metadata.json")
+            .into();
+        object_store
+            .put(&metadata_file_location, metadata_json.into())
+            .await
+            .map_err(|err| anyhow!(err.to_string()))?;
+        let previous_metadata_file_location = view.metadata_location();
+        if let Relation::View(new_view) = catalog
+            .clone()
+            .update_table(
+                identifier,
+                metadata_file_location.as_ref(),
+                previous_metadata_file_location,
+            )
+            .await?
+        {
+            *view = new_view;
+            Ok(())
+        } else {
+            Err(anyhow!(
                 "Updating the table for the transaction didn't return a table."
-            )),
+            ))
         }
     }
 }

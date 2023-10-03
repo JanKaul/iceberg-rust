@@ -12,9 +12,9 @@ use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{
         manifest_list::{ManifestFile, ManifestFileV1, ManifestFileV2},
+        schema::Schema,
         snapshot::{Operation, SnapshotV2, Summary},
         table_metadata::{FormatVersion, TableMetadata},
-        types::StructType,
     },
     table::transaction::TableTransaction,
     util::{self, strip_prefix},
@@ -72,11 +72,8 @@ impl Table {
         self.catalog.object_store()
     }
     /// Get the metadata of the table
-    pub fn schema(&self) -> &StructType {
-        self.metadata
-            .schemas
-            .get(&self.metadata.current_schema_id)
-            .unwrap()
+    pub fn schema(&self) -> Result<&Schema> {
+        self.metadata.current_schema()
     }
     /// Get the metadata of the table
     pub fn metadata(&self) -> &TableMetadata {

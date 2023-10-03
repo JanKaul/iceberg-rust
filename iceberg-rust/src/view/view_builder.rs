@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 use crate::catalog::identifier::Identifier;
 use crate::catalog::relation::Relation;
-use crate::model::schema::Schema;
 use crate::model::schema::SchemaV2;
 use crate::model::table_metadata::VersionNumber;
 use crate::model::view_metadata::{
@@ -68,7 +67,7 @@ impl ViewBuilder {
         let metadata = ViewMetadataV1 {
             format_version: VersionNumber,
             location: base_path.to_owned() + &identifier.to_string().replace('.', "/"),
-            schemas: Some(vec![Schema::V2(schema)]),
+            schemas: Some(vec![schema]),
             current_schema_id: Some(1),
             versions: vec![version],
             current_version_id: 1,

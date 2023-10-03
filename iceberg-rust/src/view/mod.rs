@@ -10,7 +10,7 @@ use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
-    model::{types::StructType, view_metadata::ViewMetadata},
+    model::{schema::Schema, view_metadata::ViewMetadata},
     table::TableType,
 };
 
@@ -22,11 +22,13 @@ pub mod view_builder;
 /// An iceberg view
 pub struct View {
     /// Type of the View, either filesystem or metastore.
-    table_type: TableType,
+    identifier: Identifier,
     /// Metadata for the iceberg view according to the iceberg view spec
     metadata: ViewMetadata,
     /// Path to the current metadata location
     metadata_location: String,
+    /// Catalog of the table
+    catalog: Arc<dyn Catalog>,
 }
 
 /// Public interface of the table.
@@ -39,31 +41,26 @@ impl View {
         metadata_location: &str,
     ) -> Result<Self> {
         Ok(View {
-            table_type: TableType::Metastore(identifier, catalog),
+            identifier,
             metadata,
             metadata_location: metadata_location.to_string(),
+            catalog,
         })
     }
     /// Get the table identifier in the catalog. Returns None of it is a filesystem view.
-    pub fn identifier(&self) -> Option<&Identifier> {
-        match &self.table_type {
-            TableType::Metastore(identifier, _) => Some(identifier),
-        }
+    pub fn identifier(&self) -> &Identifier {
+        &self.identifier
     }
     /// Get the catalog associated to the view. Returns None if the view is a filesystem view
-    pub fn catalog(&self) -> Option<&Arc<dyn Catalog>> {
-        match &self.table_type {
-            TableType::Metastore(_, catalog) => Some(catalog),
-        }
+    pub fn catalog(&self) -> Arc<dyn Catalog> {
+        self.catalog.clone()
     }
     /// Get the object_store associated to the view
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        match &self.table_type {
-            TableType::Metastore(_, catalog) => catalog.object_store(),
-        }
+        self.catalog.object_store()
     }
     /// Get the schema of the view
-    pub fn schema(&self) -> Option<&StructType> {
+    pub fn schema(&self) -> Result<&Schema> {
         self.metadata.current_schema()
     }
     /// Get the metadata of the view
@@ -84,11 +81,7 @@ impl View {
 impl View {
     /// Increment the version number of the view. Is typically used when commiting a new view transaction.
     pub(crate) fn increment_version_number(&mut self) {
-        match &mut self.metadata {
-            ViewMetadata::V1(metadata) => {
-                metadata.current_version_id += 1;
-            }
-        }
+        self.metadata.current_version_id += 1;
     }
 }
 
