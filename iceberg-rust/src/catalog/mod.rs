@@ -18,6 +18,7 @@ use self::relation::Relation;
 
 pub mod relation;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod memory;
 
 /// Trait to create, replace and drop tables in an iceberg catalog.
