@@ -3,12 +3,12 @@ members = ["iceberg-rust", "datafusion_iceberg", "iceberg-c"]
 
 [workspace.dependencies]  
 anyhow = "^1.0"
-object_store = { version = "0.6.1", features = ["aws", "gcp"] }
+object_store = { version = "0.7", features = ["aws", "gcp"] }
 serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"
 futures = "0.3.28"
 async-trait = "0.1.68"
 chrono = { version = "0.4.23", default-features = false, features = ["serde"] }
-datafusion = "30.0.0"
+datafusion = "31.0.0"
 url = "^2.2"

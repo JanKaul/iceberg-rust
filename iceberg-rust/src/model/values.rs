@@ -2,17 +2,12 @@
  * Value in iceberg
  */
 
-use std::{
-    any::Any,
-    collections::{BTreeMap, HashMap},
-    fmt,
-    io::Cursor,
-    ops::Deref,
-};
+use std::{any::Any, collections::BTreeMap, fmt, io::Cursor, ops::Deref};
 
 use anyhow::{anyhow, Result};
 
 use chrono::{NaiveDate, NaiveDateTime};
+use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
 use serde::{
     de::{MapAccess, Visitor},
@@ -27,7 +22,7 @@ use super::{
 };
 
 /// Values present in iceberg type
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[serde(untagged)]
 pub enum Value {
     /// 0x00 for false, non-zero byte for true
@@ -37,9 +32,9 @@ pub enum Value {
     /// Stored as 8-byte little-endian
     LongInt(i64),
     /// Stored as 4-byte little-endian
-    Float(f32),
+    Float(OrderedFloat<f32>),
     /// Stored as 8-byte little-endian
-    Double(f64),
+    Double(OrderedFloat<f64>),
     /// Stores days from the 1970-01-01 in an 4-byte little-endian int
     Date(i32),
     /// Stores microseconds from midnight in an 8-byte little-endian long
@@ -70,7 +65,7 @@ pub enum Value {
     /// A map is a collection of key-value pairs with a key type and a value type.
     /// Both the key field and value field each have an integer id that is unique in the table schema.
     /// Map keys are required and map values can be either optional or required. Both map keys and map values may be any type, including nested types.
-    Map(HashMap<String, Option<Value>>),
+    Map(BTreeMap<String, Option<Value>>),
 }
 
 impl Into<ByteBuf> for Value {
@@ -103,7 +98,7 @@ impl Into<ByteBuf> for Value {
 /// The partition struct stores the tuple of partition values for each file.
 /// Its type is derived from the partition fields of the partition spec used to write the manifest file.
 /// In v2, the partition struct’s field ids must match the ids from the partition spec.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Struct {
     /// Vector to store the field values
     pub fields: Vec<Option<Value>>,
@@ -350,8 +345,12 @@ impl Value {
                 }
                 PrimitiveType::Int => Ok(Value::Int(i32::from_le_bytes(bytes.try_into()?))),
                 PrimitiveType::Long => Ok(Value::LongInt(i64::from_le_bytes(bytes.try_into()?))),
-                PrimitiveType::Float => Ok(Value::Float(f32::from_le_bytes(bytes.try_into()?))),
-                PrimitiveType::Double => Ok(Value::Double(f64::from_le_bytes(bytes.try_into()?))),
+                PrimitiveType::Float => Ok(Value::Float(OrderedFloat(f32::from_le_bytes(
+                    bytes.try_into()?,
+                )))),
+                PrimitiveType::Double => Ok(Value::Double(OrderedFloat(f64::from_le_bytes(
+                    bytes.try_into()?,
+                )))),
                 PrimitiveType::Date => Ok(Value::Date(i32::from_le_bytes(bytes.try_into()?))),
                 PrimitiveType::Time => Ok(Value::Time(i64::from_le_bytes(bytes.try_into()?))),
                 PrimitiveType::Timestamp => {

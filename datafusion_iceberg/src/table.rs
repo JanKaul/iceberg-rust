@@ -212,7 +212,7 @@ async fn table_scan(
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let secs = last_updated_ms / 1000;
                             let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-                            DateTime::from_utc(
+                            DateTime::from_naive_utc_and_offset(
                                 NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(),
                                 Utc,
                             )
@@ -252,7 +252,10 @@ async fn table_scan(
                     let last_updated_ms = table.metadata().last_updated_ms;
                     let secs = last_updated_ms / 1000;
                     let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-                    DateTime::from_utc(NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(), Utc)
+                    DateTime::from_naive_utc_and_offset(
+                        NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(),
+                        Utc,
+                    )
                 },
                 e_tag: None,
             };
