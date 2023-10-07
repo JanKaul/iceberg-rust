@@ -24,14 +24,6 @@ pub mod files;
 pub mod table_builder;
 pub mod transaction;
 
-/// Tables can be either one of following types:
-/// - FileSystem(https://iceberg.apache.org/spec/#file-system-tables)
-/// - Metastore(https://iceberg.apache.org/spec/#metastore-tables)
-pub enum TableType {
-    /// Metastore table
-    Metastore(Identifier, Arc<dyn Catalog>),
-}
-
 /// Iceberg table
 pub struct Table {
     identifier: Identifier,

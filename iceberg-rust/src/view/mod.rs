@@ -11,7 +11,6 @@ use object_store::ObjectStore;
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{schema::Schema, view_metadata::ViewMetadata},
-    table::TableType,
 };
 
 use self::transaction::Transaction as ViewTransaction;
