@@ -312,8 +312,10 @@ mod tests {
             .collect::<Vec<_>>()
             .await;
 
-        dbg!(output);
-
-        panic!();
+        for x in output {
+            for y in x {
+                y.unwrap();
+            }
+        }
     }
 }
