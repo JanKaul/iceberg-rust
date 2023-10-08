@@ -537,7 +537,7 @@ mod _serde {
 }
 
 /// Helper to serialize and deserialize the format version.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct VersionNumber<const V: u8>;
 
 impl<const V: u8> Serialize for VersionNumber<V> {
