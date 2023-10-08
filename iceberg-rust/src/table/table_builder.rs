@@ -116,7 +116,7 @@ impl TableBuilder {
     pub fn with_partition_spec(mut self, partition_spec: PartitionSpec) -> Self {
         self.metadata
             .partition_specs
-            .insert(*&partition_spec.spec_id, partition_spec);
+            .insert(partition_spec.spec_id, partition_spec);
         self
     }
 }

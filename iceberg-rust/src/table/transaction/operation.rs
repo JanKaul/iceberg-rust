@@ -560,9 +560,9 @@ fn update_partitions(
 }
 
 /// checks if partition values lie in the bounds of the field summary
-fn datafiles_in_bounds<'values>(
+fn datafiles_in_bounds(
     partitions: &Vec<FieldSummary>,
-    datafiles: &'values HashMap<&String, DataFileV2>,
+    datafiles: &HashMap<&String, DataFileV2>,
     partition_spec: &[PartitionField],
     schema: &Schema,
 ) -> Vec<String> {
@@ -570,7 +570,7 @@ fn datafiles_in_bounds<'values>(
         .values()
         .filter(|datafile| {
             partition_spec
-                .into_iter()
+                .iter()
                 .map(|field| {
                     let name = &schema
                         .fields

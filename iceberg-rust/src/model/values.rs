@@ -213,7 +213,7 @@ impl Value {
                 )),
             },
             Transform::Year => match self {
-                Value::Date(date) => Ok(Value::Int(date.clone() / 365)),
+                Value::Date(date) => Ok(Value::Int(*date / 365)),
                 Value::Timestamp(time) => Ok(Value::Int(
                     (NaiveDateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
@@ -243,7 +243,7 @@ impl Value {
                 )),
             },
             Transform::Month => match self {
-                Value::Date(date) => Ok(Value::Int(date.clone() / 30)),
+                Value::Date(date) => Ok(Value::Int(*date / 30)),
                 Value::Timestamp(time) => Ok(Value::Int(
                     (NaiveDateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
@@ -271,7 +271,7 @@ impl Value {
                 )),
             },
             Transform::Day => match self {
-                Value::Date(date) => Ok(Value::Int(date.clone())),
+                Value::Date(date) => Ok(Value::Int(*date)),
                 Value::Timestamp(time) => Ok(Value::Int(
                     (NaiveDateTime::from_timestamp_millis(time / 1000)
                         .unwrap()

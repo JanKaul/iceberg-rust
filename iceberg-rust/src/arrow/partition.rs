@@ -103,15 +103,13 @@ pub async fn partition_record_batches(
                     .try_fold(
                         vec![(vec![], BooleanArray::new(true_buffer.finish(), None))],
                         |acc, predicates| {
-                            Ok::<_, ArrowError>(
-                                iproduct!(acc, predicates?.iter())
+                            iproduct!(acc, predicates?.iter())
                                     .map(|((mut values, x), (value, y))| {
                                         values.push(value.clone());
                                         Ok((values, and(&x, y)?))
                                     })
                                     .filter_ok(|x| x.1.true_count() != 0)
-                                    .collect::<Result<Vec<(Vec<Value>, _)>, ArrowError>>()?,
-                            )
+                                    .collect::<Result<Vec<(Vec<Value>, _)>, ArrowError>>()
                         },
                     )?;
                 stream::iter(predicates.into_iter())

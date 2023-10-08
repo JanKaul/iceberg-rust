@@ -35,7 +35,7 @@ impl CatalogProvider for IcebergCatalog {
         let namespaces = self.schema_names();
         namespaces.iter().find(|x| *x == name).and_then(|y| {
             Some(Arc::new(IcebergSchema::new(
-                Namespace::try_new(&y.split(".").map(|z| z.to_owned()).collect::<Vec<String>>())
+                Namespace::try_new(&y.split('.').map(|z| z.to_owned()).collect::<Vec<String>>())
                     .ok()?,
                 Arc::clone(&self.catalog),
             )) as Arc<dyn SchemaProvider>)
