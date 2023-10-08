@@ -68,28 +68,28 @@ pub enum Value {
     Map(BTreeMap<String, Option<Value>>),
 }
 
-impl Into<ByteBuf> for Value {
-    fn into(self) -> ByteBuf {
-        match self {
-            Self::Boolean(val) => {
+impl From<Value> for ByteBuf {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Boolean(val) => {
                 if val {
                     ByteBuf::from([0u8])
                 } else {
                     ByteBuf::from([1u8])
                 }
             }
-            Self::Int(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::LongInt(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::Float(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::Double(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::Date(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::Time(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::Timestamp(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::TimestampTZ(val) => ByteBuf::from(val.to_le_bytes()),
-            Self::String(val) => ByteBuf::from(val.as_bytes()),
-            Self::UUID(val) => ByteBuf::from(val),
-            Self::Fixed(_, val) => ByteBuf::from(val),
-            Self::Binary(val) => ByteBuf::from(val),
+            Value::Int(val) => ByteBuf::from(val.to_le_bytes()),
+            Value::LongInt(val) => ByteBuf::from(val.to_le_bytes()),
+            Value::Float(val) => ByteBuf::from(val.to_le_bytes()),
+            Value::Double(val) => ByteBuf::from(val.to_le_bytes()),
+            Value::Date(val) => ByteBuf::from(val.to_le_bytes()),
+            Value::Time(val) => ByteBuf::from(val.to_le_bytes()),
+            Value::Timestamp(val) => ByteBuf::from(val.to_le_bytes()),
+            Value::TimestampTZ(val) => ByteBuf::from(val.to_le_bytes()),
+            Value::String(val) => ByteBuf::from(val.as_bytes()),
+            Value::UUID(val) => ByteBuf::from(val),
+            Value::Fixed(_, val) => ByteBuf::from(val),
+            Value::Binary(val) => ByteBuf::from(val),
             _ => todo!(),
         }
     }
@@ -372,20 +372,20 @@ impl Value {
     /// Get datatype of value
     pub fn datatype(&self) -> Type {
         match self {
-            &Value::Boolean(_) => Type::Primitive(PrimitiveType::Boolean),
-            &Value::Int(_) => Type::Primitive(PrimitiveType::Int),
-            &Value::LongInt(_) => Type::Primitive(PrimitiveType::Long),
-            &Value::Float(_) => Type::Primitive(PrimitiveType::Float),
-            &Value::Double(_) => Type::Primitive(PrimitiveType::Double),
-            &Value::Date(_) => Type::Primitive(PrimitiveType::Date),
-            &Value::Time(_) => Type::Primitive(PrimitiveType::Time),
-            &Value::Timestamp(_) => Type::Primitive(PrimitiveType::Timestamp),
-            &Value::TimestampTZ(_) => Type::Primitive(PrimitiveType::Timestampz),
-            &Value::Fixed(len, _) => Type::Primitive(PrimitiveType::Fixed(len as u64)),
-            &Value::Binary(_) => Type::Primitive(PrimitiveType::Binary),
-            &Value::String(_) => Type::Primitive(PrimitiveType::String),
-            &Value::UUID(_) => Type::Primitive(PrimitiveType::Uuid),
-            &Value::Decimal(dec) => Type::Primitive(PrimitiveType::Decimal {
+            Value::Boolean(_) => Type::Primitive(PrimitiveType::Boolean),
+            Value::Int(_) => Type::Primitive(PrimitiveType::Int),
+            Value::LongInt(_) => Type::Primitive(PrimitiveType::Long),
+            Value::Float(_) => Type::Primitive(PrimitiveType::Float),
+            Value::Double(_) => Type::Primitive(PrimitiveType::Double),
+            Value::Date(_) => Type::Primitive(PrimitiveType::Date),
+            Value::Time(_) => Type::Primitive(PrimitiveType::Time),
+            Value::Timestamp(_) => Type::Primitive(PrimitiveType::Timestamp),
+            Value::TimestampTZ(_) => Type::Primitive(PrimitiveType::Timestampz),
+            Value::Fixed(len, _) => Type::Primitive(PrimitiveType::Fixed(*len as u64)),
+            Value::Binary(_) => Type::Primitive(PrimitiveType::Binary),
+            Value::String(_) => Type::Primitive(PrimitiveType::String),
+            Value::UUID(_) => Type::Primitive(PrimitiveType::Uuid),
+            Value::Decimal(dec) => Type::Primitive(PrimitiveType::Decimal {
                 precision: 38,
                 scale: dec.scale(),
             }),

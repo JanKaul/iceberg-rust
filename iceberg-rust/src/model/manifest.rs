@@ -352,13 +352,11 @@ pub fn partition_value_schema(spec: &[PartitionField], table_schema: &Schema) ->
                 },"#,
             )
         })
-        .fold(
-            Ok::<String, anyhow::Error>(
-                r#"{"type": "record","name": "r102","fields": ["#.to_owned(),
-            ),
+        .try_fold(
+            r#"{"type": "record","name": "r102","fields": ["#.to_owned(),
             |acc, x| {
-                let result = acc? + &x?;
-                Ok(result)
+                let result = acc + &x?;
+                Ok::<_, anyhow::Error>(result)
             },
         )?
         .trim_end_matches(',')

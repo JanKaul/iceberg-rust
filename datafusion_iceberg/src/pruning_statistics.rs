@@ -52,8 +52,6 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
             .as_ref()?
             .field_type
             .tranform(&partition_field.transform)
-            .ok()?
-            .try_into()
             .ok()?;
         let min_values = self.0.manifests().iter().filter_map(|manifest| {
             manifest.partitions().as_ref().and_then(|partitions| {
@@ -79,8 +77,6 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
             .as_ref()?
             .field_type
             .tranform(&partition_field.transform)
-            .ok()?
-            .try_into()
             .ok()?;
         let max_values = self.0.manifests().iter().filter_map(|manifest| {
             manifest.partitions().as_ref().and_then(|partitions| {

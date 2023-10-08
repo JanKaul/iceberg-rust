@@ -8,8 +8,8 @@ use anyhow::Result;
 impl DataFusionTable {
     pub(crate) async fn statistics(&self) -> Result<Statistics> {
         match &self.0 {
-            Relation::Table(table) => table.manifests().iter().fold(
-                Ok(Statistics {
+            Relation::Table(table) => table.manifests().iter().try_fold(
+                Statistics {
                     num_rows: Some(0),
                     total_byte_size: None,
                     column_statistics: Some(vec![
@@ -22,9 +22,8 @@ impl DataFusionTable {
                         table.schema()?.fields.fields.len()
                     ]),
                     is_exact: true,
-                }),
+                },
                 |acc, x| {
-                    let acc = acc?;
                     Ok(Statistics {
                         num_rows: acc.num_rows.zip(x.added_files_count()).map(
                             |(num_rows, added_files_count)| num_rows + added_files_count as usize,
