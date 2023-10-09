@@ -34,12 +34,6 @@ impl<'view> Transaction<'view> {
         self.operations.push(ViewOperation::UpdateSchema(schema));
         self
     }
-    /// Update the location of the view
-    pub fn update_location(mut self, location: &str) -> Self {
-        self.operations
-            .push(ViewOperation::UpdateLocation(location.to_owned()));
-        self
-    }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<()> {
         let catalog = self.view.catalog();
@@ -53,7 +47,7 @@ impl<'view> Transaction<'view> {
                 Ok::<&mut View, anyhow::Error>(self.view),
                 |view, op| async move {
                     let view = view?;
-                    op.execute(view).await?;
+                    op.execute(&mut view.metadata).await?;
                     Ok(view)
                 },
             )
