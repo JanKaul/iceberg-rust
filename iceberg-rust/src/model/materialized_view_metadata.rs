@@ -6,7 +6,10 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{table_metadata::VersionNumber, view_metadata::GeneralViewMetadata};
+use super::{
+    table_metadata::VersionNumber,
+    view_metadata::{GeneralViewMetadata, Representation},
+};
 
 /// Fields for the version 1 of the view metadata.
 pub type MaterializedViewMetadata = GeneralViewMetadata<MaterializedViewRepresentation>;
@@ -41,6 +44,8 @@ pub enum MaterializedViewRepresentation {
         field_docs: Option<Vec<String>>,
     },
 }
+
+impl Representation for MaterializedViewRepresentation {}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]

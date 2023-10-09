@@ -13,12 +13,12 @@ use super::schema::Schema;
 use _serde::ViewMetadataEnum;
 
 /// Fields for the version 1 of the view metadata.
-pub type ViewMetadata = GeneralViewMetadata<Representation>;
+pub type ViewMetadata = GeneralViewMetadata<ViewRepresentation>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(try_from = "ViewMetadataEnum<T>", into = "ViewMetadataEnum<T>")]
 /// Fields for the version 1 of the view metadata.
-pub struct GeneralViewMetadata<T: Clone> {
+pub struct GeneralViewMetadata<T: Representation> {
     /// An integer version number for the view format; must be 1
     pub format_version: FormatVersion,
     /// The view’s base location. This is used to determine where to store manifest files and view metadata files.
@@ -39,7 +39,7 @@ pub struct GeneralViewMetadata<T: Clone> {
     pub current_schema_id: Option<i32>,
 }
 
-impl<T: Clone> GeneralViewMetadata<T> {
+impl<T: Representation> GeneralViewMetadata<T> {
     /// Get current schema
     #[inline]
     pub fn current_schema(&self) -> Result<&Schema, anyhow::Error> {
@@ -67,7 +67,7 @@ mod _serde {
 
     use crate::model::{schema::SchemaV2, table_metadata::VersionNumber};
 
-    use super::{FormatVersion, GeneralViewMetadata, Version, VersionLogStruct};
+    use super::{FormatVersion, GeneralViewMetadata, Representation, Version, VersionLogStruct};
 
     /// Metadata of an iceberg view
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -101,7 +101,7 @@ mod _serde {
         pub current_schema_id: Option<i32>,
     }
 
-    impl<T: Clone> TryFrom<ViewMetadataEnum<T>> for GeneralViewMetadata<T> {
+    impl<T: Representation> TryFrom<ViewMetadataEnum<T>> for GeneralViewMetadata<T> {
         type Error = anyhow::Error;
         fn try_from(value: ViewMetadataEnum<T>) -> Result<Self, Self::Error> {
             match value {
@@ -110,7 +110,7 @@ mod _serde {
         }
     }
 
-    impl<T: Clone> From<GeneralViewMetadata<T>> for ViewMetadataEnum<T> {
+    impl<T: Representation> From<GeneralViewMetadata<T>> for ViewMetadataEnum<T> {
         fn from(value: GeneralViewMetadata<T>) -> Self {
             match value.format_version {
                 FormatVersion::V1 => ViewMetadataEnum::V1(value.into()),
@@ -118,7 +118,7 @@ mod _serde {
         }
     }
 
-    impl<T: Clone> TryFrom<ViewMetadataV1<T>> for GeneralViewMetadata<T> {
+    impl<T: Representation> TryFrom<ViewMetadataV1<T>> for GeneralViewMetadata<T> {
         type Error = anyhow::Error;
         fn try_from(value: ViewMetadataV1<T>) -> Result<Self, Self::Error> {
             Ok(GeneralViewMetadata {
@@ -142,7 +142,7 @@ mod _serde {
         }
     }
 
-    impl<T: Clone> From<GeneralViewMetadata<T>> for ViewMetadataV1<T> {
+    impl<T: Representation> From<GeneralViewMetadata<T>> for ViewMetadataV1<T> {
         fn from(value: GeneralViewMetadata<T>) -> Self {
             ViewMetadataV1 {
                 format_version: VersionNumber::<1>,
@@ -246,7 +246,7 @@ pub struct Summary {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case", tag = "type")]
 /// Fields for the version 2 of the view metadata.
-pub enum Representation {
+pub enum ViewRepresentation {
     #[serde(rename = "sql")]
     /// This type of representation stores the original view definition in SQL and its SQL dialect.
     Sql {
@@ -269,6 +269,11 @@ pub enum Representation {
         field_docs: Option<Vec<String>>,
     },
 }
+
+impl Representation for ViewRepresentation {}
+
+/// Marks a representation for an iceberg view
+pub trait Representation: Clone {}
 
 #[cfg(test)]
 mod tests {

@@ -13,7 +13,7 @@ use crate::catalog::identifier::Identifier;
 use crate::catalog::relation::Relation;
 use crate::model::schema::SchemaV2;
 use crate::model::view_metadata::{
-    FormatVersion, Operation, Representation, Summary, Version, VersionLogStruct, ViewMetadata,
+    FormatVersion, Operation, Summary, Version, VersionLogStruct, ViewMetadata, ViewRepresentation,
 };
 use anyhow::{anyhow, Result};
 
@@ -40,7 +40,7 @@ impl ViewBuilder {
             operation: Operation::Create,
             engine_version: None,
         };
-        let representation = Representation::Sql {
+        let representation = ViewRepresentation::Sql {
             sql: sql.to_owned(),
             dialect: "ANSI".to_owned(),
             schema_id: None,

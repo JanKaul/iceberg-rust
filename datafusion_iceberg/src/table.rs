@@ -33,7 +33,7 @@ use crate::pruning_statistics::{PruneDataFiles, PruneManifests};
 
 use iceberg_rust::{
     catalog::relation::Relation,
-    model::{types::StructField, view_metadata::Representation},
+    model::{types::StructField, view_metadata::ViewRepresentation},
     table::Table,
     util,
     view::View,
@@ -129,7 +129,7 @@ impl TableProvider for DataFusionTable {
                     .map_err(|err| DataFusionError::Internal(format!("{}", err)))?
                     .representations[0]
                 {
-                    Representation::Sql { sql, .. } => sql,
+                    ViewRepresentation::Sql { sql, .. } => sql,
                 };
                 let statement = DFParser::new(sql)?.parse_statement()?;
                 let logical_plan = session.statement_to_plan(statement).await?;

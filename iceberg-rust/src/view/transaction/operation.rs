@@ -6,7 +6,10 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use crate::model::{schema::Schema, view_metadata::GeneralViewMetadata};
+use crate::model::{
+    schema::Schema,
+    view_metadata::{GeneralViewMetadata, Representation},
+};
 
 /// View operation
 pub enum Operation {
@@ -18,7 +21,10 @@ pub enum Operation {
 
 impl Operation {
     /// Execute operation
-    pub async fn execute<T: Clone>(self, metadata: &mut GeneralViewMetadata<T>) -> Result<()> {
+    pub async fn execute<T: Representation>(
+        self,
+        metadata: &mut GeneralViewMetadata<T>,
+    ) -> Result<()> {
         match self {
             Operation::UpdateSchema(schema) => match &mut metadata.schemas {
                 None => {
