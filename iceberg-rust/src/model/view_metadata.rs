@@ -57,6 +57,18 @@ impl<T: Representation> GeneralViewMetadata<T> {
             .get(&self.current_version_id)
             .ok_or_else(|| anyhow!("Version {} not found", self.current_version_id))
     }
+    /// Add schema to view metadata
+    #[inline]
+    pub fn add_schema(&mut self, schema: Schema) {
+        match &mut self.schemas {
+            Some(schemas) => {
+                schemas.insert(schema.schema_id, schema);
+            }
+            x => {
+                *x = Some(HashMap::from_iter(vec![(schema.schema_id, schema)]));
+            }
+        }
+    }
 }
 
 mod _serde {

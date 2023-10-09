@@ -9,7 +9,10 @@ use uuid::Uuid;
 
 pub mod operation;
 
-use crate::{catalog::relation::Relation, model::schema::Schema};
+use crate::{
+    catalog::relation::Relation,
+    model::{schema::Schema, view_metadata::ViewRepresentation},
+};
 
 use self::operation::Operation as ViewOperation;
 
@@ -18,7 +21,7 @@ use super::View;
 /// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
 pub struct Transaction<'view> {
     view: &'view mut View,
-    operations: Vec<ViewOperation>,
+    operations: Vec<ViewOperation<ViewRepresentation>>,
 }
 
 impl<'view> Transaction<'view> {
@@ -30,8 +33,15 @@ impl<'view> Transaction<'view> {
         }
     }
     /// Update the schmema of the view
-    pub fn update_schema(mut self, schema: Schema) -> Self {
-        self.operations.push(ViewOperation::UpdateSchema(schema));
+    pub fn update_representation(
+        mut self,
+        representation: ViewRepresentation,
+        schema: Schema,
+    ) -> Self {
+        self.operations.push(ViewOperation::UpdateRepresentation {
+            representation,
+            schema,
+        });
         self
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
