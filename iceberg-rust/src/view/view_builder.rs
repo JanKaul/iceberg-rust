@@ -38,16 +38,12 @@ impl ViewBuilder {
     ) -> Result<Self> {
         let summary = Summary {
             operation: Operation::Create,
+            engine_name: None,
             engine_version: None,
         };
         let representation = ViewRepresentation::Sql {
             sql: sql.to_owned(),
             dialect: "ANSI".to_owned(),
-            schema_id: None,
-            default_catalog: None,
-            default_namespace: None,
-            field_aliases: None,
-            field_docs: None,
         };
         let version = Version {
             version_id: 1,
@@ -55,8 +51,11 @@ impl ViewBuilder {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .map_err(|err| anyhow!(err.to_string()))?
                 .as_millis() as i64,
+            schema_id: schema.schema_id,
             summary,
             representations: vec![representation],
+            default_catalog: None,
+            default_namespace: None,
         };
         let version_log = vec![VersionLogStruct {
             timestamp_ms: SystemTime::now()
@@ -66,10 +65,10 @@ impl ViewBuilder {
             version_id: 1,
         }];
         let metadata = ViewMetadata {
+            view_uuid: Uuid::new_v4(),
             format_version: FormatVersion::V1,
             location: base_path.to_owned() + &identifier.to_string().replace('.', "/"),
             schemas: Some(HashMap::from_iter(vec![(1, schema.try_into()?)])),
-            current_schema_id: Some(1),
             versions: HashMap::from_iter(vec![(1, version)]),
             current_version_id: 1,
             version_log,

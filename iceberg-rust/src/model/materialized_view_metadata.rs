@@ -23,25 +23,12 @@ pub enum MaterializedViewRepresentation {
     SqlMaterialized {
         /// A string representing the original view definition in SQL
         sql: String,
-        /// An integer version number for the materialized view format. Currently, this must be 1. Implementations must throw an exception if the materialized view's version is higher than the supported version.
-        format_version: VersionNumber<1>,
         /// A string specifying the dialect of the ‘sql’ field. It can be used by the engines to detect the SQL dialect.
         dialect: String,
+        /// An integer version number for the materialized view format. Currently, this must be 1. Implementations must throw an exception if the materialized view's version is higher than the supported version.
+        format_version: VersionNumber<1>,
         /// Pointer to the storage table
         storage_table: String,
-        /// ID of the view’s schema when the version was created
-        schema_id: Option<i64>,
-        /// A string specifying the catalog to use when the table or view references in the view definition do not contain an explicit catalog.
-        default_catalog: Option<String>,
-        /// The namespace to use when the table or view references in the view definition do not contain an explicit namespace.
-        /// Since the namespace may contain multiple parts, it is serialized as a list of strings.
-        default_namespace: Option<Vec<String>>,
-        /// A list of strings of field aliases optionally specified in the create view statement.
-        /// The list should have the same length as the schema’s top level fields. See the example below.
-        field_aliases: Option<Vec<String>>,
-        /// A list of strings of field comments optionally specified in the create view statement.
-        /// The list should have the same length as the schema’s top level fields. See the example below.
-        field_docs: Option<Vec<String>>,
     },
 }
 
@@ -68,54 +55,53 @@ mod tests {
     fn test_deserialize_materialized_view_metadata_v1() -> Result<()> {
         let data = r#"
         {
-            "format-version" : 1,
-            "location" : "s3n://my_company/my/warehouse/anorwood.db/common_view",
-            "current-version-id" : 1,
-            "properties" : { 
-              "comment" : "View captures all the data from the table"
+        "view-uuid": "fa6506c3-7681-40c8-86dc-e36561f83385",
+        "format-version" : 1,
+        "location" : "s3://bucket/warehouse/default.db/event_agg",
+        "current-version-id" : 1,
+        "properties" : {
+            "comment" : "Daily event counts"
+        },
+        "versions" : [ {
+            "version-id" : 1,
+            "timestamp-ms" : 1573518431292,
+            "schema-id" : 1,
+            "default-catalog" : "prod",
+            "default-namespace" : [ "default" ],
+            "summary" : {
+            "operation" : "create",
+            "engine-name" : "Spark",
+            "engineVersion" : "3.3.2"
             },
-            "versions" : [ {
-              "version-id" : 1,
-              "parent-version-id" : -1,
-              "timestamp-ms" : 1573518431292,
-              "summary" : {
-                "operation" : "create",
-                "engineVersion" : "presto-350"
-              },
-              "representations" : [ {
-                "type" : "sql-materialized",
-                "sql" : "SELECT *\nFROM\n  base_tab\n",
-                "format-version": 1,
-                "storage-table": "s3n://my_company/my/warehouse/anorwood.db/storage_table",
-                "dialect" : "presto",
-                "schema-id" : 1,
-                "default-catalog" : "iceberg",
-                "default-namespace" : [ "anorwood" ]
-              } ]
-            } ],
-            "version-log" : [ {
-              "timestamp-ms" : 1573518431292,
-              "version-id" : 1
-            } ],
-            "schemas": [ {
-              "schema-id": 1,
-              "type" : "struct",
-              "fields" : [ {
-                "id" : 0,
-                "name" : "c1",
-                "required" : false,
-                "type" : "int",
-                "doc" : ""
-              }, {
-                "id" : 1,
-                "name" : "c2",
-                "required" : false,
-                "type" : "string",
-                "doc" : ""
-              } ]
-            } ],
-            "current-schema-id": 1
-          }
+            "representations" : [ {
+            "type" : "sql-materialized",
+            "sql" : "SELECT\n    COUNT(1), CAST(event_ts AS DATE)\nFROM events\nGROUP BY 2",
+            "dialect" : "spark",
+            "format-version": 1,
+            "storage-table": "s3://bucket/warehouse/default.db/event_agg/computed"
+            } ]
+        } ],
+        "schemas": [ {
+            "schema-id": 1,
+            "type" : "struct",
+            "fields" : [ {
+            "id" : 1,
+            "name" : "event_count",
+            "required" : false,
+            "type" : "int",
+            "doc" : "Count of events"
+            }, {
+            "id" : 2,
+            "name" : "event_date",
+            "required" : false,
+            "type" : "date"
+            } ]
+        } ],
+        "version-log" : [ {
+            "timestamp-ms" : 1573518431292,
+            "version-id" : 1
+        } ]
+        }
         "#;
         let metadata = serde_json::from_str::<MaterializedViewMetadata>(data)
             .expect("Failed to deserialize json");
