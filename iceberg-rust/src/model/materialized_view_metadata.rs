@@ -15,7 +15,7 @@ pub type MaterializedViewMetadata = GeneralViewMetadata<MaterializedViewRepresen
 #[serde(rename_all = "kebab-case", tag = "type")]
 /// Fields for the version 2 of the view metadata.
 pub enum MaterializedViewRepresentation {
-    #[serde(rename = "sql_materialized")]
+    #[serde(rename_all = "kebab-case")]
     /// This type of representation stores the original view definition in SQL and its SQL dialect.
     SqlMaterialized {
         /// A string representing the original view definition in SQL
@@ -25,7 +25,7 @@ pub enum MaterializedViewRepresentation {
         /// A string specifying the dialect of the ‘sql’ field. It can be used by the engines to detect the SQL dialect.
         dialect: String,
         /// Pointer to the storage table
-        storage_table_pointer: String,
+        storage_table: String,
         /// ID of the view’s schema when the version was created
         schema_id: Option<i64>,
         /// A string specifying the catalog to use when the table or view references in the view definition do not contain an explicit catalog.
@@ -50,4 +50,78 @@ pub struct Freshness {
     version_id: i64,
     /// Map from references in the sql expression to snapshot_ids of the last refresh operation
     base_tables: HashMap<String, i64>,
+}
+
+#[cfg(test)]
+mod tests {
+
+    use anyhow::Result;
+
+    use crate::model::materialized_view_metadata::MaterializedViewMetadata;
+
+    #[test]
+    fn test_deserialize_materialized_view_metadata_v1() -> Result<()> {
+        let data = r#"
+        {
+            "format-version" : 1,
+            "location" : "s3n://my_company/my/warehouse/anorwood.db/common_view",
+            "current-version-id" : 1,
+            "properties" : { 
+              "comment" : "View captures all the data from the table"
+            },
+            "versions" : [ {
+              "version-id" : 1,
+              "parent-version-id" : -1,
+              "timestamp-ms" : 1573518431292,
+              "summary" : {
+                "operation" : "create",
+                "engineVersion" : "presto-350"
+              },
+              "representations" : [ {
+                "type" : "sql-materialized",
+                "sql" : "SELECT *\nFROM\n  base_tab\n",
+                "format-version": 1,
+                "storage-table": "s3n://my_company/my/warehouse/anorwood.db/storage_table",
+                "dialect" : "presto",
+                "schema-id" : 1,
+                "default-catalog" : "iceberg",
+                "default-namespace" : [ "anorwood" ]
+              } ]
+            } ],
+            "version-log" : [ {
+              "timestamp-ms" : 1573518431292,
+              "version-id" : 1
+            } ],
+            "schemas": [ {
+              "schema-id": 1,
+              "type" : "struct",
+              "fields" : [ {
+                "id" : 0,
+                "name" : "c1",
+                "required" : false,
+                "type" : "int",
+                "doc" : ""
+              }, {
+                "id" : 1,
+                "name" : "c2",
+                "required" : false,
+                "type" : "string",
+                "doc" : ""
+              } ]
+            } ],
+            "current-schema-id": 1
+          }
+        "#;
+        let metadata = serde_json::from_str::<MaterializedViewMetadata>(data)
+            .expect("Failed to deserialize json");
+        //test serialise deserialise works.
+        let metadata_two: MaterializedViewMetadata = serde_json::from_str(
+            &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),
+        )
+        .expect("Failed to serialize json");
+        dbg!(&metadata, &metadata_two);
+        assert_eq!(metadata, metadata_two);
+
+        Ok(())
+    }
 }
