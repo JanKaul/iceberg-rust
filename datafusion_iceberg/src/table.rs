@@ -81,6 +81,7 @@ impl TableProvider for DataFusionTable {
         match &self.0 {
             Relation::Table(table) => table,
             Relation::View(view) => view,
+            Relation::MaterializedView(mv) => mv,
         }
     }
     fn schema(&self) -> SchemaRef {
@@ -106,12 +107,34 @@ impl TableProvider for DataFusionTable {
                 Arc::new((&schema.fields).try_into().unwrap())
             }
             Relation::View(view) => Arc::new((&view.schema().unwrap().fields).try_into().unwrap()),
+            Relation::MaterializedView(mv) => {
+                let table = mv.storage_table();
+                let mut schema = table.schema().unwrap().clone();
+                // Add the partition columns to the table schema
+                for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
+                    schema.fields.fields.push(StructField {
+                        id: partition_field.field_id,
+                        name: partition_field.name.clone(),
+                        field_type: schema
+                            .fields
+                            .get(partition_field.source_id as usize)
+                            .unwrap()
+                            .field_type
+                            .tranform(&partition_field.transform)
+                            .unwrap(),
+                        required: true,
+                        doc: None,
+                    })
+                }
+                Arc::new((&schema.fields).try_into().unwrap())
+            }
         }
     }
     fn table_type(&self) -> TableType {
         match &self.0 {
             Relation::Table(_) => TableType::Base,
             Relation::View(_) => TableType::View,
+            Relation::MaterializedView(_) => TableType::Base,
         }
     }
     async fn scan(
@@ -138,6 +161,18 @@ impl TableProvider for DataFusionTable {
                     .await
             }
             Relation::Table(table) => {
+                let schema = self.schema();
+                let statistics = self
+                    .statistics()
+                    .await
+                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+                table_scan(
+                    table, schema, statistics, session, projection, filters, limit,
+                )
+                .await
+            }
+            Relation::MaterializedView(mv) => {
+                let table = mv.storage_table();
                 let schema = self.schema();
                 let statistics = self
                     .statistics()

@@ -10,7 +10,7 @@ use futures::lock::Mutex;
 use object_store::ObjectStore;
 use rusqlite::{Connection, Row};
 
-use crate::{table::Table, util::strip_prefix, view::View};
+use crate::{materialized_view::MaterializedView, table::Table, util::strip_prefix, view::View};
 
 use super::{
     identifier::Identifier,
@@ -158,6 +158,15 @@ impl Catalog for MemoryCatalog {
                 View::new(
                     identifier.clone(),
                     Arc::clone(&catalog),
+                    metadata,
+                    &path.to_string(),
+                )
+                .await?,
+            )),
+            RelationMetadata::MaterializedView(metadata) => Ok(Relation::MaterializedView(
+                MaterializedView::new(
+                    identifier.clone(),
+                    catalog.clone(),
                     metadata,
                     &path.to_string(),
                 )
