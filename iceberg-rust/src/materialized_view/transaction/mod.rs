@@ -1,41 +1,38 @@
 /*!
- * Defines the [Transaction] type for views to perform multiple view [Operation]s with ACID guarantees.
+ * Defines the [Transaction] type for materialized views to perform multiple [Operation]s with ACID guarantees.
 */
 
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
 use futures::StreamExt;
 use object_store::path::Path;
 use uuid::Uuid;
 
-pub mod operation;
-
 use crate::{
     catalog::relation::Relation,
-    model::{schema::Schema, view_metadata::ViewRepresentation},
+    model::{materialized_view_metadata::MaterializedViewRepresentation, schema::Schema},
+    view::transaction::operation::Operation as ViewOperation,
 };
 
-use self::operation::Operation as ViewOperation;
-
-use super::View;
+use super::MaterializedView;
 
 /// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
 pub struct Transaction<'view> {
-    view: &'view mut View,
-    operations: Vec<ViewOperation<ViewRepresentation>>,
+    materialized_view: &'view mut MaterializedView,
+    operations: Vec<ViewOperation<MaterializedViewRepresentation>>,
 }
 
 impl<'view> Transaction<'view> {
     /// Create a transaction for the given view.
-    pub fn new(view: &'view mut View) -> Self {
+    pub fn new(view: &'view mut MaterializedView) -> Self {
         Transaction {
-            view,
+            materialized_view: view,
             operations: vec![],
         }
     }
     /// Update the schmema of the view
     pub fn update_representation(
         mut self,
-        representation: ViewRepresentation,
+        representation: MaterializedViewRepresentation,
         schema: Schema,
     ) -> Self {
         self.operations.push(ViewOperation::UpdateRepresentation {
@@ -45,16 +42,14 @@ impl<'view> Transaction<'view> {
         self
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
-    pub async fn commit(self) -> Result<()> {
-        let catalog = self.view.catalog();
+    pub async fn commit(self) -> Result<(), anyhow::Error> {
+        let catalog = self.materialized_view.catalog();
         let object_store = catalog.object_store();
-        let identifier = self.view.identifier().clone();
-        // Before executing the transactions operations, update the version number
-        self.view.increment_version_number();
+        let identifier = self.materialized_view.identifier().clone();
         // Execute the table operations
-        let view = futures::stream::iter(self.operations)
+        let materialized_view = futures::stream::iter(self.operations)
             .fold(
-                Ok::<&mut View, anyhow::Error>(self.view),
+                Ok::<&mut MaterializedView, anyhow::Error>(self.materialized_view),
                 |view, op| async move {
                     let view = view?;
                     op.execute(&mut view.metadata).await?;
@@ -63,11 +58,11 @@ impl<'view> Transaction<'view> {
             )
             .await?;
 
-        let location = &&view.metadata().location;
+        let location = &&materialized_view.metadata().location;
         let transaction_uuid = Uuid::new_v4();
-        let version = &&view.metadata().current_version_id;
-        let metadata_json =
-            serde_json::to_string(&view.metadata()).map_err(|err| anyhow!(err.to_string()))?;
+        let version = &&materialized_view.metadata().current_version_id;
+        let metadata_json = serde_json::to_string(&materialized_view.metadata())
+            .map_err(|err| anyhow!(err.to_string()))?;
         let metadata_file_location: Path = (location.to_string()
             + "/metadata/"
             + &version.to_string()
@@ -79,8 +74,8 @@ impl<'view> Transaction<'view> {
             .put(&metadata_file_location, metadata_json.into())
             .await
             .map_err(|err| anyhow!(err.to_string()))?;
-        let previous_metadata_file_location = view.metadata_location();
-        if let Relation::View(new_view) = catalog
+        let previous_metadata_file_location = materialized_view.metadata_location();
+        if let Relation::MaterializedView(new_mv) = catalog
             .clone()
             .update_table(
                 identifier,
@@ -89,7 +84,7 @@ impl<'view> Transaction<'view> {
             )
             .await?
         {
-            *view = new_view;
+            *materialized_view = new_mv;
             Ok(())
         } else {
             Err(anyhow!(

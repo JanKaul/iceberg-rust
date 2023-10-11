@@ -99,7 +99,7 @@ impl<'table> TableTransaction<'table> {
             .update_table(
                 identifier,
                 metadata_file_location.as_ref(),
-                &previous_metadata_file_location,
+                previous_metadata_file_location,
             )
             .await?
         {

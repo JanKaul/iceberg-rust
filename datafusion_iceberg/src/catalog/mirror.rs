@@ -73,7 +73,7 @@ impl Mirror {
             })
             .map(|x| {
                 Namespace::try_new(
-                    x.split(".")
+                    x.split('.')
                         .map(|s| s.to_owned())
                         .collect::<Vec<_>>()
                         .as_slice(),

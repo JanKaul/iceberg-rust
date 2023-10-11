@@ -10,7 +10,7 @@ use futures::lock::Mutex;
 use object_store::ObjectStore;
 use rusqlite::{Connection, Row};
 
-use crate::{table::Table, util::strip_prefix, view::View};
+use crate::{materialized_view::MaterializedView, table::Table, util::strip_prefix, view::View};
 
 use super::{
     identifier::Identifier,
@@ -55,7 +55,7 @@ struct TableRef {
     _previous_metadata_location: Option<String>,
 }
 
-fn query_map<'a>(row: &Row<'a>) -> Result<TableRef, rusqlite::Error> {
+fn query_map(row: &Row<'_>) -> Result<TableRef, rusqlite::Error> {
     Ok(TableRef {
         table_namespace: row.get(0)?,
         table_name: row.get(1)?,
@@ -163,6 +163,15 @@ impl Catalog for MemoryCatalog {
                 )
                 .await?,
             )),
+            RelationMetadata::MaterializedView(metadata) => Ok(Relation::MaterializedView(
+                MaterializedView::new(
+                    identifier.clone(),
+                    catalog.clone(),
+                    metadata,
+                    &path.to_string(),
+                )
+                .await?,
+            )),
         }
     }
     async fn invalidate_table(
@@ -256,7 +265,7 @@ pub mod tests {
             .table_exists(&identifier)
             .await
             .expect("Table doesn't exist");
-        assert_eq!(exists, true);
+        assert!(exists);
 
         let metadata_location = table.metadata_location().to_string();
 
@@ -267,7 +276,7 @@ pub mod tests {
 
         assert_ne!(metadata_location, new_metadata_location);
 
-        let _ = catalog
+        catalog
             .drop_table(&identifier)
             .await
             .expect("Failed to drop table.");
@@ -276,6 +285,6 @@ pub mod tests {
             .table_exists(&identifier)
             .await
             .expect("Table exists failed");
-        assert_eq!(exists, false);
+        assert!(!exists);
     }
 }

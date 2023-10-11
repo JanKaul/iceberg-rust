@@ -103,15 +103,13 @@ pub async fn partition_record_batches(
                     .try_fold(
                         vec![(vec![], BooleanArray::new(true_buffer.finish(), None))],
                         |acc, predicates| {
-                            Ok::<_, ArrowError>(
-                                iproduct!(acc, predicates?.iter())
-                                    .map(|((mut values, x), (value, y))| {
-                                        values.push(value.clone());
-                                        Ok((values, and(&x, y)?))
-                                    })
-                                    .filter_ok(|x| x.1.true_count() != 0)
-                                    .collect::<Result<Vec<(Vec<Value>, _)>, ArrowError>>()?,
-                            )
+                            iproduct!(acc, predicates?.iter())
+                                .map(|((mut values, x), (value, y))| {
+                                    values.push(value.clone());
+                                    Ok((values, and(&x, y)?))
+                                })
+                                .filter_ok(|x| x.1.true_count() != 0)
+                                .collect::<Result<Vec<(Vec<Value>, _)>, ArrowError>>()
                         },
                     )?;
                 stream::iter(predicates.into_iter())
@@ -183,11 +181,9 @@ fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
 ) -> HashSet<P::Native> {
     let mut set = HashSet::new();
     let array = as_primitive_array::<P>(&array);
-    for value in ArrayIter::new(array) {
-        if let Some(value) = value {
-            if !set.contains(&value) {
-                set.insert(value);
-            }
+    for value in ArrayIter::new(array).flatten() {
+        if !set.contains(&value) {
+            set.insert(value);
         }
     }
     set
@@ -196,11 +192,9 @@ fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
 fn distinct_values_string(array: ArrayRef) -> HashSet<String> {
     let mut set = HashSet::new();
     let array = as_string_array(&array);
-    for value in ArrayIter::new(array) {
-        if let Some(value) = value {
-            if !set.contains(value) {
-                set.insert(value.to_owned());
-            }
+    for value in ArrayIter::new(array).flatten() {
+        if !set.contains(value) {
+            set.insert(value.to_owned());
         }
     }
     set

@@ -110,7 +110,7 @@ impl Table {
             Some(old_manifest_list_location) => {
                 object_store
                     .copy(
-                        &strip_prefix(&old_manifest_list_location).as_str().into(),
+                        &strip_prefix(old_manifest_list_location).as_str().into(),
                         &strip_prefix(&new_manifest_list_location).as_str().into(),
                     )
                     .await?

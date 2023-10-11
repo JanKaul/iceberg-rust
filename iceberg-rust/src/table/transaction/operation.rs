@@ -126,7 +126,7 @@ impl Operation {
                     .into();
 
                 // Check if file has content "null", if so manifest_list file is empty
-                let existing_manifest_iter = if &manifest_list_bytes == &vec![110, 117, 108, 108] {
+                let existing_manifest_iter = if manifest_list_bytes == vec![110, 117, 108, 108] {
                     None
                 } else {
                     let manifest_list_reader = apache_avro::Reader::new(&*manifest_list_bytes)?;
@@ -452,7 +452,7 @@ impl Operation {
 }
 
 fn update_partitions(
-    partitions: &mut Vec<FieldSummary>,
+    partitions: &mut [FieldSummary],
     partition_values: &Struct,
     partition_columns: &[&StructField],
 ) -> Result<()> {
@@ -560,9 +560,9 @@ fn update_partitions(
 }
 
 /// checks if partition values lie in the bounds of the field summary
-fn datafiles_in_bounds<'values>(
-    partitions: &Vec<FieldSummary>,
-    datafiles: &'values HashMap<&String, DataFileV2>,
+fn datafiles_in_bounds(
+    partitions: &[FieldSummary],
+    datafiles: &HashMap<&String, DataFileV2>,
     partition_spec: &[PartitionField],
     schema: &Schema,
 ) -> Vec<String> {
@@ -570,7 +570,7 @@ fn datafiles_in_bounds<'values>(
         .values()
         .filter(|datafile| {
             partition_spec
-                .into_iter()
+                .iter()
                 .map(|field| {
                     let name = &schema
                         .fields

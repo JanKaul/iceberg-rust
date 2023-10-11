@@ -3,8 +3,7 @@ fn main() {
         .with_crate(".")
         .with_language(cbindgen::Language::C)
         .with_header(
-            "typedef void* Relation;\ntypedef void* Table;\ntypedef void* TableTransaction;\ntypedef void* TableBuilder;\n"
-                .to_owned(),
+            "typedef void* Relation;\ntypedef void* Table;\ntypedef void* TableTransaction;\ntypedef void* TableBuilder;\n",
         )
         .generate()
         .expect("Unable to generate bindings")
