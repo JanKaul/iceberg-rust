@@ -1,9 +1,19 @@
 /*!
  * Snapshots
 */
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Cursor, sync::Arc};
 
+use object_store::ObjectStore;
 use serde::{Deserialize, Serialize};
+
+use crate::util;
+
+use super::{
+    manifest_list::{ManifestFile, ManifestFileV1, ManifestFileV2},
+    table_metadata::FormatVersion,
+};
+
+use apache_avro::types::Value as AvroValue;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
@@ -26,6 +36,35 @@ pub struct Snapshot {
     pub summary: Summary,
     /// ID of the table’s current schema when the snapshot was created.
     pub schema_id: Option<i64>,
+}
+
+impl Snapshot {
+    // Return all manifest files associated to the latest table snapshot. Reads the related manifest_list file and returns its entries.
+    // If the manifest list file is empty returns an empty vector.
+    pub(crate) async fn manifests(
+        &self,
+        format_version: &FormatVersion,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<Vec<ManifestFile>, anyhow::Error> {
+        let bytes: Cursor<Vec<u8>> = Cursor::new(
+            object_store
+                .get(&util::strip_prefix(&self.manifest_list).into())
+                .await
+                .map_err(anyhow::Error::msg)?
+                .bytes()
+                .await?
+                .into(),
+        );
+        // Read the file content only if the bytes are not empty otherwise return an empty vector
+        if !bytes.get_ref().is_empty() {
+            let reader = apache_avro::Reader::new(bytes)?;
+            reader
+                .map(|record| avro_value_to_manifest_file(record, format_version.clone()))
+                .collect()
+        } else {
+            Ok(Vec::new())
+        }
+    }
 }
 
 pub(crate) mod _serde {
@@ -219,4 +258,21 @@ pub enum Retention {
         /// Defaults to table property history.expire.max-ref-age-ms. The main branch never expires.
         max_ref_age_ms: i64,
     },
+}
+
+/// Convert an avro value to a [ManifestFile] according to the provided format version
+fn avro_value_to_manifest_file(
+    entry: Result<AvroValue, apache_avro::Error>,
+    format_version: FormatVersion,
+) -> Result<ManifestFile, anyhow::Error> {
+    entry
+        .and_then(|value| match format_version {
+            FormatVersion::V1 => {
+                apache_avro::from_value::<ManifestFileV1>(&value).map(ManifestFile::V1)
+            }
+            FormatVersion::V2 => {
+                apache_avro::from_value::<ManifestFileV2>(&value).map(ManifestFile::V2)
+            }
+        })
+        .map_err(anyhow::Error::msg)
 }
