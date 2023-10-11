@@ -5,6 +5,150 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+/// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
+pub struct Snapshot {
+    /// A unique long ID
+    pub snapshot_id: i64,
+    /// The snapshot ID of the snapshot’s parent.
+    /// Omitted for any snapshot with no parent
+    pub parent_snapshot_id: Option<i64>,
+    /// A monotonically increasing long that tracks the order of
+    /// changes to a table.
+    pub sequence_number: i64,
+    /// A timestamp when the snapshot was created, used for garbage
+    /// collection and table inspection
+    pub timestamp_ms: i64,
+    /// The location of a manifest list for this snapshot that
+    /// tracks manifest files with additional metadata.
+    pub manifest_list: String,
+    /// A string map that summarizes the snapshot changes, including operation.
+    pub summary: Summary,
+    /// ID of the table’s current schema when the snapshot was created.
+    pub schema_id: Option<i64>,
+}
+
+pub(crate) mod _serde {
+    use std::collections::HashMap;
+
+    use serde::{Deserialize, Serialize};
+
+    use super::{Operation, Snapshot, Summary};
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+    #[serde(rename_all = "kebab-case")]
+    /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
+    pub(crate) struct SnapshotV2 {
+        /// A unique long ID
+        pub snapshot_id: i64,
+        /// The snapshot ID of the snapshot’s parent.
+        /// Omitted for any snapshot with no parent
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub parent_snapshot_id: Option<i64>,
+        /// A monotonically increasing long that tracks the order of
+        /// changes to a table.
+        pub sequence_number: i64,
+        /// A timestamp when the snapshot was created, used for garbage
+        /// collection and table inspection
+        pub timestamp_ms: i64,
+        /// The location of a manifest list for this snapshot that
+        /// tracks manifest files with additional metadata.
+        pub manifest_list: String,
+        /// A string map that summarizes the snapshot changes, including operation.
+        pub summary: Summary,
+        /// ID of the table’s current schema when the snapshot was created.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub schema_id: Option<i64>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+    #[serde(rename_all = "kebab-case")]
+    /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
+    pub(crate) struct SnapshotV1 {
+        /// A unique long ID
+        pub snapshot_id: i64,
+        /// The snapshot ID of the snapshot’s parent.
+        /// Omitted for any snapshot with no parent
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub parent_snapshot_id: Option<i64>,
+        /// A timestamp when the snapshot was created, used for garbage
+        /// collection and table inspection
+        pub timestamp_ms: i64,
+        /// The location of a manifest list for this snapshot that
+        /// tracks manifest files with additional metadata.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub manifest_list: Option<String>,
+        /// A list of manifest file locations. Must be omitted if manifest-list is present
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub manifests: Option<Vec<String>>,
+        /// A string map that summarizes the snapshot changes, including operation.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub summary: Option<Summary>,
+        /// ID of the table’s current schema when the snapshot was created.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub schema_id: Option<i64>,
+    }
+
+    impl From<SnapshotV1> for Snapshot {
+        fn from(v1: SnapshotV1) -> Self {
+            Snapshot {
+                snapshot_id: v1.snapshot_id,
+                parent_snapshot_id: v1.parent_snapshot_id,
+                sequence_number: 0,
+                timestamp_ms: v1.timestamp_ms,
+                manifest_list: v1.manifest_list.unwrap_or_default(),
+                summary: v1.summary.unwrap_or(Summary {
+                    operation: Operation::default(),
+                    other: HashMap::new(),
+                }),
+                schema_id: v1.schema_id,
+            }
+        }
+    }
+
+    impl From<Snapshot> for SnapshotV1 {
+        fn from(v1: Snapshot) -> Self {
+            SnapshotV1 {
+                snapshot_id: v1.snapshot_id,
+                parent_snapshot_id: v1.parent_snapshot_id,
+                timestamp_ms: v1.timestamp_ms,
+                manifest_list: Some(v1.manifest_list),
+                summary: Some(v1.summary),
+                schema_id: v1.schema_id,
+                manifests: None,
+            }
+        }
+    }
+
+    impl From<SnapshotV2> for Snapshot {
+        fn from(value: SnapshotV2) -> Self {
+            Snapshot {
+                snapshot_id: value.snapshot_id,
+                parent_snapshot_id: value.parent_snapshot_id,
+                sequence_number: 0,
+                timestamp_ms: value.timestamp_ms,
+                manifest_list: value.manifest_list,
+                summary: value.summary,
+                schema_id: value.schema_id,
+            }
+        }
+    }
+
+    impl From<Snapshot> for SnapshotV2 {
+        fn from(value: Snapshot) -> Self {
+            SnapshotV2 {
+                snapshot_id: value.snapshot_id,
+                parent_snapshot_id: value.parent_snapshot_id,
+                sequence_number: 0,
+                timestamp_ms: value.timestamp_ms,
+                manifest_list: value.manifest_list,
+                summary: value.summary,
+                schema_id: value.schema_id,
+            }
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "lowercase")]
 /// The operation field is used by some operations, like snapshot expiration, to skip processing certain snapshots.
@@ -33,91 +177,6 @@ pub struct Summary {
 impl Default for Operation {
     fn default() -> Operation {
         Self::Append
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-#[serde(rename_all = "kebab-case")]
-/// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
-pub struct SnapshotV2 {
-    /// A unique long ID
-    pub snapshot_id: i64,
-    /// The snapshot ID of the snapshot’s parent.
-    /// Omitted for any snapshot with no parent
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_snapshot_id: Option<i64>,
-    /// A monotonically increasing long that tracks the order of
-    /// changes to a table.
-    pub sequence_number: i64,
-    /// A timestamp when the snapshot was created, used for garbage
-    /// collection and table inspection
-    pub timestamp_ms: i64,
-    /// The location of a manifest list for this snapshot that
-    /// tracks manifest files with additional metadata.
-    pub manifest_list: String,
-    /// A string map that summarizes the snapshot changes, including operation.
-    pub summary: Summary,
-    /// ID of the table’s current schema when the snapshot was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schema_id: Option<i64>,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-#[serde(rename_all = "kebab-case")]
-/// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
-pub struct SnapshotV1 {
-    /// A unique long ID
-    pub snapshot_id: i64,
-    /// The snapshot ID of the snapshot’s parent.
-    /// Omitted for any snapshot with no parent
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_snapshot_id: Option<i64>,
-    /// A timestamp when the snapshot was created, used for garbage
-    /// collection and table inspection
-    pub timestamp_ms: i64,
-    /// The location of a manifest list for this snapshot that
-    /// tracks manifest files with additional metadata.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub manifest_list: Option<String>,
-    /// A list of manifest file locations. Must be omitted if manifest-list is present
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub manifests: Option<Vec<String>>,
-    /// A string map that summarizes the snapshot changes, including operation.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<Summary>,
-    /// ID of the table’s current schema when the snapshot was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schema_id: Option<i64>,
-}
-
-impl From<SnapshotV1> for SnapshotV2 {
-    fn from(v1: SnapshotV1) -> Self {
-        SnapshotV2 {
-            snapshot_id: v1.snapshot_id,
-            parent_snapshot_id: v1.parent_snapshot_id,
-            sequence_number: 0,
-            timestamp_ms: v1.timestamp_ms,
-            manifest_list: v1.manifest_list.unwrap_or_default(),
-            summary: v1.summary.unwrap_or(Summary {
-                operation: Operation::default(),
-                other: HashMap::new(),
-            }),
-            schema_id: v1.schema_id,
-        }
-    }
-}
-
-impl From<SnapshotV2> for SnapshotV1 {
-    fn from(v1: SnapshotV2) -> Self {
-        SnapshotV1 {
-            snapshot_id: v1.snapshot_id,
-            parent_snapshot_id: v1.parent_snapshot_id,
-            timestamp_ms: v1.timestamp_ms,
-            manifest_list: Some(v1.manifest_list),
-            summary: Some(v1.summary),
-            schema_id: v1.schema_id,
-            manifests: None,
-        }
     }
 }
 

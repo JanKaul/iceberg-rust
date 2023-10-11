@@ -13,7 +13,7 @@ use crate::{
     model::{
         manifest_list::{ManifestFile, ManifestFileV1, ManifestFileV2},
         schema::Schema,
-        snapshot::{Operation, SnapshotV2, Summary},
+        snapshot::{Operation, Snapshot, Summary},
         table_metadata::{FormatVersion, TableMetadata},
     },
     table::transaction::TableTransaction,
@@ -124,7 +124,7 @@ impl Table {
                     .await?;
             }
         };
-        let snapshot = SnapshotV2 {
+        let snapshot = Snapshot {
             snapshot_id,
             parent_snapshot_id: metadata.current_snapshot_id,
             sequence_number: metadata.last_sequence_number + 1,

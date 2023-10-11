@@ -7,17 +7,13 @@ use anyhow::anyhow;
 
 use std::collections::HashMap;
 
-use crate::model::{
-    partition::PartitionSpec,
-    snapshot::{Reference, SnapshotV2},
-    sort,
-};
+use crate::model::{partition::PartitionSpec, snapshot::Reference, sort};
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use super::schema::Schema;
+use super::{schema::Schema, snapshot::Snapshot};
 
 static MAIN_BRANCH: &str = "main";
 static DEFAULT_SORT_ORDER_ID: i64 = 0;
@@ -65,7 +61,7 @@ pub struct TableMetadata {
     /// from the file system until the last snapshot in which it was listed is
     /// garbage collected.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub snapshots: Option<HashMap<i64, SnapshotV2>>,
+    pub snapshots: Option<HashMap<i64, Snapshot>>,
     /// A list (optional) of timestamp and snapshot ID pairs that encodes changes
     /// to the current snapshot for the table. Each time the current-snapshot-id
     /// is changed, a new entry should be added with the last-updated-ms
@@ -116,7 +112,7 @@ impl TableMetadata {
 
     /// Get current snapshot
     #[inline]
-    pub fn current_snapshot(&self) -> Result<Option<&SnapshotV2>, anyhow::Error> {
+    pub fn current_snapshot(&self) -> Result<Option<&Snapshot>, anyhow::Error> {
         match (&self.current_snapshot_id, &self.snapshots) {
             (Some(snapshot_id), Some(snapshots)) => Ok(snapshots.get(snapshot_id)),
             (Some(-1), None) => Ok(None),
@@ -140,7 +136,10 @@ mod _serde {
     use crate::model::{
         partition::{PartitionField, PartitionSpec},
         schema,
-        snapshot::{Reference, Retention, SnapshotV1, SnapshotV2},
+        snapshot::{
+            Reference, Retention,
+            _serde::{SnapshotV1, SnapshotV2},
+        },
         sort,
     };
 
@@ -366,7 +365,7 @@ mod _serde {
                 properties: value.properties,
                 current_snapshot_id,
                 snapshots: value.snapshots.map(|snapshots| {
-                    HashMap::from_iter(snapshots.into_iter().map(|x| (x.snapshot_id, x)))
+                    HashMap::from_iter(snapshots.into_iter().map(|x| (x.snapshot_id, x.into())))
                 }),
                 snapshot_log: value.snapshot_log,
                 metadata_log: value.metadata_log,
@@ -493,7 +492,7 @@ mod _serde {
                 current_snapshot_id: v.current_snapshot_id.or(Some(-1)),
                 snapshots: v
                     .snapshots
-                    .map(|snapshots| snapshots.into_values().collect()),
+                    .map(|snapshots| snapshots.into_values().map(|x| x.into()).collect()),
                 snapshot_log: v.snapshot_log,
                 metadata_log: v.metadata_log,
                 sort_orders: v.sort_orders.into_values().collect(),
