@@ -25,17 +25,17 @@ pub struct FieldSummary {
 /// Entry in manifest file.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(untagged)]
-pub enum ManifestFile {
+pub enum ManifestFileEntry {
     /// Version 2 of the manifest file
-    V2(ManifestFileV2),
+    V2(ManifestFileEntryV2),
     /// Version 1 of the manifest file
-    V1(ManifestFileV1),
+    V1(ManifestFileEntryV1),
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 /// A manifest list includes summary metadata that can be used to avoid scanning all of the manifests in a snapshot when planning a table scan.
 /// This includes the number of added, existing, and deleted files, and a summary of values for each field of the partition spec used to write the manifest.
-pub struct ManifestFileV2 {
+pub struct ManifestFileEntryV2 {
     /// Location of the manifest file
     pub manifest_path: String,
     /// Length of the manifest file in bytes
@@ -71,7 +71,7 @@ pub struct ManifestFileV2 {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 /// A manifest list includes summary metadata that can be used to avoid scanning all of the manifests in a snapshot when planning a table scan.
 /// This includes the number of added, existing, and deleted files, and a summary of values for each field of the partition spec used to write the manifest.
-pub struct ManifestFileV1 {
+pub struct ManifestFileEntryV1 {
     /// Location of the manifest file
     pub manifest_path: String,
     /// Length of the manifest file in bytes
@@ -98,9 +98,9 @@ pub struct ManifestFileV1 {
     pub key_metadata: Option<ByteBuf>,
 }
 
-impl From<ManifestFileV1> for ManifestFileV2 {
-    fn from(v1: ManifestFileV1) -> Self {
-        ManifestFileV2 {
+impl From<ManifestFileEntryV1> for ManifestFileEntryV2 {
+    fn from(v1: ManifestFileEntryV1) -> Self {
+        ManifestFileEntryV2 {
             manifest_path: v1.manifest_path,
             manifest_length: v1.manifest_length,
             partition_spec_id: v1.partition_spec_id,
@@ -120,7 +120,7 @@ impl From<ManifestFileV1> for ManifestFileV2 {
     }
 }
 
-impl ManifestFile {
+impl ManifestFileEntry {
     /// Get schema of the manifest list
     pub fn schema(format_version: &FormatVersion) -> String {
         match format_version {
@@ -398,29 +398,29 @@ impl ManifestFile {
     /// Location of the manifest file
     pub fn manifest_path(&self) -> &str {
         match self {
-            ManifestFile::V1(file) => &file.manifest_path,
-            ManifestFile::V2(file) => &file.manifest_path,
+            ManifestFileEntry::V1(file) => &file.manifest_path,
+            ManifestFileEntry::V2(file) => &file.manifest_path,
         }
     }
     /// ID of a partition spec used to write the manifest; must be listed in table metadata partition-specs
     pub fn partition_spec_id(&self) -> i32 {
         match self {
-            ManifestFile::V1(file) => file.partition_spec_id,
-            ManifestFile::V2(file) => file.partition_spec_id,
+            ManifestFileEntry::V1(file) => file.partition_spec_id,
+            ManifestFileEntry::V2(file) => file.partition_spec_id,
         }
     }
     /// A list of field summaries for each partition field in the spec. Each field in the list corresponds to a field in the manifest file’s partition spec.
     pub fn partitions(&self) -> &std::option::Option<Vec<FieldSummary>> {
         match self {
-            ManifestFile::V1(file) => &file.partitions,
-            ManifestFile::V2(file) => &file.partitions,
+            ManifestFileEntry::V1(file) => &file.partitions,
+            ManifestFileEntry::V2(file) => &file.partitions,
         }
     }
     /// Number of entries in the manifest that have status ADDED (1), when null this is assumed to be non-zero
     pub fn added_files_count(&self) -> std::option::Option<i32> {
         match self {
-            ManifestFile::V1(file) => file.added_files_count,
-            ManifestFile::V2(file) => Some(file.added_files_count),
+            ManifestFileEntry::V1(file) => file.added_files_count,
+            ManifestFileEntry::V2(file) => Some(file.added_files_count),
         }
     }
 }
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     pub fn test_manifest_list_v2() {
-        let manifest_file = ManifestFile::V2(ManifestFileV2 {
+        let manifest_file = ManifestFileEntry::V2(ManifestFileEntryV2 {
             manifest_path: "".to_string(),
             manifest_length: 1200,
             partition_spec_id: 0,
@@ -455,7 +455,7 @@ mod tests {
             key_metadata: None,
         });
 
-        let raw_schema = ManifestFile::schema(&FormatVersion::V2);
+        let raw_schema = ManifestFileEntry::schema(&FormatVersion::V2);
 
         let schema = apache_avro::Schema::parse_str(&raw_schema).unwrap();
 
@@ -468,14 +468,14 @@ mod tests {
         let reader = apache_avro::Reader::new(&*encoded).unwrap();
 
         for record in reader {
-            let result = apache_avro::from_value::<ManifestFileV2>(&record.unwrap()).unwrap();
-            assert_eq!(manifest_file, ManifestFile::V2(result));
+            let result = apache_avro::from_value::<ManifestFileEntryV2>(&record.unwrap()).unwrap();
+            assert_eq!(manifest_file, ManifestFileEntry::V2(result));
         }
     }
 
     #[test]
     pub fn test_manifest_list_v1() {
-        let manifest_file = ManifestFile::V1(ManifestFileV1 {
+        let manifest_file = ManifestFileEntry::V1(ManifestFileEntryV1 {
             manifest_path: "".to_string(),
             manifest_length: 1200,
             partition_spec_id: 0,
@@ -495,7 +495,7 @@ mod tests {
             key_metadata: None,
         });
 
-        let raw_schema = ManifestFile::schema(&FormatVersion::V1);
+        let raw_schema = ManifestFileEntry::schema(&FormatVersion::V1);
 
         let schema = apache_avro::Schema::parse_str(&raw_schema).unwrap();
 
@@ -508,8 +508,8 @@ mod tests {
         let reader = apache_avro::Reader::new(&*encoded).unwrap();
 
         for record in reader {
-            let result = apache_avro::from_value::<ManifestFileV1>(&record.unwrap()).unwrap();
-            assert_eq!(manifest_file, ManifestFile::V1(result));
+            let result = apache_avro::from_value::<ManifestFileEntryV1>(&record.unwrap()).unwrap();
+            assert_eq!(manifest_file, ManifestFileEntry::V1(result));
         }
     }
 }

@@ -22,7 +22,9 @@ use crate::{
             partition_value_schema, Content, DataFileV1, DataFileV2, ManifestEntry,
             ManifestEntryV1, ManifestEntryV2, Status,
         },
-        manifest_list::{FieldSummary, ManifestFile, ManifestFileV1, ManifestFileV2},
+        manifest_list::{
+            FieldSummary, ManifestFileEntry, ManifestFileEntryV1, ManifestFileEntryV2,
+        },
         partition::PartitionField,
         schema::{Schema, SchemaV2},
         table_metadata::FormatVersion,
@@ -102,9 +104,9 @@ impl Operation {
                     })
                     .await?;
 
-                let manifest_list_schema = apache_avro::Schema::parse_str(&ManifestFile::schema(
-                    &table_metadata.format_version,
-                ))?;
+                let manifest_list_schema = apache_avro::Schema::parse_str(
+                    &ManifestFileEntry::schema(&table_metadata.format_version),
+                )?;
 
                 let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
                     &manifest_list_schema,
@@ -136,7 +138,7 @@ impl Operation {
                         let existing_manifests = existing_manifests.clone();
                         async move {
                             let manifest = manifest
-                                .and_then(|value| from_value::<ManifestFile>(&value))
+                                .and_then(|value| from_value::<ManifestFileEntry>(&value))
                                 .unwrap();
 
                             if let Some(summary) = manifest.partitions() {
@@ -150,7 +152,10 @@ impl Operation {
                                     for file in &files {
                                         existing_manifests.lock().await.insert(file.clone());
                                     }
-                                    Some((Ok::<ManifestFile, ManifestFile>(manifest), files))
+                                    Some((
+                                        Ok::<ManifestFileEntry, ManifestFileEntry>(manifest),
+                                        files,
+                                    ))
                                 } else {
                                     None
                                 }
@@ -179,7 +184,7 @@ impl Operation {
                                 + &manifest_count.to_string()
                                 + ".avro";
                             let manifest = match &table_metadata.format_version {
-                                FormatVersion::V1 => ManifestFile::V1(ManifestFileV1 {
+                                FormatVersion::V1 => ManifestFileEntry::V1(ManifestFileEntryV1 {
                                     manifest_path: manifest_location,
                                     manifest_length: 0,
                                     partition_spec_id: table_metadata.default_spec_id,
@@ -193,7 +198,7 @@ impl Operation {
                                     partitions: None,
                                     key_metadata: None,
                                 }),
-                                FormatVersion::V2 => ManifestFile::V2(ManifestFileV2 {
+                                FormatVersion::V2 => ManifestFileEntry::V2(ManifestFileEntryV2 {
                                     manifest_path: manifest_location,
                                     manifest_length: 0,
                                     partition_spec_id: table_metadata.default_spec_id,
@@ -214,7 +219,7 @@ impl Operation {
                                 }),
                             };
                             Some((
-                                Err::<ManifestFile, ManifestFile>(manifest),
+                                Err::<ManifestFileEntry, ManifestFileEntry>(manifest),
                                 vec![path.clone()],
                             ))
                         } else {
@@ -232,160 +237,154 @@ impl Operation {
                         .ok_or(anyhow!("Partition column not in schema."))?,
                 );
 
-                let write_manifest_closure =
-                    |(manifest, files): (Result<ManifestFile, ManifestFile>, Vec<String>)| {
-                        let object_store = object_store.clone();
-                        let datafiles = datafiles.clone();
-                        let partition_columns = partition_columns.clone();
-                        async move {
-                            let manifest_schema =
-                                apache_avro::Schema::parse_str(&ManifestEntry::schema(
-                                    &partition_value_schema(
-                                        &table_metadata.default_partition_spec()?.fields,
-                                        schema,
-                                    )?,
-                                    &table_metadata.format_version,
-                                ))?;
+                let write_manifest_closure = |(manifest, files): (
+                    Result<ManifestFileEntry, ManifestFileEntry>,
+                    Vec<String>,
+                )| {
+                    let object_store = object_store.clone();
+                    let datafiles = datafiles.clone();
+                    let partition_columns = partition_columns.clone();
+                    async move {
+                        let manifest_schema =
+                            apache_avro::Schema::parse_str(&ManifestEntry::schema(
+                                &partition_value_schema(
+                                    &table_metadata.default_partition_spec()?.fields,
+                                    schema,
+                                )?,
+                                &table_metadata.format_version,
+                            ))?;
 
-                            let mut manifest_writer =
-                                apache_avro::Writer::new(&manifest_schema, Vec::new());
+                        let mut manifest_writer =
+                            apache_avro::Writer::new(&manifest_schema, Vec::new());
 
-                            let mut manifest = match manifest {
-                                Ok(manifest) => {
-                                    let manifest_bytes: Vec<u8> = object_store
-                                        .get(
-                                            &strip_prefix(manifest.manifest_path()).as_str().into(),
-                                        )
-                                        .await?
-                                        .bytes()
-                                        .await?
-                                        .into();
+                        let mut manifest = match manifest {
+                            Ok(manifest) => {
+                                let manifest_bytes: Vec<u8> = object_store
+                                    .get(&strip_prefix(manifest.manifest_path()).as_str().into())
+                                    .await?
+                                    .bytes()
+                                    .await?
+                                    .into();
 
-                                    let manifest_reader =
-                                        apache_avro::Reader::new(&*manifest_bytes)?;
-                                    manifest_writer
-                                        .extend(manifest_reader.filter_map(Result::ok))?;
-                                    manifest
-                                }
-                                Err(manifest) => manifest,
-                            };
-                            let files_count = manifest.added_files_count().unwrap_or_default()
-                                + files.len() as i32;
-                            for path in files {
-                                let mut added_rows_count = 0;
-
-                                let mut partitions = match manifest.partitions() {
-                                    Some(partitions) => partitions.clone(),
-                                    None => table_metadata
-                                        .default_partition_spec()?
-                                        .fields
-                                        .iter()
-                                        .map(|_| FieldSummary {
-                                            contains_null: false,
-                                            contains_nan: None,
-                                            lower_bound: None,
-                                            upper_bound: None,
-                                        })
-                                        .collect::<Vec<FieldSummary>>(),
-                                };
-
-                                let data_file = datafiles
-                                    .lock()
-                                    .await
-                                    .get(&path)
-                                    .ok_or_else(|| anyhow!(""))?
-                                    .clone();
-
-                                added_rows_count += data_file.record_count;
-                                update_partitions(
-                                    &mut partitions,
-                                    &data_file.partition,
-                                    &partition_columns,
-                                )?;
-
-                                let manifest_entry = match table_metadata.format_version {
-                                    FormatVersion::V1 => ManifestEntry::V1(ManifestEntryV1 {
-                                        status: Status::Added,
-                                        snapshot_id: table_metadata
-                                            .current_snapshot_id
-                                            .unwrap_or(1),
-                                        data_file: DataFileV1 {
-                                            file_path: data_file.file_path,
-                                            file_format: data_file.file_format,
-                                            partition: data_file.partition,
-                                            record_count: data_file.record_count,
-                                            file_size_in_bytes: data_file.file_size_in_bytes,
-                                            block_size_in_bytes: data_file.file_size_in_bytes,
-                                            file_ordinal: None,
-                                            sort_columns: None,
-                                            column_sizes: data_file.column_sizes,
-                                            value_counts: data_file.value_counts,
-                                            null_value_counts: data_file.null_value_counts,
-                                            nan_value_counts: data_file.nan_value_counts,
-                                            distinct_counts: data_file.distinct_counts,
-                                            lower_bounds: data_file.lower_bounds,
-                                            upper_bounds: data_file.upper_bounds,
-                                            key_metadata: data_file.key_metadata,
-                                            split_offsets: data_file.split_offsets,
-                                            sort_order_id: data_file.sort_order_id,
-                                        },
-                                    }),
-                                    FormatVersion::V2 => ManifestEntry::V2(ManifestEntryV2 {
-                                        status: Status::Added,
-                                        snapshot_id: table_metadata.current_snapshot_id,
-                                        sequence_number: table_metadata
-                                            .current_snapshot()?
-                                            .map(|x| x.sequence_number),
-                                        data_file,
-                                    }),
-                                };
-
-                                manifest_writer.append_ser(manifest_entry)?;
-
-                                match &mut manifest {
-                                    ManifestFile::V1(manifest) => {
-                                        manifest.added_files_count =
-                                            match manifest.added_files_count {
-                                                Some(count) => Some(count + files_count),
-                                                None => Some(files_count),
-                                            };
-                                        manifest.added_rows_count = match manifest.added_rows_count
-                                        {
-                                            Some(count) => Some(count + added_rows_count),
-                                            None => Some(added_rows_count),
-                                        };
-                                        manifest.partitions = Some(partitions)
-                                    }
-                                    ManifestFile::V2(manifest) => {
-                                        manifest.added_rows_count += added_rows_count;
-                                        manifest.partitions = Some(partitions)
-                                    }
-                                }
+                                let manifest_reader = apache_avro::Reader::new(&*manifest_bytes)?;
+                                manifest_writer.extend(manifest_reader.filter_map(Result::ok))?;
+                                manifest
                             }
+                            Err(manifest) => manifest,
+                        };
+                        let files_count =
+                            manifest.added_files_count().unwrap_or_default() + files.len() as i32;
+                        for path in files {
+                            let mut added_rows_count = 0;
 
-                            let manifest_bytes = manifest_writer.into_inner()?;
+                            let mut partitions = match manifest.partitions() {
+                                Some(partitions) => partitions.clone(),
+                                None => table_metadata
+                                    .default_partition_spec()?
+                                    .fields
+                                    .iter()
+                                    .map(|_| FieldSummary {
+                                        contains_null: false,
+                                        contains_nan: None,
+                                        lower_bound: None,
+                                        upper_bound: None,
+                                    })
+                                    .collect::<Vec<FieldSummary>>(),
+                            };
 
-                            let manifest_length: i64 = manifest_bytes.len() as i64;
+                            let data_file = datafiles
+                                .lock()
+                                .await
+                                .get(&path)
+                                .ok_or_else(|| anyhow!(""))?
+                                .clone();
+
+                            added_rows_count += data_file.record_count;
+                            update_partitions(
+                                &mut partitions,
+                                &data_file.partition,
+                                &partition_columns,
+                            )?;
+
+                            let manifest_entry = match table_metadata.format_version {
+                                FormatVersion::V1 => ManifestEntry::V1(ManifestEntryV1 {
+                                    status: Status::Added,
+                                    snapshot_id: table_metadata.current_snapshot_id.unwrap_or(1),
+                                    data_file: DataFileV1 {
+                                        file_path: data_file.file_path,
+                                        file_format: data_file.file_format,
+                                        partition: data_file.partition,
+                                        record_count: data_file.record_count,
+                                        file_size_in_bytes: data_file.file_size_in_bytes,
+                                        block_size_in_bytes: data_file.file_size_in_bytes,
+                                        file_ordinal: None,
+                                        sort_columns: None,
+                                        column_sizes: data_file.column_sizes,
+                                        value_counts: data_file.value_counts,
+                                        null_value_counts: data_file.null_value_counts,
+                                        nan_value_counts: data_file.nan_value_counts,
+                                        distinct_counts: data_file.distinct_counts,
+                                        lower_bounds: data_file.lower_bounds,
+                                        upper_bounds: data_file.upper_bounds,
+                                        key_metadata: data_file.key_metadata,
+                                        split_offsets: data_file.split_offsets,
+                                        sort_order_id: data_file.sort_order_id,
+                                    },
+                                }),
+                                FormatVersion::V2 => ManifestEntry::V2(ManifestEntryV2 {
+                                    status: Status::Added,
+                                    snapshot_id: table_metadata.current_snapshot_id,
+                                    sequence_number: table_metadata
+                                        .current_snapshot()?
+                                        .map(|x| x.sequence_number),
+                                    data_file,
+                                }),
+                            };
+
+                            manifest_writer.append_ser(manifest_entry)?;
 
                             match &mut manifest {
-                                ManifestFile::V1(manifest) => {
-                                    manifest.manifest_length += manifest_length;
+                                ManifestFileEntry::V1(manifest) => {
+                                    manifest.added_files_count = match manifest.added_files_count {
+                                        Some(count) => Some(count + files_count),
+                                        None => Some(files_count),
+                                    };
+                                    manifest.added_rows_count = match manifest.added_rows_count {
+                                        Some(count) => Some(count + added_rows_count),
+                                        None => Some(added_rows_count),
+                                    };
+                                    manifest.partitions = Some(partitions)
                                 }
-                                ManifestFile::V2(manifest) => {
-                                    manifest.manifest_length += manifest_length;
+                                ManifestFileEntry::V2(manifest) => {
+                                    manifest.added_rows_count += added_rows_count;
+                                    manifest.partitions = Some(partitions)
                                 }
                             }
-
-                            object_store
-                                .put(
-                                    &strip_prefix(manifest.manifest_path()).as_str().into(),
-                                    manifest_bytes.into(),
-                                )
-                                .await?;
-
-                            Ok::<_, anyhow::Error>(manifest)
                         }
-                    };
+
+                        let manifest_bytes = manifest_writer.into_inner()?;
+
+                        let manifest_length: i64 = manifest_bytes.len() as i64;
+
+                        match &mut manifest {
+                            ManifestFileEntry::V1(manifest) => {
+                                manifest.manifest_length += manifest_length;
+                            }
+                            ManifestFileEntry::V2(manifest) => {
+                                manifest.manifest_length += manifest_length;
+                            }
+                        }
+
+                        object_store
+                            .put(
+                                &strip_prefix(manifest.manifest_path()).as_str().into(),
+                                manifest_bytes.into(),
+                            )
+                            .await?;
+
+                        Ok::<_, anyhow::Error>(manifest)
+                    }
+                };
 
                 match existing_manifest_iter {
                     Some(existing_manifest_iter) => {

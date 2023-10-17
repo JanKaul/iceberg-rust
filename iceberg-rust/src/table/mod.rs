@@ -11,7 +11,7 @@ use object_store::ObjectStore;
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{
-        manifest_list::{ManifestFile, ManifestFileV1, ManifestFileV2},
+        manifest_list::{ManifestFileEntry, ManifestFileEntryV1, ManifestFileEntryV2},
         schema::Schema,
         snapshot::{Operation, Snapshot, Summary},
         table_metadata::{FormatVersion, TableMetadata},
@@ -30,7 +30,7 @@ pub struct Table {
     catalog: Arc<dyn Catalog>,
     metadata: TableMetadata,
     metadata_location: String,
-    manifests: Vec<ManifestFile>,
+    manifests: Vec<ManifestFileEntry>,
 }
 
 /// Public interface of the table.
@@ -76,7 +76,7 @@ impl Table {
         &self.metadata_location
     }
     /// Get the location of the current metadata file
-    pub fn manifests(&self) -> &[ManifestFile] {
+    pub fn manifests(&self) -> &[ManifestFileEntry] {
         &self.manifests
     }
     /// Create a new transaction for this table
@@ -155,7 +155,7 @@ impl Table {
 pub(crate) async fn get_manifests(
     metadata: &TableMetadata,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<Vec<ManifestFile>> {
+) -> Result<Vec<ManifestFileEntry>> {
     match metadata.current_snapshot()?.map(|x| &x.manifest_list) {
         Some(manifest_list) => {
             let bytes: Cursor<Vec<u8>> = Cursor::new(
@@ -187,14 +187,14 @@ pub(crate) async fn get_manifests(
 fn avro_value_to_manifest_file(
     entry: Result<AvroValue, apache_avro::Error>,
     format_version: FormatVersion,
-) -> Result<ManifestFile, anyhow::Error> {
+) -> Result<ManifestFileEntry, anyhow::Error> {
     entry
         .and_then(|value| match format_version {
             FormatVersion::V1 => {
-                apache_avro::from_value::<ManifestFileV1>(&value).map(ManifestFile::V1)
+                apache_avro::from_value::<ManifestFileEntryV1>(&value).map(ManifestFileEntry::V1)
             }
             FormatVersion::V2 => {
-                apache_avro::from_value::<ManifestFileV2>(&value).map(ManifestFile::V2)
+                apache_avro::from_value::<ManifestFileEntryV2>(&value).map(ManifestFileEntry::V2)
             }
         })
         .map_err(anyhow::Error::msg)

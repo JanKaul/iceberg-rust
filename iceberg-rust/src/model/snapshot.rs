@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::util;
 
 use super::{
-    manifest_list::{ManifestFile, ManifestFileV1, ManifestFileV2},
+    manifest_list::{ManifestFileEntry, ManifestFileEntryV1, ManifestFileEntryV2},
     table_metadata::FormatVersion,
 };
 
@@ -45,7 +45,7 @@ impl Snapshot {
         &self,
         format_version: &FormatVersion,
         object_store: Arc<dyn ObjectStore>,
-    ) -> Result<Vec<ManifestFile>, anyhow::Error> {
+    ) -> Result<Vec<ManifestFileEntry>, anyhow::Error> {
         let bytes: Cursor<Vec<u8>> = Cursor::new(
             object_store
                 .get(&util::strip_prefix(&self.manifest_list).into())
@@ -264,14 +264,14 @@ pub enum Retention {
 fn avro_value_to_manifest_file(
     entry: Result<AvroValue, apache_avro::Error>,
     format_version: FormatVersion,
-) -> Result<ManifestFile, anyhow::Error> {
+) -> Result<ManifestFileEntry, anyhow::Error> {
     entry
         .and_then(|value| match format_version {
             FormatVersion::V1 => {
-                apache_avro::from_value::<ManifestFileV1>(&value).map(ManifestFile::V1)
+                apache_avro::from_value::<ManifestFileEntryV1>(&value).map(ManifestFileEntry::V1)
             }
             FormatVersion::V2 => {
-                apache_avro::from_value::<ManifestFileV2>(&value).map(ManifestFile::V2)
+                apache_avro::from_value::<ManifestFileEntryV2>(&value).map(ManifestFileEntry::V2)
             }
         })
         .map_err(anyhow::Error::msg)

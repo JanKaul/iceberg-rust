@@ -11,7 +11,7 @@ use object_store::path::Path;
 use crate::{
     model::{
         manifest::{ManifestEntry, ManifestEntryV1, ManifestEntryV2},
-        manifest_list::ManifestFile,
+        manifest_list::ManifestFileEntry,
         table_metadata::FormatVersion,
     },
     util,
@@ -32,14 +32,17 @@ impl Table {
                     .zip(Box::new(predicate.into_iter())
                         as Box<dyn Iterator<Item = bool> + Send + Sync>)
                     .filter_map(
-                        filter_manifest as fn((&ManifestFile, bool)) -> Option<&ManifestFile>,
+                        filter_manifest
+                            as fn((&ManifestFileEntry, bool)) -> Option<&ManifestFileEntry>,
                     )
             }
             None => self
                 .manifests()
                 .iter()
                 .zip(Box::new(repeat(true)) as Box<dyn Iterator<Item = bool> + Send + Sync>)
-                .filter_map(filter_manifest as fn((&ManifestFile, bool)) -> Option<&ManifestFile>),
+                .filter_map(
+                    filter_manifest as fn((&ManifestFileEntry, bool)) -> Option<&ManifestFileEntry>,
+                ),
         };
         // Collect a vector of data files by creating a stream over the manifst files, fetch their content and return a flatten stream over their entries.
         stream::iter(iter)
@@ -64,7 +67,9 @@ impl Table {
 }
 
 // Filter manifest files according to predicate. Returns Some(&ManifestFile) of the predicate is true and None if it is false.
-fn filter_manifest((manifest, predicate): (&ManifestFile, bool)) -> Option<&ManifestFile> {
+fn filter_manifest(
+    (manifest, predicate): (&ManifestFileEntry, bool),
+) -> Option<&ManifestFileEntry> {
     if predicate {
         Some(manifest)
     } else {
