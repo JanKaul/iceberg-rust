@@ -4,17 +4,15 @@ Defining the [Table] struct that represents an iceberg table.
 
 use std::{collections::HashMap, io::Cursor, sync::Arc, time::SystemTime};
 
-use anyhow::Result;
-use apache_avro::types::Value as AvroValue;
 use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{
-        manifest_list::{ManifestFileEntry, ManifestFileEntryV1, ManifestFileEntryV2},
+        manifest_list::{ManifestFileEntry, ManifestFileReader},
         schema::Schema,
         snapshot::{Operation, Snapshot, Summary},
-        table_metadata::{FormatVersion, TableMetadata},
+        table_metadata::TableMetadata,
     },
     table::transaction::TableTransaction,
     util::{self, strip_prefix},
@@ -41,7 +39,7 @@ impl Table {
         catalog: Arc<dyn Catalog>,
         metadata: TableMetadata,
         metadata_location: &str,
-    ) -> Result<Self> {
+    ) -> Result<Self, anyhow::Error> {
         let manifests = get_manifests(&metadata, catalog.object_store()).await?;
         Ok(Table {
             identifier,
@@ -64,7 +62,7 @@ impl Table {
         self.catalog.object_store()
     }
     /// Get the metadata of the table
-    pub fn schema(&self) -> Result<&Schema> {
+    pub fn schema(&self) -> Result<&Schema, anyhow::Error> {
         self.metadata.current_schema()
     }
     /// Get the metadata of the table
@@ -93,7 +91,7 @@ impl Table {
     }
 
     /// Create a new table snapshot based on the manifest_list file of the previous snapshot.
-    pub(crate) async fn new_snapshot(&mut self) -> Result<()> {
+    pub(crate) async fn new_snapshot(&mut self) -> Result<(), anyhow::Error> {
         let mut bytes: [u8; 8] = [0u8; 8];
         getrandom::getrandom(&mut bytes).unwrap();
         let snapshot_id = i64::from_le_bytes(bytes);
@@ -155,7 +153,7 @@ impl Table {
 pub(crate) async fn get_manifests(
     metadata: &TableMetadata,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<Vec<ManifestFileEntry>> {
+) -> Result<Vec<ManifestFileEntry>, anyhow::Error> {
     match metadata.current_snapshot()?.map(|x| &x.manifest_list) {
         Some(manifest_list) => {
             let bytes: Cursor<Vec<u8>> = Cursor::new(
@@ -169,35 +167,16 @@ pub(crate) async fn get_manifests(
             );
             // Read the file content only if the bytes are not empty otherwise return an empty vector
             if !bytes.get_ref().is_empty() {
-                let reader = apache_avro::Reader::new(bytes)?;
+                let reader = ManifestFileReader::new(bytes, metadata)?;
                 reader
-                    .map(|record| {
-                        avro_value_to_manifest_file(record, metadata.format_version.clone())
-                    })
-                    .collect()
+                    .collect::<Result<_, apache_avro::Error>>()
+                    .map_err(anyhow::Error::msg)
             } else {
                 Ok(Vec::new())
             }
         }
         None => Ok(Vec::new()),
     }
-}
-
-/// Convert an avro value to a [ManifestFile] according to the provided format version
-fn avro_value_to_manifest_file(
-    entry: Result<AvroValue, apache_avro::Error>,
-    format_version: FormatVersion,
-) -> Result<ManifestFileEntry, anyhow::Error> {
-    entry
-        .and_then(|value| match format_version {
-            FormatVersion::V1 => {
-                apache_avro::from_value::<ManifestFileEntryV1>(&value).map(ManifestFileEntry::V1)
-            }
-            FormatVersion::V2 => {
-                apache_avro::from_value::<ManifestFileEntryV2>(&value).map(ManifestFileEntry::V2)
-            }
-        })
-        .map_err(anyhow::Error::msg)
 }
 
 #[cfg(test)]
