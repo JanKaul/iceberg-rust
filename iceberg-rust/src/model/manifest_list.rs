@@ -16,6 +16,8 @@ use self::_serde::{FieldSummarySerde, ManifestListEntryV1, ManifestListEntryV2};
 use super::{
     manifest::Content,
     table_metadata::{FormatVersion, TableMetadata},
+    types::Type,
+    values::Value,
 };
 
 /// Iterator of ManifestFileEntries
@@ -108,10 +110,10 @@ pub struct FieldSummary {
     pub contains_nan: Option<bool>,
     /// Lower bound for the non-null, non-NaN values in the partition field, or null if all values are null or NaN.
     /// If -0.0 is a value of the partition field, the lower_bound must not be +0.0
-    pub lower_bound: Option<ByteBuf>,
+    pub lower_bound: Option<Value>,
     /// Upper bound for the non-null, non-NaN values in the partition field, or null if all values are null or NaN .
     /// If +0.0 is a value of the partition field, the upper_bound must not be -0.0.
-    pub upper_bound: Option<ByteBuf>,
+    pub upper_bound: Option<Value>,
 }
 
 mod _serde {
@@ -261,8 +263,8 @@ mod _serde {
             FieldSummarySerde {
                 contains_null: value.contains_null,
                 contains_nan: value.contains_nan,
-                lower_bound: value.lower_bound,
-                upper_bound: value.upper_bound,
+                lower_bound: value.lower_bound.map(Into::into),
+                upper_bound: value.upper_bound.map(Into::into),
             }
         }
     }
@@ -287,6 +289,9 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV2,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, anyhow::Error> {
+        let partition_types = table_metadata
+            .default_partition_spec()?
+            .data_types(&table_metadata.current_schema()?.fields)?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V2,
             manifest_path: entry.manifest_path,
@@ -306,7 +311,8 @@ impl ManifestListEntry {
                 .partitions
                 .map(|v| {
                     v.into_iter()
-                        .map(|x| FieldSummary::try_from(x, table_metadata))
+                        .zip(partition_types.iter())
+                        .map(|(x, d)| FieldSummary::try_from(x, d))
                         .collect::<Result<Vec<_>, anyhow::Error>>()
                 })
                 .transpose()?,
@@ -318,6 +324,9 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV1,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, anyhow::Error> {
+        let partition_types = table_metadata
+            .default_partition_spec()?
+            .data_types(&table_metadata.current_schema()?.fields)?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V1,
             manifest_path: entry.manifest_path,
@@ -337,7 +346,8 @@ impl ManifestListEntry {
                 .partitions
                 .map(|v| {
                     v.into_iter()
-                        .map(|x| FieldSummary::try_from(x, table_metadata))
+                        .zip(partition_types.iter())
+                        .map(|(x, d)| FieldSummary::try_from(x, d))
                         .collect::<Result<Vec<_>, anyhow::Error>>()
                 })
                 .transpose()?,
@@ -347,15 +357,18 @@ impl ManifestListEntry {
 }
 
 impl FieldSummary {
-    fn try_from(
-        value: _serde::FieldSummarySerde,
-        _table_metadata: &TableMetadata,
-    ) -> Result<Self, anyhow::Error> {
+    fn try_from(value: _serde::FieldSummarySerde, data_type: &Type) -> Result<Self, anyhow::Error> {
         Ok(FieldSummary {
             contains_null: value.contains_null,
             contains_nan: value.contains_nan,
-            lower_bound: value.lower_bound,
-            upper_bound: value.upper_bound,
+            lower_bound: value
+                .lower_bound
+                .map(|x| Value::try_from_bytes(&x, data_type))
+                .transpose()?,
+            upper_bound: value
+                .upper_bound
+                .map(|x| Value::try_from_bytes(&x, data_type))
+                .transpose()?,
         })
     }
 }
@@ -657,13 +670,54 @@ pub(crate) fn avro_value_to_manifest_file(
 #[cfg(test)]
 mod tests {
 
+    use std::collections::HashMap;
+
     use super::*;
 
-    use crate::model::table_metadata::TableMetadataBuilder;
+    use crate::model::{
+        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        schema::Schema,
+        table_metadata::TableMetadataBuilder,
+        types::{PrimitiveType, StructField, StructTypeBuilder},
+    };
 
     #[test]
     pub fn test_manifest_list_v2() {
-        let table_metadata = TableMetadataBuilder::default().build().unwrap();
+        let table_metadata = TableMetadataBuilder::default()
+            .current_schema_id(1)
+            .schemas(HashMap::from_iter(vec![(
+                1,
+                Schema {
+                    schema_id: 1,
+                    identifier_field_ids: None,
+                    fields: StructTypeBuilder::default()
+                        .with_struct_field(StructField {
+                            id: 0,
+                            name: "date".to_string(),
+                            required: true,
+                            field_type: Type::Primitive(PrimitiveType::Date),
+                            doc: None,
+                        })
+                        .build()
+                        .unwrap(),
+                },
+            )]))
+            .default_spec_id(1)
+            .partition_specs(HashMap::from_iter(vec![(
+                1,
+                PartitionSpecBuilder::default()
+                    .spec_id(1)
+                    .with_partition_field(PartitionField {
+                        source_id: 0,
+                        field_id: 1000,
+                        name: "day".to_string(),
+                        transform: Transform::Day,
+                    })
+                    .build()
+                    .unwrap(),
+            )]))
+            .build()
+            .unwrap();
 
         let manifest_file = ManifestListEntry {
             format_version: FormatVersion::V2,
@@ -683,8 +737,8 @@ mod tests {
             partitions: Some(vec![FieldSummary {
                 contains_null: true,
                 contains_nan: Some(false),
-                lower_bound: Some(ByteBuf::from(vec![0, 0, 0, 0])),
-                upper_bound: None,
+                lower_bound: Some(Value::Date(1234)),
+                upper_bound: Some(Value::Date(76890)),
             }]),
             key_metadata: None,
         };
@@ -713,6 +767,38 @@ mod tests {
     pub fn test_manifest_list_v1() {
         let table_metadata = TableMetadataBuilder::default()
             .format_version(FormatVersion::V1)
+            .current_schema_id(1)
+            .schemas(HashMap::from_iter(vec![(
+                1,
+                Schema {
+                    schema_id: 1,
+                    identifier_field_ids: None,
+                    fields: StructTypeBuilder::default()
+                        .with_struct_field(StructField {
+                            id: 0,
+                            name: "date".to_string(),
+                            required: true,
+                            field_type: Type::Primitive(PrimitiveType::Date),
+                            doc: None,
+                        })
+                        .build()
+                        .unwrap(),
+                },
+            )]))
+            .default_spec_id(1)
+            .partition_specs(HashMap::from_iter(vec![(
+                1,
+                PartitionSpecBuilder::default()
+                    .spec_id(1)
+                    .with_partition_field(PartitionField {
+                        source_id: 0,
+                        field_id: 1000,
+                        name: "day".to_string(),
+                        transform: Transform::Day,
+                    })
+                    .build()
+                    .unwrap(),
+            )]))
             .build()
             .unwrap();
 
@@ -734,8 +820,8 @@ mod tests {
             partitions: Some(vec![FieldSummary {
                 contains_null: true,
                 contains_nan: Some(false),
-                lower_bound: Some(ByteBuf::from(vec![0, 0, 0, 0])),
-                upper_bound: None,
+                lower_bound: Some(Value::Date(1234)),
+                upper_bound: Some(Value::Date(76890)),
             }]),
             key_metadata: None,
         };

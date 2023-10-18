@@ -3,6 +3,8 @@
 */
 use std::{fmt, ops::Index};
 
+use derive_builder::Builder;
+
 use anyhow::{anyhow, Result};
 use serde::{
     de::{Error, IntoDeserializer},
@@ -178,10 +180,11 @@ impl fmt::Display for PrimitiveType {
 }
 
 /// DataType for a specific struct
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder)]
 #[serde(rename = "struct", tag = "type")]
 pub struct StructType {
     /// Struct fields
+    #[builder(setter(each(name = "with_struct_field")))]
     pub fields: Vec<StructField>,
 }
 

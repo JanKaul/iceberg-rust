@@ -11,7 +11,6 @@ use anyhow::{anyhow, Result};
 use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
 use parquet::format::FileMetaData;
-use serde_bytes::ByteBuf;
 
 use std::ops::Deref;
 
@@ -432,92 +431,90 @@ fn update_partitions(
             .ok_or_else(|| anyhow!("Couldn't find column {} in partition values", &field.name))?];
         if let Some(value) = value {
             if let Some(lower_bound) = &mut summary.lower_bound {
-                let current = Value::try_from_bytes(lower_bound, &value.datatype())?;
-                match (value, current) {
+                match (value, lower_bound) {
                     (Value::Int(val), Value::Int(current)) => {
-                        if current > *val {
-                            *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current > *val {
+                            *current = *val
                         }
                     }
                     (Value::LongInt(val), Value::LongInt(current)) => {
-                        if current > *val {
-                            *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current > *val {
+                            *current = *val
                         }
                     }
                     (Value::Float(val), Value::Float(current)) => {
-                        if current > *val {
-                            *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current > *val {
+                            *current = *val
                         }
                     }
                     (Value::Double(val), Value::Double(current)) => {
-                        if current > *val {
-                            *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current > *val {
+                            *current = *val
                         }
                     }
                     (Value::Date(val), Value::Date(current)) => {
-                        if current > *val {
-                            *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current > *val {
+                            *current = *val
                         }
                     }
                     (Value::Time(val), Value::Time(current)) => {
-                        if current > *val {
-                            *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current > *val {
+                            *current = *val
                         }
                     }
                     (Value::Timestamp(val), Value::Timestamp(current)) => {
-                        if current > *val {
-                            *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current > *val {
+                            *current = *val
                         }
                     }
                     (Value::TimestampTZ(val), Value::TimestampTZ(current)) => {
-                        if current > *val {
-                            *lower_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current > *val {
+                            *current = *val
                         }
                     }
                     _ => {}
                 }
             }
             if let Some(upper_bound) = &mut summary.upper_bound {
-                let current = Value::try_from_bytes(upper_bound, &value.datatype())?;
-                match (value, current) {
+                match (value, upper_bound) {
                     (Value::Int(val), Value::Int(current)) => {
-                        if current < *val {
-                            *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current < *val {
+                            *current = *val
                         }
                     }
                     (Value::LongInt(val), Value::LongInt(current)) => {
-                        if current < *val {
-                            *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current < *val {
+                            *current = *val
                         }
                     }
                     (Value::Float(val), Value::Float(current)) => {
-                        if current < *val {
-                            *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current < *val {
+                            *current = *val
                         }
                     }
                     (Value::Double(val), Value::Double(current)) => {
-                        if current < *val {
-                            *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current < *val {
+                            *current = *val
                         }
                     }
                     (Value::Date(val), Value::Date(current)) => {
-                        if current < *val {
-                            *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current < *val {
+                            *current = *val
                         }
                     }
                     (Value::Time(val), Value::Time(current)) => {
-                        if current < *val {
-                            *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current < *val {
+                            *current = *val
                         }
                     }
                     (Value::Timestamp(val), Value::Timestamp(current)) => {
-                        if current < *val {
-                            *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current < *val {
+                            *current = *val
                         }
                     }
                     (Value::TimestampTZ(val), Value::TimestampTZ(current)) => {
-                        if current < *val {
-                            *upper_bound = <Value as Into<ByteBuf>>::into(value.clone())
+                        if *current < *val {
+                            *current = *val
                         }
                     }
                     _ => {}
@@ -559,51 +556,47 @@ fn datafiles_in_bounds(
                         if let (Some(lower_bound), Some(upper_bound)) =
                             (&summary.lower_bound, &summary.upper_bound)
                         {
-                            let lower_bound =
-                                Value::try_from_bytes(lower_bound, &value.datatype()).unwrap();
-                            let upper_bound =
-                                Value::try_from_bytes(upper_bound, &value.datatype()).unwrap();
                             match (value, lower_bound, upper_bound) {
                                 (
                                     Value::Int(val),
                                     Value::Int(lower_bound),
                                     Value::Int(upper_bound),
-                                ) => lower_bound <= *val && upper_bound >= *val,
+                                ) => *lower_bound <= *val && *upper_bound >= *val,
                                 (
                                     Value::LongInt(val),
                                     Value::LongInt(lower_bound),
                                     Value::LongInt(upper_bound),
-                                ) => lower_bound <= *val && upper_bound >= *val,
+                                ) => *lower_bound <= *val && *upper_bound >= *val,
                                 (
                                     Value::Float(val),
                                     Value::Float(lower_bound),
                                     Value::Float(upper_bound),
-                                ) => lower_bound <= *val && upper_bound >= *val,
+                                ) => *lower_bound <= *val && *upper_bound >= *val,
                                 (
                                     Value::Double(val),
                                     Value::Double(lower_bound),
                                     Value::Double(upper_bound),
-                                ) => lower_bound <= *val && upper_bound >= *val,
+                                ) => *lower_bound <= *val && *upper_bound >= *val,
                                 (
                                     Value::Date(val),
                                     Value::Date(lower_bound),
                                     Value::Date(upper_bound),
-                                ) => lower_bound <= *val && upper_bound >= *val,
+                                ) => *lower_bound <= *val && *upper_bound >= *val,
                                 (
                                     Value::Time(val),
                                     Value::Time(lower_bound),
                                     Value::Time(upper_bound),
-                                ) => lower_bound <= *val && upper_bound >= *val,
+                                ) => *lower_bound <= *val && *upper_bound >= *val,
                                 (
                                     Value::Timestamp(val),
                                     Value::Timestamp(lower_bound),
                                     Value::Timestamp(upper_bound),
-                                ) => lower_bound <= *val && upper_bound >= *val,
+                                ) => *lower_bound <= *val && *upper_bound >= *val,
                                 (
                                     Value::TimestampTZ(val),
                                     Value::TimestampTZ(lower_bound),
                                     Value::TimestampTZ(upper_bound),
-                                ) => lower_bound <= *val && upper_bound >= *val,
+                                ) => *lower_bound <= *val && *upper_bound >= *val,
                                 _ => false,
                             }
                         } else {

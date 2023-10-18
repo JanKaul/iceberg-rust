@@ -1,10 +1,15 @@
 /*!
  * Partitioning
 */
+use anyhow::anyhow;
 use serde::{
     de::{Error, IntoDeserializer},
     Deserialize, Deserializer, Serialize, Serializer,
 };
+
+use derive_builder::Builder;
+
+use super::types::{StructType, Type};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "lowercase", remote = "Self")]
@@ -114,14 +119,30 @@ pub struct PartitionField {
     pub transform: Transform,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder)]
 #[serde(rename_all = "kebab-case")]
 ///  Partition spec that defines how to produce a tuple of partition values from a record.
 pub struct PartitionSpec {
     /// Identifier for PartitionSpec
     pub spec_id: i32,
     /// Details of the partition spec
+    #[builder(setter(each(name = "with_partition_field")))]
     pub fields: Vec<PartitionField>,
+}
+
+impl PartitionSpec {
+    /// Get datatypes of partition fields
+    pub fn data_types(&self, schema: &StructType) -> Result<Vec<Type>, anyhow::Error> {
+        self.fields
+            .iter()
+            .map(|field| {
+                schema
+                    .get(field.source_id as usize)
+                    .map(|x| x.field_type.clone())
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or(anyhow!("Failed to get datatypes of partition fields."))
+    }
 }
 
 #[cfg(test)]
