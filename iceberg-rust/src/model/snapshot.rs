@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::util;
 
 use super::{
-    manifest_list::{ManifestFileEntry, ManifestFileReader},
+    manifest_list::{ManifestListEntry, ManifestListReader},
     table_metadata::TableMetadata,
 };
 
@@ -44,7 +44,7 @@ impl Snapshot {
         table_metadata: &'metadata TableMetadata,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<
-        impl Iterator<Item = Result<ManifestFileEntry, anyhow::Error>> + 'metadata,
+        impl Iterator<Item = Result<ManifestListEntry, anyhow::Error>> + 'metadata,
         anyhow::Error,
     > {
         let bytes: Cursor<Vec<u8>> = Cursor::new(
@@ -56,7 +56,7 @@ impl Snapshot {
                 .await?
                 .into(),
         );
-        ManifestFileReader::new(bytes, table_metadata).map_err(anyhow::Error::msg)
+        ManifestListReader::new(bytes, table_metadata).map_err(anyhow::Error::msg)
     }
 }
 

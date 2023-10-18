@@ -13,7 +13,7 @@ use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{
         manifest::{ManifestEntry, ManifestReader},
-        manifest_list::ManifestFileEntry,
+        manifest_list::ManifestListEntry,
         schema::Schema,
         snapshot::{Operation, Snapshot, Summary},
         table_metadata::TableMetadata,
@@ -74,7 +74,7 @@ impl Table {
         &self.metadata_location
     }
     /// Get list of current manifest files
-    pub async fn manifests(&self) -> Result<Vec<ManifestFileEntry>, anyhow::Error> {
+    pub async fn manifests(&self) -> Result<Vec<ManifestListEntry>, anyhow::Error> {
         let metadata = self.metadata();
         metadata
             .current_snapshot()?
@@ -86,7 +86,7 @@ impl Table {
     /// Get list of datafiles corresponding to the given manifest files
     pub async fn data_files(
         &self,
-        manifests: &[ManifestFileEntry],
+        manifests: &[ManifestListEntry],
         filter: Option<Vec<bool>>,
     ) -> Result<Vec<ManifestEntry>, anyhow::Error> {
         // filter manifest files according to filter vector
@@ -98,14 +98,14 @@ impl Table {
                         as Box<dyn Iterator<Item = bool> + Send + Sync>)
                     .filter_map(
                         filter_manifest
-                            as fn((&ManifestFileEntry, bool)) -> Option<&ManifestFileEntry>,
+                            as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
                     )
             }
             None => manifests
                 .iter()
                 .zip(Box::new(repeat(true)) as Box<dyn Iterator<Item = bool> + Send + Sync>)
                 .filter_map(
-                    filter_manifest as fn((&ManifestFileEntry, bool)) -> Option<&ManifestFileEntry>,
+                    filter_manifest as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
                 ),
         };
         // Collect a vector of data files by creating a stream over the manifst files, fetch their content and return a flatten stream over their entries.
@@ -199,8 +199,8 @@ impl Table {
 
 // Filter manifest files according to predicate. Returns Some(&ManifestFile) of the predicate is true and None if it is false.
 fn filter_manifest(
-    (manifest, predicate): (&ManifestFileEntry, bool),
-) -> Option<&ManifestFileEntry> {
+    (manifest, predicate): (&ManifestListEntry, bool),
+) -> Option<&ManifestListEntry> {
     if predicate {
         Some(manifest)
     } else {

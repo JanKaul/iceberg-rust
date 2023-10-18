@@ -23,7 +23,7 @@ use crate::{
             ManifestEntryV1, ManifestEntryV2, Status,
         },
         manifest_list::{
-            FieldSummary, ManifestFileEntry, ManifestFileEntryV1, ManifestFileEntryV2,
+            FieldSummary, ManifestListEntry, ManifestListEntryV1, ManifestListEntryV2,
         },
         partition::PartitionField,
         schema::{Schema, SchemaV2},
@@ -105,7 +105,7 @@ impl Operation {
                     .await?;
 
                 let manifest_list_schema = apache_avro::Schema::parse_str(
-                    &ManifestFileEntry::schema(&table_metadata.format_version),
+                    &ManifestListEntry::schema(&table_metadata.format_version),
                 )?;
 
                 let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
@@ -138,7 +138,7 @@ impl Operation {
                         let existing_manifests = existing_manifests.clone();
                         async move {
                             let manifest = manifest
-                                .and_then(|value| from_value::<ManifestFileEntry>(&value))
+                                .and_then(|value| from_value::<ManifestListEntry>(&value))
                                 .unwrap();
 
                             if let Some(summary) = manifest.partitions() {
@@ -153,7 +153,7 @@ impl Operation {
                                         existing_manifests.lock().await.insert(file.clone());
                                     }
                                     Some((
-                                        Ok::<ManifestFileEntry, ManifestFileEntry>(manifest),
+                                        Ok::<ManifestListEntry, ManifestListEntry>(manifest),
                                         files,
                                     ))
                                 } else {
@@ -184,7 +184,7 @@ impl Operation {
                                 + &manifest_count.to_string()
                                 + ".avro";
                             let manifest = match &table_metadata.format_version {
-                                FormatVersion::V1 => ManifestFileEntry::V1(ManifestFileEntryV1 {
+                                FormatVersion::V1 => ManifestListEntry::V1(ManifestListEntryV1 {
                                     manifest_path: manifest_location,
                                     manifest_length: 0,
                                     partition_spec_id: table_metadata.default_spec_id,
@@ -198,7 +198,7 @@ impl Operation {
                                     partitions: None,
                                     key_metadata: None,
                                 }),
-                                FormatVersion::V2 => ManifestFileEntry::V2(ManifestFileEntryV2 {
+                                FormatVersion::V2 => ManifestListEntry::V2(ManifestListEntryV2 {
                                     manifest_path: manifest_location,
                                     manifest_length: 0,
                                     partition_spec_id: table_metadata.default_spec_id,
@@ -219,7 +219,7 @@ impl Operation {
                                 }),
                             };
                             Some((
-                                Err::<ManifestFileEntry, ManifestFileEntry>(manifest),
+                                Err::<ManifestListEntry, ManifestListEntry>(manifest),
                                 vec![path.clone()],
                             ))
                         } else {
@@ -238,7 +238,7 @@ impl Operation {
                 );
 
                 let write_manifest_closure = |(manifest, files): (
-                    Result<ManifestFileEntry, ManifestFileEntry>,
+                    Result<ManifestListEntry, ManifestListEntry>,
                     Vec<String>,
                 )| {
                     let object_store = object_store.clone();
@@ -344,7 +344,7 @@ impl Operation {
                             manifest_writer.append_ser(manifest_entry)?;
 
                             match &mut manifest {
-                                ManifestFileEntry::V1(manifest) => {
+                                ManifestListEntry::V1(manifest) => {
                                     manifest.added_files_count = match manifest.added_files_count {
                                         Some(count) => Some(count + files_count),
                                         None => Some(files_count),
@@ -355,7 +355,7 @@ impl Operation {
                                     };
                                     manifest.partitions = Some(partitions)
                                 }
-                                ManifestFileEntry::V2(manifest) => {
+                                ManifestListEntry::V2(manifest) => {
                                     manifest.added_rows_count += added_rows_count;
                                     manifest.partitions = Some(partitions)
                                 }
@@ -367,10 +367,10 @@ impl Operation {
                         let manifest_length: i64 = manifest_bytes.len() as i64;
 
                         match &mut manifest {
-                            ManifestFileEntry::V1(manifest) => {
+                            ManifestListEntry::V1(manifest) => {
                                 manifest.manifest_length += manifest_length;
                             }
-                            ManifestFileEntry::V2(manifest) => {
+                            ManifestListEntry::V2(manifest) => {
                                 manifest.manifest_length += manifest_length;
                             }
                         }

@@ -26,17 +26,17 @@ use datafusion::{
 };
 
 use iceberg_rust::{
-    model::{manifest::ManifestEntry, manifest_list::ManifestFileEntry, values::Value},
+    model::{manifest::ManifestEntry, manifest_list::ManifestListEntry, values::Value},
     table::Table,
 };
 
 pub(crate) struct PruneManifests<'table, 'manifests> {
     table: &'table Table,
-    files: &'manifests [ManifestFileEntry],
+    files: &'manifests [ManifestListEntry],
 }
 
 impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
-    pub fn new(table: &'table Table, files: &'manifests [ManifestFileEntry]) -> Self {
+    pub fn new(table: &'table Table, files: &'manifests [ManifestListEntry]) -> Self {
         PruneManifests { table, files }
     }
 }
