@@ -54,7 +54,7 @@ impl MaterializedView {
         let storage_table = if let Relation::Table(table) = catalog
             .clone()
             .load_table(&Identifier::parse(
-                &storage_table.trim_start_matches("catalog:"),
+                storage_table.trim_start_matches("catalog:"),
             )?)
             .await?
         {

@@ -588,18 +588,16 @@ pub struct SnapshotLog {
 #[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
 #[repr(u8)]
 /// Iceberg format version
+#[derive(Default)]
 pub enum FormatVersion {
     /// Iceberg spec version 1
     V1 = b'1',
     /// Iceberg spec version 2
+    #[default]
     V2 = b'2',
 }
 
-impl Default for FormatVersion {
-    fn default() -> Self {
-        FormatVersion::V2
-    }
-}
+
 
 impl TryFrom<u8> for FormatVersion {
     type Error = anyhow::Error;
