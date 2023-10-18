@@ -226,13 +226,13 @@ async fn table_scan(
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         let manifests_to_prune =
             pruning_predicate.prune(&PruneManifests::new(table, &manifests))?;
-        let files = table
-            .files(Some(manifests_to_prune))
+        let data_files = table
+            .data_files(&manifests, Some(manifests_to_prune))
             .await
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         // After the first pruning stage the data_files are pruned again based on the pruning statistics in the manifest files.
-        let files_to_prune = pruning_predicate.prune(&PruneDataFiles::new(table, &files))?;
-        files
+        let files_to_prune = pruning_predicate.prune(&PruneDataFiles::new(table, &data_files))?;
+        data_files
             .into_iter()
             .zip(files_to_prune.into_iter())
             .for_each(|(manifest, prune_file)| {
@@ -272,11 +272,15 @@ async fn table_scan(
                 };
             });
     } else {
-        let files = table
-            .files(None)
+        let manifests = table
+            .manifests()
             .await
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
-        files.into_iter().for_each(|manifest| {
+        let data_files = table
+            .data_files(&manifests, None)
+            .await
+            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        data_files.into_iter().for_each(|manifest| {
             let partition_values = manifest
                 .partition_values()
                 .iter()
