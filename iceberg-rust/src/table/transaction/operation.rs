@@ -15,9 +15,9 @@ use parquet::format::FileMetaData;
 use std::ops::Deref;
 
 use crate::{
-    file_format::parquet::parquet_to_datafilev2,
+    file_format::parquet::parquet_to_datafile,
     model::{
-        manifest::{partition_value_schema, Content, DataFile, DataFileV2, ManifestEntry, Status},
+        manifest::{partition_value_schema, Content, DataFile, ManifestEntry, Status},
         manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
         partition::PartitionField,
         schema::{Schema, SchemaV2},
@@ -80,7 +80,7 @@ impl Operation {
 
                 stream::iter(paths.iter())
                     .then(|(path, file_metadata)| async move {
-                        let datafile = parquet_to_datafilev2(
+                        let datafile = parquet_to_datafile(
                             path,
                             file_metadata,
                             schema,
@@ -293,7 +293,7 @@ impl Operation {
                                 sequence_number: table_metadata
                                     .current_snapshot()?
                                     .map(|x| x.sequence_number),
-                                data_file: DataFile::try_from_v2(data_file, &table_metadata)?,
+                                data_file,
                             };
 
                             manifest_writer.append_ser(manifest_entry)?;
@@ -499,7 +499,7 @@ fn update_partitions(
 /// checks if partition values lie in the bounds of the field summary
 fn datafiles_in_bounds(
     partitions: &[FieldSummary],
-    datafiles: &HashMap<&String, DataFileV2>,
+    datafiles: &HashMap<&String, DataFile>,
     partition_spec: &[PartitionField],
     schema: &Schema,
 ) -> Vec<String> {

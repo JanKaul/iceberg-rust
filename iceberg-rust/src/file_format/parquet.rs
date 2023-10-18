@@ -14,7 +14,7 @@ use parquet::{
 use serde_bytes::ByteBuf;
 
 use crate::model::{
-    manifest::{AvroMap, Content, DataFileV2, FileFormat},
+    manifest::{AvroMap, Content, DataFile, FileFormat},
     partition::{PartitionField, Transform},
     schema::Schema,
     types::{PrimitiveType, Type},
@@ -22,12 +22,12 @@ use crate::model::{
 };
 
 /// Read datafile statistics from parquetfile
-pub fn parquet_to_datafilev2(
+pub fn parquet_to_datafile(
     location: &str,
     file_metadata: &FileMetaData,
     schema: &Schema,
     partition_spec: &[PartitionField],
-) -> Result<DataFileV2> {
+) -> Result<DataFile> {
     let mut partition = partition_spec
         .iter()
         .map(|x| {
@@ -352,7 +352,7 @@ pub fn parquet_to_datafilev2(
             }
         }
     }
-    let content = DataFileV2 {
+    let content = DataFile {
         content: Content::Data,
         file_path: location.to_string(),
         file_format: FileFormat::Parquet,
