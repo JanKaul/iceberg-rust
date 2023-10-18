@@ -104,9 +104,8 @@ impl Operation {
                     })
                     .await?;
 
-                let manifest_list_schema = apache_avro::Schema::parse_str(
-                    &ManifestListEntry::schema(&table_metadata.format_version),
-                )?;
+                let manifest_list_schema =
+                    ManifestListEntry::schema(&table_metadata.format_version)?;
 
                 let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
                     &manifest_list_schema,

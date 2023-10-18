@@ -7,7 +7,7 @@ use std::{
     iter::{repeat, Map, Repeat, Zip},
 };
 
-use apache_avro::{types::Value as AvroValue, Reader as AvroReader};
+use apache_avro::{types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
@@ -162,8 +162,8 @@ impl From<ManifestListEntryV1> for ManifestListEntryV2 {
 
 impl ManifestListEntry {
     /// Get schema of the manifest list
-    pub fn schema(format_version: &FormatVersion) -> String {
-        match format_version {
+    pub fn schema(format_version: &FormatVersion) -> Result<AvroSchema, anyhow::Error> {
+        let schema = match format_version {
             FormatVersion::V1 => r#"
         {
             "type": "record",
@@ -431,7 +431,8 @@ impl ManifestListEntry {
         }
         "#
             .to_owned(),
-        }
+        };
+        AvroSchema::parse_str(&schema).map_err(anyhow::Error::msg)
     }
     /// Location of the manifest file
     pub fn manifest_path(&self) -> &str {
