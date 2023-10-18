@@ -5,7 +5,6 @@ Defining the [Table] struct that represents an iceberg table.
 use std::{collections::HashMap, io::Cursor, iter::repeat, sync::Arc, time::SystemTime};
 
 use anyhow::anyhow;
-use apache_avro::types::Value as AvroValue;
 use object_store::{path::Path, ObjectStore};
 
 use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
@@ -13,11 +12,11 @@ use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{
-        manifest::{ManifestEntry, ManifestEntryV1, ManifestEntryV2},
+        manifest::{ManifestEntry, ManifestReader},
         manifest_list::ManifestFileEntry,
         schema::Schema,
         snapshot::{Operation, Snapshot, Summary},
-        table_metadata::{FormatVersion, TableMetadata},
+        table_metadata::TableMetadata,
     },
     table::transaction::TableTransaction,
     util::{self, strip_prefix},
@@ -120,10 +119,8 @@ impl Table {
                         .and_then(|file| file.bytes())
                         .await?,
                 ));
-                let reader = apache_avro::Reader::new(bytes)?;
-                Ok(stream::iter(reader.map(|record| {
-                    avro_value_to_manifest_entry(record, &self.metadata().format_version)
-                })))
+                let reader = ManifestReader::new(bytes, self.metadata())?;
+                Ok(stream::iter(reader))
             })
             .flat_map(|reader| reader.try_flatten_stream())
             .try_collect()
@@ -208,23 +205,6 @@ fn filter_manifest(
         Some(manifest)
     } else {
         None
-    }
-}
-
-// Convert avro value to ManifestEntry based on the format version of the table.
-fn avro_value_to_manifest_entry(
-    entry: Result<AvroValue, apache_avro::Error>,
-    format_version: &FormatVersion,
-) -> Result<ManifestEntry, anyhow::Error> {
-    match format_version {
-        FormatVersion::V1 => entry
-            .and_then(|value| apache_avro::from_value::<ManifestEntryV1>(&value))
-            .map(ManifestEntry::V1)
-            .map_err(anyhow::Error::msg),
-        FormatVersion::V2 => entry
-            .and_then(|value| apache_avro::from_value::<ManifestEntryV2>(&value))
-            .map(ManifestEntry::V2)
-            .map_err(anyhow::Error::msg),
     }
 }
 

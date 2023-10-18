@@ -1,9 +1,14 @@
 /*!
 Manifest files
 */
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    io::Read,
+    iter::{repeat, Map, Repeat, Zip},
+};
 
 use anyhow::{anyhow, Result};
+use apache_avro::{types::Value as AvroValue, Reader as AvroReader};
 use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -11,10 +16,41 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use super::{
     partition::PartitionField,
     schema::Schema,
-    table_metadata::FormatVersion,
+    table_metadata::{FormatVersion, TableMetadata},
     types::{PrimitiveType, Type},
     values::Struct,
 };
+
+/// Iterator of ManifestFileEntries
+pub struct ManifestReader<'a, 'metadata, R: Read> {
+    reader: Map<
+        Zip<AvroReader<'a, R>, Repeat<&'metadata TableMetadata>>,
+        fn(
+            (Result<AvroValue, apache_avro::Error>, &TableMetadata),
+        ) -> Result<ManifestEntry, anyhow::Error>,
+    >,
+}
+
+impl<'a, 'metadata, R: Read> Iterator for ManifestReader<'a, 'metadata, R> {
+    type Item = Result<ManifestEntry, anyhow::Error>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.reader.next()
+    }
+}
+
+impl<'a, 'metadata, R: Read> ManifestReader<'a, 'metadata, R> {
+    /// Create a new ManifestFile reader
+    pub fn new(
+        reader: R,
+        table_metadata: &'metadata TableMetadata,
+    ) -> Result<Self, apache_avro::Error> {
+        Ok(Self {
+            reader: AvroReader::new(reader)?
+                .zip(repeat(table_metadata))
+                .map(avro_value_to_manifest_entry),
+        })
+    }
+}
 
 /// Lists data files or delete files, along with each file’s
 /// partition data tuple, metrics, and tracking information.
@@ -1108,6 +1144,24 @@ impl DataFileV2 {
                 }
             ]
         }"#
+    }
+}
+
+// Convert avro value to ManifestEntry based on the format version of the table.
+fn avro_value_to_manifest_entry(
+    value: (Result<AvroValue, apache_avro::Error>, &TableMetadata),
+) -> Result<ManifestEntry, anyhow::Error> {
+    let entry = value.0;
+    let table_metadata = value.1;
+    match table_metadata.format_version {
+        FormatVersion::V1 => entry
+            .and_then(|value| apache_avro::from_value::<ManifestEntryV1>(&value))
+            .map(ManifestEntry::V1)
+            .map_err(anyhow::Error::msg),
+        FormatVersion::V2 => entry
+            .and_then(|value| apache_avro::from_value::<ManifestEntryV2>(&value))
+            .map(ManifestEntry::V2)
+            .map_err(anyhow::Error::msg),
     }
 }
 
