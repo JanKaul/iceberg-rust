@@ -17,14 +17,10 @@ use std::ops::Deref;
 use crate::{
     file_format::parquet::parquet_to_datafilev2,
     model::{
-        manifest::{
-            partition_value_schema, Content, DataFileV1, DataFileV2, ManifestEntry,
-            ManifestEntryV1, ManifestEntryV2, Status,
-        },
+        manifest::{partition_value_schema, Content, DataFile, DataFileV2, ManifestEntry, Status},
         manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
         partition::PartitionField,
         schema::{Schema, SchemaV2},
-        table_metadata::FormatVersion,
         types::StructField,
         values::{Struct, Value},
     },
@@ -290,39 +286,14 @@ impl Operation {
                                 &partition_columns,
                             )?;
 
-                            let manifest_entry = match table_metadata.format_version {
-                                FormatVersion::V1 => ManifestEntry::V1(ManifestEntryV1 {
-                                    status: Status::Added,
-                                    snapshot_id: table_metadata.current_snapshot_id.unwrap_or(1),
-                                    data_file: DataFileV1 {
-                                        file_path: data_file.file_path,
-                                        file_format: data_file.file_format,
-                                        partition: data_file.partition,
-                                        record_count: data_file.record_count,
-                                        file_size_in_bytes: data_file.file_size_in_bytes,
-                                        block_size_in_bytes: data_file.file_size_in_bytes,
-                                        file_ordinal: None,
-                                        sort_columns: None,
-                                        column_sizes: data_file.column_sizes,
-                                        value_counts: data_file.value_counts,
-                                        null_value_counts: data_file.null_value_counts,
-                                        nan_value_counts: data_file.nan_value_counts,
-                                        distinct_counts: data_file.distinct_counts,
-                                        lower_bounds: data_file.lower_bounds,
-                                        upper_bounds: data_file.upper_bounds,
-                                        key_metadata: data_file.key_metadata,
-                                        split_offsets: data_file.split_offsets,
-                                        sort_order_id: data_file.sort_order_id,
-                                    },
-                                }),
-                                FormatVersion::V2 => ManifestEntry::V2(ManifestEntryV2 {
-                                    status: Status::Added,
-                                    snapshot_id: table_metadata.current_snapshot_id,
-                                    sequence_number: table_metadata
-                                        .current_snapshot()?
-                                        .map(|x| x.sequence_number),
-                                    data_file,
-                                }),
+                            let manifest_entry = ManifestEntry {
+                                format_version: table_metadata.format_version.clone(),
+                                status: Status::Added,
+                                snapshot_id: table_metadata.current_snapshot_id,
+                                sequence_number: table_metadata
+                                    .current_snapshot()?
+                                    .map(|x| x.sequence_number),
+                                data_file: DataFile::try_from_v2(data_file, &table_metadata)?,
                             };
 
                             manifest_writer.append_ser(manifest_entry)?;

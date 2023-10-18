@@ -357,7 +357,7 @@ mod tests {
             .await
             .unwrap()
             .into_iter()
-            .map(|manifest_entry| manifest_entry.file_path().to_string());
+            .map(|manifest_entry| manifest_entry.data_file.file_path.to_string());
         assert!(parquet_files
             .iter()
             .contains(&files.next().unwrap().as_str()));

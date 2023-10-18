@@ -133,7 +133,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         let min_values = self
             .files
             .iter()
-            .map(|manifest| match &manifest.lower_bounds() {
+            .map(|manifest| match &manifest.data_file.lower_bounds {
                 Some(map) => map.get(&(column_id as i32)).and_then(|value| {
                     Some(
                         Value::try_from_bytes(value, &datatype.try_into().ok()?)
@@ -152,7 +152,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         let max_values = self
             .files
             .iter()
-            .map(|manifest| match &manifest.upper_bounds() {
+            .map(|manifest| match &manifest.data_file.upper_bounds {
                 Some(map) => map.get(&(column_id as i32)).and_then(|value| {
                     Some(
                         Value::try_from_bytes(value, &datatype.try_into().ok()?)
@@ -170,13 +170,13 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
         let schema: Schema = (&self.table.schema().ok()?.fields).try_into().ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
-        let null_counts = self
-            .files
-            .iter()
-            .map(|manifest| match &manifest.null_value_counts() {
-                Some(map) => map.get(&(column_id as i32)).copied(),
-                None => None,
-            });
+        let null_counts =
+            self.files
+                .iter()
+                .map(|manifest| match &manifest.data_file.null_value_counts {
+                    Some(map) => map.get(&(column_id as i32)).copied(),
+                    None => None,
+                });
         ScalarValue::iter_to_array(null_counts.map(ScalarValue::Int64)).ok()
     }
 }

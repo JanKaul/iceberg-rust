@@ -28,10 +28,10 @@ pub async fn read(
         .then(move |manifest| {
             let object_store = object_store.clone();
             async move {
-                match manifest.file_format() {
+                match manifest.data_file.file_format {
                     FileFormat::Parquet => {
                         let object_meta = object_store
-                            .head(&util::strip_prefix(manifest.file_path()).into())
+                            .head(&util::strip_prefix(&manifest.data_file.file_path).into())
                             .await?;
 
                         let object_reader = ParquetObjectReader::new(object_store, object_meta);

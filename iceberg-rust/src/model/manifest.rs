@@ -111,10 +111,55 @@ pub enum Status {
     Deleted = 2,
 }
 
+/// Entry in manifest with the iceberg spec version 2.
+#[derive(Debug, Serialize, PartialEq, Clone)]
+#[serde(into = "ManifestEntryEnum")]
+pub struct ManifestEntry {
+    /// Table format version
+    pub format_version: FormatVersion,
+    /// Used to track additions and deletions
+    pub status: Status,
+    /// Snapshot id where the file was added, or deleted if status is 2.
+    /// Inherited when null.
+    pub snapshot_id: Option<i64>,
+    /// Sequence number when the file was added. Inherited when null.
+    pub sequence_number: Option<i64>,
+    /// File path, partition tuple, metrics, …
+    pub data_file: DataFile,
+}
+
+impl ManifestEntry {
+    pub(crate) fn try_from_v2(
+        value: ManifestEntryV2,
+        table_metadata: &TableMetadata,
+    ) -> Result<Self, anyhow::Error> {
+        Ok(ManifestEntry {
+            format_version: FormatVersion::V2,
+            status: value.status,
+            snapshot_id: value.snapshot_id,
+            sequence_number: value.sequence_number,
+            data_file: DataFile::try_from_v2(value.data_file, table_metadata)?,
+        })
+    }
+
+    pub(crate) fn try_from_v1(
+        value: ManifestEntryV1,
+        table_metadata: &TableMetadata,
+    ) -> Result<Self, anyhow::Error> {
+        Ok(ManifestEntry {
+            format_version: FormatVersion::V2,
+            status: value.status,
+            snapshot_id: Some(value.snapshot_id),
+            sequence_number: None,
+            data_file: DataFile::try_from_v1(value.data_file, table_metadata)?,
+        })
+    }
+}
+
 /// Entry in manifest
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(untagged)]
-pub enum ManifestEntry {
+pub enum ManifestEntryEnum {
     /// Manifest entry version 2
     V2(ManifestEntryV2),
     /// Manifest entry version 1
@@ -145,6 +190,36 @@ pub struct ManifestEntryV1 {
     pub snapshot_id: i64,
     /// File path, partition tuple, metrics, …
     pub data_file: DataFileV1,
+}
+
+impl From<ManifestEntry> for ManifestEntryEnum {
+    fn from(value: ManifestEntry) -> Self {
+        match value.format_version {
+            FormatVersion::V2 => ManifestEntryEnum::V2(value.into()),
+            FormatVersion::V1 => ManifestEntryEnum::V1(value.into()),
+        }
+    }
+}
+
+impl From<ManifestEntry> for ManifestEntryV2 {
+    fn from(value: ManifestEntry) -> Self {
+        ManifestEntryV2 {
+            status: value.status,
+            snapshot_id: value.snapshot_id,
+            sequence_number: value.sequence_number,
+            data_file: value.data_file.into(),
+        }
+    }
+}
+
+impl From<ManifestEntry> for ManifestEntryV1 {
+    fn from(v1: ManifestEntry) -> Self {
+        ManifestEntryV1 {
+            status: v1.status,
+            snapshot_id: v1.snapshot_id.unwrap_or(0),
+            data_file: v1.data_file.into(),
+        }
+    }
 }
 
 impl From<ManifestEntryV1> for ManifestEntryV2 {
@@ -234,55 +309,6 @@ impl ManifestEntry {
             }
         };
         AvroSchema::parse_str(&schema).map_err(anyhow::Error::msg)
-    }
-    /// Partition data tuple, schema based on the partition spec output using partition field ids for the struct field ids
-    pub fn partition_values(&self) -> &Struct {
-        match self {
-            ManifestEntry::V1(entry) => &entry.data_file.partition,
-            ManifestEntry::V2(entry) => &entry.data_file.partition,
-        }
-    }
-    /// Full URI for the file with a FS scheme.
-    pub fn file_path(&self) -> &str {
-        match self {
-            ManifestEntry::V1(entry) => &entry.data_file.file_path,
-            ManifestEntry::V2(entry) => &entry.data_file.file_path,
-        }
-    }
-    /// Full URI for the file with a FS scheme.
-    pub fn file_format(&self) -> &FileFormat {
-        match self {
-            ManifestEntry::V1(entry) => &entry.data_file.file_format,
-            ManifestEntry::V2(entry) => &entry.data_file.file_format,
-        }
-    }
-    /// Total file size in bytes
-    pub fn file_size_in_bytes(&self) -> i64 {
-        match self {
-            ManifestEntry::V1(entry) => entry.data_file.file_size_in_bytes,
-            ManifestEntry::V2(entry) => entry.data_file.file_size_in_bytes,
-        }
-    }
-    /// Map from column id to lower bound in the column
-    pub fn lower_bounds(&self) -> &Option<AvroMap<ByteBuf>> {
-        match self {
-            ManifestEntry::V1(entry) => &entry.data_file.lower_bounds,
-            ManifestEntry::V2(entry) => &entry.data_file.lower_bounds,
-        }
-    }
-    /// Map from column id to upper bound in the column
-    pub fn upper_bounds(&self) -> &Option<AvroMap<ByteBuf>> {
-        match self {
-            ManifestEntry::V1(entry) => &entry.data_file.upper_bounds,
-            ManifestEntry::V2(entry) => &entry.data_file.upper_bounds,
-        }
-    }
-    /// Map from column id to number of null values
-    pub fn null_value_counts(&self) -> &Option<AvroMap<i64>> {
-        match self {
-            ManifestEntry::V1(entry) => &entry.data_file.null_value_counts,
-            ManifestEntry::V2(entry) => &entry.data_file.null_value_counts,
-        }
     }
 }
 
@@ -470,6 +496,97 @@ impl<'de, T: Serialize + DeserializeOwned + Clone> Deserialize<'de> for AvroMap<
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 /// DataFile found in Manifest.
+pub struct DataFile {
+    ///Type of content in data file.
+    pub content: Content,
+    /// Full URI for the file with a FS scheme.
+    pub file_path: String,
+    /// String file format name, avro, orc or parquet
+    pub file_format: FileFormat,
+    /// Partition data tuple, schema based on the partition spec output using partition field ids for the struct field ids
+    pub partition: Struct,
+    /// Number of records in this file
+    pub record_count: i64,
+    /// Total file size in bytes
+    pub file_size_in_bytes: i64,
+    /// Map from column id to total size on disk
+    pub column_sizes: Option<AvroMap<i64>>,
+    /// Map from column id to number of values in the column (including null and NaN values)
+    pub value_counts: Option<AvroMap<i64>>,
+    /// Map from column id to number of null values
+    pub null_value_counts: Option<AvroMap<i64>>,
+    /// Map from column id to number of NaN values
+    pub nan_value_counts: Option<AvroMap<i64>>,
+    /// Map from column id to number of distinct values in the column.
+    pub distinct_counts: Option<AvroMap<i64>>,
+    /// Map from column id to lower bound in the column
+    pub lower_bounds: Option<AvroMap<ByteBuf>>,
+    /// Map from column id to upper bound in the column
+    pub upper_bounds: Option<AvroMap<ByteBuf>>,
+    /// Implementation specific key metadata for encryption
+    pub key_metadata: Option<ByteBuf>,
+    /// Split offsets for the data file.
+    pub split_offsets: Option<Vec<i64>>,
+    /// Field ids used to determine row equality in equality delete files.
+    pub equality_ids: Option<Vec<i32>>,
+    /// ID representing sort order for this file
+    pub sort_order_id: Option<i32>,
+}
+
+impl DataFile {
+    pub(crate) fn try_from_v2(
+        value: DataFileV2,
+        _table_metadata: &TableMetadata,
+    ) -> Result<Self, anyhow::Error> {
+        Ok(DataFile {
+            content: value.content,
+            file_path: value.file_path,
+            file_format: value.file_format,
+            partition: value.partition,
+            record_count: value.record_count,
+            file_size_in_bytes: value.file_size_in_bytes,
+            column_sizes: value.column_sizes,
+            value_counts: value.value_counts,
+            null_value_counts: value.null_value_counts,
+            nan_value_counts: value.nan_value_counts,
+            distinct_counts: value.distinct_counts,
+            lower_bounds: value.lower_bounds,
+            upper_bounds: value.upper_bounds,
+            key_metadata: value.key_metadata,
+            split_offsets: value.split_offsets,
+            equality_ids: value.equality_ids,
+            sort_order_id: value.sort_order_id,
+        })
+    }
+
+    pub(crate) fn try_from_v1(
+        value: DataFileV1,
+        _table_metadata: &TableMetadata,
+    ) -> Result<Self, anyhow::Error> {
+        Ok(DataFile {
+            content: Content::Data,
+            file_path: value.file_path,
+            file_format: value.file_format,
+            partition: value.partition,
+            record_count: value.record_count,
+            file_size_in_bytes: value.file_size_in_bytes,
+            column_sizes: value.column_sizes,
+            value_counts: value.value_counts,
+            null_value_counts: value.null_value_counts,
+            nan_value_counts: value.nan_value_counts,
+            distinct_counts: value.distinct_counts,
+            lower_bounds: value.lower_bounds,
+            upper_bounds: value.upper_bounds,
+            key_metadata: value.key_metadata,
+            split_offsets: value.split_offsets,
+            equality_ids: None,
+            sort_order_id: value.sort_order_id,
+        })
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+/// DataFile found in Manifest.
 pub struct DataFileV2 {
     ///Type of content in data file.
     pub content: Content,
@@ -546,6 +663,55 @@ pub struct DataFileV1 {
     pub split_offsets: Option<Vec<i64>>,
     /// ID representing sort order for this file
     pub sort_order_id: Option<i32>,
+}
+
+impl From<DataFile> for DataFileV2 {
+    fn from(value: DataFile) -> Self {
+        DataFileV2 {
+            content: value.content,
+            file_path: value.file_path,
+            file_format: value.file_format,
+            partition: value.partition,
+            record_count: value.record_count,
+            file_size_in_bytes: value.file_size_in_bytes,
+            column_sizes: value.column_sizes,
+            value_counts: value.value_counts,
+            null_value_counts: value.null_value_counts,
+            nan_value_counts: value.nan_value_counts,
+            distinct_counts: value.distinct_counts,
+            lower_bounds: value.lower_bounds,
+            upper_bounds: value.upper_bounds,
+            key_metadata: value.key_metadata,
+            split_offsets: value.split_offsets,
+            equality_ids: value.equality_ids,
+            sort_order_id: value.sort_order_id,
+        }
+    }
+}
+
+impl From<DataFile> for DataFileV1 {
+    fn from(value: DataFile) -> Self {
+        DataFileV1 {
+            file_path: value.file_path,
+            file_format: value.file_format,
+            partition: value.partition,
+            record_count: value.record_count,
+            file_size_in_bytes: value.file_size_in_bytes,
+            column_sizes: value.column_sizes,
+            value_counts: value.value_counts,
+            null_value_counts: value.null_value_counts,
+            nan_value_counts: value.nan_value_counts,
+            distinct_counts: value.distinct_counts,
+            lower_bounds: value.lower_bounds,
+            upper_bounds: value.upper_bounds,
+            key_metadata: value.key_metadata,
+            split_offsets: value.split_offsets,
+            sort_order_id: value.sort_order_id,
+            block_size_in_bytes: 0,
+            file_ordinal: None,
+            sort_columns: None,
+        }
+    }
 }
 
 impl From<DataFileV1> for DataFileV2 {
@@ -1155,26 +1321,27 @@ impl DataFileV2 {
 fn avro_value_to_manifest_entry(
     value: (Result<AvroValue, apache_avro::Error>, &TableMetadata),
 ) -> Result<ManifestEntry, anyhow::Error> {
-    let entry = value.0;
+    let entry = value.0?;
     let table_metadata = value.1;
     match table_metadata.format_version {
-        FormatVersion::V1 => entry
-            .and_then(|value| apache_avro::from_value::<ManifestEntryV1>(&value))
-            .map(ManifestEntry::V1)
-            .map_err(anyhow::Error::msg),
-        FormatVersion::V2 => entry
-            .and_then(|value| apache_avro::from_value::<ManifestEntryV2>(&value))
-            .map(ManifestEntry::V2)
-            .map_err(anyhow::Error::msg),
+        FormatVersion::V2 => ManifestEntry::try_from_v2(
+            apache_avro::from_value::<ManifestEntryV2>(&entry)?,
+            table_metadata,
+        ),
+        FormatVersion::V1 => ManifestEntry::try_from_v1(
+            apache_avro::from_value::<ManifestEntryV1>(&entry)?,
+            table_metadata,
+        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::model::{
-        partition::{PartitionField, PartitionSpec, Transform},
+        partition::{PartitionField, PartitionSpec, PartitionSpecBuilder, Transform},
         schema::SchemaV2,
-        types::{PrimitiveType, StructField, StructType, Type},
+        table_metadata::TableMetadataBuilder,
+        types::{PrimitiveType, StructField, StructType, StructTypeBuilder, Type},
         values::Value,
     };
 
@@ -1183,11 +1350,48 @@ mod tests {
 
     #[test]
     fn manifest_entry() {
-        let manifest_entry = ManifestEntry::V2(ManifestEntryV2 {
+        let table_metadata = TableMetadataBuilder::default()
+            .current_schema_id(1)
+            .schemas(HashMap::from_iter(vec![(
+                1,
+                Schema {
+                    schema_id: 1,
+                    identifier_field_ids: None,
+                    fields: StructTypeBuilder::default()
+                        .with_struct_field(StructField {
+                            id: 0,
+                            name: "date".to_string(),
+                            required: true,
+                            field_type: Type::Primitive(PrimitiveType::Date),
+                            doc: None,
+                        })
+                        .build()
+                        .unwrap(),
+                },
+            )]))
+            .default_spec_id(1)
+            .partition_specs(HashMap::from_iter(vec![(
+                1,
+                PartitionSpecBuilder::default()
+                    .spec_id(1)
+                    .with_partition_field(PartitionField {
+                        source_id: 0,
+                        field_id: 1000,
+                        name: "day".to_string(),
+                        transform: Transform::Day,
+                    })
+                    .build()
+                    .unwrap(),
+            )]))
+            .build()
+            .unwrap();
+
+        let manifest_entry = ManifestEntry {
+            format_version: FormatVersion::V2,
             status: Status::Added,
             snapshot_id: Some(638933773299822130),
             sequence_number: Some(1),
-            data_file: DataFileV2 {
+            data_file: DataFile {
                 content: Content::Data,
                 file_path: "/".to_string(),
                 file_format: FileFormat::Parquet,
@@ -1209,7 +1413,7 @@ mod tests {
                 equality_ids: None,
                 sort_order_id: None,
             },
-        });
+        };
 
         let table_schema = SchemaV2 {
             schema_id: 0,
@@ -1287,20 +1491,58 @@ mod tests {
         let reader = apache_avro::Reader::new(&encoded[..]).unwrap();
 
         for value in reader {
-            let entry = apache_avro::from_value::<ManifestEntryV2>(&value.unwrap())
-                .map(ManifestEntry::V2)
-                .unwrap();
-            assert_eq!(manifest_entry, entry)
+            let entry = apache_avro::from_value::<ManifestEntryV2>(&value.unwrap()).unwrap();
+            assert_eq!(
+                manifest_entry,
+                ManifestEntry::try_from_v2(entry, &table_metadata).unwrap()
+            )
         }
     }
 
     #[test]
     fn test_read_manifest_entry() {
-        let manifest_entry = ManifestEntry::V2(ManifestEntryV2 {
+        let table_metadata = TableMetadataBuilder::default()
+            .current_schema_id(1)
+            .schemas(HashMap::from_iter(vec![(
+                1,
+                Schema {
+                    schema_id: 1,
+                    identifier_field_ids: None,
+                    fields: StructTypeBuilder::default()
+                        .with_struct_field(StructField {
+                            id: 0,
+                            name: "date".to_string(),
+                            required: true,
+                            field_type: Type::Primitive(PrimitiveType::Date),
+                            doc: None,
+                        })
+                        .build()
+                        .unwrap(),
+                },
+            )]))
+            .default_spec_id(1)
+            .partition_specs(HashMap::from_iter(vec![(
+                1,
+                PartitionSpecBuilder::default()
+                    .spec_id(1)
+                    .with_partition_field(PartitionField {
+                        source_id: 0,
+                        field_id: 1000,
+                        name: "day".to_string(),
+                        transform: Transform::Day,
+                    })
+                    .build()
+                    .unwrap(),
+            )]))
+            .build()
+            .unwrap();
+
+        let manifest_entry = ManifestEntry {
+            format_version: FormatVersion::V2,
             status: Status::Added,
             snapshot_id: Some(638933773299822130),
             sequence_number: Some(1),
-            data_file: DataFileV2 {
+            data_file: DataFile {
                 content: Content::Data,
                 file_path: "/".to_string(),
                 file_format: FileFormat::Parquet,
@@ -1322,7 +1564,7 @@ mod tests {
                 equality_ids: None,
                 sort_order_id: None,
             },
-        });
+        };
 
         let table_schema = SchemaV2 {
             schema_id: 0,
@@ -1401,10 +1643,12 @@ mod tests {
         let record = reader.into_iter().next().unwrap().unwrap();
 
         let metadata_entry = apache_avro::from_value::<ManifestEntryV2>(&record)
-            .map(ManifestEntry::V2)
             .map_err(anyhow::Error::msg)
             .unwrap();
-        assert_eq!(manifest_entry, metadata_entry);
+        assert_eq!(
+            manifest_entry,
+            ManifestEntry::try_from_v2(metadata_entry, &table_metadata).unwrap()
+        );
     }
 
     #[test]
