@@ -413,4 +413,22 @@ impl Value {
             _ => unimplemented!(),
         }
     }
+    /// Cast value to different type
+    pub fn cast(self, data_type: &Type) -> Result<Self, anyhow::Error> {
+        match (self, data_type) {
+            (Value::Int(input), Type::Primitive(PrimitiveType::Int)) => Ok(Value::Int(input)),
+            (Value::Int(input), Type::Primitive(PrimitiveType::Date)) => Ok(Value::Date(input)),
+            (Value::LongInt(input), Type::Primitive(PrimitiveType::Long)) => {
+                Ok(Value::LongInt(input))
+            }
+            (Value::LongInt(input), Type::Primitive(PrimitiveType::Time)) => Ok(Value::Time(input)),
+            (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestamp)) => {
+                Ok(Value::Timestamp(input))
+            }
+            (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestampz)) => {
+                Ok(Value::TimestampTZ(input))
+            }
+            _ => Err(anyhow!("Cast is not supported")),
+        }
+    }
 }
