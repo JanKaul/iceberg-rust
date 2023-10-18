@@ -73,9 +73,9 @@ impl From<Value> for ByteBuf {
         match value {
             Value::Boolean(val) => {
                 if val {
-                    ByteBuf::from([0u8])
-                } else {
                     ByteBuf::from([1u8])
+                } else {
+                    ByteBuf::from([0u8])
                 }
             }
             Value::Int(val) => ByteBuf::from(val.to_le_bytes()),
