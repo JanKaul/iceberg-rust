@@ -512,9 +512,7 @@ mod tests {
             key_metadata: None,
         });
 
-        let raw_schema = ManifestListEntry::schema(&FormatVersion::V2);
-
-        let schema = apache_avro::Schema::parse_str(&raw_schema).unwrap();
+        let schema = ManifestListEntry::schema(&FormatVersion::V2).unwrap();
 
         let mut writer = apache_avro::Writer::new(&schema, Vec::new());
 
@@ -552,9 +550,7 @@ mod tests {
             key_metadata: None,
         });
 
-        let raw_schema = ManifestListEntry::schema(&FormatVersion::V1);
-
-        let schema = apache_avro::Schema::parse_str(&raw_schema).unwrap();
+        let schema = ManifestListEntry::schema(&FormatVersion::V1).unwrap();
 
         let mut writer = apache_avro::Writer::new(&schema, Vec::new());
 

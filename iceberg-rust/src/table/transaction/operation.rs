@@ -244,14 +244,13 @@ impl Operation {
                     let datafiles = datafiles.clone();
                     let partition_columns = partition_columns.clone();
                     async move {
-                        let manifest_schema =
-                            apache_avro::Schema::parse_str(&ManifestEntry::schema(
-                                &partition_value_schema(
-                                    &table_metadata.default_partition_spec()?.fields,
-                                    schema,
-                                )?,
-                                &table_metadata.format_version,
-                            ))?;
+                        let manifest_schema = ManifestEntry::schema(
+                            &partition_value_schema(
+                                &table_metadata.default_partition_spec()?.fields,
+                                schema,
+                            )?,
+                            &table_metadata.format_version,
+                        )?;
 
                         let mut manifest_writer =
                             apache_avro::Writer::new(&manifest_schema, Vec::new());

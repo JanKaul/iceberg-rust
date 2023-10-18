@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use apache_avro::{types::Value as AvroValue, Reader as AvroReader};
+use apache_avro::{types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema};
 use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -160,8 +160,11 @@ impl From<ManifestEntryV1> for ManifestEntryV2 {
 
 impl ManifestEntry {
     /// Get schema of manifest entry.
-    pub fn schema(partition_schema: &str, format_version: &FormatVersion) -> String {
-        match format_version {
+    pub fn schema(
+        partition_schema: &str,
+        format_version: &FormatVersion,
+    ) -> Result<AvroSchema, anyhow::Error> {
+        let schema = match format_version {
             FormatVersion::V1 => {
                 let datafile_schema = DataFileV1::schema(partition_schema);
                 r#"{
@@ -229,7 +232,8 @@ impl ManifestEntry {
             ]
         }"#
             }
-        }
+        };
+        AvroSchema::parse_str(&schema).map_err(anyhow::Error::msg)
     }
     /// Partition data tuple, schema based on the partition spec output using partition field ids for the struct field ids
     pub fn partition_values(&self) -> &Struct {
@@ -1234,9 +1238,7 @@ mod tests {
         let partition_schema =
             partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();
 
-        let raw_schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2);
-
-        let schema = apache_avro::Schema::parse_str(&raw_schema).unwrap();
+        let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2).unwrap();
 
         // TODO: make this a correct partition spec
         let partition_spec = r#"[{
@@ -1349,9 +1351,7 @@ mod tests {
         let partition_schema =
             partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();
 
-        let raw_schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2);
-
-        let schema = apache_avro::Schema::parse_str(&raw_schema).unwrap();
+        let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2).unwrap();
 
         // TODO: make this a correct partition spec
         let partition_spec = r#"[{
