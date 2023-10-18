@@ -333,7 +333,7 @@ impl Value {
 
     #[inline]
     /// Create iceberg value from bytes
-    pub fn from_bytes(bytes: &[u8], data_type: &Type) -> Result<Self, anyhow::Error> {
+    pub fn try_from_bytes(bytes: &[u8], data_type: &Type) -> Result<Self, anyhow::Error> {
         match data_type {
             Type::Primitive(primitive) => match primitive {
                 PrimitiveType::Boolean => {

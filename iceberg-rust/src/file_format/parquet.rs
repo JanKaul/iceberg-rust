@@ -96,8 +96,8 @@ pub fn parquet_to_datafilev2(
                     if let Some(entry) = lower_bounds.0.get_mut(&id) {
                         let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
                         let bytes = statistics.min_bytes();
-                        let current = Value::from_bytes(entry, data_type)?;
-                        let new = Value::from_bytes(statistics.min_bytes(), data_type)?;
+                        let current = Value::try_from_bytes(entry, data_type)?;
+                        let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
                         match (current, new) {
                             (Value::Int(current), Value::Int(new)) => {
                                 if current > new {
@@ -147,8 +147,8 @@ pub fn parquet_to_datafilev2(
                     if let Some(entry) = upper_bounds.0.get_mut(&id) {
                         let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
                         let bytes = statistics.max_bytes();
-                        let current = Value::from_bytes(entry, data_type)?;
-                        let new = Value::from_bytes(statistics.min_bytes(), data_type)?;
+                        let current = Value::try_from_bytes(entry, data_type)?;
+                        let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
                         match (current, new) {
                             (Value::Int(current), Value::Int(new)) => {
                                 if current < new {
@@ -207,10 +207,12 @@ pub fn parquet_to_datafilev2(
                                                 column_name
                                             )
                                         })?;
-                                    let min = Value::from_bytes(statistics.min_bytes(), data_type)?
-                                        .tranform(transform)?;
-                                    let max = Value::from_bytes(statistics.max_bytes(), data_type)?
-                                        .tranform(transform)?;
+                                    let min =
+                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                            .tranform(transform)?;
+                                    let max =
+                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                            .tranform(transform)?;
                                     if min == max {
                                         *partition_value = Some(min)
                                     }
@@ -223,10 +225,12 @@ pub fn parquet_to_datafilev2(
                                                 column_name
                                             )
                                         })?;
-                                    let min = Value::from_bytes(statistics.min_bytes(), data_type)?
-                                        .tranform(transform)?;
-                                    let max = Value::from_bytes(statistics.max_bytes(), data_type)?
-                                        .tranform(transform)?;
+                                    let min =
+                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                            .tranform(transform)?;
+                                    let max =
+                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                            .tranform(transform)?;
                                     if min == max {
                                         *partition_value = Some(min)
                                     }
@@ -239,10 +243,12 @@ pub fn parquet_to_datafilev2(
                                                 column_name
                                             )
                                         })?;
-                                    let min = Value::from_bytes(statistics.min_bytes(), data_type)?
-                                        .tranform(transform)?;
-                                    let max = Value::from_bytes(statistics.max_bytes(), data_type)?
-                                        .tranform(transform)?;
+                                    let min =
+                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                            .tranform(transform)?;
+                                    let max =
+                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                            .tranform(transform)?;
                                     if min == max {
                                         *partition_value = Some(min)
                                     }
@@ -255,10 +261,12 @@ pub fn parquet_to_datafilev2(
                                                 column_name
                                             )
                                         })?;
-                                    let min = Value::from_bytes(statistics.min_bytes(), data_type)?
-                                        .tranform(transform)?;
-                                    let max = Value::from_bytes(statistics.max_bytes(), data_type)?
-                                        .tranform(transform)?;
+                                    let min =
+                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                            .tranform(transform)?;
+                                    let max =
+                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                            .tranform(transform)?;
                                     if min == max {
                                         *partition_value = Some(min)
                                     }
@@ -271,10 +279,12 @@ pub fn parquet_to_datafilev2(
                                                 column_name
                                             )
                                         })?;
-                                    let min = Value::from_bytes(statistics.min_bytes(), data_type)?
-                                        .tranform(transform)?;
-                                    let max = Value::from_bytes(statistics.max_bytes(), data_type)?
-                                        .tranform(transform)?;
+                                    let min =
+                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                            .tranform(transform)?;
+                                    let max =
+                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                            .tranform(transform)?;
                                     if min == max {
                                         *partition_value = Some(min)
                                     }
@@ -287,10 +297,12 @@ pub fn parquet_to_datafilev2(
                                                 column_name
                                             )
                                         })?;
-                                    let min = Value::from_bytes(statistics.min_bytes(), data_type)?
-                                        .tranform(transform)?;
-                                    let max = Value::from_bytes(statistics.max_bytes(), data_type)?
-                                        .tranform(transform)?;
+                                    let min =
+                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                            .tranform(transform)?;
+                                    let max =
+                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                            .tranform(transform)?;
                                     if min == max {
                                         *partition_value = Some(min)
                                     }
@@ -303,10 +315,12 @@ pub fn parquet_to_datafilev2(
                                                 column_name
                                             )
                                         })?;
-                                    let min = Value::from_bytes(statistics.min_bytes(), data_type)?
-                                        .tranform(transform)?;
-                                    let max = Value::from_bytes(statistics.max_bytes(), data_type)?
-                                        .tranform(transform)?;
+                                    let min =
+                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                            .tranform(transform)?;
+                                    let max =
+                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                            .tranform(transform)?;
                                     if min == max {
                                         *partition_value = Some(min)
                                     }
@@ -319,10 +333,12 @@ pub fn parquet_to_datafilev2(
                                                 column_name
                                             )
                                         })?;
-                                    let min = Value::from_bytes(statistics.min_bytes(), data_type)?
-                                        .tranform(transform)?;
-                                    let max = Value::from_bytes(statistics.max_bytes(), data_type)?
-                                        .tranform(transform)?;
+                                    let min =
+                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                            .tranform(transform)?;
+                                    let max =
+                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                            .tranform(transform)?;
                                     if min == max {
                                         *partition_value = Some(min)
                                     }

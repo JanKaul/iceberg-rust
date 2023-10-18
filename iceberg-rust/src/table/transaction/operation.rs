@@ -432,7 +432,7 @@ fn update_partitions(
             .ok_or_else(|| anyhow!("Couldn't find column {} in partition values", &field.name))?];
         if let Some(value) = value {
             if let Some(lower_bound) = &mut summary.lower_bound {
-                let current = Value::from_bytes(lower_bound, &value.datatype())?;
+                let current = Value::try_from_bytes(lower_bound, &value.datatype())?;
                 match (value, current) {
                     (Value::Int(val), Value::Int(current)) => {
                         if current > *val {
@@ -478,7 +478,7 @@ fn update_partitions(
                 }
             }
             if let Some(upper_bound) = &mut summary.upper_bound {
-                let current = Value::from_bytes(upper_bound, &value.datatype())?;
+                let current = Value::try_from_bytes(upper_bound, &value.datatype())?;
                 match (value, current) {
                     (Value::Int(val), Value::Int(current)) => {
                         if current < *val {
@@ -560,9 +560,9 @@ fn datafiles_in_bounds(
                             (&summary.lower_bound, &summary.upper_bound)
                         {
                             let lower_bound =
-                                Value::from_bytes(lower_bound, &value.datatype()).unwrap();
+                                Value::try_from_bytes(lower_bound, &value.datatype()).unwrap();
                             let upper_bound =
-                                Value::from_bytes(upper_bound, &value.datatype()).unwrap();
+                                Value::try_from_bytes(upper_bound, &value.datatype()).unwrap();
                             match (value, lower_bound, upper_bound) {
                                 (
                                     Value::Int(val),

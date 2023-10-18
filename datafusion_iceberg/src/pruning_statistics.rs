@@ -61,7 +61,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
                 partitions[index]
                     .lower_bound
                     .as_ref()
-                    .map(|min| Some(Value::from_bytes(min, &data_type).ok()?.into_any()))
+                    .map(|min| Some(Value::try_from_bytes(min, &data_type).ok()?.into_any()))
             })
         });
         any_iter_to_array(min_values, &(&data_type).try_into().ok()?).ok()
@@ -86,7 +86,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
                 partitions[index]
                     .upper_bound
                     .as_ref()
-                    .map(|max| Some(Value::from_bytes(max, &data_type).ok()?.into_any()))
+                    .map(|max| Some(Value::try_from_bytes(max, &data_type).ok()?.into_any()))
             })
         });
         any_iter_to_array(max_values, &(&data_type).try_into().ok()?).ok()
@@ -136,7 +136,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .map(|manifest| match &manifest.lower_bounds() {
                 Some(map) => map.get(&(column_id as i32)).and_then(|value| {
                     Some(
-                        Value::from_bytes(value, &datatype.try_into().ok()?)
+                        Value::try_from_bytes(value, &datatype.try_into().ok()?)
                             .ok()?
                             .into_any(),
                     )
@@ -155,7 +155,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .map(|manifest| match &manifest.upper_bounds() {
                 Some(map) => map.get(&(column_id as i32)).and_then(|value| {
                     Some(
-                        Value::from_bytes(value, &datatype.try_into().ok()?)
+                        Value::try_from_bytes(value, &datatype.try_into().ok()?)
                             .ok()?
                             .into_any(),
                     )
