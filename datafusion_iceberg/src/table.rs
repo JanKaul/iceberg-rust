@@ -220,7 +220,12 @@ async fn table_scan(
     };
     if let Some(physical_predicate) = physical_predicate.clone() {
         let pruning_predicate = PruningPredicate::try_new(physical_predicate, schema.clone())?;
-        let manifests_to_prune = pruning_predicate.prune(&PruneManifests::from(table))?;
+        let manifests = table
+            .manifests()
+            .await
+            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        let manifests_to_prune =
+            pruning_predicate.prune(&PruneManifests::new(table, &manifests))?;
         let files = table
             .files(Some(manifests_to_prune))
             .await

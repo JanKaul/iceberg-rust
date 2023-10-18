@@ -11,7 +11,7 @@ license = "Apache-2.0"
 
 [dependencies]
 anyhow = { workspace = true }
-apache-avro = "0.14.0"
+apache-avro = "0.16.0"
 arrow = "46.0.0"
 async-trait = { workspace = true }
 bytes = "1.4.0"

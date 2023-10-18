@@ -22,12 +22,12 @@ pub struct ManifestFileReader<'a, 'metadata, R: Read> {
         Zip<AvroReader<'a, R>, Repeat<&'metadata TableMetadata>>,
         fn(
             (Result<AvroValue, apache_avro::Error>, &TableMetadata),
-        ) -> Result<ManifestFileEntry, apache_avro::Error>,
+        ) -> Result<ManifestFileEntry, anyhow::Error>,
     >,
 }
 
 impl<'a, 'metadata, R: Read> Iterator for ManifestFileReader<'a, 'metadata, R> {
-    type Item = Result<ManifestFileEntry, apache_avro::Error>;
+    type Item = Result<ManifestFileEntry, anyhow::Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next()
     }
@@ -187,7 +187,6 @@ impl ManifestFileEntry {
                 {
                     "name": "added_snapshot_id",
                     "type": "long",
-                    "default": null,
                     "field_id": 503
                 },
                 {
@@ -341,7 +340,6 @@ impl ManifestFileEntry {
                 {
                     "name": "added_snapshot_id",
                     "type": "long",
-                    "default": null,
                     "field_id": 503
                 },
                 {
@@ -468,17 +466,19 @@ impl ManifestFileEntry {
 /// Convert an avro value to a [ManifestFile] according to the provided format version
 fn avro_value_to_manifest_file(
     value: (Result<AvroValue, apache_avro::Error>, &TableMetadata),
-) -> Result<ManifestFileEntry, apache_avro::Error> {
+) -> Result<ManifestFileEntry, anyhow::Error> {
     let entry = value.0;
     let table_metadata = value.1;
-    entry.and_then(|value| match table_metadata.format_version {
-        FormatVersion::V1 => {
-            apache_avro::from_value::<ManifestFileEntryV1>(&value).map(ManifestFileEntry::V1)
-        }
-        FormatVersion::V2 => {
-            apache_avro::from_value::<ManifestFileEntryV2>(&value).map(ManifestFileEntry::V2)
-        }
-    })
+    entry
+        .and_then(|value| match table_metadata.format_version {
+            FormatVersion::V1 => {
+                apache_avro::from_value::<ManifestFileEntryV1>(&value).map(ManifestFileEntry::V1)
+            }
+            FormatVersion::V2 => {
+                apache_avro::from_value::<ManifestFileEntryV2>(&value).map(ManifestFileEntry::V2)
+            }
+        })
+        .map_err(anyhow::Error::msg)
 }
 
 #[cfg(test)]

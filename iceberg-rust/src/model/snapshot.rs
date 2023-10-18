@@ -44,7 +44,7 @@ impl Snapshot {
         table_metadata: &'metadata TableMetadata,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<
-        impl Iterator<Item = Result<ManifestFileEntry, apache_avro::Error>> + 'metadata,
+        impl Iterator<Item = Result<ManifestFileEntry, anyhow::Error>> + 'metadata,
         anyhow::Error,
     > {
         let bytes: Cursor<Vec<u8>> = Cursor::new(

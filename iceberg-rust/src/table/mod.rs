@@ -2,20 +2,21 @@
 Defining the [Table] struct that represents an iceberg table.
 */
 
-use std::{collections::HashMap, io::Cursor, sync::Arc, time::SystemTime};
+use std::{collections::HashMap, sync::Arc, time::SystemTime};
 
+use anyhow::anyhow;
 use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     model::{
-        manifest_list::{ManifestFileEntry, ManifestFileReader},
+        manifest_list::ManifestFileEntry,
         schema::Schema,
         snapshot::{Operation, Snapshot, Summary},
         table_metadata::TableMetadata,
     },
     table::transaction::TableTransaction,
-    util::{self, strip_prefix},
+    util::strip_prefix,
 };
 
 pub mod files;
@@ -28,7 +29,6 @@ pub struct Table {
     catalog: Arc<dyn Catalog>,
     metadata: TableMetadata,
     metadata_location: String,
-    manifests: Vec<ManifestFileEntry>,
 }
 
 /// Public interface of the table.
@@ -40,13 +40,11 @@ impl Table {
         metadata: TableMetadata,
         metadata_location: &str,
     ) -> Result<Self, anyhow::Error> {
-        let manifests = get_manifests(&metadata, catalog.object_store()).await?;
         Ok(Table {
             identifier,
             catalog,
             metadata,
             metadata_location: metadata_location.to_string(),
-            manifests,
         })
     }
     /// Get the table identifier in the catalog. Returns None of it is a filesystem table.
@@ -74,8 +72,14 @@ impl Table {
         &self.metadata_location
     }
     /// Get the location of the current metadata file
-    pub fn manifests(&self) -> &[ManifestFileEntry] {
-        &self.manifests
+    pub async fn manifests(&self) -> Result<Vec<ManifestFileEntry>, anyhow::Error> {
+        let metadata = self.metadata();
+        metadata
+            .current_snapshot()?
+            .ok_or(anyhow!("There is no snapshot for table."))?
+            .manifests(metadata, self.object_store().clone())
+            .await?
+            .collect()
     }
     /// Create a new transaction for this table
     pub fn new_transaction(&mut self) -> TableTransaction {
@@ -145,37 +149,6 @@ impl Table {
             metadata.current_snapshot_id = Some(snapshot_id)
         };
         Ok(())
-    }
-}
-
-// Return all manifest files associated to the latest table snapshot. Reads the related manifest_list file and returns its entries.
-// If the manifest list file is empty returns an empty vector.
-pub(crate) async fn get_manifests(
-    metadata: &TableMetadata,
-    object_store: Arc<dyn ObjectStore>,
-) -> Result<Vec<ManifestFileEntry>, anyhow::Error> {
-    match metadata.current_snapshot()?.map(|x| &x.manifest_list) {
-        Some(manifest_list) => {
-            let bytes: Cursor<Vec<u8>> = Cursor::new(
-                object_store
-                    .get(&util::strip_prefix(manifest_list).into())
-                    .await
-                    .map_err(anyhow::Error::msg)?
-                    .bytes()
-                    .await?
-                    .into(),
-            );
-            // Read the file content only if the bytes are not empty otherwise return an empty vector
-            if !bytes.get_ref().is_empty() {
-                let reader = ManifestFileReader::new(bytes, metadata)?;
-                reader
-                    .collect::<Result<_, apache_avro::Error>>()
-                    .map_err(anyhow::Error::msg)
-            } else {
-                Ok(Vec::new())
-            }
-        }
-        None => Ok(Vec::new()),
     }
 }
 

@@ -50,14 +50,14 @@ impl SchemaProvider for IcebergSchema {
         name: String,
         table: Arc<dyn TableProvider>,
     ) -> Result<Option<Arc<dyn TableProvider>>> {
-        let mut full_name = Vec::from(self.schema.levels().clone());
+        let mut full_name = Vec::from(self.schema.levels());
         full_name.push(name.to_owned());
         let identifier = Identifier::try_new(&full_name)
             .map_err(|err| DataFusionError::Internal(err.to_string()))?;
         self.catalog.register_table(identifier, table)
     }
     fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
-        let mut full_name = Vec::from(self.schema.levels().clone());
+        let mut full_name = Vec::from(self.schema.levels());
         full_name.push(name.to_owned());
         let identifier = Identifier::try_new(&full_name)
             .map_err(|err| DataFusionError::Internal(err.to_string()))?;

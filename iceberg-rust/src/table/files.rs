@@ -24,10 +24,11 @@ impl Table {
     /// The included manifest files can be filtered based on an filter vector. The filter vector has the length equal to the number of manifest files
     /// and contains a true entry everywhere the manifest file is to be included in the output.
     pub async fn files(&self, filter: Option<Vec<bool>>) -> Result<Vec<ManifestEntry>> {
+        let manifests = self.manifests().await?;
         // filter manifest files according to filter vector
         let iter = match filter {
             Some(predicate) => {
-                self.manifests()
+                manifests
                     .iter()
                     .zip(Box::new(predicate.into_iter())
                         as Box<dyn Iterator<Item = bool> + Send + Sync>)
@@ -36,8 +37,7 @@ impl Table {
                             as fn((&ManifestFileEntry, bool)) -> Option<&ManifestFileEntry>,
                     )
             }
-            None => self
-                .manifests()
+            None => manifests
                 .iter()
                 .zip(Box::new(repeat(true)) as Box<dyn Iterator<Item = bool> + Send + Sync>)
                 .filter_map(

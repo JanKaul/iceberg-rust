@@ -26,22 +26,25 @@ use datafusion::{
 };
 
 use iceberg_rust::{
-    model::{manifest::ManifestEntry, values::Value},
+    model::{manifest::ManifestEntry, manifest_list::ManifestFileEntry, values::Value},
     table::Table,
 };
 
-pub(crate) struct PruneManifests<'table>(&'table Table);
+pub(crate) struct PruneManifests<'table, 'manifests> {
+    table: &'table Table,
+    files: &'manifests [ManifestFileEntry],
+}
 
-impl<'table> From<&'table Table> for PruneManifests<'table> {
-    fn from(value: &'table Table) -> Self {
-        PruneManifests(value)
+impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
+    pub fn new(table: &'table Table, files: &'manifests [ManifestFileEntry]) -> Self {
+        PruneManifests { table, files }
     }
 }
 
-impl<'table> PruningStatistics for PruneManifests<'table> {
+impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = &self.0.metadata().default_partition_spec().ok()?.fields;
-        let schema = self.0.schema().ok()?;
+        let partition_spec = &self.table.metadata().default_partition_spec().ok()?.fields;
+        let schema = self.table.schema().ok()?;
         let (index, partition_field) = partition_spec
             .iter()
             .enumerate()
@@ -53,7 +56,7 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
             .field_type
             .tranform(&partition_field.transform)
             .ok()?;
-        let min_values = self.0.manifests().iter().filter_map(|manifest| {
+        let min_values = self.files.iter().filter_map(|manifest| {
             manifest.partitions().as_ref().and_then(|partitions| {
                 partitions[index]
                     .lower_bound
@@ -64,8 +67,8 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
         any_iter_to_array(min_values, &(&data_type).try_into().ok()?).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = self.0.metadata().default_partition_spec().ok()?;
-        let schema = self.0.schema().ok()?;
+        let partition_spec = self.table.metadata().default_partition_spec().ok()?;
+        let schema = self.table.schema().ok()?;
         let (index, partition_field) = partition_spec
             .fields
             .iter()
@@ -78,7 +81,7 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
             .field_type
             .tranform(&partition_field.transform)
             .ok()?;
-        let max_values = self.0.manifests().iter().filter_map(|manifest| {
+        let max_values = self.files.iter().filter_map(|manifest| {
             manifest.partitions().as_ref().and_then(|partitions| {
                 partitions[index]
                     .upper_bound
@@ -89,16 +92,16 @@ impl<'table> PruningStatistics for PruneManifests<'table> {
         any_iter_to_array(max_values, &(&data_type).try_into().ok()?).ok()
     }
     fn num_containers(&self) -> usize {
-        self.0.manifests().len()
+        self.files.len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = self.0.metadata().default_partition_spec().ok()?;
+        let partition_spec = self.table.metadata().default_partition_spec().ok()?;
         let (index, _) = partition_spec
             .fields
             .iter()
             .enumerate()
             .find(|(_, partition_field)| partition_field.name == column.name)?;
-        let contains_null = self.0.manifests().iter().filter_map(|manifest| {
+        let contains_null = self.files.iter().filter_map(|manifest| {
             manifest.partitions().as_ref().map(|partitions| {
                 if !partitions[index].contains_null {
                     Some(0)
