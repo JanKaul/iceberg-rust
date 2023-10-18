@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
+use derive_builder::Builder;
+
 use super::{schema::Schema, snapshot::Snapshot};
 
 static MAIN_BRANCH: &str = "main";
@@ -21,8 +23,9 @@ static DEFAULT_SPEC_ID: i32 = 0;
 
 use _serde::TableMetadataEnum;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
 #[serde(try_from = "TableMetadataEnum", into = "TableMetadataEnum")]
+#[builder(default)]
 /// Fields for the version 2 of the table metadata.
 pub struct TableMetadata {
     /// Integer Version for the format.
@@ -590,6 +593,12 @@ pub enum FormatVersion {
     V1 = b'1',
     /// Iceberg spec version 2
     V2 = b'2',
+}
+
+impl Default for FormatVersion {
+    fn default() -> Self {
+        FormatVersion::V2
+    }
 }
 
 impl TryFrom<u8> for FormatVersion {

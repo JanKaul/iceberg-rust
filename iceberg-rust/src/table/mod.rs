@@ -112,7 +112,7 @@ impl Table {
         stream::iter(iter)
             .map(|file| async move {
                 let object_store = Arc::clone(&self.object_store());
-                let path: Path = util::strip_prefix(file.manifest_path()).into();
+                let path: Path = util::strip_prefix(&file.manifest_path).into();
                 let bytes = Cursor::new(Vec::from(
                     object_store
                         .get(&path)

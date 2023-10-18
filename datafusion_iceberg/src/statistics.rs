@@ -25,7 +25,7 @@ impl DataFusionTable {
                 },
                 |acc, x| {
                     Ok(Statistics {
-                        num_rows: acc.num_rows.zip(x.added_files_count()).map(
+                        num_rows: acc.num_rows.zip(x.added_files_count).map(
                             |(num_rows, added_files_count)| num_rows + added_files_count as usize,
                         ),
                         total_byte_size: None,
@@ -62,7 +62,7 @@ impl DataFusionTable {
                     },
                     |acc, x| {
                         Ok(Statistics {
-                            num_rows: acc.num_rows.zip(x.added_files_count()).map(
+                            num_rows: acc.num_rows.zip(x.added_files_count).map(
                                 |(num_rows, added_files_count)| {
                                     num_rows + added_files_count as usize
                                 },
