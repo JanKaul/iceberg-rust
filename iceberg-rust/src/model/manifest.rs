@@ -5,11 +5,14 @@ use std::{
     collections::HashMap,
     io::Read,
     iter::{repeat, Map, Repeat, Zip},
+    ops::{Deref, DerefMut},
     sync::Arc,
 };
 
 use anyhow::{anyhow, Result};
-use apache_avro::{types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema};
+use apache_avro::{
+    types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
+};
 use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -19,7 +22,7 @@ use crate::model::schema::{SchemaV1, SchemaV2};
 use super::{
     partition::{PartitionField, PartitionSpec},
     schema::Schema,
-    table_metadata::FormatVersion,
+    table_metadata::{FormatVersion, TableMetadata},
     types::{PrimitiveType, Type},
     values::Struct,
 };
@@ -95,6 +98,68 @@ impl<'a, R: Read> ManifestReader<'a, R> {
                 .zip(repeat(Arc::new((schema, partition_spec, format_version))))
                 .map(avro_value_to_manifest_entry),
         })
+    }
+}
+
+/// A writer for manifest entries
+pub struct ManifestWriter<'a, W: std::io::Write>(AvroWriter<'a, W>);
+
+impl<'a, W: std::io::Write> Deref for ManifestWriter<'a, W> {
+    type Target = AvroWriter<'a, W>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a, W: std::io::Write> DerefMut for ManifestWriter<'a, W> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
+    pub(crate) fn new(
+        schema: &'a AvroSchema,
+        table_metadata: &TableMetadata,
+        writer: W,
+    ) -> Result<Self, anyhow::Error> {
+        let mut avro_writer = AvroWriter::new(&schema, writer);
+
+        avro_writer.add_user_metadata(
+            "format-version".to_string(),
+            match table_metadata.format_version {
+                FormatVersion::V1 => "1".as_bytes(),
+                FormatVersion::V2 => "2".as_bytes(),
+            },
+        )?;
+
+        avro_writer.add_user_metadata(
+            "schema".to_string(),
+            match table_metadata.format_version {
+                FormatVersion::V1 => serde_json::to_string(&TryInto::<SchemaV1>::try_into(
+                    table_metadata.current_schema()?.clone(),
+                )?)?,
+                FormatVersion::V2 => serde_json::to_string(&TryInto::<SchemaV1>::try_into(
+                    table_metadata.current_schema()?.clone(),
+                )?)?,
+            },
+        )?;
+
+        avro_writer.add_user_metadata(
+            "partition-spec".to_string(),
+            serde_json::to_string(&table_metadata.default_partition_spec()?.fields)?,
+        )?;
+
+        avro_writer.add_user_metadata(
+            "partition-spec-id".to_string(),
+            serde_json::to_string(&table_metadata.default_partition_spec()?.spec_id)?,
+        )?;
+
+        Ok(ManifestWriter(avro_writer))
+    }
+
+    pub(crate) fn into_inner(self) -> Result<W, anyhow::Error> {
+        Ok(self.0.into_inner()?)
     }
 }
 
