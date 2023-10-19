@@ -20,7 +20,8 @@ use crate::{
         manifest::{partition_value_schema, Content, DataFile, ManifestEntry, Status},
         manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
         partition::PartitionField,
-        schema::{Schema, SchemaV2},
+        schema::{Schema, SchemaV1, SchemaV2},
+        table_metadata::FormatVersion,
         types::StructField,
         values::{Struct, Value},
     },
@@ -236,6 +237,44 @@ impl Operation {
 
                         let mut manifest_writer =
                             apache_avro::Writer::new(&manifest_schema, Vec::new());
+
+                        manifest_writer.add_user_metadata(
+                            "format-version".to_string(),
+                            match table_metadata.format_version {
+                                FormatVersion::V1 => "1".as_bytes(),
+                                FormatVersion::V2 => "2".as_bytes(),
+                            },
+                        )?;
+
+                        manifest_writer.add_user_metadata(
+                            "schema".to_string(),
+                            match table_metadata.format_version {
+                                FormatVersion::V1 => {
+                                    serde_json::to_string(&TryInto::<SchemaV1>::try_into(
+                                        table_metadata.current_schema()?.clone(),
+                                    )?)?
+                                }
+                                FormatVersion::V2 => {
+                                    serde_json::to_string(&TryInto::<SchemaV1>::try_into(
+                                        table_metadata.current_schema()?.clone(),
+                                    )?)?
+                                }
+                            },
+                        )?;
+
+                        manifest_writer.add_user_metadata(
+                            "partition-spec".to_string(),
+                            serde_json::to_string(
+                                &table_metadata.default_partition_spec()?.fields,
+                            )?,
+                        )?;
+
+                        manifest_writer.add_user_metadata(
+                            "partition-spec-id".to_string(),
+                            serde_json::to_string(
+                                &table_metadata.default_partition_spec()?.spec_id,
+                            )?,
+                        )?;
 
                         let mut manifest = match manifest {
                             Ok(manifest) => {
