@@ -7,7 +7,7 @@ use anyhow::anyhow;
 
 use std::collections::HashMap;
 
-use crate::model::{partition::PartitionSpec, snapshot::Reference, sort};
+use crate::spec::{partition::PartitionSpec, snapshot::Reference, sort};
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -136,7 +136,7 @@ mod _serde {
     use serde::{Deserialize, Serialize};
     use uuid::Uuid;
 
-    use crate::model::{
+    use crate::spec::{
         partition::{PartitionField, PartitionSpec},
         schema,
         snapshot::{
@@ -597,8 +597,6 @@ pub enum FormatVersion {
     V2 = b'2',
 }
 
-
-
 impl TryFrom<u8> for FormatVersion {
     type Error = anyhow::Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -626,7 +624,7 @@ mod tests {
 
     use anyhow::Result;
 
-    use crate::model::table_metadata::TableMetadata;
+    use crate::spec::table_metadata::TableMetadata;
 
     #[test]
     fn test_deserialize_table_data_v2() -> Result<()> {

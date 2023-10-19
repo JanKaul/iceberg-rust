@@ -12,7 +12,7 @@ use parquet::{
     schema::types::{from_thrift, SchemaDescriptor},
 };
 
-use crate::model::{
+use crate::spec::{
     manifest::{AvroMap, Content, DataFile, FileFormat},
     partition::{PartitionField, Transform},
     schema::Schema,

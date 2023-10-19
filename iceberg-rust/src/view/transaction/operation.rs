@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
-use crate::model::{
+use crate::spec::{
     schema::Schema,
     view_metadata::{
         GeneralViewMetadata, Operation as SummaryOperation, Representation, Summary, Version,

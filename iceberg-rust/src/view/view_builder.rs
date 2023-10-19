@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use crate::catalog::identifier::Identifier;
 use crate::catalog::relation::Relation;
-use crate::model::schema::SchemaV2;
-use crate::model::view_metadata::{
+use crate::spec::schema::SchemaV2;
+use crate::spec::view_metadata::{
     FormatVersion, Operation, Summary, Version, VersionLogStruct, ViewMetadata, ViewRepresentation,
 };
 use anyhow::{anyhow, Result};

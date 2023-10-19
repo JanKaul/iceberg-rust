@@ -26,7 +26,7 @@ use datafusion::{
 };
 
 use iceberg_rust::{
-    model::{manifest::ManifestEntry, manifest_list::ManifestListEntry},
+    spec::{manifest::ManifestEntry, manifest_list::ManifestListEntry},
     table::Table,
 };
 

@@ -77,7 +77,7 @@ mod _serde {
     use serde::{Deserialize, Serialize};
     use uuid::Uuid;
 
-    use crate::model::{schema::SchemaV2, table_metadata::VersionNumber};
+    use crate::spec::{schema::SchemaV2, table_metadata::VersionNumber};
 
     use super::{FormatVersion, GeneralViewMetadata, Representation, Version, VersionLogStruct};
 
@@ -288,7 +288,7 @@ mod tests {
 
     use anyhow::Result;
 
-    use crate::model::view_metadata::ViewMetadata;
+    use crate::spec::view_metadata::ViewMetadata;
 
     #[test]
     fn test_deserialize_view_data_v1() -> Result<()> {

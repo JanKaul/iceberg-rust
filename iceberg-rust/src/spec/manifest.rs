@@ -17,7 +17,7 @@ use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::model::schema::{SchemaV1, SchemaV2};
+use crate::spec::schema::{SchemaV1, SchemaV2};
 
 use super::{
     partition::{PartitionField, PartitionSpec},
@@ -1505,7 +1505,7 @@ fn avro_value_to_manifest_entry(
 
 #[cfg(test)]
 mod tests {
-    use crate::model::{
+    use crate::spec::{
         partition::{PartitionField, PartitionSpec, PartitionSpecBuilder, Transform},
         schema::SchemaV2,
         table_metadata::TableMetadataBuilder,
@@ -1788,15 +1788,13 @@ mod tests {
         let table_schema = SchemaV2 {
             schema_id: 0,
             identifier_field_ids: None,
-            fields: StructType {
-                fields: vec![StructField {
-                    id: 4,
-                    name: "day".to_owned(),
-                    required: false,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                }],
-            },
+            fields: StructType::new(vec![StructField {
+                id: 4,
+                name: "day".to_owned(),
+                required: false,
+                field_type: Type::Primitive(PrimitiveType::Int),
+                doc: None,
+            }]),
         };
 
         let spec = PartitionSpec {

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     catalog::relation::Relation,
-    model::{materialized_view_metadata::MaterializedViewRepresentation, schema::Schema},
+    spec::{materialized_view_metadata::MaterializedViewRepresentation, schema::Schema},
     view::transaction::operation::Operation as ViewOperation,
 };
 

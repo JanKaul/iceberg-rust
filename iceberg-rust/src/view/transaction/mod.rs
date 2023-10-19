@@ -11,7 +11,7 @@ pub mod operation;
 
 use crate::{
     catalog::relation::Relation,
-    model::{schema::Schema, view_metadata::ViewRepresentation},
+    spec::{schema::Schema, view_metadata::ViewRepresentation},
 };
 
 use self::operation::Operation as ViewOperation;

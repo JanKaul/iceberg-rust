@@ -105,7 +105,7 @@ impl From<SchemaV1> for SchemaV2 {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::types::{PrimitiveType, Type};
+    use crate::spec::types::{PrimitiveType, Type};
 
     use super::*;
 

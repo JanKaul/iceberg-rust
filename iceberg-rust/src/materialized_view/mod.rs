@@ -9,7 +9,7 @@ use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, relation::Relation, Catalog},
-    model::{
+    spec::{
         materialized_view_metadata::{MaterializedViewMetadata, MaterializedViewRepresentation},
         schema::Schema,
     },

@@ -16,7 +16,7 @@ use std::ops::Deref;
 
 use crate::{
     file_format::parquet::parquet_to_datafile,
-    model::{
+    spec::{
         manifest::{
             partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status,
         },

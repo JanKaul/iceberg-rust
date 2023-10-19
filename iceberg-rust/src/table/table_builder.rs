@@ -11,10 +11,10 @@ use uuid::Uuid;
 
 use crate::catalog::identifier::Identifier;
 use crate::catalog::relation::Relation;
-use crate::model::partition::{PartitionField, Transform};
-use crate::model::sort::{NullOrder, SortDirection, SortField, SortOrder};
-use crate::model::table_metadata::{FormatVersion, TableMetadata};
-use crate::model::{partition::PartitionSpec, schema::SchemaV2};
+use crate::spec::partition::{PartitionField, Transform};
+use crate::spec::sort::{NullOrder, SortDirection, SortField, SortOrder};
+use crate::spec::table_metadata::{FormatVersion, TableMetadata};
+use crate::spec::{partition::PartitionSpec, schema::SchemaV2};
 use crate::table::Table;
 use anyhow::{anyhow, Result};
 

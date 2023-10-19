@@ -33,7 +33,7 @@ use crate::pruning_statistics::{PruneDataFiles, PruneManifests};
 
 use iceberg_rust::{
     catalog::relation::Relation,
-    model::{types::StructField, view_metadata::ViewRepresentation},
+    spec::{types::StructField, view_metadata::ViewRepresentation},
     table::Table,
     util,
     view::View,
@@ -387,7 +387,7 @@ mod tests {
     };
     use iceberg_rust::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, relation::Relation, Catalog},
-        model::{
+        spec::{
             schema::SchemaV2,
             types::{PrimitiveType, StructField, StructType, Type},
         },
@@ -480,24 +480,22 @@ mod tests {
         let schema = SchemaV2 {
             schema_id: 1,
             identifier_field_ids: Some(vec![1, 2]),
-            fields: StructType {
-                fields: vec![
-                    StructField {
-                        id: 1,
-                        name: "vendor_id".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::Int),
-                        doc: None,
-                    },
-                    StructField {
-                        id: 2,
-                        name: "min_trip_distance".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::Float),
-                        doc: None,
-                    },
-                ],
-            },
+            fields: StructType::new(vec![
+                StructField {
+                    id: 1,
+                    name: "vendor_id".to_string(),
+                    required: false,
+                    field_type: Type::Primitive(PrimitiveType::Int),
+                    doc: None,
+                },
+                StructField {
+                    id: 2,
+                    name: "min_trip_distance".to_string(),
+                    required: false,
+                    field_type: Type::Primitive(PrimitiveType::Float),
+                    doc: None,
+                },
+            ]),
         };
         let view_identifier = Identifier::parse("test.view1").unwrap();
         let view = Arc::new(DataFusionTable::from(

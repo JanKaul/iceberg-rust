@@ -27,7 +27,7 @@ use futures::{
 };
 use itertools::{iproduct, Itertools};
 
-use crate::model::{partition::PartitionSpec, schema::Schema, values::Value};
+use crate::spec::{partition::PartitionSpec, schema::Schema, values::Value};
 
 use super::transform::transform_arrow;
 
@@ -217,7 +217,7 @@ mod tests {
         record_batch::RecordBatch,
     };
 
-    use crate::model::{
+    use crate::spec::{
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         types::{PrimitiveType, StructField, StructType, Type},
@@ -263,31 +263,29 @@ mod tests {
         let schema = Schema {
             schema_id: 0,
             identifier_field_ids: None,
-            fields: StructType {
-                fields: vec![
-                    StructField {
-                        id: 1,
-                        name: "x".to_string(),
-                        field_type: Type::Primitive(PrimitiveType::Int),
-                        required: true,
-                        doc: None,
-                    },
-                    StructField {
-                        id: 2,
-                        name: "y".to_string(),
-                        field_type: Type::Primitive(PrimitiveType::Int),
-                        required: true,
-                        doc: None,
-                    },
-                    StructField {
-                        id: 3,
-                        name: "z".to_string(),
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        required: true,
-                        doc: None,
-                    },
-                ],
-            },
+            fields: StructType::new(vec![
+                StructField {
+                    id: 1,
+                    name: "x".to_string(),
+                    field_type: Type::Primitive(PrimitiveType::Int),
+                    required: true,
+                    doc: None,
+                },
+                StructField {
+                    id: 2,
+                    name: "y".to_string(),
+                    field_type: Type::Primitive(PrimitiveType::Int),
+                    required: true,
+                    doc: None,
+                },
+                StructField {
+                    id: 3,
+                    name: "z".to_string(),
+                    field_type: Type::Primitive(PrimitiveType::String),
+                    required: true,
+                    doc: None,
+                },
+            ]),
         };
         let partition_spec = PartitionSpec {
             spec_id: 0,

@@ -1,13 +1,13 @@
 /*!
  * Data Types
 */
-use std::{fmt, ops::Index};
+use std::{collections::HashMap, fmt, ops::Index};
 
 use derive_builder::Builder;
 
 use anyhow::{anyhow, Result};
 use serde::{
-    de::{Error, IntoDeserializer},
+    de::{self, Error, IntoDeserializer, MapAccess, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
 };
 
@@ -180,18 +180,85 @@ impl fmt::Display for PrimitiveType {
 }
 
 /// DataType for a specific struct
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder)]
+#[derive(Debug, Serialize, PartialEq, Eq, Clone, Builder)]
 #[serde(rename = "struct", tag = "type")]
 pub struct StructType {
     /// Struct fields
     #[builder(setter(each(name = "with_struct_field")))]
     pub fields: Vec<StructField>,
+    /// Lookup for index by field id
+    #[serde(skip_serializing)]
+    #[builder(
+        default = "self.fields.as_ref().unwrap().iter().enumerate().map(|(idx, field)| (field.id, idx)).collect()"
+    )]
+    lookup: HashMap<i32, usize>,
+}
+
+impl<'de> Deserialize<'de> for StructType {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field {
+            Type,
+            Fields,
+        }
+
+        struct StructTypeVisitor;
+
+        impl<'de> Visitor<'de> for StructTypeVisitor {
+            type Value = StructType;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> std::result::Result<StructType, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut fields = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Type => (),
+                        Field::Fields => {
+                            if fields.is_some() {
+                                return Err(serde::de::Error::duplicate_field("fields"));
+                            }
+                            fields = Some(map.next_value()?);
+                        }
+                    }
+                }
+                let fields: Vec<StructField> =
+                    fields.ok_or_else(|| de::Error::missing_field("fields"))?;
+
+                Ok(StructType::new(fields))
+            }
+        }
+
+        const FIELDS: &[&str] = &["type", "fields"];
+        deserializer.deserialize_struct("struct", FIELDS, StructTypeVisitor)
+    }
 }
 
 impl StructType {
+    /// Create new struct type
+    pub fn new(fields: Vec<StructField>) -> Self {
+        let lookup = fields
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| (field.id, idx))
+            .collect();
+        StructType { fields, lookup }
+    }
+
     /// Get structfield with certain id
     pub fn get(&self, index: usize) -> Option<&StructField> {
-        self.fields.iter().find(|field| field.id as usize == index)
+        self.lookup
+            .get(&(index as i32))
+            .map(|idx| &self.fields[*idx])
     }
     /// Get structfield with certain name
     pub fn get_name(&self, name: &str) -> Option<&StructField> {
@@ -282,6 +349,17 @@ impl Type {
 mod tests {
     use super::*;
 
+    fn check_type_serde(json: &str, expected_type: Type) {
+        let desered_type: Type = serde_json::from_str(json).unwrap();
+        assert_eq!(desered_type, expected_type);
+
+        let sered_json = serde_json::to_string(&expected_type).unwrap();
+        let parsed_json_value = serde_json::from_str::<serde_json::Value>(&sered_json).unwrap();
+        let raw_json_value = serde_json::from_str::<serde_json::Value>(json).unwrap();
+
+        assert_eq!(parsed_json_value, raw_json_value);
+    }
+
     #[test]
     fn decimal() {
         let record = r#"
@@ -298,19 +376,19 @@ mod tests {
         }
         "#;
 
-        let result: StructType = serde_json::from_str(record).unwrap();
-        assert_eq!(
-            Type::Primitive(PrimitiveType::Decimal {
-                precision: 9,
-                scale: 2
-            }),
-            result.fields[0].field_type
-        );
-        let result_two: StructType = serde_json::from_str(
-            &serde_json::to_string(&result).expect("Failed to serialize result"),
+        check_type_serde(
+            record,
+            Type::Struct(StructType::new(vec![StructField {
+                id: 1,
+                name: "id".to_string(),
+                field_type: Type::Primitive(PrimitiveType::Decimal {
+                    precision: 9,
+                    scale: 2,
+                }),
+                required: true,
+                doc: None,
+            }])),
         )
-        .expect("Failed to serialize json");
-        assert_eq!(result, result_two);
     }
 
     #[test]
@@ -329,16 +407,16 @@ mod tests {
         }
         "#;
 
-        let result: StructType = serde_json::from_str(record).unwrap();
-        assert_eq!(
-            Type::Primitive(PrimitiveType::Fixed(8)),
-            result.fields[0].field_type
-        );
-        let result_two: StructType = serde_json::from_str(
-            &serde_json::to_string(&result).expect("Failed to serialize result"),
+        check_type_serde(
+            record,
+            Type::Struct(StructType::new(vec![StructField {
+                id: 1,
+                name: "id".to_string(),
+                field_type: Type::Primitive(PrimitiveType::Fixed(8)),
+                required: true,
+                doc: None,
+            }])),
         )
-        .expect("Failed to serialize json");
-        assert_eq!(result, result_two);
     }
 
     #[test]
@@ -346,36 +424,41 @@ mod tests {
         let record = r#"
         {
             "type": "struct",
-            "fields": [ {
-            "id": 1,
-            "name": "id",
-            "required": true,
-            "type": "uuid",
-            "initial-default": "0db3e2a8-9d1d-42b9-aa7b-74ebe558dceb",
-            "write-default": "ec5911be-b0a7-458c-8438-c9a3e53cffae"
-            }, {
-            "id": 2,
-            "name": "data",
-            "required": false,
-            "type": "int"
-            } ]
-            }
+            "fields": [ 
+                {
+                    "id": 1,
+                    "name": "id",
+                    "required": true,
+                    "type": "uuid"
+                }, {
+                    "id": 2,
+                    "name": "data",
+                    "required": false,
+                    "type": "int"
+                } 
+            ]
+        }
         "#;
 
-        let result: StructType = serde_json::from_str(record).unwrap();
-        assert_eq!(
-            Type::Primitive(PrimitiveType::Uuid),
-            result.fields[0].field_type
-        );
-        assert_eq!(1, result.fields[0].id);
-        assert!(result.fields[0].required);
-
-        assert_eq!(
-            Type::Primitive(PrimitiveType::Int),
-            result.fields[1].field_type
-        );
-        assert_eq!(2, result.fields[1].id);
-        assert!(!result.fields[1].required);
+        check_type_serde(
+            record,
+            Type::Struct(StructType::new(vec![
+                StructField {
+                    id: 1,
+                    name: "id".to_string(),
+                    field_type: Type::Primitive(PrimitiveType::Uuid),
+                    required: true,
+                    doc: None,
+                },
+                StructField {
+                    id: 2,
+                    name: "data".to_string(),
+                    field_type: Type::Primitive(PrimitiveType::Int),
+                    required: false,
+                    doc: None,
+                },
+            ])),
+        )
     }
 
     #[test]

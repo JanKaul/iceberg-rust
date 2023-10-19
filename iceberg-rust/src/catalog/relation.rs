@@ -8,9 +8,9 @@ use object_store::ObjectStore;
 use serde::{self, Deserialize, Serialize};
 
 use crate::materialized_view::MaterializedView;
-use crate::model::materialized_view_metadata::MaterializedViewMetadata;
-use crate::model::table_metadata::TableMetadata;
-use crate::model::view_metadata::ViewMetadata;
+use crate::spec::materialized_view_metadata::MaterializedViewMetadata;
+use crate::spec::table_metadata::TableMetadata;
+use crate::spec::view_metadata::ViewMetadata;
 use crate::table::Table;
 use crate::view::View;
 /// Enum for different types that can be queried like a table, for example view

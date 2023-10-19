@@ -49,7 +49,7 @@ mod tests {
 
     use anyhow::Result;
 
-    use crate::model::materialized_view_metadata::MaterializedViewMetadata;
+    use crate::spec::materialized_view_metadata::MaterializedViewMetadata;
 
     #[test]
     fn test_deserialize_materialized_view_metadata_v1() -> Result<()> {

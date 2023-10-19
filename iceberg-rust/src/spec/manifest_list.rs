@@ -117,7 +117,7 @@ pub struct FieldSummary {
 }
 
 mod _serde {
-    use crate::model::table_metadata::FormatVersion;
+    use crate::spec::table_metadata::FormatVersion;
 
     use super::{Content, FieldSummary, ManifestListEntry, ManifestListEntryEnum};
     use serde::{Deserialize, Serialize};
@@ -674,7 +674,7 @@ mod tests {
 
     use super::*;
 
-    use crate::model::{
+    use crate::spec::{
         partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::Schema,
         table_metadata::TableMetadataBuilder,

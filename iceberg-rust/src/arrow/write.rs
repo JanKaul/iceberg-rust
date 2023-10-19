@@ -19,7 +19,7 @@ use futures::Stream;
 use parquet::{arrow::AsyncArrowWriter, format::FileMetaData};
 use uuid::Uuid;
 
-use crate::model::{partition::PartitionSpec, schema::Schema};
+use crate::spec::{partition::PartitionSpec, schema::Schema};
 
 use super::partition::partition_record_batches;
 

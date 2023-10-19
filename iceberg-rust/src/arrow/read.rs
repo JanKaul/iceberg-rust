@@ -15,7 +15,7 @@ use parquet::{
 };
 
 use crate::{
-    model::manifest::{FileFormat, ManifestEntry},
+    spec::manifest::{FileFormat, ManifestEntry},
     util,
 };
 

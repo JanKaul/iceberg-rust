@@ -10,7 +10,7 @@ use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
-    model::{schema::Schema, view_metadata::ViewMetadata},
+    spec::{schema::Schema, view_metadata::ViewMetadata},
 };
 
 use self::transaction::Transaction as ViewTransaction;
@@ -93,7 +93,7 @@ mod tests {
 
     use crate::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
-        model::{
+        spec::{
             schema::SchemaV2,
             types::{PrimitiveType, StructField, StructType, Type},
         },
@@ -108,24 +108,22 @@ mod tests {
         let schema = SchemaV2 {
             schema_id: 1,
             identifier_field_ids: Some(vec![1, 2]),
-            fields: StructType {
-                fields: vec![
-                    StructField {
-                        id: 1,
-                        name: "one".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    },
-                    StructField {
-                        id: 2,
-                        name: "two".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    },
-                ],
-            },
+            fields: StructType::new(vec![
+                StructField {
+                    id: 1,
+                    name: "one".to_string(),
+                    required: false,
+                    field_type: Type::Primitive(PrimitiveType::String),
+                    doc: None,
+                },
+                StructField {
+                    id: 2,
+                    name: "two".to_string(),
+                    required: false,
+                    field_type: Type::Primitive(PrimitiveType::String),
+                    doc: None,
+                },
+            ]),
         };
         let mut view = ViewBuilder::new(
             "SELECT trip_distance FROM nyc_taxis",

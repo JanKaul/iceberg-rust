@@ -7,7 +7,7 @@ use parquet::format::FileMetaData;
 use uuid::Uuid;
 
 use crate::{
-    catalog::relation::Relation, model::schema::SchemaV2, table::Table, util::strip_prefix,
+    catalog::relation::Relation, spec::schema::SchemaV2, table::Table, util::strip_prefix,
 };
 use anyhow::{anyhow, Result};
 

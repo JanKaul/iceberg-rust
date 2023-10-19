@@ -2,7 +2,7 @@ use std::ffi::{c_char, CStr};
 
 use iceberg_rust::{
     catalog::identifier::Identifier,
-    model::schema::SchemaV2,
+    spec::schema::SchemaV2,
     table::{table_builder::TableBuilder, Table},
 };
 

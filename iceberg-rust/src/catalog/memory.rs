@@ -220,11 +220,11 @@ pub mod tests {
 
     use crate::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
-        model::{
+        object_store::{memory::InMemory, ObjectStore},
+        spec::{
             schema::SchemaV2,
             types::{PrimitiveType, StructField, StructType, Type},
         },
-        object_store::{memory::InMemory, ObjectStore},
         table::table_builder::TableBuilder,
     };
 
@@ -236,24 +236,22 @@ pub mod tests {
         let schema = SchemaV2 {
             schema_id: 1,
             identifier_field_ids: Some(vec![1, 2]),
-            fields: StructType {
-                fields: vec![
-                    StructField {
-                        id: 1,
-                        name: "one".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    },
-                    StructField {
-                        id: 2,
-                        name: "two".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    },
-                ],
-            },
+            fields: StructType::new(vec![
+                StructField {
+                    id: 1,
+                    name: "one".to_string(),
+                    required: false,
+                    field_type: Type::Primitive(PrimitiveType::String),
+                    doc: None,
+                },
+                StructField {
+                    id: 2,
+                    name: "two".to_string(),
+                    required: false,
+                    field_type: Type::Primitive(PrimitiveType::String),
+                    doc: None,
+                },
+            ]),
         };
         let mut table = TableBuilder::new("/", schema, identifier.clone(), catalog.clone())
             .expect("Failed to create table builder.")
