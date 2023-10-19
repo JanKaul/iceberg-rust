@@ -680,13 +680,15 @@ impl DataFile {
     pub(crate) fn try_from_v2(
         value: DataFileV2,
         schema: &Schema,
-        _partition_spec: &PartitionSpec,
+        partition_spec: &PartitionSpec,
     ) -> Result<Self, anyhow::Error> {
         Ok(DataFile {
             content: value.content,
             file_path: value.file_path,
             file_format: value.file_format,
-            partition: value.partition,
+            partition: value
+                .partition
+                .cast(&schema.fields, &partition_spec.fields)?,
             record_count: value.record_count,
             file_size_in_bytes: value.file_size_in_bytes,
             column_sizes: value.column_sizes,
@@ -712,13 +714,15 @@ impl DataFile {
     pub(crate) fn try_from_v1(
         value: DataFileV1,
         schema: &Schema,
-        _partition_spec: &PartitionSpec,
+        partition_spec: &PartitionSpec,
     ) -> Result<Self, anyhow::Error> {
         Ok(DataFile {
             content: Content::Data,
             file_path: value.file_path,
             file_format: value.file_format,
-            partition: value.partition,
+            partition: value
+                .partition
+                .cast(&schema.fields, &partition_spec.fields)?,
             record_count: value.record_count,
             file_size_in_bytes: value.file_size_in_bytes,
             column_sizes: value.column_sizes,
@@ -1559,7 +1563,7 @@ mod tests {
                 content: Content::Data,
                 file_path: "/".to_string(),
                 file_format: FileFormat::Parquet,
-                partition: Struct::from_iter(vec![("day".to_owned(), Some(Value::Int(1)))]),
+                partition: Struct::from_iter(vec![("date".to_owned(), Some(Value::Int(1)))]),
                 record_count: 4,
                 file_size_in_bytes: 1200,
                 column_sizes: None,
@@ -1576,32 +1580,11 @@ mod tests {
             },
         };
 
-        let table_schema = SchemaV2 {
-            schema_id: 0,
-            identifier_field_ids: None,
-            fields: StructType {
-                fields: vec![StructField {
-                    id: 4,
-                    name: "day".to_owned(),
-                    required: false,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                }],
-            },
-        };
-
-        let spec = PartitionSpec {
-            spec_id: 0,
-            fields: vec![PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "ts_day".to_string(),
-                transform: Transform::Day,
-            }],
-        };
-
-        let partition_schema =
-            partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();
+        let partition_schema = partition_value_schema(
+            &table_metadata.default_partition_spec().unwrap().fields,
+            &table_metadata.current_schema().unwrap(),
+        )
+        .unwrap();
 
         let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2).unwrap();
 
@@ -1712,7 +1695,7 @@ mod tests {
                 content: Content::Data,
                 file_path: "/".to_string(),
                 file_format: FileFormat::Parquet,
-                partition: Struct::from_iter(vec![("day".to_owned(), Some(Value::Int(1)))]),
+                partition: Struct::from_iter(vec![("date".to_owned(), Some(Value::Int(1)))]),
                 record_count: 4,
                 file_size_in_bytes: 1200,
                 column_sizes: None,
@@ -1729,32 +1712,11 @@ mod tests {
             },
         };
 
-        let table_schema = SchemaV2 {
-            schema_id: 0,
-            identifier_field_ids: None,
-            fields: StructType {
-                fields: vec![StructField {
-                    id: 4,
-                    name: "day".to_owned(),
-                    required: false,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                }],
-            },
-        };
-
-        let spec = PartitionSpec {
-            spec_id: 0,
-            fields: vec![PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "ts_day".to_string(),
-                transform: Transform::Day,
-            }],
-        };
-
-        let partition_schema =
-            partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();
+        let partition_schema = partition_value_schema(
+            &table_metadata.default_partition_spec().unwrap().fields,
+            &table_metadata.current_schema().unwrap(),
+        )
+        .unwrap();
 
         let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2).unwrap();
 

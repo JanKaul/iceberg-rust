@@ -2,7 +2,13 @@
  * Value in iceberg
  */
 
-use std::{any::Any, collections::BTreeMap, fmt, io::Cursor, ops::Deref};
+use std::{
+    any::Any,
+    collections::{BTreeMap, HashMap},
+    fmt,
+    io::Cursor,
+    ops::Deref,
+};
 
 use anyhow::{anyhow, Result};
 
@@ -17,8 +23,8 @@ use serde::{
 use serde_bytes::ByteBuf;
 
 use super::{
-    partition::Transform,
-    types::{PrimitiveType, Type},
+    partition::{PartitionField, Transform},
+    types::{PrimitiveType, StructType, Type},
 };
 
 /// Values present in iceberg type
@@ -122,6 +128,44 @@ impl Struct {
     /// Get mutable reference to partition value
     pub fn get_mut(&mut self, name: &str) -> Option<&mut Option<Value>> {
         self.fields.get_mut(*self.lookup.get(name)?)
+    }
+
+    pub(crate) fn cast(
+        self,
+        schema: &StructType,
+        partition_spec: &[PartitionField],
+    ) -> Result<Self, anyhow::Error> {
+        let map = partition_spec
+            .iter()
+            .map(|partition_field| {
+                let field = schema
+                    .get(partition_field.source_id as usize)
+                    .ok_or(anyhow!("Partition field doesn't exist in schema"))?;
+                Ok((
+                    field.name.clone(),
+                    field.field_type.tranform(&partition_field.transform)?,
+                ))
+            })
+            .collect::<Result<HashMap<_, _>>>()?;
+        Ok(Struct::from_iter(
+            self.fields
+                .into_iter()
+                .enumerate()
+                .map(|(idx, field)| {
+                    let name = self
+                        .lookup
+                        .iter()
+                        .find(|(_, v)| **v == idx)
+                        .ok_or(anyhow!("Index not in lookup."))?
+                        .0;
+                    let datatype = map
+                        .get(name)
+                        .ok_or(anyhow!("Can't find partition field by name"))?;
+                    let value = field.map(|value| value.cast(datatype)).transpose()?;
+                    Ok((name.clone(), value))
+                })
+                .collect::<Result<Vec<_>, anyhow::Error>>()?,
+        ))
     }
 }
 
@@ -415,20 +459,26 @@ impl Value {
     }
     /// Cast value to different type
     pub fn cast(self, data_type: &Type) -> Result<Self, anyhow::Error> {
-        match (self, data_type) {
-            (Value::Int(input), Type::Primitive(PrimitiveType::Int)) => Ok(Value::Int(input)),
-            (Value::Int(input), Type::Primitive(PrimitiveType::Date)) => Ok(Value::Date(input)),
-            (Value::LongInt(input), Type::Primitive(PrimitiveType::Long)) => {
-                Ok(Value::LongInt(input))
+        dbg!(&self, data_type);
+        if self.datatype() == *data_type {
+            Ok(self)
+        } else {
+            match (self, data_type) {
+                (Value::Int(input), Type::Primitive(PrimitiveType::Long)) => {
+                    Ok(Value::LongInt(input as i64))
+                }
+                (Value::Int(input), Type::Primitive(PrimitiveType::Date)) => Ok(Value::Date(input)),
+                (Value::LongInt(input), Type::Primitive(PrimitiveType::Time)) => {
+                    Ok(Value::Time(input))
+                }
+                (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestamp)) => {
+                    Ok(Value::Timestamp(input))
+                }
+                (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestampz)) => {
+                    Ok(Value::TimestampTZ(input))
+                }
+                _ => Err(anyhow!("Cast is not supported")),
             }
-            (Value::LongInt(input), Type::Primitive(PrimitiveType::Time)) => Ok(Value::Time(input)),
-            (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestamp)) => {
-                Ok(Value::Timestamp(input))
-            }
-            (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestampz)) => {
-                Ok(Value::TimestampTZ(input))
-            }
-            _ => Err(anyhow!("Cast is not supported")),
         }
     }
 }
