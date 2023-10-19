@@ -16,7 +16,6 @@ use crate::model::{
     manifest::{AvroMap, Content, DataFile, FileFormat},
     partition::{PartitionField, Transform},
     schema::Schema,
-    types::{PrimitiveType, Type},
     values::{Struct, Value},
 };
 
