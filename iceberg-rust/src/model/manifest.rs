@@ -5,6 +5,7 @@ use std::{
     collections::HashMap,
     io::Read,
     iter::{repeat, Map, Repeat, Zip},
+    sync::Arc,
 };
 
 use anyhow::{anyhow, Result};
@@ -13,40 +14,85 @@ use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+use crate::model::schema::{SchemaV1, SchemaV2};
+
 use super::{
-    partition::PartitionField,
+    partition::{PartitionField, PartitionSpec},
     schema::Schema,
-    table_metadata::{FormatVersion, TableMetadata},
+    table_metadata::FormatVersion,
     types::{PrimitiveType, Type},
     values::Struct,
 };
 
 /// Iterator of ManifestFileEntries
-pub struct ManifestReader<'a, 'metadata, R: Read> {
+pub struct ManifestReader<'a, R: Read> {
     reader: Map<
-        Zip<AvroReader<'a, R>, Repeat<&'metadata TableMetadata>>,
+        Zip<AvroReader<'a, R>, Repeat<Arc<(Schema, PartitionSpec, FormatVersion)>>>,
         fn(
-            (Result<AvroValue, apache_avro::Error>, &TableMetadata),
+            (
+                Result<AvroValue, apache_avro::Error>,
+                Arc<(Schema, PartitionSpec, FormatVersion)>,
+            ),
         ) -> Result<ManifestEntry, anyhow::Error>,
     >,
 }
 
-impl<'a, 'metadata, R: Read> Iterator for ManifestReader<'a, 'metadata, R> {
+impl<'a, R: Read> Iterator for ManifestReader<'a, R> {
     type Item = Result<ManifestEntry, anyhow::Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next()
     }
 }
 
-impl<'a, 'metadata, R: Read> ManifestReader<'a, 'metadata, R> {
+impl<'a, R: Read> ManifestReader<'a, R> {
     /// Create a new ManifestFile reader
-    pub fn new(
-        reader: R,
-        table_metadata: &'metadata TableMetadata,
-    ) -> Result<Self, apache_avro::Error> {
+    pub fn new(reader: R) -> Result<Self, anyhow::Error> {
+        let reader = AvroReader::new(reader)?;
+        let metadata = reader.user_metadata();
+
+        let format_version: FormatVersion = match metadata
+            .get("format-version")
+            .map(|bytes| String::from_utf8(bytes.clone()))
+            .transpose()?
+            .unwrap_or("1".to_string())
+            .as_str()
+        {
+            "1" => Ok(FormatVersion::V1),
+            "2" => Ok(FormatVersion::V2),
+            _ => Err(anyhow!("Wrong format version")),
+        }?;
+
+        let schema: Schema = match format_version {
+            FormatVersion::V1 => TryFrom::<SchemaV1>::try_from(serde_json::from_slice(
+                metadata
+                    .get("schema")
+                    .ok_or(anyhow!("Manifest metadata doesn't contain schema."))?,
+            )?)?,
+            FormatVersion::V2 => TryFrom::<SchemaV2>::try_from(serde_json::from_slice(
+                metadata
+                    .get("schema")
+                    .ok_or(anyhow!("Manifest metadata doesn't contain schema."))?,
+            )?)?,
+        };
+
+        let partition_fields: Vec<PartitionField> = serde_json::from_slice(
+            metadata
+                .get("partition-spec")
+                .ok_or(anyhow!("Manifest metadata doesn't contain partition_spec."))?,
+        )?;
+        let spec_id: i32 = metadata
+            .get("partition-spec-id")
+            .map(|x| String::from_utf8(x.clone()))
+            .transpose()?
+            .unwrap_or("0".to_string())
+            .parse()?;
+        let partition_spec = PartitionSpec {
+            spec_id,
+            fields: partition_fields,
+        };
         Ok(Self {
-            reader: AvroReader::new(reader)?
-                .zip(repeat(table_metadata))
+            reader: reader
+                .zip(repeat(Arc::new((schema, partition_spec, format_version))))
                 .map(avro_value_to_manifest_entry),
         })
     }
@@ -131,27 +177,29 @@ pub struct ManifestEntry {
 impl ManifestEntry {
     pub(crate) fn try_from_v2(
         value: ManifestEntryV2,
-        table_metadata: &TableMetadata,
+        schema: &Schema,
+        partition_spec: &PartitionSpec,
     ) -> Result<Self, anyhow::Error> {
         Ok(ManifestEntry {
             format_version: FormatVersion::V2,
             status: value.status,
             snapshot_id: value.snapshot_id,
             sequence_number: value.sequence_number,
-            data_file: DataFile::try_from_v2(value.data_file, table_metadata)?,
+            data_file: DataFile::try_from_v2(value.data_file, schema, partition_spec)?,
         })
     }
 
     pub(crate) fn try_from_v1(
         value: ManifestEntryV1,
-        table_metadata: &TableMetadata,
+        schema: &Schema,
+        partition_spec: &PartitionSpec,
     ) -> Result<Self, anyhow::Error> {
         Ok(ManifestEntry {
             format_version: FormatVersion::V2,
             status: value.status,
             snapshot_id: Some(value.snapshot_id),
             sequence_number: None,
-            data_file: DataFile::try_from_v1(value.data_file, table_metadata)?,
+            data_file: DataFile::try_from_v1(value.data_file, schema, partition_spec)?,
         })
     }
 }
@@ -536,7 +584,8 @@ pub struct DataFile {
 impl DataFile {
     pub(crate) fn try_from_v2(
         value: DataFileV2,
-        _table_metadata: &TableMetadata,
+        _schema: &Schema,
+        _partition_spec: &PartitionSpec,
     ) -> Result<Self, anyhow::Error> {
         Ok(DataFile {
             content: value.content,
@@ -561,7 +610,8 @@ impl DataFile {
 
     pub(crate) fn try_from_v1(
         value: DataFileV1,
-        _table_metadata: &TableMetadata,
+        _schema: &Schema,
+        _partition_spec: &PartitionSpec,
     ) -> Result<Self, anyhow::Error> {
         Ok(DataFile {
             content: Content::Data,
@@ -1319,18 +1369,25 @@ impl DataFileV2 {
 
 // Convert avro value to ManifestEntry based on the format version of the table.
 fn avro_value_to_manifest_entry(
-    value: (Result<AvroValue, apache_avro::Error>, &TableMetadata),
+    value: (
+        Result<AvroValue, apache_avro::Error>,
+        Arc<(Schema, PartitionSpec, FormatVersion)>,
+    ),
 ) -> Result<ManifestEntry, anyhow::Error> {
     let entry = value.0?;
-    let table_metadata = value.1;
-    match table_metadata.format_version {
+    let schema = &value.1 .0;
+    let partition_spec = &value.1 .1;
+    let format_version = &value.1 .2;
+    match format_version {
         FormatVersion::V2 => ManifestEntry::try_from_v2(
             apache_avro::from_value::<ManifestEntryV2>(&entry)?,
-            table_metadata,
+            schema,
+            partition_spec,
         ),
         FormatVersion::V1 => ManifestEntry::try_from_v1(
             apache_avro::from_value::<ManifestEntryV1>(&entry)?,
-            table_metadata,
+            schema,
+            partition_spec,
         ),
     }
 }
@@ -1494,7 +1551,12 @@ mod tests {
             let entry = apache_avro::from_value::<ManifestEntryV2>(&value.unwrap()).unwrap();
             assert_eq!(
                 manifest_entry,
-                ManifestEntry::try_from_v2(entry, &table_metadata).unwrap()
+                ManifestEntry::try_from_v2(
+                    entry,
+                    table_metadata.current_schema().unwrap(),
+                    table_metadata.default_partition_spec().unwrap()
+                )
+                .unwrap()
             )
         }
     }
@@ -1647,7 +1709,12 @@ mod tests {
             .unwrap();
         assert_eq!(
             manifest_entry,
-            ManifestEntry::try_from_v2(metadata_entry, &table_metadata).unwrap()
+            ManifestEntry::try_from_v2(
+                metadata_entry,
+                table_metadata.current_schema().unwrap(),
+                table_metadata.default_partition_spec().unwrap()
+            )
+            .unwrap()
         );
     }
 

@@ -119,7 +119,7 @@ impl Table {
                         .and_then(|file| file.bytes())
                         .await?,
                 ));
-                let reader = ManifestReader::new(bytes, self.metadata())?;
+                let reader = ManifestReader::new(bytes)?;
                 Ok(stream::iter(reader))
             })
             .flat_map(|reader| reader.try_flatten_stream())
