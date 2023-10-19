@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
 use serde::{
@@ -21,6 +21,8 @@ use serde::{
     Deserialize, Deserializer, Serialize,
 };
 use serde_bytes::ByteBuf;
+use serde_json::{Map as JsonMap, Number, Value as JsonValue};
+use uuid::Uuid;
 
 use super::{
     partition::{PartitionField, Transform},
@@ -28,7 +30,7 @@ use super::{
 };
 
 /// Values present in iceberg type
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[serde(untagged)]
 pub enum Value {
     /// 0x00 for false, non-zero byte for true
@@ -52,7 +54,7 @@ pub enum Value {
     /// UTF-8 bytes (without length)
     String(String),
     /// 16-byte big-endian value
-    UUID([u8; 16]),
+    UUID(Uuid),
     /// Binary value
     Fixed(usize, Vec<u8>),
     /// Binary value (without length)
@@ -71,7 +73,7 @@ pub enum Value {
     /// A map is a collection of key-value pairs with a key type and a value type.
     /// Both the key field and value field each have an integer id that is unique in the table schema.
     /// Map keys are required and map values can be either optional or required. Both map keys and map values may be any type, including nested types.
-    Map(BTreeMap<String, Option<Value>>),
+    Map(BTreeMap<Value, Option<Value>>),
 }
 
 impl From<Value> for ByteBuf {
@@ -93,7 +95,7 @@ impl From<Value> for ByteBuf {
             Value::Timestamp(val) => ByteBuf::from(val.to_le_bytes()),
             Value::TimestampTZ(val) => ByteBuf::from(val.to_le_bytes()),
             Value::String(val) => ByteBuf::from(val.as_bytes()),
-            Value::UUID(val) => ByteBuf::from(val),
+            Value::UUID(val) => ByteBuf::from(val.as_u128().to_be_bytes()),
             Value::Fixed(_, val) => ByteBuf::from(val),
             Value::Binary(val) => ByteBuf::from(val),
             _ => todo!(),
@@ -104,7 +106,7 @@ impl From<Value> for ByteBuf {
 /// The partition struct stores the tuple of partition values for each file.
 /// Its type is derived from the partition fields of the partition spec used to write the manifest file.
 /// In v2, the partition struct’s field ids must match the ids from the partition spec.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Struct {
     /// Vector to store the field values
     pub fields: Vec<Option<Value>>,
@@ -404,12 +406,141 @@ impl Value {
                     Ok(Value::TimestampTZ(i64::from_le_bytes(bytes.try_into()?)))
                 }
                 PrimitiveType::String => Ok(Value::String(std::str::from_utf8(bytes)?.to_string())),
-                PrimitiveType::Uuid => Ok(Value::UUID(bytes.try_into()?)),
+                PrimitiveType::Uuid => Ok(Value::UUID(Uuid::from_u128(u128::from_be_bytes(
+                    bytes.try_into()?,
+                )))),
                 PrimitiveType::Fixed(len) => Ok(Value::Fixed(*len as usize, Vec::from(bytes))),
                 PrimitiveType::Binary => Ok(Value::Binary(Vec::from(bytes))),
                 _ => Err(anyhow!("Decimal cannot be stored as bytes.")),
             },
             _ => Err(anyhow!("Only primitive types can be stored as bytes.")),
+        }
+    }
+
+    /// Create iceberg value from a json value
+    pub fn try_from_json(value: JsonValue, data_type: &Type) -> Result<Option<Self>> {
+        match data_type {
+            Type::Primitive(primitive) => match (primitive, value) {
+                (PrimitiveType::Boolean, JsonValue::Bool(bool)) => Ok(Some(Value::Boolean(bool))),
+                (PrimitiveType::Int, JsonValue::Number(number)) => Ok(Some(Value::Int(
+                    number
+                        .as_i64()
+                        .ok_or(anyhow!("Failed to convert json number to int"))?
+                        .try_into()?,
+                ))),
+                (PrimitiveType::Long, JsonValue::Number(number)) => {
+                    Ok(Some(Value::LongInt(number.as_i64().ok_or(anyhow!(
+                        "Failed to convert json number to long"
+                    ))?)))
+                }
+                (PrimitiveType::Float, JsonValue::Number(number)) => {
+                    Ok(Some(Value::Float(OrderedFloat(
+                        number
+                            .as_f64()
+                            .ok_or(anyhow!("Failed to convert json number to float"))?
+                            as f32,
+                    ))))
+                }
+                (PrimitiveType::Double, JsonValue::Number(number)) => {
+                    Ok(Some(Value::Double(OrderedFloat(number.as_f64().ok_or(
+                        anyhow!("Failed to convert json number to float"),
+                    )?))))
+                }
+                (PrimitiveType::Date, JsonValue::String(s)) => Ok(Some(Value::Date(
+                    datetime::date_to_days(&NaiveDate::parse_from_str(&s, "%Y-%m-%d")?),
+                ))),
+                (PrimitiveType::Time, JsonValue::String(s)) => Ok(Some(Value::Time(
+                    datetime::time_to_microseconds(&NaiveTime::parse_from_str(&s, "%H:%M:%S%.f")?),
+                ))),
+                (PrimitiveType::Timestamp, JsonValue::String(s)) => {
+                    Ok(Some(Value::Timestamp(datetime::datetime_to_microseconds(
+                        &NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f")?,
+                    ))))
+                }
+                (PrimitiveType::Timestampz, JsonValue::String(s)) => Ok(Some(Value::TimestampTZ(
+                    datetime::datetimetz_to_microseconds(&Utc.from_utc_datetime(
+                        &NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f+00:00")?,
+                    )),
+                ))),
+                (PrimitiveType::String, JsonValue::String(s)) => Ok(Some(Value::String(s))),
+                (PrimitiveType::Uuid, JsonValue::String(s)) => {
+                    Ok(Some(Value::UUID(Uuid::parse_str(&s)?)))
+                }
+                (PrimitiveType::Fixed(_), JsonValue::String(_)) => todo!(),
+                (PrimitiveType::Binary, JsonValue::String(_)) => todo!(),
+                (
+                    PrimitiveType::Decimal {
+                        precision: _,
+                        scale: _,
+                    },
+                    JsonValue::String(_),
+                ) => todo!(),
+                (_, JsonValue::Null) => Ok(None),
+                (i, j) => Err(anyhow!(
+                    "The json value {} doesn't fit to the iceberg type {}.",
+                    j,
+                    i
+                )),
+            },
+            Type::Struct(schema) => {
+                if let JsonValue::Object(mut object) = value {
+                    Ok(Some(Value::Struct(Struct::from_iter(
+                        schema.fields.iter().map(|field| {
+                            (
+                                field.name.clone(),
+                                object.remove(&field.id.to_string()).and_then(|value| {
+                                    Value::try_from_json(value, &field.field_type)
+                                        .and_then(|value| {
+                                            value.ok_or(anyhow!("Key of map cannot be null"))
+                                        })
+                                        .ok()
+                                }),
+                            )
+                        }),
+                    ))))
+                } else {
+                    Err(anyhow!(
+                        "The json value for a struct type must be an object."
+                    ))
+                }
+            }
+            Type::List(list) => {
+                if let JsonValue::Array(array) = value {
+                    Ok(Some(Value::List(
+                        array
+                            .into_iter()
+                            .map(|value| Value::try_from_json(value, &list.element))
+                            .collect::<Result<Vec<_>>>()?,
+                    )))
+                } else {
+                    Err(anyhow!("The json value for a list type must be an array."))
+                }
+            }
+            Type::Map(map) => {
+                if let JsonValue::Object(mut object) = value {
+                    if let (Some(JsonValue::Array(keys)), Some(JsonValue::Array(values))) =
+                        (object.remove("keys"), object.remove("values"))
+                    {
+                        Ok(Some(Value::Map(BTreeMap::from_iter(
+                            keys.into_iter()
+                                .zip(values.into_iter())
+                                .map(|(key, value)| {
+                                    Ok((
+                                        Value::try_from_json(key, &map.key).and_then(|value| {
+                                            value.ok_or(anyhow!("Key of map cannot be null"))
+                                        })?,
+                                        Value::try_from_json(value, &map.value)?,
+                                    ))
+                                })
+                                .collect::<Result<Vec<_>>>()?,
+                        ))))
+                    } else {
+                        Err(anyhow!("The json value for a list type must be an array."))
+                    }
+                } else {
+                    Err(anyhow!("The json value for a list type must be an array."))
+                }
+            }
         }
     }
 
@@ -480,5 +611,148 @@ impl Value {
                 _ => Err(anyhow!("Cast is not supported")),
             }
         }
+    }
+}
+
+impl From<&Value> for JsonValue {
+    fn from(value: &Value) -> Self {
+        match value {
+            Value::Boolean(val) => JsonValue::Bool(*val),
+            Value::Int(val) => JsonValue::Number((*val).into()),
+            Value::LongInt(val) => JsonValue::Number((*val).into()),
+            Value::Float(val) => match Number::from_f64(val.0 as f64) {
+                Some(number) => JsonValue::Number(number),
+                None => JsonValue::Null,
+            },
+            Value::Double(val) => match Number::from_f64(val.0) {
+                Some(number) => JsonValue::Number(number),
+                None => JsonValue::Null,
+            },
+            Value::Date(val) => JsonValue::String(datetime::days_to_date(*val).to_string()),
+            Value::Time(val) => JsonValue::String(datetime::microseconds_to_time(*val).to_string()),
+            Value::Timestamp(val) => JsonValue::String(
+                datetime::microseconds_to_datetime(*val)
+                    .format("%Y-%m-%dT%H:%M:%S%.f")
+                    .to_string(),
+            ),
+            Value::TimestampTZ(val) => JsonValue::String(
+                datetime::microseconds_to_datetimetz(*val)
+                    .format("%Y-%m-%dT%H:%M:%S%.f+00:00")
+                    .to_string(),
+            ),
+            Value::String(val) => JsonValue::String(val.clone()),
+            Value::UUID(val) => JsonValue::String(val.to_string()),
+            Value::Fixed(_, val) => {
+                JsonValue::String(val.iter().fold(String::new(), |mut acc, x| {
+                    acc.push_str(&format!("{:x}", x));
+                    acc
+                }))
+            }
+            Value::Binary(val) => {
+                JsonValue::String(val.iter().fold(String::new(), |mut acc, x| {
+                    acc.push_str(&format!("{:x}", x));
+                    acc
+                }))
+            }
+            Value::Decimal(_) => todo!(),
+
+            Value::Struct(s) => JsonValue::Object(JsonMap::from_iter(
+                s.lookup
+                    .iter()
+                    .map(|(k, v)| (k, &s.fields[*v]))
+                    .map(|(id, value)| {
+                        let json: JsonValue = match value {
+                            Some(val) => val.into(),
+                            None => JsonValue::Null,
+                        };
+                        (id.to_string(), json)
+                    }),
+            )),
+            Value::List(list) => JsonValue::Array(
+                list.iter()
+                    .map(|opt| match opt {
+                        Some(literal) => literal.into(),
+                        None => JsonValue::Null,
+                    })
+                    .collect(),
+            ),
+            Value::Map(map) => {
+                let mut object = JsonMap::with_capacity(2);
+                object.insert(
+                    "keys".to_string(),
+                    JsonValue::Array(map.keys().map(|literal| literal.into()).collect()),
+                );
+                object.insert(
+                    "values".to_string(),
+                    JsonValue::Array(
+                        map.values()
+                            .map(|literal| match literal {
+                                Some(literal) => literal.into(),
+                                None => JsonValue::Null,
+                            })
+                            .collect(),
+                    ),
+                );
+                JsonValue::Object(object)
+            }
+        }
+    }
+}
+
+mod datetime {
+    pub(crate) fn date_to_days(date: &NaiveDate) -> i32 {
+        date.signed_duration_since(
+            // This is always the same and shouldn't fail
+            NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
+        )
+        .num_days() as i32
+    }
+
+    pub(crate) fn days_to_date(days: i32) -> NaiveDate {
+        // This shouldn't fail until the year 262000
+        NaiveDateTime::from_timestamp_opt(days as i64 * 86_400, 0)
+            .unwrap()
+            .date()
+    }
+
+    pub(crate) fn time_to_microseconds(time: &NaiveTime) -> i64 {
+        time.signed_duration_since(
+            // This is always the same and shouldn't fail
+            NaiveTime::from_num_seconds_from_midnight_opt(0, 0).unwrap(),
+        )
+        .num_microseconds()
+        .unwrap()
+    }
+
+    pub(crate) fn microseconds_to_time(micros: i64) -> NaiveTime {
+        let (secs, rem) = (micros / 1_000_000, micros % 1_000_000);
+
+        NaiveTime::from_num_seconds_from_midnight_opt(secs as u32, rem as u32 * 1_000).unwrap()
+    }
+
+    pub(crate) fn datetime_to_microseconds(time: &NaiveDateTime) -> i64 {
+        time.timestamp_micros()
+    }
+
+    pub(crate) fn microseconds_to_datetime(micros: i64) -> NaiveDateTime {
+        let (secs, rem) = (micros / 1_000_000, micros % 1_000_000);
+
+        // This shouldn't fail until the year 262000
+        NaiveDateTime::from_timestamp_opt(secs, rem as u32 * 1_000).unwrap()
+    }
+
+    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+
+    pub(crate) fn datetimetz_to_microseconds(time: &DateTime<Utc>) -> i64 {
+        time.timestamp_micros()
+    }
+
+    pub(crate) fn microseconds_to_datetimetz(micros: i64) -> DateTime<Utc> {
+        let (secs, rem) = (micros / 1_000_000, micros % 1_000_000);
+
+        Utc.from_utc_datetime(
+            // This shouldn't fail until the year 262000
+            &NaiveDateTime::from_timestamp_opt(secs, rem as u32 * 1_000).unwrap(),
+        )
     }
 }
