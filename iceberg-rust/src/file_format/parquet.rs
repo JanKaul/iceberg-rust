@@ -11,7 +11,6 @@ use parquet::{
     format::FileMetaData,
     schema::types::{from_thrift, SchemaDescriptor},
 };
-use serde_bytes::ByteBuf;
 
 use crate::model::{
     manifest::{AvroMap, Content, DataFile, FileFormat},
@@ -56,8 +55,8 @@ pub fn parquet_to_datafile(
     let mut value_counts = Some(AvroMap(HashMap::new()));
     let mut null_value_counts = Some(AvroMap(HashMap::new()));
     let mut distinct_counts = Some(AvroMap(HashMap::new()));
-    let mut lower_bounds: Option<AvroMap<ByteBuf>> = Some(AvroMap(HashMap::new()));
-    let mut upper_bounds: Option<AvroMap<ByteBuf>> = Some(AvroMap(HashMap::new()));
+    let mut lower_bounds: Option<HashMap<i32, Value>> = Some(HashMap::new());
+    let mut upper_bounds: Option<HashMap<i32, Value>> = Some(HashMap::new());
 
     for row_group in &file_metadata.row_groups {
         let row_group = RowGroupMetaData::from_thrift(parquet_schema.clone(), row_group.clone())?;
@@ -93,50 +92,49 @@ pub fn parquet_to_datafile(
                     }
                 }
                 if let Some(lower_bounds) = &mut lower_bounds {
-                    if let Some(entry) = lower_bounds.0.get_mut(&id) {
+                    if let Some(entry) = lower_bounds.get_mut(&id) {
                         let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
-                        let bytes = statistics.min_bytes();
-                        let current = Value::try_from_bytes(entry, data_type)?;
+
                         let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
-                        match (current, new) {
-                            (Value::Int(current), Value::Int(new)) => {
-                                if current > new {
-                                    *entry = ByteBuf::from(bytes)
+                        match (&entry, &new) {
+                            (Value::Int(current), Value::Int(new_val)) => {
+                                if *current > *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::LongInt(current), Value::LongInt(new)) => {
-                                if current > new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::LongInt(current), Value::LongInt(new_val)) => {
+                                if *current > *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Float(current), Value::Float(new)) => {
-                                if current > new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Float(current), Value::Float(new_val)) => {
+                                if *current > *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Double(current), Value::Double(new)) => {
-                                if current > new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Double(current), Value::Double(new_val)) => {
+                                if *current > *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Date(current), Value::Date(new)) => {
-                                if current > new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Date(current), Value::Date(new_val)) => {
+                                if *current > *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Time(current), Value::Time(new)) => {
-                                if current > new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Time(current), Value::Time(new_val)) => {
+                                if *current > *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Timestamp(current), Value::Timestamp(new)) => {
-                                if current > new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Timestamp(current), Value::Timestamp(new_val)) => {
+                                if *current > *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::TimestampTZ(current), Value::TimestampTZ(new)) => {
-                                if current > new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::TimestampTZ(current), Value::TimestampTZ(new_val)) => {
+                                if *current > *new_val {
+                                    *entry = new
                                 }
                             }
                             _ => (),
@@ -144,50 +142,48 @@ pub fn parquet_to_datafile(
                     }
                 }
                 if let Some(upper_bounds) = &mut upper_bounds {
-                    if let Some(entry) = upper_bounds.0.get_mut(&id) {
+                    if let Some(entry) = upper_bounds.get_mut(&id) {
                         let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
-                        let bytes = statistics.max_bytes();
-                        let current = Value::try_from_bytes(entry, data_type)?;
                         let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
-                        match (current, new) {
-                            (Value::Int(current), Value::Int(new)) => {
-                                if current < new {
-                                    *entry = ByteBuf::from(bytes)
+                        match (&entry, &new) {
+                            (Value::Int(current), Value::Int(new_val)) => {
+                                if *current < *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::LongInt(current), Value::LongInt(new)) => {
-                                if current < new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::LongInt(current), Value::LongInt(new_val)) => {
+                                if *current < *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Float(current), Value::Float(new)) => {
-                                if current < new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Float(current), Value::Float(new_val)) => {
+                                if *current < *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Double(current), Value::Double(new)) => {
-                                if current < new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Double(current), Value::Double(new_val)) => {
+                                if *current < *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Date(current), Value::Date(new)) => {
-                                if current < new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Date(current), Value::Date(new_val)) => {
+                                if *current < *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Time(current), Value::Time(new)) => {
-                                if current < new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Time(current), Value::Time(new_val)) => {
+                                if *current < *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::Timestamp(current), Value::Timestamp(new)) => {
-                                if current < new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::Timestamp(current), Value::Timestamp(new_val)) => {
+                                if *current < *new_val {
+                                    *entry = new
                                 }
                             }
-                            (Value::TimestampTZ(current), Value::TimestampTZ(new)) => {
-                                if current < new {
-                                    *entry = ByteBuf::from(bytes)
+                            (Value::TimestampTZ(current), Value::TimestampTZ(new_val)) => {
+                                if *current < *new_val {
+                                    *entry = new
                                 }
                             }
                             _ => (),

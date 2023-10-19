@@ -26,7 +26,7 @@ use datafusion::{
 };
 
 use iceberg_rust::{
-    model::{manifest::ManifestEntry, manifest_list::ManifestListEntry, values::Value},
+    model::{manifest::ManifestEntry, manifest_list::ManifestListEntry},
     table::Table,
 };
 
@@ -134,13 +134,9 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .files
             .iter()
             .map(|manifest| match &manifest.data_file.lower_bounds {
-                Some(map) => map.get(&(column_id as i32)).and_then(|value| {
-                    Some(
-                        Value::try_from_bytes(value, &datatype.try_into().ok()?)
-                            .ok()?
-                            .into_any(),
-                    )
-                }),
+                Some(map) => map
+                    .get(&(column_id as i32))
+                    .and_then(|value| Some(value.clone().into_any())),
                 None => None,
             });
         any_iter_to_array(min_values, datatype).ok()
@@ -153,13 +149,9 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .files
             .iter()
             .map(|manifest| match &manifest.data_file.upper_bounds {
-                Some(map) => map.get(&(column_id as i32)).and_then(|value| {
-                    Some(
-                        Value::try_from_bytes(value, &datatype.try_into().ok()?)
-                            .ok()?
-                            .into_any(),
-                    )
-                }),
+                Some(map) => map
+                    .get(&(column_id as i32))
+                    .and_then(|value| Some(value.clone().into_any())),
                 None => None,
             });
         any_iter_to_array(max_values, datatype).ok()

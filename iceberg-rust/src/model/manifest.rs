@@ -23,8 +23,8 @@ use super::{
     partition::{PartitionField, PartitionSpec},
     schema::Schema,
     table_metadata::{FormatVersion, TableMetadata},
-    types::{PrimitiveType, Type},
-    values::Struct,
+    types::{PrimitiveType, StructType, Type},
+    values::{Struct, Value},
 };
 
 /// Iterator of ManifestFileEntries
@@ -607,7 +607,37 @@ impl<'de, T: Serialize + DeserializeOwned + Clone> Deserialize<'de> for AvroMap<
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+impl AvroMap<ByteBuf> {
+    fn into_value_map(self, schema: &StructType) -> Result<HashMap<i32, Value>> {
+        Ok(HashMap::from_iter(
+            self.0
+                .into_iter()
+                .map(|(k, v)| {
+                    Ok((
+                        k,
+                        Value::try_from_bytes(
+                            &v,
+                            &schema
+                                .get(k as usize)
+                                .ok_or(anyhow!("Field doens't exist in schema"))?
+                                .field_type,
+                        )?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, anyhow::Error>>()?,
+        ))
+    }
+}
+
+impl From<HashMap<i32, Value>> for AvroMap<ByteBuf> {
+    fn from(value: HashMap<i32, Value>) -> Self {
+        AvroMap(HashMap::from_iter(
+            value.into_iter().map(|(k, v)| (k, v.into())),
+        ))
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 /// DataFile found in Manifest.
 pub struct DataFile {
     ///Type of content in data file.
@@ -633,9 +663,9 @@ pub struct DataFile {
     /// Map from column id to number of distinct values in the column.
     pub distinct_counts: Option<AvroMap<i64>>,
     /// Map from column id to lower bound in the column
-    pub lower_bounds: Option<AvroMap<ByteBuf>>,
+    pub lower_bounds: Option<HashMap<i32, Value>>,
     /// Map from column id to upper bound in the column
-    pub upper_bounds: Option<AvroMap<ByteBuf>>,
+    pub upper_bounds: Option<HashMap<i32, Value>>,
     /// Implementation specific key metadata for encryption
     pub key_metadata: Option<ByteBuf>,
     /// Split offsets for the data file.
@@ -649,7 +679,7 @@ pub struct DataFile {
 impl DataFile {
     pub(crate) fn try_from_v2(
         value: DataFileV2,
-        _schema: &Schema,
+        schema: &Schema,
         _partition_spec: &PartitionSpec,
     ) -> Result<Self, anyhow::Error> {
         Ok(DataFile {
@@ -664,8 +694,14 @@ impl DataFile {
             null_value_counts: value.null_value_counts,
             nan_value_counts: value.nan_value_counts,
             distinct_counts: value.distinct_counts,
-            lower_bounds: value.lower_bounds,
-            upper_bounds: value.upper_bounds,
+            lower_bounds: value
+                .lower_bounds
+                .map(|map| map.into_value_map(&schema.fields))
+                .transpose()?,
+            upper_bounds: value
+                .upper_bounds
+                .map(|map| map.into_value_map(&schema.fields))
+                .transpose()?,
             key_metadata: value.key_metadata,
             split_offsets: value.split_offsets,
             equality_ids: value.equality_ids,
@@ -675,7 +711,7 @@ impl DataFile {
 
     pub(crate) fn try_from_v1(
         value: DataFileV1,
-        _schema: &Schema,
+        schema: &Schema,
         _partition_spec: &PartitionSpec,
     ) -> Result<Self, anyhow::Error> {
         Ok(DataFile {
@@ -690,8 +726,14 @@ impl DataFile {
             null_value_counts: value.null_value_counts,
             nan_value_counts: value.nan_value_counts,
             distinct_counts: value.distinct_counts,
-            lower_bounds: value.lower_bounds,
-            upper_bounds: value.upper_bounds,
+            lower_bounds: value
+                .lower_bounds
+                .map(|map| map.into_value_map(&schema.fields))
+                .transpose()?,
+            upper_bounds: value
+                .upper_bounds
+                .map(|map| map.into_value_map(&schema.fields))
+                .transpose()?,
             key_metadata: value.key_metadata,
             split_offsets: value.split_offsets,
             equality_ids: None,
@@ -794,8 +836,8 @@ impl From<DataFile> for DataFileV2 {
             null_value_counts: value.null_value_counts,
             nan_value_counts: value.nan_value_counts,
             distinct_counts: value.distinct_counts,
-            lower_bounds: value.lower_bounds,
-            upper_bounds: value.upper_bounds,
+            lower_bounds: value.lower_bounds.map(Into::into),
+            upper_bounds: value.upper_bounds.map(Into::into),
             key_metadata: value.key_metadata,
             split_offsets: value.split_offsets,
             equality_ids: value.equality_ids,
@@ -817,8 +859,8 @@ impl From<DataFile> for DataFileV1 {
             null_value_counts: value.null_value_counts,
             nan_value_counts: value.nan_value_counts,
             distinct_counts: value.distinct_counts,
-            lower_bounds: value.lower_bounds,
-            upper_bounds: value.upper_bounds,
+            lower_bounds: value.lower_bounds.map(Into::into),
+            upper_bounds: value.upper_bounds.map(Into::into),
             key_metadata: value.key_metadata,
             split_offsets: value.split_offsets,
             sort_order_id: value.sort_order_id,
@@ -1525,10 +1567,7 @@ mod tests {
                 null_value_counts: None,
                 nan_value_counts: None,
                 distinct_counts: None,
-                lower_bounds: Some(AvroMap(HashMap::from_iter(vec![(
-                    0,
-                    ByteBuf::from(vec![0, 0, 0, 0]),
-                )]))),
+                lower_bounds: Some(HashMap::from_iter(vec![(0, Value::Date(0))])),
                 upper_bounds: None,
                 key_metadata: None,
                 split_offsets: None,
@@ -1681,10 +1720,7 @@ mod tests {
                 null_value_counts: None,
                 nan_value_counts: None,
                 distinct_counts: None,
-                lower_bounds: Some(AvroMap(HashMap::from_iter(vec![(
-                    0,
-                    ByteBuf::from(vec![0, 0, 0, 0]),
-                )]))),
+                lower_bounds: Some(HashMap::from_iter(vec![(0, Value::Date(0))])),
                 upper_bounds: None,
                 key_metadata: None,
                 split_offsets: None,
