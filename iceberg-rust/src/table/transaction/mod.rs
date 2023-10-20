@@ -3,11 +3,11 @@
 */
 
 use futures::StreamExt;
-use parquet::format::FileMetaData;
 use uuid::Uuid;
 
 use crate::{
-    catalog::relation::Relation, spec::schema::SchemaV2, table::Table, util::strip_prefix,
+    catalog::relation::Relation, file_format::DatafileMetadata, spec::schema::SchemaV2,
+    table::Table, util::strip_prefix,
 };
 use anyhow::{anyhow, Result};
 
@@ -40,7 +40,7 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Quickly append files to the table
-    pub fn append(mut self, files: Vec<(String, FileMetaData)>) -> Self {
+    pub fn append(mut self, files: Vec<(String, DatafileMetadata)>) -> Self {
         self.operations.push(Operation::NewAppend { paths: files });
         self
     }

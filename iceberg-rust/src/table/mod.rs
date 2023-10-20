@@ -225,6 +225,7 @@ mod tests {
 
     use crate::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, relation::Relation, Catalog},
+        file_format::DatafileMetadata,
         spec::{
             schema::SchemaV2,
             types::{PrimitiveType, StructField, StructType, Type},
@@ -336,7 +337,7 @@ mod tests {
                         None,
                         None,
                     );
-                    Ok::<_, anyhow::Error>((file, metadata))
+                    Ok::<_, anyhow::Error>((file, DatafileMetadata::Parquet(metadata)))
                 }
             })
             .try_collect()

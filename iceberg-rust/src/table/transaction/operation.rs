@@ -10,12 +10,11 @@ use std::{
 use anyhow::{anyhow, Result};
 use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
-use parquet::format::FileMetaData;
 
 use std::ops::Deref;
 
 use crate::{
-    file_format::parquet::parquet_to_datafile,
+    file_format::{parquet::parquet_to_datafile, DatafileMetadata},
     spec::{
         manifest::{
             partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status,
@@ -44,7 +43,7 @@ pub enum Operation {
     // UpdateLocation,
     /// Append new files to the table
     NewAppend {
-        paths: Vec<(String, FileMetaData)>,
+        paths: Vec<(String, DatafileMetadata)>,
     },
     // /// Quickly append new files to the table
     // NewFastAppend {
@@ -82,12 +81,14 @@ impl Operation {
 
                 stream::iter(paths.iter())
                     .then(|(path, file_metadata)| async move {
-                        let datafile = parquet_to_datafile(
-                            path,
-                            file_metadata,
-                            schema,
-                            &partition_spec.fields,
-                        )?;
+                        let datafile = match file_metadata {
+                            DatafileMetadata::Parquet(file_metadata) => parquet_to_datafile(
+                                path,
+                                file_metadata,
+                                schema,
+                                &partition_spec.fields,
+                            )?,
+                        };
                         Ok::<_, anyhow::Error>((path, datafile))
                     })
                     .try_for_each_concurrent(None, |(path, datafile)| {
