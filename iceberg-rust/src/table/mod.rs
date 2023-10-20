@@ -130,6 +130,59 @@ impl Table {
     pub fn new_transaction(&mut self) -> TableTransaction {
         TableTransaction::new(self)
     }
+
+    /// delete all datafiles, manifests and metadata files, does not remove table from catalog
+    pub async fn drop(self) -> Result<(), anyhow::Error> {
+        let object_store = self.object_store();
+        let manifests = self.manifests().await?;
+        let datafiles = self.data_files(&manifests, None).await?;
+        let snapshots = &self.metadata().snapshots;
+
+        stream::iter(datafiles.into_iter())
+            .map(Ok::<_, anyhow::Error>)
+            .try_for_each_concurrent(None, |datafile| {
+                let object_store = object_store.clone();
+                async move {
+                    object_store
+                        .delete(&datafile.data_file.file_path.into())
+                        .await?;
+                    Ok(())
+                }
+            })
+            .await?;
+
+        stream::iter(manifests.into_iter())
+            .map(Ok::<_, anyhow::Error>)
+            .try_for_each_concurrent(None, |manifest| {
+                let object_store = object_store.clone();
+                async move {
+                    object_store.delete(&manifest.manifest_path.into()).await?;
+                    Ok(())
+                }
+            })
+            .await?;
+
+        if let Some(snapshots) = snapshots {
+            stream::iter(snapshots.values())
+                .map(Ok::<_, anyhow::Error>)
+                .try_for_each_concurrent(None, |snapshot| {
+                    let object_store = object_store.clone();
+                    async move {
+                        object_store
+                            .delete(&snapshot.manifest_list.as_str().into())
+                            .await?;
+                        Ok(())
+                    }
+                })
+                .await?;
+        }
+
+        object_store
+            .delete(&self.metadata_location().into())
+            .await?;
+
+        Ok(())
+    }
 }
 
 /// Private interface of the table.
