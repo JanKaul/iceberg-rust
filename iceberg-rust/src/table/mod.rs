@@ -8,6 +8,7 @@ use anyhow::anyhow;
 use object_store::{path::Path, ObjectStore};
 
 use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
+use uuid::Uuid;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
@@ -182,6 +183,19 @@ impl Table {
             .await?;
 
         Ok(())
+    }
+}
+
+impl Table {
+    pub(crate) fn new_metadata_location(&self) -> Result<String, anyhow::Error> {
+        let transaction_uuid = Uuid::new_v4();
+        let version = self.metadata().last_sequence_number;
+        Ok(self.metadata().location.to_string()
+            + "/metadata/"
+            + &version.to_string()
+            + "-"
+            + &transaction_uuid.to_string()
+            + ".metadata.json")
     }
 }
 

@@ -39,9 +39,9 @@ impl Representation for MaterializedViewRepresentation {}
 /// Freshness information of the materialized view
 pub struct Freshness {
     /// Version id of the materialized view when the refresh operation was performed.
-    version_id: i64,
+    pub version_id: i64,
     /// Map from references in the sql expression to snapshot_ids of the last refresh operation
-    base_tables: HashMap<String, i64>,
+    pub base_tables: HashMap<String, i64>,
 }
 
 #[cfg(test)]

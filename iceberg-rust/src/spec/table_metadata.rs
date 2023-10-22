@@ -30,6 +30,7 @@ use _serde::TableMetadataEnum;
 pub struct TableMetadata {
     /// Integer Version for the format.
     pub format_version: FormatVersion,
+    #[builder(default = "Uuid::new_v4()")]
     /// A UUID that identifies the table
     pub table_uuid: Uuid,
     /// Location tables base location

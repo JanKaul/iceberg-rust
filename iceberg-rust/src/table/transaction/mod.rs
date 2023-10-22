@@ -3,7 +3,6 @@
 */
 
 use futures::StreamExt;
-use uuid::Uuid;
 
 use crate::{
     catalog::relation::Relation, file_format::DatafileMetadata, spec::schema::SchemaV2,
@@ -76,16 +75,9 @@ impl<'table> TableTransaction<'table> {
             .await?;
         // Write the new state to the object store
 
-        let transaction_uuid = Uuid::new_v4();
-        let version = &&table.metadata().last_sequence_number;
         let metadata_json =
             serde_json::to_string(&table.metadata()).map_err(|err| anyhow!(err.to_string()))?;
-        let metadata_file_location = table.metadata().location.to_string()
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &transaction_uuid.to_string()
-            + ".metadata.json";
+        let metadata_file_location = table.new_metadata_location()?;
         object_store
             .put(
                 &strip_prefix(&metadata_file_location).into(),
