@@ -16,10 +16,13 @@ use tokio::io::AsyncWrite;
 
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
-use parquet::{arrow::AsyncArrowWriter, format::FileMetaData};
+use parquet::arrow::AsyncArrowWriter;
 use uuid::Uuid;
 
-use crate::spec::{partition::PartitionSpec, schema::Schema};
+use crate::{
+    file_format::DatafileMetadata,
+    spec::{partition::PartitionSpec, schema::Schema},
+};
 
 use super::partition::partition_record_batches;
 
@@ -32,7 +35,7 @@ pub async fn write_parquet_partitioned(
     partition_spec: &PartitionSpec,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>>,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<Vec<(String, FileMetaData)>, ArrowError> {
+) -> Result<Vec<(String, DatafileMetadata)>, ArrowError> {
     let streams = partition_record_batches(batches, partition_spec, schema).await?;
     let arrow_schema: Arc<ArrowSchema> = Arc::new(
         (&schema.fields)
@@ -60,7 +63,7 @@ pub async fn write_parquet_files(
     schema: &ArrowSchema,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>>,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<Vec<(String, FileMetaData)>, ArrowError> {
+) -> Result<Vec<(String, DatafileMetadata)>, ArrowError> {
     let current_writer = Arc::new(Mutex::new(
         create_arrow_writer(location, schema, object_store.clone()).await?,
     ));
@@ -115,7 +118,7 @@ pub async fn write_parquet_files(
     writer_reciever
         .then(|writer| async move {
             let metadata = writer.1.close().await?;
-            Ok::<_, ArrowError>((writer.0, metadata))
+            Ok::<_, ArrowError>((writer.0, DatafileMetadata::Parquet(metadata)))
         })
         .try_collect::<Vec<_>>()
         .await

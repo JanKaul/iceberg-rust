@@ -5,6 +5,7 @@
 use ::parquet::format::FileMetaData;
 pub mod parquet;
 
+#[derive(Debug, Clone)]
 /// Metadata for a datafile
 pub enum DatafileMetadata {
     /// Metadata for a parquet datafile
