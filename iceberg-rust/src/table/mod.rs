@@ -90,11 +90,11 @@ impl Table {
             start
                 .and_then(|id| metadata.snapshot(id))
                 .and_then(|snapshot| {
-                    let sequen_number = snapshot.sequence_number;
-                    if sequen_number == 0 {
+                    let sequence_number = snapshot.sequence_number;
+                    if sequence_number == 0 {
                         None
                     } else {
-                        Some(sequen_number)
+                        Some(sequence_number)
                     }
                 });
         let iter = end_snapshot

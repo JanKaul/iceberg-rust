@@ -7,7 +7,7 @@ use anyhow::Result;
 
 impl DataFusionTable {
     pub(crate) async fn statistics(&self) -> Result<Statistics> {
-        match &self.0 {
+        match &self.tabular {
             Relation::Table(table) => table.manifests(None, None).await?.iter().try_fold(
                 Statistics {
                     num_rows: Some(0),

@@ -41,51 +41,57 @@ use iceberg_rust::{
 // mod value;
 
 /// Iceberg table for datafusion
-pub struct DataFusionTable(pub Relation);
+pub struct DataFusionTable {
+    pub tabular: Relation,
+}
 
 impl core::ops::Deref for DataFusionTable {
     type Target = Relation;
 
     fn deref(self: &'_ DataFusionTable) -> &'_ Self::Target {
-        &self.0
+        &self.tabular
     }
 }
 
 impl DerefMut for DataFusionTable {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.tabular
     }
 }
 
 impl From<Relation> for DataFusionTable {
     fn from(value: Relation) -> Self {
-        DataFusionTable(value)
+        DataFusionTable { tabular: value }
     }
 }
 
 impl From<Table> for DataFusionTable {
     fn from(value: Table) -> Self {
-        DataFusionTable(Relation::Table(value))
+        DataFusionTable {
+            tabular: Relation::Table(value),
+        }
     }
 }
 
 impl From<View> for DataFusionTable {
     fn from(value: View) -> Self {
-        DataFusionTable(Relation::View(value))
+        DataFusionTable {
+            tabular: Relation::View(value),
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl TableProvider for DataFusionTable {
     fn as_any(&self) -> &dyn Any {
-        match &self.0 {
+        match &self.tabular {
             Relation::Table(table) => table,
             Relation::View(view) => view,
             Relation::MaterializedView(mv) => mv,
         }
     }
     fn schema(&self) -> SchemaRef {
-        match &self.0 {
+        match &self.tabular {
             Relation::Table(table) => {
                 let mut schema = table.schema().unwrap().clone();
                 // Add the partition columns to the table schema
@@ -131,7 +137,7 @@ impl TableProvider for DataFusionTable {
         }
     }
     fn table_type(&self) -> TableType {
-        match &self.0 {
+        match &self.tabular {
             Relation::Table(_) => TableType::Base,
             Relation::View(_) => TableType::View,
             Relation::MaterializedView(_) => TableType::Base,
@@ -144,7 +150,7 @@ impl TableProvider for DataFusionTable {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        match &self.0 {
+        match &self.tabular {
             Relation::View(view) => {
                 let sql = match &view
                     .metadata()

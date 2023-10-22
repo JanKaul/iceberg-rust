@@ -123,7 +123,7 @@ impl Mirror {
             .ok_or(DataFusionError::Internal(
                 "Table is not an iceberg datafusion table.".to_owned(),
             ))?
-            .0
+            .tabular
             .metadata_location()
             .to_owned();
         spawner
