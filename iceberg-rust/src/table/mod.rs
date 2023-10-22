@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     spec::{
-        manifest::{ManifestEntry, ManifestReader},
+        manifest::{Content, ManifestEntry, ManifestReader},
         manifest_list::ManifestListEntry,
         schema::Schema,
         snapshot::{Operation, Snapshot, Summary},
@@ -155,6 +155,18 @@ impl Table {
             .flat_map(|reader| reader.try_flatten_stream())
             .try_collect()
             .await
+    }
+    /// Check if datafiles contain deletes
+    pub async fn datafiles_contains_delete(
+        &self,
+        start: Option<i64>,
+        end: Option<i64>,
+    ) -> Result<bool, anyhow::Error> {
+        let manifests = self.manifests(start, end).await?;
+        let datafiles = self.datafiles(&manifests, None).await?;
+        Ok(datafiles
+            .iter()
+            .any(|entry| !matches!(entry.data_file.content, Content::Data)))
     }
     /// Create a new transaction for this table
     pub fn new_transaction(&mut self) -> TableTransaction {
