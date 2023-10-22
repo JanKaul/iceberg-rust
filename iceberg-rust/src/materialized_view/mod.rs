@@ -105,6 +105,10 @@ impl MaterializedView {
     pub fn storage_table(&self) -> &Table {
         &self.storage_table
     }
+    /// Get storage table of the materialized view
+    pub fn storage_table_mut(&mut self) -> &mut Table {
+        &mut self.storage_table
+    }
     /// Create a new transaction for this view
     pub fn new_transaction(&mut self) -> MaterializedViewTransaction {
         MaterializedViewTransaction::new(self)
