@@ -2,7 +2,7 @@
  * Defines the [MaterializedView] struct that represents an iceberg materialized view.
 */
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Ok};
 use object_store::ObjectStore;
@@ -19,6 +19,7 @@ use crate::{
         schema::Schema,
         table_metadata::TableMetadataBuilder,
     },
+    sql::find_relations,
     table::Table,
 };
 
@@ -108,21 +109,37 @@ impl MaterializedView {
     pub fn new_transaction(&mut self) -> MaterializedViewTransaction {
         MaterializedViewTransaction::new(self)
     }
-    /// Check if the materialized view is fresh
-    pub async fn is_fresh(&self) -> Result<bool, anyhow::Error> {
+    /// Return base tables and the optional snapshot ids of the last refresh. If the the optional value is None, the table is fresh. If the optional value is Some(None) the table requires a full refresh.
+    pub async fn base_tables(&self) -> Result<Vec<(Table, Option<Option<i64>>)>, anyhow::Error> {
         let catalog = self.storage_table.catalog().clone();
-        let snapshot = if let Some(snapshot) = self.storage_table.metadata().current_snapshot()? {
-            snapshot
+        let base_table_iter = if let Some(freshness) = self
+            .storage_table
+            .metadata()
+            .current_snapshot()?
+            .and_then(|snapshot| snapshot.summary.other.get("freshness"))
+            .map(|json| serde_json::from_str::<Freshness>(json))
+            .transpose()?
+        {
+            freshness.base_tables.into_iter()
         } else {
-            return Ok(false);
+            let sql = match &self.metadata.current_version()?.representations[0] {
+                MaterializedViewRepresentation::SqlMaterialized {
+                    sql,
+                    dialect: _,
+                    format_version: _,
+                    storage_table: _,
+                } => sql,
+            };
+
+            let relations = find_relations(&sql)?;
+
+            relations
+                .into_iter()
+                .map(|x| (x, -1i64))
+                .collect::<HashMap<_, _>>()
+                .into_iter()
         };
-        let json = if let Some(json) = snapshot.summary.other.get("freshness") {
-            json
-        } else {
-            return Ok(false);
-        };
-        let freshness = serde_json::from_str::<Freshness>(json)?;
-        stream::iter(freshness.base_tables.into_iter())
+        stream::iter(base_table_iter)
             .then(|(pointer, snapshot_id)| {
                 let catalog = catalog.clone();
                 async move {
@@ -139,20 +156,25 @@ impl MaterializedView {
                         Relation::MaterializedView(mv) => mv.storage_table,
                         _ => return Err(anyhow!("Base table must be a table")),
                     };
-                    if base_table
+                    let snapshot_id = if base_table
                         .metadata()
                         .current_snapshot()?
                         .unwrap()
                         .snapshot_id
                         == snapshot_id
                     {
-                        Ok(true)
+                        None
                     } else {
-                        Ok(false)
-                    }
+                        if snapshot_id == -1 {
+                            Some(None)
+                        } else {
+                            Some(Some(snapshot_id))
+                        }
+                    };
+                    Ok((base_table, snapshot_id))
                 }
             })
-            .try_fold(true, |acc, x| async move { Ok(acc && x) })
+            .try_collect()
             .await
     }
     /// Replace the entire storage table with new datafiles
