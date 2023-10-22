@@ -227,7 +227,7 @@ async fn table_scan(
         let manifests_to_prune =
             pruning_predicate.prune(&PruneManifests::new(table, &manifests))?;
         let data_files = table
-            .data_files(&manifests, Some(manifests_to_prune))
+            .datafiles(&manifests, Some(manifests_to_prune))
             .await
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         // After the first pruning stage the data_files are pruned again based on the pruning statistics in the manifest files.
@@ -278,7 +278,7 @@ async fn table_scan(
             .await
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         let data_files = table
-            .data_files(&manifests, None)
+            .datafiles(&manifests, None)
             .await
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         data_files.into_iter().for_each(|manifest| {

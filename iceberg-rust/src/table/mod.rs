@@ -114,7 +114,7 @@ impl Table {
         }
     }
     /// Get list of datafiles corresponding to the given manifest files
-    pub async fn data_files(
+    pub async fn datafiles(
         &self,
         manifests: &[ManifestListEntry],
         filter: Option<Vec<bool>>,
@@ -165,7 +165,7 @@ impl Table {
     pub async fn drop(self) -> Result<(), anyhow::Error> {
         let object_store = self.object_store();
         let manifests = self.manifests(None, None).await?;
-        let datafiles = self.data_files(&manifests, None).await?;
+        let datafiles = self.datafiles(&manifests, None).await?;
         let snapshots = &self.metadata().snapshots;
 
         stream::iter(datafiles.into_iter())
@@ -448,7 +448,7 @@ mod tests {
             .unwrap();
         let manifests = table.manifests(None, None).await.unwrap();
         let mut files = table
-            .data_files(&manifests, None)
+            .datafiles(&manifests, None)
             .await
             .unwrap()
             .into_iter()
