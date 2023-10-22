@@ -42,6 +42,7 @@ use iceberg_rust::{
 
 /// Iceberg table for datafusion
 pub struct DataFusionTable {
+    pub snapshot_range: (Option<i64>, Option<i64>),
     pub tabular: Relation,
 }
 
@@ -61,7 +62,10 @@ impl DerefMut for DataFusionTable {
 
 impl From<Relation> for DataFusionTable {
     fn from(value: Relation) -> Self {
-        DataFusionTable { tabular: value }
+        DataFusionTable {
+            tabular: value,
+            snapshot_range: (None, None),
+        }
     }
 }
 
@@ -69,6 +73,7 @@ impl From<Table> for DataFusionTable {
     fn from(value: Table) -> Self {
         DataFusionTable {
             tabular: Relation::Table(value),
+            snapshot_range: (None, None),
         }
     }
 }
@@ -77,6 +82,16 @@ impl From<View> for DataFusionTable {
     fn from(value: View) -> Self {
         DataFusionTable {
             tabular: Relation::View(value),
+            snapshot_range: (None, None),
+        }
+    }
+}
+
+impl DataFusionTable {
+    pub fn new_table(table: Table, start: Option<i64>, end: Option<i64>) -> Self {
+        DataFusionTable {
+            tabular: Relation::Table(table),
+            snapshot_range: (start, end),
         }
     }
 }
@@ -173,7 +188,14 @@ impl TableProvider for DataFusionTable {
                     .await
                     .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
                 table_scan(
-                    table, schema, statistics, session, projection, filters, limit,
+                    table,
+                    &self.snapshot_range,
+                    schema,
+                    statistics,
+                    session,
+                    projection,
+                    filters,
+                    limit,
                 )
                 .await
             }
@@ -185,7 +207,14 @@ impl TableProvider for DataFusionTable {
                     .await
                     .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
                 table_scan(
-                    table, schema, statistics, session, projection, filters, limit,
+                    table,
+                    &self.snapshot_range,
+                    schema,
+                    statistics,
+                    session,
+                    projection,
+                    filters,
+                    limit,
                 )
                 .await
             }
@@ -194,6 +223,7 @@ impl TableProvider for DataFusionTable {
 }
 async fn table_scan(
     table: &Table,
+    snapshot_range: &(Option<i64>, Option<i64>),
     schema: SchemaRef,
     statistics: Statistics,
     session: &SessionState,
@@ -227,7 +257,7 @@ async fn table_scan(
     if let Some(physical_predicate) = physical_predicate.clone() {
         let pruning_predicate = PruningPredicate::try_new(physical_predicate, schema.clone())?;
         let manifests = table
-            .manifests(None, None)
+            .manifests(snapshot_range.0, snapshot_range.1)
             .await
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         let manifests_to_prune =
@@ -280,7 +310,7 @@ async fn table_scan(
             });
     } else {
         let manifests = table
-            .manifests(None, None)
+            .manifests(snapshot_range.0, snapshot_range.1)
             .await
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         let data_files = table
