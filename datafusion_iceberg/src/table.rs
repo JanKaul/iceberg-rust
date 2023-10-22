@@ -221,7 +221,7 @@ async fn table_scan(
     if let Some(physical_predicate) = physical_predicate.clone() {
         let pruning_predicate = PruningPredicate::try_new(physical_predicate, schema.clone())?;
         let manifests = table
-            .manifests()
+            .manifests(None, None)
             .await
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         let manifests_to_prune =
@@ -274,7 +274,7 @@ async fn table_scan(
             });
     } else {
         let manifests = table
-            .manifests()
+            .manifests(None, None)
             .await
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         let data_files = table

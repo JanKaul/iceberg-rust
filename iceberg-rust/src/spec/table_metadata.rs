@@ -127,6 +127,14 @@ impl TableMetadata {
             )),
         }
     }
+    /// Get particular snapshot
+    #[inline]
+    pub fn snapshot(&self, snapshot_id: i64) -> Option<&Snapshot> {
+        match &self.snapshots {
+            Some(snapshots) => snapshots.get(&snapshot_id),
+            None => None,
+        }
+    }
 }
 
 mod _serde {

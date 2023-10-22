@@ -8,7 +8,7 @@ use anyhow::Result;
 impl DataFusionTable {
     pub(crate) async fn statistics(&self) -> Result<Statistics> {
         match &self.0 {
-            Relation::Table(table) => table.manifests().await?.iter().try_fold(
+            Relation::Table(table) => table.manifests(None, None).await?.iter().try_fold(
                 Statistics {
                     num_rows: Some(0),
                     total_byte_size: None,
@@ -45,7 +45,7 @@ impl DataFusionTable {
             Relation::View(_) => Err(anyhow! {"Cannot get statistics for a view."}),
             Relation::MaterializedView(mv) => {
                 let table = mv.storage_table();
-                table.manifests().await?.iter().try_fold(
+                table.manifests(None, None).await?.iter().try_fold(
                     Statistics {
                         num_rows: Some(0),
                         total_byte_size: None,

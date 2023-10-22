@@ -74,15 +74,44 @@ impl Table {
     pub fn metadata_location(&self) -> &str {
         &self.metadata_location
     }
-    /// Get list of current manifest files
-    pub async fn manifests(&self) -> Result<Vec<ManifestListEntry>, anyhow::Error> {
+    /// Get list of current manifest files within an optional snapshot range. The start snapshot is excluded from the range.
+    pub async fn manifests(
+        &self,
+        start: Option<i64>,
+        end: Option<i64>,
+    ) -> Result<Vec<ManifestListEntry>, anyhow::Error> {
         let metadata = self.metadata();
-        metadata
-            .current_snapshot()?
-            .ok_or(anyhow!("There is no snapshot for table."))?
+        let end_snapshot = end.and_then(|id| metadata.snapshot(id)).unwrap_or(
+            metadata
+                .current_snapshot()?
+                .ok_or(anyhow!("There is no shapshot for table."))?,
+        );
+        let start_sequence_number =
+            start
+                .and_then(|id| metadata.snapshot(id))
+                .and_then(|snapshot| {
+                    let sequen_number = snapshot.sequence_number;
+                    if sequen_number == 0 {
+                        None
+                    } else {
+                        Some(sequen_number)
+                    }
+                });
+        let iter = end_snapshot
             .manifests(metadata, self.object_store().clone())
-            .await?
-            .collect()
+            .await?;
+        match start_sequence_number {
+            Some(start) => iter
+                .filter(|manifest| {
+                    if let Ok(manifest) = manifest {
+                        manifest.sequence_number > start
+                    } else {
+                        true
+                    }
+                })
+                .collect(),
+            None => iter.collect(),
+        }
     }
     /// Get list of datafiles corresponding to the given manifest files
     pub async fn data_files(
@@ -135,7 +164,7 @@ impl Table {
     /// delete all datafiles, manifests and metadata files, does not remove table from catalog
     pub async fn drop(self) -> Result<(), anyhow::Error> {
         let object_store = self.object_store();
-        let manifests = self.manifests().await?;
+        let manifests = self.manifests(None, None).await?;
         let datafiles = self.data_files(&manifests, None).await?;
         let snapshots = &self.metadata().snapshots;
 
@@ -417,7 +446,7 @@ mod tests {
             .commit()
             .await
             .unwrap();
-        let manifests = table.manifests().await.unwrap();
+        let manifests = table.manifests(None, None).await.unwrap();
         let mut files = table
             .data_files(&manifests, None)
             .await
