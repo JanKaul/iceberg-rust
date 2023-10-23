@@ -26,6 +26,7 @@ use crate::{
 pub mod table_builder;
 pub mod transaction;
 
+#[derive(Debug)]
 /// Iceberg table
 pub struct Table {
     identifier: Identifier,

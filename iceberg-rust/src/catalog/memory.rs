@@ -18,6 +18,7 @@ use super::{
     Catalog,
 };
 
+#[derive(Debug)]
 /// In memory catalog
 pub struct MemoryCatalog {
     name: String,

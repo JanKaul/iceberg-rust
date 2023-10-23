@@ -2,10 +2,10 @@
  * Tableprovider to use iceberg table with datafusion.
 */
 
-use anyhow::Result;
+use async_trait::async_trait;
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
 use object_store::ObjectMeta;
-use std::{any::Any, collections::HashMap, ops::DerefMut, sync::Arc};
+use std::{any::Any, collections::HashMap, fmt, ops::DerefMut, sync::Arc};
 
 use datafusion::{
     arrow::datatypes::{DataType, SchemaRef},
@@ -17,12 +17,15 @@ use datafusion::{
         physical_plan::FileScanConfig,
         TableProvider, ViewTable,
     },
-    execution::context::SessionState,
+    execution::{context::SessionState, TaskContext},
     logical_expr::{TableSource, TableType},
     optimizer::utils::conjunction,
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
-    physical_plan::{ExecutionPlan, Statistics},
+    physical_plan::{
+        insert::DataSink, DisplayAs, DisplayFormatType, ExecutionPlan, SendableRecordBatchStream,
+        Statistics,
+    },
     prelude::Expr,
     scalar::ScalarValue,
     sql::parser::DFParser,
@@ -41,6 +44,7 @@ use iceberg_rust::{
 };
 // mod value;
 
+#[derive(Debug)]
 /// Iceberg table for datafusion
 pub struct DataFusionTable {
     pub snapshot_range: (Option<i64>, Option<i64>),
@@ -106,7 +110,7 @@ impl DataFusionTable {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl TableProvider for DataFusionTable {
     fn as_any(&self) -> &dyn Any {
         match &self.tabular {
@@ -375,16 +379,19 @@ async fn table_scan(
             Ok((
                 field.name.clone(),
                 (&table
-                    .schema()?
+                    .schema()
+                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?
                     .fields
                     .get(field.source_id as usize)
                     .unwrap()
                     .field_type
-                    .tranform(&field.transform)?)
-                    .try_into()?,
+                    .tranform(&field.transform)
+                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?)
+                    .try_into()
+                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?,
             ))
         })
-        .collect::<Result<Vec<_>>>()
+        .collect::<Result<Vec<_>, DataFusionError>>()
         .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
 
     let file_scan_config = FileScanConfig {
@@ -418,6 +425,27 @@ impl TableSource for IcebergTableSource {
 impl DataFusionTable {
     pub(crate) fn into_table_source(self) -> IcebergTableSource {
         IcebergTableSource(self)
+    }
+}
+
+impl DisplayAs for DataFusionTable {
+    fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match t {
+            DisplayFormatType::Default | DisplayFormatType::Verbose => {
+                write!(f, "IcebergTable")
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl DataSink for DataFusionTable {
+    async fn write_all(
+        &self,
+        mut data: Vec<SendableRecordBatchStream>,
+        _context: &Arc<TaskContext>,
+    ) -> Result<u64, datafusion::error::DataFusionError> {
+        unimplemented!()
     }
 }
 

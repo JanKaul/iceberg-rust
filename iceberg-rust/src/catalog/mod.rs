@@ -3,6 +3,7 @@ Defines traits to communicate with an iceberg catalog.
 */
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -23,7 +24,7 @@ pub mod memory;
 
 /// Trait to create, replace and drop tables in an iceberg catalog.
 #[async_trait::async_trait]
-pub trait Catalog: Send + Sync {
+pub trait Catalog: Send + Sync + Debug {
     /// Lists all tables in the given namespace.
     async fn list_tables(&self, namespace: &Namespace) -> Result<Vec<Identifier>>;
     /// Lists all namespaces in the catalog.

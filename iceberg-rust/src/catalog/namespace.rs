@@ -10,7 +10,7 @@ use crate::catalog::identifier::SEPARATOR;
 use anyhow::{anyhow, Result};
 
 /// Namespace struct for iceberg catalogs
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Namespace {
     levels: Vec<String>,
 }
@@ -64,9 +64,11 @@ mod tests {
 
     #[test]
     fn test_new() {
-        let namespace = Namespace::try_new(&["level1".to_string(),
+        let namespace = Namespace::try_new(&[
+            "level1".to_string(),
             "level2".to_string(),
-            "level3".to_string()])
+            "level3".to_string(),
+        ])
         .unwrap();
         assert_eq!(&format!("{}", namespace), "level1.level2.level3");
     }

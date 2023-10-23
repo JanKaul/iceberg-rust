@@ -28,6 +28,7 @@ use self::transaction::Transaction as MaterializedViewTransaction;
 pub mod materialized_view_builder;
 pub mod transaction;
 
+#[derive(Debug)]
 /// An iceberg materialized view
 pub struct MaterializedView {
     /// Type of the View, either filesystem or metastore.

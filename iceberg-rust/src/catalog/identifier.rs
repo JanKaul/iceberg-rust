@@ -11,7 +11,7 @@ use anyhow::{anyhow, Result};
 pub static SEPARATOR: &str = ".";
 
 ///Identifies a table in an iceberg catalog.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Identifier {
     namespace: Namespace,
     name: String,

@@ -13,6 +13,8 @@ use crate::spec::table_metadata::TableMetadata;
 use crate::spec::view_metadata::ViewMetadata;
 use crate::table::Table;
 use crate::view::View;
+
+#[derive(Debug)]
 /// Enum for different types that can be queried like a table, for example view
 pub enum Relation {
     /// An iceberg table

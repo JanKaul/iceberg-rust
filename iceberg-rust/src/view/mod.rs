@@ -18,6 +18,7 @@ use self::transaction::Transaction as ViewTransaction;
 pub mod transaction;
 pub mod view_builder;
 
+#[derive(Debug)]
 /// An iceberg view
 pub struct View {
     /// Type of the View, either filesystem or metastore.
