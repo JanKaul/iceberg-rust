@@ -116,22 +116,28 @@ impl Mirror {
         let pool = LocalPool::new();
         let spawner = pool.spawner();
         let cloned_catalog = self.catalog.clone();
-        let metadata_location = table
-            .clone()
-            .as_any()
-            .downcast_ref::<DataFusionTable>()
-            .ok_or(DataFusionError::Internal(
-                "Table is not an iceberg datafusion table.".to_owned(),
-            ))?
-            .tabular
-            .metadata_location()
-            .to_owned();
         spawner
-            .spawn_local(async move {
-                cloned_catalog
-                    .register_table(identifier, &metadata_location)
-                    .await
-                    .unwrap();
+            .spawn_local({
+                let table = table.clone();
+                async move {
+                    let metadata_location = table
+                        .clone()
+                        .as_any()
+                        .downcast_ref::<DataFusionTable>()
+                        .ok_or(DataFusionError::Internal(
+                            "Table is not an iceberg datafusion table.".to_owned(),
+                        ))
+                        .unwrap()
+                        .tabular
+                        .read()
+                        .await
+                        .metadata_location()
+                        .to_owned();
+                    cloned_catalog
+                        .register_table(identifier, &metadata_location)
+                        .await
+                        .unwrap();
+                }
             })
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         Ok(Some(table))

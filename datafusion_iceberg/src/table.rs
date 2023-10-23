@@ -5,7 +5,8 @@
 use async_trait::async_trait;
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
 use object_store::ObjectMeta;
-use std::{any::Any, collections::HashMap, fmt, ops::DerefMut, sync::Arc};
+use std::{any::Any, collections::HashMap, fmt, ops::Deref, sync::Arc};
+use tokio::sync::RwLock;
 
 use datafusion::{
     arrow::datatypes::{DataType, SchemaRef},
@@ -48,22 +49,8 @@ use iceberg_rust::{
 /// Iceberg table for datafusion
 pub struct DataFusionTable {
     pub snapshot_range: (Option<i64>, Option<i64>),
-    pub tabular: Relation,
+    pub tabular: Arc<RwLock<Relation>>,
     pub schema: SchemaRef,
-}
-
-impl core::ops::Deref for DataFusionTable {
-    type Target = Relation;
-
-    fn deref(self: &'_ DataFusionTable) -> &'_ Self::Target {
-        &self.tabular
-    }
-}
-
-impl DerefMut for DataFusionTable {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.tabular
-    }
 }
 
 impl From<Relation> for DataFusionTable {
@@ -137,7 +124,7 @@ impl DataFusionTable {
             }
         };
         DataFusionTable {
-            tabular: tabular,
+            tabular: Arc::new(RwLock::new(tabular)),
             snapshot_range: (start, end),
             schema,
         }
@@ -151,21 +138,13 @@ impl DataFusionTable {
 #[async_trait]
 impl TableProvider for DataFusionTable {
     fn as_any(&self) -> &dyn Any {
-        match &self.tabular {
-            Relation::Table(table) => table,
-            Relation::View(view) => view,
-            Relation::MaterializedView(mv) => mv,
-        }
+        &self.tabular
     }
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }
     fn table_type(&self) -> TableType {
-        match &self.tabular {
-            Relation::Table(_) => TableType::Base,
-            Relation::View(_) => TableType::View,
-            Relation::MaterializedView(_) => TableType::Base,
-        }
+        TableType::Base
     }
     async fn scan(
         &self,
@@ -174,7 +153,7 @@ impl TableProvider for DataFusionTable {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        match &self.tabular {
+        match self.tabular.read().await.deref() {
             Relation::View(view) => {
                 let sql = match &view
                     .metadata()
@@ -437,7 +416,7 @@ impl DisplayAs for DataFusionTable {
 impl DataSink for DataFusionTable {
     async fn write_all(
         &self,
-        mut data: Vec<SendableRecordBatchStream>,
+        _data: Vec<SendableRecordBatchStream>,
         _context: &Arc<TaskContext>,
     ) -> Result<u64, datafusion::error::DataFusionError> {
         unimplemented!()
