@@ -8,11 +8,14 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     table_metadata::VersionNumber,
-    view_metadata::{GeneralViewMetadata, Representation},
+    view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder, Representation},
 };
 
 /// Fields for the version 1 of the view metadata.
 pub type MaterializedViewMetadata = GeneralViewMetadata<MaterializedViewRepresentation>;
+/// Builder for materialized view metadata
+pub type MaterializedViewMetadataBuilder =
+    GeneralViewMetadataBuilder<MaterializedViewRepresentation>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case", tag = "type")]
@@ -26,10 +29,42 @@ pub enum MaterializedViewRepresentation {
         /// A string specifying the dialect of the ‘sql’ field. It can be used by the engines to detect the SQL dialect.
         dialect: String,
         /// An integer version number for the materialized view format. Currently, this must be 1. Implementations must throw an exception if the materialized view's version is higher than the supported version.
-        format_version: VersionNumber<1>,
+        format_version: FormatVersion,
         /// Pointer to the storage table
         storage_table: String,
     },
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[serde(from = "FormatVersionSerde", into = "FormatVersionSerde")]
+/// Format version of the materialized view
+pub enum FormatVersion {
+    /// Version 1
+    V1,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[serde(untagged)]
+/// Format version of the materialized view
+pub enum FormatVersionSerde {
+    /// Version 1
+    V1(VersionNumber<1>),
+}
+
+impl From<FormatVersion> for FormatVersionSerde {
+    fn from(value: FormatVersion) -> Self {
+        match value {
+            FormatVersion::V1 => FormatVersionSerde::V1(VersionNumber::<1>),
+        }
+    }
+}
+
+impl From<FormatVersionSerde> for FormatVersion {
+    fn from(value: FormatVersionSerde) -> Self {
+        match value {
+            FormatVersionSerde::V1(_) => FormatVersion::V1,
+        }
+    }
 }
 
 impl Representation for MaterializedViewRepresentation {}

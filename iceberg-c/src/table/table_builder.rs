@@ -2,7 +2,7 @@ use std::ffi::{c_char, CStr};
 
 use iceberg_rust::{
     catalog::identifier::Identifier,
-    spec::schema::SchemaV2,
+    spec::schema::Schema,
     table::{table_builder::TableBuilder, Table},
 };
 
@@ -18,23 +18,19 @@ pub extern "C" fn table_builder_new_metastore(
 ) -> Box<TableBuilder> {
     let base_path = unsafe { CStr::from_ptr(base_path) };
     let schema = unsafe { CStr::from_ptr(schema) };
-    let schema: SchemaV2 = serde_json::from_str(schema.to_str().unwrap()).unwrap();
+    let schema: Schema = serde_json::from_str(schema.to_str().unwrap()).unwrap();
     let identifier = unsafe { CStr::from_ptr(identifier) };
     let identifier = Identifier::parse(identifier.to_str().unwrap()).unwrap();
-    Box::new(
-        TableBuilder::new(
-            base_path.to_str().unwrap(),
-            schema,
-            identifier,
-            catalog.0.clone(),
-        )
-        .unwrap(),
-    )
+    let mut builder = TableBuilder::new(identifier, catalog.0.clone()).unwrap();
+    builder
+        .location(base_path.to_str().unwrap())
+        .with_schema((schema.schema_id, schema));
+    Box::new(builder)
 }
 
 /// Commit table builder and create table
 #[no_mangle]
-pub extern "C" fn table_builder_commit(table_builder: Box<TableBuilder>) -> Box<Table> {
-    let table = block_on(table_builder.commit()).unwrap();
+pub extern "C" fn table_builder_commit(mut table_builder: Box<TableBuilder>) -> Box<Table> {
+    let table = block_on(table_builder.build()).unwrap();
     Box::new(table)
 }

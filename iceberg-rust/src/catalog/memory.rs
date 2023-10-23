@@ -222,7 +222,7 @@ pub mod tests {
         catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
         object_store::{memory::InMemory, ObjectStore},
         spec::{
-            schema::SchemaV2,
+            schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
         },
         table::table_builder::TableBuilder,
@@ -233,7 +233,7 @@ pub mod tests {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let catalog: Arc<dyn Catalog> = Arc::new(MemoryCatalog::new("test", object_store).unwrap());
         let identifier = Identifier::parse("load_table.table3").unwrap();
-        let schema = SchemaV2 {
+        let schema = Schema {
             schema_id: 1,
             identifier_field_ids: Some(vec![1, 2]),
             fields: StructType::new(vec![
@@ -253,11 +253,13 @@ pub mod tests {
                 },
             ]),
         };
-        let mut table = TableBuilder::new("/", schema, identifier.clone(), catalog.clone())
-            .expect("Failed to create table builder.")
-            .commit()
-            .await
-            .expect("Failed to create table.");
+        let mut builder = TableBuilder::new(&identifier, catalog.clone())
+            .expect("Failed to create table builder.");
+        builder
+            .location("/")
+            .with_schema((1, schema))
+            .current_schema_id(1);
+        let mut table = builder.build().await.expect("Failed to create table.");
 
         let exists = Arc::clone(&catalog)
             .table_exists(&identifier)

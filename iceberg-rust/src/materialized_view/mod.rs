@@ -25,6 +25,7 @@ use crate::{
 
 use self::transaction::Transaction as MaterializedViewTransaction;
 
+pub mod materialized_view_builder;
 pub mod transaction;
 
 /// An iceberg materialized view

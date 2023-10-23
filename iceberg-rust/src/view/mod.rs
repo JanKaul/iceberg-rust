@@ -94,7 +94,7 @@ mod tests {
     use crate::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
         spec::{
-            schema::SchemaV2,
+            schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
         },
         view::view_builder::ViewBuilder,
@@ -105,7 +105,7 @@ mod tests {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let catalog: Arc<dyn Catalog> = Arc::new(MemoryCatalog::new("test", object_store).unwrap());
         let identifier = Identifier::parse("test.view1").unwrap();
-        let schema = SchemaV2 {
+        let schema = Schema {
             schema_id: 1,
             identifier_field_ids: Some(vec![1, 2]),
             fields: StructType::new(vec![
@@ -125,17 +125,15 @@ mod tests {
                 },
             ]),
         };
-        let mut view = ViewBuilder::new(
+        let mut builder = ViewBuilder::new(
             "SELECT trip_distance FROM nyc_taxis",
-            "test/view1",
             schema,
             identifier,
             catalog,
         )
-        .unwrap()
-        .commit()
-        .await
         .unwrap();
+        builder.location("test/view1");
+        let mut view = builder.build().await.unwrap();
 
         let metadata_location1 = view.metadata_location().to_owned();
 

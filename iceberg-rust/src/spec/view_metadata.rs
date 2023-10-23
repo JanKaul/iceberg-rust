@@ -2,9 +2,13 @@
  * A Struct for the view metadata   
 */
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::anyhow;
+use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
@@ -15,27 +19,36 @@ use _serde::ViewMetadataEnum;
 
 /// Fields for the version 1 of the view metadata.
 pub type ViewMetadata = GeneralViewMetadata<ViewRepresentation>;
+/// Builder for the view metadata
+pub type ViewMetadataBuilder = GeneralViewMetadataBuilder<ViewRepresentation>;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
 #[serde(try_from = "ViewMetadataEnum<T>", into = "ViewMetadataEnum<T>")]
 /// Fields for the version 1 of the view metadata.
 pub struct GeneralViewMetadata<T: Representation> {
+    #[builder(default = "Uuid::new_v4()")]
     /// A UUID that identifies the view, generated when the view is created. Implementations must throw an exception if a view’s UUID does not match the expected UUID after refreshing metadata
     pub view_uuid: Uuid,
+    #[builder(default)]
     /// An integer version number for the view format; must be 1
     pub format_version: FormatVersion,
+    #[builder(setter(into))]
     /// The view’s base location. This is used to determine where to store manifest files and view metadata files.
     pub location: String,
     ///	Current version of the view. Set to ‘1’ when the view is first created.
     pub current_version_id: i64,
+    #[builder(setter(each(name = "with_version")), default)]
     /// An array of structs describing the last known versions of the view. Controlled by the table property: “version.history.num-entries”. See section Versions.
     pub versions: HashMap<i64, Version<T>>,
+    #[builder(default)]
     /// A list of timestamp and version ID pairs that encodes changes to the current version for the view.
     /// Each time the current-version-id is changed, a new entry should be added with the last-updated-ms and the new current-version-id.
     pub version_log: Vec<VersionLogStruct>,
+    #[builder(default)]
     /// A string to string map of view properties. This is used for metadata such as “comment” and for settings that affect view maintenance.
     /// This is not intended to be used for arbitrary metadata.
     pub properties: Option<HashMap<String, String>>,
+    #[builder(setter(strip_option, each(name = "with_schema")), default)]
     ///	A list of schemas, the same as the ‘schemas’ field from Iceberg table spec.
     pub schemas: Option<HashMap<i32, Schema>>,
 }
@@ -179,7 +192,13 @@ pub enum FormatVersion {
     V1 = b'1',
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+impl Default for FormatVersion {
+    fn default() -> Self {
+        FormatVersion::V1
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the view metadata.
 pub struct Version<T> {
@@ -187,14 +206,21 @@ pub struct Version<T> {
     pub version_id: i64,
     /// ID of the schema for the view version
     pub schema_id: i32,
+    #[builder(
+        default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64"
+    )]
     ///	Timestamp expressed in ms since epoch at which the version of the view was created.
     pub timestamp_ms: i64,
+    #[builder(default)]
     /// A string map summarizes the version changes, including operation, described in Summary.
     pub summary: Summary,
+    #[builder(setter(each(name = "with_representation")), default)]
     /// A list of “representations” as described in Representations.
     pub representations: Vec<T>,
+    #[builder(default)]
     /// A string specifying the catalog to use when the table or view references in the view definition do not contain an explicit catalog.
     pub default_catalog: Option<String>,
+    #[builder(default)]
     /// The namespace to use when the table or view references in the view definition do not contain an explicit namespace.
     /// Since the namespace may contain multiple parts, it is serialized as a list of strings.
     pub default_namespace: Option<Vec<String>>,
@@ -217,6 +243,12 @@ pub enum Operation {
     Create,
     /// Replace view
     Replace,
+}
+
+impl Default for Operation {
+    fn default() -> Self {
+        Operation::Create
+    }
 }
 
 /// Serialize for PrimitiveType wit special handling for
@@ -252,7 +284,7 @@ impl<'de> Deserialize<'de> for Operation {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the view metadata.
 pub struct Summary {

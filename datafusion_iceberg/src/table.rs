@@ -424,7 +424,7 @@ mod tests {
     use iceberg_rust::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, relation::Relation, Catalog},
         spec::{
-            schema::SchemaV2,
+            schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
         },
         view::view_builder::ViewBuilder,
@@ -513,7 +513,7 @@ mod tests {
 
         ctx.register_table("nyc_taxis", table).unwrap();
 
-        let schema = SchemaV2 {
+        let schema = Schema {
             schema_id: 1,
             identifier_field_ids: Some(vec![1, 2]),
             fields: StructType::new(vec![
@@ -534,18 +534,21 @@ mod tests {
             ]),
         };
         let view_identifier = Identifier::parse("test.view1").unwrap();
+
+        let mut builder = ViewBuilder::new(
+            "SELECT vendor_id, MIN(trip_distance) FROM nyc_taxis GROUP BY vendor_id",
+            schema,
+            view_identifier,
+            memory_catalog,
+        )
+        .expect("Failed to create filesystem view builder.");
+        builder.location("test/nyc_taxis_view");
+
         let view = Arc::new(DataFusionTable::from(
-            ViewBuilder::new(
-                "SELECT vendor_id, MIN(trip_distance) FROM nyc_taxis GROUP BY vendor_id",
-                "test/nyc_taxis_view",
-                schema,
-                view_identifier,
-                memory_catalog,
-            )
-            .expect("Failed to create filesystem view builder.")
-            .commit()
-            .await
-            .expect("Failed to create filesystem view"),
+            builder
+                .build()
+                .await
+                .expect("Failed to create filesystem view"),
         ));
 
         ctx.register_table("nyc_taxis_view", view).unwrap();
