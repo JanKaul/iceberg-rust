@@ -1519,6 +1519,7 @@ mod tests {
     #[test]
     fn manifest_entry() {
         let table_metadata = TableMetadataBuilder::default()
+            .location("/")
             .current_schema_id(1)
             .schemas(HashMap::from_iter(vec![(
                 1,
@@ -1651,6 +1652,7 @@ mod tests {
     #[test]
     fn test_read_manifest_entry() {
         let table_metadata = TableMetadataBuilder::default()
+            .location("/")
             .current_schema_id(1)
             .schemas(HashMap::from_iter(vec![(
                 1,

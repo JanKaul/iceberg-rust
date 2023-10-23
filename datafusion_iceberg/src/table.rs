@@ -33,6 +33,7 @@ use crate::pruning_statistics::{PruneDataFiles, PruneManifests};
 
 use iceberg_rust::{
     catalog::relation::Relation,
+    materialized_view::MaterializedView,
     spec::{types::StructField, view_metadata::ViewRepresentation},
     table::Table,
     util,
@@ -82,6 +83,15 @@ impl From<View> for DataFusionTable {
     fn from(value: View) -> Self {
         DataFusionTable {
             tabular: Relation::View(value),
+            snapshot_range: (None, None),
+        }
+    }
+}
+
+impl From<MaterializedView> for DataFusionTable {
+    fn from(value: MaterializedView) -> Self {
+        DataFusionTable {
+            tabular: Relation::MaterializedView(value),
             snapshot_range: (None, None),
         }
     }

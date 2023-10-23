@@ -138,11 +138,11 @@ impl MaterializedViewBuilder {
         {
             Ok(())
         } else {
-            Err(anyhow!("Building the materialized view failed because registering the materialized view in the catalog didn't return a materialzied view."))
+            Err(anyhow!("Building the storage table failed because registering the storage in the catalog didn't return a table."))
         }?;
         if let Relation::MaterializedView(matview) = self
             .catalog
-            .register_table(self.identifier, table_path.as_ref())
+            .register_table(self.identifier, path.as_ref())
             .await?
         {
             Ok(matview)

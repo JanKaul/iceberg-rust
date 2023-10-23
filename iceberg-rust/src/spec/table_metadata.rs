@@ -47,18 +47,21 @@ pub struct TableMetadata {
     )]
     /// Timestamp in milliseconds from the unix epoch when the table was last updated.
     pub last_updated_ms: i64,
+    #[builder(default)]
     /// An integer; the highest assigned column ID for the table.
     pub last_column_id: i32,
-    #[builder(setter(each(name = "with_schema")))]
+    #[builder(setter(each(name = "with_schema")), default)]
     /// A list of schemas, stored as objects with schema-id.
     pub schemas: HashMap<i32, Schema>,
     /// ID of the table’s current schema.
     pub current_schema_id: i32,
-    #[builder(setter(each(name = "with_partition_spec")))]
+    #[builder(setter(each(name = "with_partition_spec")), default)]
     /// A list of partition specs, stored as full partition spec objects.
     pub partition_specs: HashMap<i32, PartitionSpec>,
+    #[builder(default)]
     /// ID of the “current” spec that writers should use by default.
     pub default_spec_id: i32,
+    #[builder(default)]
     /// An integer; the highest assigned partition field ID across all partition specs for the table.
     pub last_partition_id: i32,
     ///A string to string map of table properties. This is used to control settings that

@@ -148,9 +148,9 @@ impl MaterializedView {
             .then(|(pointer, snapshot_id)| {
                 let catalog = catalog.clone();
                 async move {
-                    if !pointer.starts_with("identifier:") {
-                        return Err(anyhow!("Only identifiers supported as base table pointers"));
-                    }
+                    // if !pointer.starts_with("identifier:") {
+                    //     return Err(anyhow!("Only identifiers supported as base table pointers"));
+                    // }
                     let base_table = match catalog
                         .load_table(&Identifier::parse(
                             &pointer.trim_start_matches("identifier:"),

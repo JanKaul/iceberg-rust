@@ -684,6 +684,7 @@ mod tests {
     #[test]
     pub fn test_manifest_list_v2() {
         let table_metadata = TableMetadataBuilder::default()
+            .location("/")
             .current_schema_id(1)
             .schemas(HashMap::from_iter(vec![(
                 1,
@@ -767,6 +768,7 @@ mod tests {
     pub fn test_manifest_list_v1() {
         let table_metadata = TableMetadataBuilder::default()
             .format_version(FormatVersion::V1)
+            .location("/")
             .current_schema_id(1)
             .schemas(HashMap::from_iter(vec![(
                 1,
