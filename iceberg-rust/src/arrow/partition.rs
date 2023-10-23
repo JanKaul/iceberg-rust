@@ -33,13 +33,13 @@ use super::transform::transform_arrow;
 
 /// Partition stream of record batches according to partition spec
 pub async fn partition_record_batches(
-    record_batches: impl Stream<Item = Result<RecordBatch, ArrowError>>,
+    record_batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     partition_spec: &PartitionSpec,
     schema: &Schema,
-) -> Result<Vec<impl Stream<Item = Result<RecordBatch, ArrowError>>>, ArrowError> {
+) -> Result<Vec<impl Stream<Item = Result<RecordBatch, ArrowError>> + Send>, ArrowError> {
     let (partition_sender, partition_reciever): (
-        UnboundedSender<Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>>>>>,
-        UnboundedReceiver<Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>>>>>,
+        UnboundedSender<Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>>,
+        UnboundedReceiver<Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>>,
     ) = unbounded();
     let partition_streams: Arc<
         Mutex<HashMap<Vec<Value>, UnboundedSender<Result<RecordBatch, ArrowError>>>>,

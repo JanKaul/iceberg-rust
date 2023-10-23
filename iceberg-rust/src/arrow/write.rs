@@ -33,7 +33,7 @@ pub async fn write_parquet_partitioned(
     location: &str,
     schema: &Schema,
     partition_spec: &PartitionSpec,
-    batches: impl Stream<Item = Result<RecordBatch, ArrowError>>,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<Vec<(String, DatafileMetadata)>, ArrowError> {
     let streams = partition_record_batches(batches, partition_spec, schema).await?;
@@ -61,7 +61,7 @@ pub async fn write_parquet_partitioned(
 pub async fn write_parquet_files(
     location: &str,
     schema: &ArrowSchema,
-    batches: impl Stream<Item = Result<RecordBatch, ArrowError>>,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<Vec<(String, DatafileMetadata)>, ArrowError> {
     let current_writer = Arc::new(Mutex::new(
