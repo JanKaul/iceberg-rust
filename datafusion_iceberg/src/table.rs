@@ -49,6 +49,7 @@ use iceberg_rust::{
 pub struct DataFusionTable {
     pub snapshot_range: (Option<i64>, Option<i64>),
     pub tabular: Relation,
+    pub schema: SchemaRef,
 }
 
 impl core::ops::Deref for DataFusionTable {
@@ -67,60 +68,31 @@ impl DerefMut for DataFusionTable {
 
 impl From<Relation> for DataFusionTable {
     fn from(value: Relation) -> Self {
-        DataFusionTable {
-            tabular: value,
-            snapshot_range: (None, None),
-        }
+        Self::new(value, None, None)
     }
 }
 
 impl From<Table> for DataFusionTable {
     fn from(value: Table) -> Self {
-        DataFusionTable {
-            tabular: Relation::Table(value),
-            snapshot_range: (None, None),
-        }
+        Self::new(Relation::Table(value), None, None)
     }
 }
 
 impl From<View> for DataFusionTable {
     fn from(value: View) -> Self {
-        DataFusionTable {
-            tabular: Relation::View(value),
-            snapshot_range: (None, None),
-        }
+        Self::new(Relation::View(value), None, None)
     }
 }
 
 impl From<MaterializedView> for DataFusionTable {
     fn from(value: MaterializedView) -> Self {
-        DataFusionTable {
-            tabular: Relation::MaterializedView(value),
-            snapshot_range: (None, None),
-        }
+        Self::new(Relation::MaterializedView(value), None, None)
     }
 }
 
 impl DataFusionTable {
-    pub fn new_table(table: Table, start: Option<i64>, end: Option<i64>) -> Self {
-        DataFusionTable {
-            tabular: Relation::Table(table),
-            snapshot_range: (start, end),
-        }
-    }
-}
-
-#[async_trait]
-impl TableProvider for DataFusionTable {
-    fn as_any(&self) -> &dyn Any {
-        match &self.tabular {
-            Relation::Table(table) => table,
-            Relation::View(view) => view,
-            Relation::MaterializedView(mv) => mv,
-        }
-    }
-    fn schema(&self) -> SchemaRef {
-        match &self.tabular {
+    pub fn new(tabular: Relation, start: Option<i64>, end: Option<i64>) -> Self {
+        let schema = match &tabular {
             Relation::Table(table) => {
                 let mut schema = table.schema().unwrap().clone();
                 // Add the partition columns to the table schema
@@ -163,7 +135,30 @@ impl TableProvider for DataFusionTable {
                 }
                 Arc::new((&schema.fields).try_into().unwrap())
             }
+        };
+        DataFusionTable {
+            tabular: tabular,
+            snapshot_range: (start, end),
+            schema,
         }
+    }
+    #[inline]
+    pub fn new_table(table: Table, start: Option<i64>, end: Option<i64>) -> Self {
+        Self::new(Relation::Table(table), start, end)
+    }
+}
+
+#[async_trait]
+impl TableProvider for DataFusionTable {
+    fn as_any(&self) -> &dyn Any {
+        match &self.tabular {
+            Relation::Table(table) => table,
+            Relation::View(view) => view,
+            Relation::MaterializedView(mv) => mv,
+        }
+    }
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
     fn table_type(&self) -> TableType {
         match &self.tabular {
