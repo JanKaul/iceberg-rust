@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
 use object_store::ObjectMeta;
-use std::{any::Any, collections::HashMap, fmt, ops::Deref, sync::Arc};
+use std::{any::Any, collections::HashMap, ops::Deref, sync::Arc};
 use tokio::sync::RwLock;
 
 use datafusion::{
@@ -18,15 +18,12 @@ use datafusion::{
         physical_plan::FileScanConfig,
         TableProvider, ViewTable,
     },
-    execution::{context::SessionState, TaskContext},
+    execution::context::SessionState,
     logical_expr::{TableSource, TableType},
     optimizer::utils::conjunction,
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
-    physical_plan::{
-        insert::DataSink, DisplayAs, DisplayFormatType, ExecutionPlan, SendableRecordBatchStream,
-        Statistics,
-    },
+    physical_plan::{ExecutionPlan, Statistics},
     prelude::Expr,
     scalar::ScalarValue,
     sql::parser::DFParser,
@@ -399,27 +396,6 @@ impl TableSource for IcebergTableSource {
 impl DataFusionTable {
     pub(crate) fn into_table_source(self) -> IcebergTableSource {
         IcebergTableSource(self)
-    }
-}
-
-impl DisplayAs for DataFusionTable {
-    fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match t {
-            DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                write!(f, "IcebergTable")
-            }
-        }
-    }
-}
-
-#[async_trait]
-impl DataSink for DataFusionTable {
-    async fn write_all(
-        &self,
-        _data: Vec<SendableRecordBatchStream>,
-        _context: &Arc<TaskContext>,
-    ) -> Result<u64, datafusion::error::DataFusionError> {
-        unimplemented!()
     }
 }
 
