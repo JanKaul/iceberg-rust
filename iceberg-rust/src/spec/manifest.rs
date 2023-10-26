@@ -9,7 +9,6 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Result};
 use apache_avro::{
     types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
 };
@@ -17,7 +16,10 @@ use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::spec::schema::{SchemaV1, SchemaV2};
+use crate::{
+    error::Error,
+    spec::schema::{SchemaV1, SchemaV2},
+};
 
 use super::{
     partition::{PartitionField, PartitionSpec},
@@ -36,12 +38,12 @@ pub struct ManifestReader<'a, R: Read> {
                 Result<AvroValue, apache_avro::Error>,
                 Arc<(Schema, PartitionSpec, FormatVersion)>,
             ),
-        ) -> Result<ManifestEntry, anyhow::Error>,
+        ) -> Result<ManifestEntry, Error>,
     >,
 }
 
 impl<'a, R: Read> Iterator for ManifestReader<'a, R> {
-    type Item = Result<ManifestEntry, anyhow::Error>;
+    type Item = Result<ManifestEntry, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next()
     }
@@ -49,7 +51,7 @@ impl<'a, R: Read> Iterator for ManifestReader<'a, R> {
 
 impl<'a, R: Read> ManifestReader<'a, R> {
     /// Create a new ManifestFile reader
-    pub fn new(reader: R) -> Result<Self, anyhow::Error> {
+    pub fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();
 
@@ -62,26 +64,26 @@ impl<'a, R: Read> ManifestReader<'a, R> {
         {
             "1" => Ok(FormatVersion::V1),
             "2" => Ok(FormatVersion::V2),
-            _ => Err(anyhow!("Wrong format version")),
+            _ => Err(Error::InvalidFormat("format version".to_string())),
         }?;
 
         let schema: Schema = match format_version {
             FormatVersion::V1 => TryFrom::<SchemaV1>::try_from(serde_json::from_slice(
                 metadata
                     .get("schema")
-                    .ok_or(anyhow!("Manifest metadata doesn't contain schema."))?,
+                    .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
             )?)?,
             FormatVersion::V2 => TryFrom::<SchemaV2>::try_from(serde_json::from_slice(
                 metadata
                     .get("schema")
-                    .ok_or(anyhow!("Manifest metadata doesn't contain schema."))?,
+                    .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
             )?)?,
         };
 
         let partition_fields: Vec<PartitionField> = serde_json::from_slice(
             metadata
                 .get("partition-spec")
-                .ok_or(anyhow!("Manifest metadata doesn't contain partition_spec."))?,
+                .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
         )?;
         let spec_id: i32 = metadata
             .get("partition-spec-id")
@@ -122,7 +124,7 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
         schema: &'a AvroSchema,
         table_metadata: &TableMetadata,
         writer: W,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Error> {
         let mut avro_writer = AvroWriter::new(&schema, writer);
 
         avro_writer.add_user_metadata(
@@ -136,12 +138,12 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
         avro_writer.add_user_metadata(
             "schema".to_string(),
             match table_metadata.format_version {
-                FormatVersion::V1 => serde_json::to_string(&TryInto::<SchemaV1>::try_into(
+                FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
                     table_metadata.current_schema()?.clone(),
-                )?)?,
-                FormatVersion::V2 => serde_json::to_string(&TryInto::<SchemaV1>::try_into(
+                ))?,
+                FormatVersion::V2 => serde_json::to_string(&Into::<SchemaV2>::into(
                     table_metadata.current_schema()?.clone(),
-                )?)?,
+                ))?,
             },
         )?;
 
@@ -158,7 +160,7 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
         Ok(ManifestWriter(avro_writer))
     }
 
-    pub(crate) fn into_inner(self) -> Result<W, anyhow::Error> {
+    pub(crate) fn into_inner(self) -> Result<W, Error> {
         Ok(self.0.into_inner()?)
     }
 }
@@ -244,7 +246,7 @@ impl ManifestEntry {
         value: ManifestEntryV2,
         schema: &Schema,
         partition_spec: &PartitionSpec,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Error> {
         Ok(ManifestEntry {
             format_version: FormatVersion::V2,
             status: value.status,
@@ -258,7 +260,7 @@ impl ManifestEntry {
         value: ManifestEntryV1,
         schema: &Schema,
         partition_spec: &PartitionSpec,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Error> {
         Ok(ManifestEntry {
             format_version: FormatVersion::V2,
             status: value.status,
@@ -351,7 +353,7 @@ impl ManifestEntry {
     pub fn schema(
         partition_schema: &str,
         format_version: &FormatVersion,
-    ) -> Result<AvroSchema, anyhow::Error> {
+    ) -> Result<AvroSchema, Error> {
         let schema = match format_version {
             FormatVersion::V1 => {
                 let datafile_schema = DataFileV1::schema(partition_schema);
@@ -421,7 +423,7 @@ impl ManifestEntry {
         }"#
             }
         };
-        AvroSchema::parse_str(&schema).map_err(anyhow::Error::msg)
+        AvroSchema::parse_str(&schema).map_err(Into::into)
     }
 }
 
@@ -438,13 +440,16 @@ pub enum Content {
 }
 
 impl TryFrom<Vec<u8>> for Content {
-    type Error = anyhow::Error;
+    type Error = Error;
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         match String::from_utf8(value)?.to_uppercase().as_str() {
             "DATA" => Ok(Content::Data),
             "POSITION DELETES" => Ok(Content::PositionDeletes),
             "EQUALITY DELETES" => Ok(Content::EqualityDeletes),
-            _ => Err(anyhow!("Failed to convert String to Content.")),
+            _ => Err(Error::Conversion(
+                "string".to_string(),
+                "content".to_string(),
+            )),
         }
     }
 }
@@ -508,16 +513,21 @@ impl<'de> Deserialize<'de> for FileFormat {
 }
 
 /// Get schema for partition values depending on partition spec and table schema
-pub fn partition_value_schema(spec: &[PartitionField], table_schema: &Schema) -> Result<String> {
+pub fn partition_value_schema(
+    spec: &[PartitionField],
+    table_schema: &Schema,
+) -> Result<String, Error> {
     Ok(spec
         .iter()
         .map(|field| {
             let schema_field = table_schema
                 .fields
                 .get(field.source_id as usize)
-                .ok_or_else(|| anyhow!("Column {} not in table schema.", &field.source_id))?;
+                .ok_or_else(|| {
+                    Error::Schema(field.name.to_string(), format!("{:?}", &table_schema))
+                })?;
             let data_type = avro_schema_datatype(&schema_field.field_type);
-            Ok::<_, anyhow::Error>(
+            Ok::<_, Error>(
                 r#"
                 {
                     "name": ""#
@@ -535,7 +545,7 @@ pub fn partition_value_schema(spec: &[PartitionField], table_schema: &Schema) ->
             r#"{"type": "record","name": "r102","fields": ["#.to_owned(),
             |acc, x| {
                 let result = acc + &x?;
-                Ok::<_, anyhow::Error>(result)
+                Ok::<_, Error>(result)
             },
         )?
         .trim_end_matches(',')
@@ -608,7 +618,7 @@ impl<'de, T: Serialize + DeserializeOwned + Clone> Deserialize<'de> for AvroMap<
 }
 
 impl AvroMap<ByteBuf> {
-    fn into_value_map(self, schema: &StructType) -> Result<HashMap<i32, Value>> {
+    fn into_value_map(self, schema: &StructType) -> Result<HashMap<i32, Value>, Error> {
         Ok(HashMap::from_iter(
             self.0
                 .into_iter()
@@ -619,12 +629,12 @@ impl AvroMap<ByteBuf> {
                             &v,
                             &schema
                                 .get(k as usize)
-                                .ok_or(anyhow!("Field doens't exist in schema"))?
+                                .ok_or(Error::Schema(k.to_string(), format!("{:?}", schema)))?
                                 .field_type,
                         )?,
                     ))
                 })
-                .collect::<Result<Vec<_>, anyhow::Error>>()?,
+                .collect::<Result<Vec<_>, Error>>()?,
         ))
     }
 }
@@ -681,7 +691,7 @@ impl DataFile {
         value: DataFileV2,
         schema: &Schema,
         partition_spec: &PartitionSpec,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Error> {
         Ok(DataFile {
             content: value.content,
             file_path: value.file_path,
@@ -715,7 +725,7 @@ impl DataFile {
         value: DataFileV1,
         schema: &Schema,
         partition_spec: &PartitionSpec,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Error> {
         Ok(DataFile {
             content: Content::Data,
             file_path: value.file_path,
@@ -1484,7 +1494,7 @@ fn avro_value_to_manifest_entry(
         Result<AvroValue, apache_avro::Error>,
         Arc<(Schema, PartitionSpec, FormatVersion)>,
     ),
-) -> Result<ManifestEntry, anyhow::Error> {
+) -> Result<ManifestEntry, Error> {
     let entry = value.0?;
     let schema = &value.1 .0;
     let partition_spec = &value.1 .1;
@@ -1769,9 +1779,7 @@ mod tests {
         let reader = apache_avro::Reader::new(&encoded[..]).unwrap();
         let record = reader.into_iter().next().unwrap().unwrap();
 
-        let metadata_entry = apache_avro::from_value::<ManifestEntryV2>(&record)
-            .map_err(anyhow::Error::msg)
-            .unwrap();
+        let metadata_entry = apache_avro::from_value::<ManifestEntryV2>(&record).unwrap();
         assert_eq!(
             manifest_entry,
             ManifestEntry::try_from_v2(

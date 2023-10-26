@@ -4,7 +4,6 @@ Defining the [Table] struct that represents an iceberg table.
 
 use std::{collections::HashMap, io::Cursor, iter::repeat, sync::Arc, time::SystemTime};
 
-use anyhow::anyhow;
 use object_store::{path::Path, ObjectStore};
 
 use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
@@ -12,6 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
+    error::Error,
     spec::{
         manifest::{Content, ManifestEntry, ManifestReader},
         manifest_list::ManifestListEntry,
@@ -43,7 +43,7 @@ impl Table {
         catalog: Arc<dyn Catalog>,
         metadata: TableMetadata,
         metadata_location: &str,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Error> {
         Ok(Table {
             identifier,
             catalog,
@@ -64,7 +64,7 @@ impl Table {
         self.catalog.object_store()
     }
     /// Get the metadata of the table
-    pub fn schema(&self) -> Result<&Schema, anyhow::Error> {
+    pub fn schema(&self) -> Result<&Schema, Error> {
         self.metadata.current_schema()
     }
     /// Get the metadata of the table
@@ -80,12 +80,12 @@ impl Table {
         &self,
         start: Option<i64>,
         end: Option<i64>,
-    ) -> Result<Vec<ManifestListEntry>, anyhow::Error> {
+    ) -> Result<Vec<ManifestListEntry>, Error> {
         let metadata = self.metadata();
         let end_snapshot = end.and_then(|id| metadata.snapshot(id)).unwrap_or(
             metadata
                 .current_snapshot()?
-                .ok_or(anyhow!("There is no shapshot for table."))?,
+                .ok_or(Error::InvalidFormat("snapshot for table".to_string()))?,
         );
         let start_sequence_number =
             start
@@ -119,7 +119,7 @@ impl Table {
         &self,
         manifests: &[ManifestListEntry],
         filter: Option<Vec<bool>>,
-    ) -> Result<Vec<ManifestEntry>, anyhow::Error> {
+    ) -> Result<Vec<ManifestEntry>, Error> {
         // filter manifest files according to filter vector
         let iter = match filter {
             Some(predicate) => {
@@ -162,7 +162,7 @@ impl Table {
         &self,
         start: Option<i64>,
         end: Option<i64>,
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<bool, Error> {
         let manifests = self.manifests(start, end).await?;
         let datafiles = self.datafiles(&manifests, None).await?;
         Ok(datafiles
@@ -175,14 +175,14 @@ impl Table {
     }
 
     /// delete all datafiles, manifests and metadata files, does not remove table from catalog
-    pub async fn drop(self) -> Result<(), anyhow::Error> {
+    pub async fn drop(self) -> Result<(), Error> {
         let object_store = self.object_store();
         let manifests = self.manifests(None, None).await?;
         let datafiles = self.datafiles(&manifests, None).await?;
         let snapshots = &self.metadata().snapshots;
 
         stream::iter(datafiles.into_iter())
-            .map(Ok::<_, anyhow::Error>)
+            .map(Ok::<_, Error>)
             .try_for_each_concurrent(None, |datafile| {
                 let object_store = object_store.clone();
                 async move {
@@ -195,7 +195,7 @@ impl Table {
             .await?;
 
         stream::iter(manifests.into_iter())
-            .map(Ok::<_, anyhow::Error>)
+            .map(Ok::<_, Error>)
             .try_for_each_concurrent(None, |manifest| {
                 let object_store = object_store.clone();
                 async move {
@@ -207,7 +207,7 @@ impl Table {
 
         if let Some(snapshots) = snapshots {
             stream::iter(snapshots.values())
-                .map(Ok::<_, anyhow::Error>)
+                .map(Ok::<_, Error>)
                 .try_for_each_concurrent(None, |snapshot| {
                     let object_store = object_store.clone();
                     async move {
@@ -229,7 +229,7 @@ impl Table {
 }
 
 impl Table {
-    pub(crate) fn new_metadata_location(&self) -> Result<String, anyhow::Error> {
+    pub(crate) fn new_metadata_location(&self) -> Result<String, Error> {
         let transaction_uuid = Uuid::new_v4();
         let version = self.metadata().last_sequence_number;
         Ok(self.metadata().location.to_string()
@@ -249,7 +249,7 @@ impl Table {
     }
 
     /// Create a new table snapshot based on the manifest_list file of the previous snapshot.
-    pub(crate) async fn new_snapshot(&mut self) -> Result<(), anyhow::Error> {
+    pub(crate) async fn new_snapshot(&mut self) -> Result<(), Error> {
         let mut bytes: [u8; 8] = [0u8; 8];
         getrandom::getrandom(&mut bytes).unwrap();
         let snapshot_id = i64::from_le_bytes(bytes);

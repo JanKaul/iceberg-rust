@@ -7,6 +7,7 @@ use std::sync::Arc;
 use object_store::ObjectStore;
 use serde::{self, Deserialize, Serialize};
 
+use crate::error::Error;
 use crate::materialized_view::MaterializedView;
 use crate::spec::materialized_view_metadata::MaterializedViewMetadata;
 use crate::spec::table_metadata::TableMetadata;
@@ -52,7 +53,7 @@ pub enum RelationMetadata {
 pub async fn get_tabular_metadata(
     metadata_location: &str,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<RelationMetadata, anyhow::Error> {
+) -> Result<RelationMetadata, Error> {
     let bytes = object_store
         .get(&metadata_location.into())
         .await?

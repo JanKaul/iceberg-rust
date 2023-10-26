@@ -4,8 +4,9 @@ Defining the [Identifier] struct for identifying tables in an iceberg catalog.
 
 use core::fmt::{self, Display};
 
+use crate::error::Error;
+
 use super::namespace::Namespace;
-use anyhow::{anyhow, Result};
 
 /// Seperator of different namespace levels.
 pub static SEPARATOR: &str = ".";
@@ -19,14 +20,12 @@ pub struct Identifier {
 
 impl Identifier {
     ///Create Identifier
-    pub fn try_new(names: &[String]) -> Result<Self> {
+    pub fn try_new(names: &[String]) -> Result<Self, Error> {
         let length = names.len();
         if names.is_empty() {
-            Err(anyhow!(
-                "Error: Cannot create a TableIdentifier from an empty sequence.",
-            ))
+            Err(Error::InvalidFormat("identifier sequence".to_string()))
         } else if names[length - 1].is_empty() {
-            Err(anyhow!("Error: Table name cannot be empty.",))
+            Err(Error::InvalidFormat("table name".to_string()))
         } else {
             Ok(Identifier {
                 namespace: Namespace::try_new(&names[0..length - 1])?,
@@ -35,7 +34,7 @@ impl Identifier {
         }
     }
     ///Parse
-    pub fn parse(identifier: &str) -> Result<Self> {
+    pub fn parse(identifier: &str) -> Result<Self, Error> {
         let names = identifier
             .split(SEPARATOR)
             .map(|x| x.to_string())
@@ -59,7 +58,7 @@ impl Display for Identifier {
 }
 
 impl TryFrom<&str> for Identifier {
-    type Error = anyhow::Error;
+    type Error = Error;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         Self::parse(value)
     }

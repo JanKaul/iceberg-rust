@@ -2,14 +2,13 @@
  * Defines the [View] struct that represents an iceberg view.
 */
 
-use anyhow::Result;
-
 use std::sync::Arc;
 
 use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
+    error::Error,
     spec::{schema::Schema, view_metadata::ViewMetadata},
 };
 
@@ -39,7 +38,7 @@ impl View {
         catalog: Arc<dyn Catalog>,
         metadata: ViewMetadata,
         metadata_location: &str,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         Ok(View {
             identifier,
             metadata,
@@ -60,7 +59,7 @@ impl View {
         self.catalog.object_store()
     }
     /// Get the schema of the view
-    pub fn schema(&self) -> Result<&Schema> {
+    pub fn schema(&self) -> Result<&Schema, Error> {
         self.metadata.current_schema()
     }
     /// Get the metadata of the view

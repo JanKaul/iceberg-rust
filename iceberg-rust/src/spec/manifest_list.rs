@@ -11,6 +11,8 @@ use apache_avro::{types::Value as AvroValue, Reader as AvroReader, Schema as Avr
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
+use crate::error::Error;
+
 use self::_serde::{FieldSummarySerde, ManifestListEntryV1, ManifestListEntryV2};
 
 use super::{
@@ -26,12 +28,12 @@ pub struct ManifestListReader<'a, 'metadata, R: Read> {
         Zip<AvroReader<'a, R>, Repeat<&'metadata TableMetadata>>,
         fn(
             (Result<AvroValue, apache_avro::Error>, &TableMetadata),
-        ) -> Result<ManifestListEntry, anyhow::Error>,
+        ) -> Result<ManifestListEntry, Error>,
     >,
 }
 
 impl<'a, 'metadata, R: Read> Iterator for ManifestListReader<'a, 'metadata, R> {
-    type Item = Result<ManifestListEntry, anyhow::Error>;
+    type Item = Result<ManifestListEntry, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next()
     }
@@ -274,7 +276,7 @@ impl ManifestListEntry {
     pub(crate) fn try_from_enum(
         entry: ManifestListEntryEnum,
         table_metadata: &TableMetadata,
-    ) -> Result<ManifestListEntry, anyhow::Error> {
+    ) -> Result<ManifestListEntry, Error> {
         match entry {
             ManifestListEntryEnum::V2(entry) => {
                 ManifestListEntry::try_from_v2(entry, table_metadata)
@@ -288,7 +290,7 @@ impl ManifestListEntry {
     pub(crate) fn try_from_v2(
         entry: _serde::ManifestListEntryV2,
         table_metadata: &TableMetadata,
-    ) -> Result<ManifestListEntry, anyhow::Error> {
+    ) -> Result<ManifestListEntry, Error> {
         let partition_types = table_metadata
             .default_partition_spec()?
             .data_types(&table_metadata.current_schema()?.fields)?;
@@ -313,7 +315,7 @@ impl ManifestListEntry {
                     v.into_iter()
                         .zip(partition_types.iter())
                         .map(|(x, d)| FieldSummary::try_from(x, d))
-                        .collect::<Result<Vec<_>, anyhow::Error>>()
+                        .collect::<Result<Vec<_>, Error>>()
                 })
                 .transpose()?,
             key_metadata: entry.key_metadata,
@@ -323,7 +325,7 @@ impl ManifestListEntry {
     pub(crate) fn try_from_v1(
         entry: _serde::ManifestListEntryV1,
         table_metadata: &TableMetadata,
-    ) -> Result<ManifestListEntry, anyhow::Error> {
+    ) -> Result<ManifestListEntry, Error> {
         let partition_types = table_metadata
             .default_partition_spec()?
             .data_types(&table_metadata.current_schema()?.fields)?;
@@ -348,7 +350,7 @@ impl ManifestListEntry {
                     v.into_iter()
                         .zip(partition_types.iter())
                         .map(|(x, d)| FieldSummary::try_from(x, d))
-                        .collect::<Result<Vec<_>, anyhow::Error>>()
+                        .collect::<Result<Vec<_>, Error>>()
                 })
                 .transpose()?,
             key_metadata: entry.key_metadata,
@@ -357,7 +359,7 @@ impl ManifestListEntry {
 }
 
 impl FieldSummary {
-    fn try_from(value: _serde::FieldSummarySerde, data_type: &Type) -> Result<Self, anyhow::Error> {
+    fn try_from(value: _serde::FieldSummarySerde, data_type: &Type) -> Result<Self, Error> {
         Ok(FieldSummary {
             contains_null: value.contains_null,
             contains_nan: value.contains_nan,
@@ -375,7 +377,7 @@ impl FieldSummary {
 
 impl ManifestListEntry {
     /// Get schema of the manifest list
-    pub fn schema(format_version: &FormatVersion) -> Result<AvroSchema, anyhow::Error> {
+    pub fn schema(format_version: &FormatVersion) -> Result<AvroSchema, Error> {
         let schema = match format_version {
             FormatVersion::V1 => r#"
         {
@@ -645,15 +647,15 @@ impl ManifestListEntry {
         "#
             .to_owned(),
         };
-        AvroSchema::parse_str(&schema).map_err(anyhow::Error::msg)
+        AvroSchema::parse_str(&schema).map_err(Into::into)
     }
 }
 
 /// Convert an avro value to a [ManifestFile] according to the provided format version
 pub(crate) fn avro_value_to_manifest_file(
     value: (Result<AvroValue, apache_avro::Error>, &TableMetadata),
-) -> Result<ManifestListEntry, anyhow::Error> {
-    let entry = value.0.map_err(anyhow::Error::msg)?;
+) -> Result<ManifestListEntry, Error> {
+    let entry = value.0?;
     let table_metadata = value.1;
     match table_metadata.format_version {
         FormatVersion::V1 => ManifestListEntry::try_from_v1(

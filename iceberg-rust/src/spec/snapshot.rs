@@ -6,7 +6,7 @@ use std::{collections::HashMap, io::Cursor, sync::Arc};
 use object_store::ObjectStore;
 use serde::{Deserialize, Serialize};
 
-use crate::util;
+use crate::{error::Error, util};
 
 use super::{
     manifest_list::{ManifestListEntry, ManifestListReader},
@@ -43,20 +43,16 @@ impl Snapshot {
         &self,
         table_metadata: &'metadata TableMetadata,
         object_store: Arc<dyn ObjectStore>,
-    ) -> Result<
-        impl Iterator<Item = Result<ManifestListEntry, anyhow::Error>> + 'metadata,
-        anyhow::Error,
-    > {
+    ) -> Result<impl Iterator<Item = Result<ManifestListEntry, Error>> + 'metadata, Error> {
         let bytes: Cursor<Vec<u8>> = Cursor::new(
             object_store
                 .get(&util::strip_prefix(&self.manifest_list).into())
-                .await
-                .map_err(anyhow::Error::msg)?
+                .await?
                 .bytes()
                 .await?
                 .into(),
         );
-        ManifestListReader::new(bytes, table_metadata).map_err(anyhow::Error::msg)
+        ManifestListReader::new(bytes, table_metadata).map_err(Into::into)
     }
 }
 

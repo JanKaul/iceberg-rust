@@ -5,10 +5,9 @@
 use futures::StreamExt;
 
 use crate::{
-    catalog::relation::Relation, file_format::DatafileMetadata, spec::schema::SchemaV2,
-    table::Table, util::strip_prefix,
+    catalog::relation::Relation, error::Error, file_format::DatafileMetadata,
+    spec::schema::SchemaV2, table::Table, util::strip_prefix,
 };
-use anyhow::{anyhow, Result};
 
 use self::operation::Operation;
 
@@ -49,7 +48,7 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
-    pub async fn commit(self) -> Result<()> {
+    pub async fn commit(self) -> Result<(), Error> {
         let object_store = self.table.object_store();
         let catalog = self.table.catalog();
         let identifier = self.table.identifier.clone();
@@ -65,7 +64,7 @@ impl<'table> TableTransaction<'table> {
         // Execute the table operations
         let table = futures::stream::iter(self.operations)
             .fold(
-                Ok::<&mut Table, anyhow::Error>(self.table),
+                Ok::<&mut Table, Error>(self.table),
                 |table, op| async move {
                     let table = table?;
                     op.execute(table).await?;
@@ -75,16 +74,14 @@ impl<'table> TableTransaction<'table> {
             .await?;
         // Write the new state to the object store
 
-        let metadata_json =
-            serde_json::to_string(&table.metadata()).map_err(|err| anyhow!(err.to_string()))?;
+        let metadata_json = serde_json::to_string(&table.metadata())?;
         let metadata_file_location = table.new_metadata_location()?;
         object_store
             .put(
                 &strip_prefix(&metadata_file_location).into(),
                 metadata_json.into(),
             )
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
+            .await?;
         let previous_metadata_file_location = table.metadata_location();
         if let Relation::Table(new_table) = catalog
             .clone()
@@ -98,8 +95,8 @@ impl<'table> TableTransaction<'table> {
             *table = new_table;
             Ok(())
         } else {
-            Err(anyhow!(
-                "Updating the table for the transaction didn't return a table."
+            Err(Error::InvalidFormat(
+                "Entity returned from catalog".to_string(),
             ))
         }
     }

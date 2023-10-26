@@ -4,13 +4,13 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{anyhow, Ok};
 use object_store::ObjectStore;
 
 use futures::{stream, StreamExt, TryStreamExt};
 
 use crate::{
     catalog::{identifier::Identifier, relation::Relation, Catalog},
+    error::Error,
     file_format::DatafileMetadata,
     spec::{
         materialized_view_metadata::{
@@ -51,7 +51,7 @@ impl MaterializedView {
         catalog: Arc<dyn Catalog>,
         metadata: MaterializedViewMetadata,
         metadata_location: &str,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Error> {
         let storage_table = match &metadata.current_version()?.representations[0] {
             MaterializedViewRepresentation::SqlMaterialized {
                 sql: _sql,
@@ -69,7 +69,7 @@ impl MaterializedView {
         {
             Ok(table)
         } else {
-            Err(anyhow!("Storage table must be a table."))
+            Err(Error::InvalidFormat("storage table".to_string()))
         }?;
         Ok(MaterializedView {
             identifier,
@@ -92,7 +92,7 @@ impl MaterializedView {
         self.catalog.object_store()
     }
     /// Get the schema of the view
-    pub fn schema(&self) -> Result<&Schema, anyhow::Error> {
+    pub fn schema(&self) -> Result<&Schema, Error> {
         self.metadata.current_schema()
     }
     /// Get the metadata of the view
@@ -116,7 +116,7 @@ impl MaterializedView {
         MaterializedViewTransaction::new(self)
     }
     /// Return base tables and the optional snapshot ids of the last refresh. If the the optional value is None, the table is fresh. If the optional value is Some(None) the table requires a full refresh.
-    pub async fn base_tables(&self) -> Result<Vec<(Table, Option<Option<i64>>)>, anyhow::Error> {
+    pub async fn base_tables(&self) -> Result<Vec<(Table, Option<Option<i64>>)>, Error> {
         let catalog = self.storage_table.catalog().clone();
         let base_table_iter = if let Some(freshness) = self
             .storage_table
@@ -160,7 +160,7 @@ impl MaterializedView {
                     {
                         Relation::Table(table) => table,
                         Relation::MaterializedView(mv) => mv.storage_table,
-                        _ => return Err(anyhow!("Base table must be a table")),
+                        _ => return Err(Error::InvalidFormat("storage table".to_string())),
                     };
                     let snapshot_id = if base_table
                         .metadata()
@@ -187,7 +187,7 @@ impl MaterializedView {
     pub async fn full_refresh(
         &mut self,
         files: Vec<(String, DatafileMetadata)>,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), Error> {
         let table_identifier = self.storage_table.identifier().clone();
         let table_catalog = self.storage_table.catalog().clone();
         let table_metadata_location = self.storage_table.metadata_location();

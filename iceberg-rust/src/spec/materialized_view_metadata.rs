@@ -82,12 +82,10 @@ pub struct Freshness {
 #[cfg(test)]
 mod tests {
 
-    use anyhow::Result;
-
-    use crate::spec::materialized_view_metadata::MaterializedViewMetadata;
+    use crate::{error::Error, spec::materialized_view_metadata::MaterializedViewMetadata};
 
     #[test]
-    fn test_deserialize_materialized_view_metadata_v1() -> Result<()> {
+    fn test_deserialize_materialized_view_metadata_v1() -> Result<(), Error> {
         let data = r#"
         {
         "view-uuid": "fa6506c3-7681-40c8-86dc-e36561f83385",

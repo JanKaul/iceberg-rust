@@ -7,11 +7,11 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::{anyhow, Result};
 use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
 
 use crate::{
+    error::Error,
     file_format::{parquet::parquet_to_datafile, DatafileMetadata},
     spec::{
         manifest::{
@@ -67,7 +67,7 @@ pub enum Operation {
 }
 
 impl Operation {
-    pub async fn execute(self, table: &mut Table) -> Result<()> {
+    pub async fn execute(self, table: &mut Table) -> Result<(), Error> {
         match self {
             Operation::NewAppend { paths } => {
                 let object_store = table.object_store();
@@ -93,7 +93,7 @@ impl Operation {
                                     }
                                 };
 
-                                Ok::<_, anyhow::Error>(datafile)
+                                Ok::<_, Error>(datafile)
                             }
                         })
                         .try_fold(
@@ -119,7 +119,7 @@ impl Operation {
 
                 let manifest_list_location = &table_metadata
                     .current_snapshot()?
-                    .ok_or_else(|| anyhow!("No manifest list in table metadata."))?
+                    .ok_or_else(|| Error::InvalidFormat("manifest list in metadata".to_string()))?
                     .manifest_list;
 
                 let manifest_list_bytes: Vec<u8> = object_store
@@ -140,7 +140,7 @@ impl Operation {
                         let existing_partitions = existing_partitions.clone();
                         async move {
                             let manifest = manifest
-                                .map_err(anyhow::Error::msg)
+                                .map_err(Into::into)
                                 .and_then(|value| {
                                     ManifestListEntry::try_from_enum(
                                         from_value::<ManifestListEntryEnum>(&value)?,
@@ -227,7 +227,9 @@ impl Operation {
                         .iter()
                         .map(|x| schema.fields.get(x.source_id as usize))
                         .collect::<Option<Vec<_>>>()
-                        .ok_or(anyhow!("Partition column not in schema."))?,
+                        .ok_or(Error::InvalidFormat(
+                            "Partition column in schema".to_string(),
+                        ))?,
                 );
 
                 let write_manifest_closure = |(manifest, files): (
@@ -267,10 +269,9 @@ impl Operation {
                         let files_count =
                             manifest.added_files_count.unwrap_or_default() + files.len() as i32;
                         for path in files {
-                            for datafile in datafiles
-                                .get(&path)
-                                .ok_or(anyhow!("Failed to get datafiles for partition value"))?
-                            {
+                            for datafile in datafiles.get(&path).ok_or(Error::InvalidFormat(
+                                "Datafiles for partition value".to_string(),
+                            ))? {
                                 let mut added_rows_count = 0;
 
                                 let mut partitions = match &manifest.partitions {
@@ -332,7 +333,7 @@ impl Operation {
                             )
                             .await?;
 
-                        Ok::<_, anyhow::Error>(manifest)
+                        Ok::<_, Error>(manifest)
                     }
                 };
 
@@ -404,12 +405,12 @@ fn update_partitions(
     partitions: &mut [FieldSummary],
     partition_values: &Struct,
     partition_columns: &[&StructField],
-) -> Result<()> {
+) -> Result<(), Error> {
     for (field, summary) in partition_columns.iter().zip(partitions.iter_mut()) {
         let value = &partition_values.fields[*partition_values
             .lookup
             .get(&field.name)
-            .ok_or_else(|| anyhow!("Couldn't find column {} in partition values", &field.name))?];
+            .ok_or_else(|| Error::InvalidFormat("partition value in schema".to_string()))?];
         if let Some(value) = value {
             if let Some(lower_bound) = &mut summary.lower_bound {
                 match (value, lower_bound) {
@@ -521,10 +522,17 @@ fn partition_values_in_bounds<'a>(
                     let name = &schema
                         .fields
                         .get(field.source_id.try_into().unwrap())
-                        .ok_or_else(|| anyhow!(""))
+                        .ok_or_else(|| {
+                            Error::InvalidFormat("partition values in schema".to_string())
+                        })
                         .unwrap()
                         .name;
-                    value.get(name).ok_or_else(|| anyhow!("")).unwrap()
+                    value
+                        .get(name)
+                        .ok_or_else(|| {
+                            Error::InvalidFormat("partition values in schema".to_string())
+                        })
+                        .unwrap()
                 })
                 .zip(partitions.iter())
                 .all(|(value, summary)| {

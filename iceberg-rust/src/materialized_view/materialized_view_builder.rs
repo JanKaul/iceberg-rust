@@ -7,11 +7,11 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::anyhow;
 use uuid::Uuid;
 
 use crate::{
     catalog::{identifier::Identifier, relation::Relation, Catalog},
+    error::Error,
     spec::{
         materialized_view_metadata::{
             FormatVersion, MaterializedViewMetadataBuilder, MaterializedViewRepresentation,
@@ -51,7 +51,7 @@ impl MaterializedViewBuilder {
         identifier: impl ToString,
         schema: Schema,
         catalog: Arc<dyn Catalog>,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Error> {
         let mut builder = MaterializedViewMetadataBuilder::default();
         builder
             .with_schema((1, schema))
@@ -77,7 +77,7 @@ impl MaterializedViewBuilder {
     }
 
     /// Building a materialized view writes the metadata file to the object store and commits the table to the metastore
-    pub async fn build(self) -> Result<MaterializedView, anyhow::Error> {
+    pub async fn build(self) -> Result<MaterializedView, Error> {
         let metadata = self.metadata.build()?;
         let table_identifier =
             Identifier::parse(match &metadata.current_version()?.representations[0] {
@@ -97,15 +97,14 @@ impl MaterializedViewBuilder {
                     .schemas
                     .as_ref()
                     .and_then(|schemas| schemas.get(schema_id))
-                    .ok_or(anyhow!("No schema in view metadata."))?
+                    .ok_or(Error::InvalidFormat("schema in metadata".to_string()))?
                     .clone(),
             ))
             .current_schema_id(*schema_id)
             .build()?;
         let object_store = self.catalog.object_store();
         let location = &metadata.location;
-        let metadata_json =
-            serde_json::to_string(&metadata).map_err(|err| anyhow!(err.to_string()))?;
+        let metadata_json = serde_json::to_string(&metadata)?;
         let path = (location.to_string()
             + "/metadata/"
             + &metadata.current_version_id.to_string()
@@ -113,12 +112,8 @@ impl MaterializedViewBuilder {
             + &Uuid::new_v4().to_string()
             + ".metadata.json")
             .into();
-        object_store
-            .put(&path, metadata_json.into())
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
-        let table_metadata_json =
-            serde_json::to_string(&table_metadata).map_err(|err| anyhow!(err.to_string()))?;
+        object_store.put(&path, metadata_json.into()).await?;
+        let table_metadata_json = serde_json::to_string(&table_metadata)?;
         let table_path = (location.to_string()
             + "/metadata/"
             + &table_metadata.last_sequence_number.to_string()
@@ -128,8 +123,7 @@ impl MaterializedViewBuilder {
             .into();
         object_store
             .put(&table_path, table_metadata_json.into())
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
+            .await?;
         if let Relation::Table(_) = self
             .catalog
             .clone()
@@ -138,7 +132,9 @@ impl MaterializedViewBuilder {
         {
             Ok(())
         } else {
-            Err(anyhow!("Building the storage table failed because registering the storage in the catalog didn't return a table."))
+            Err(Error::InvalidFormat(
+                "Entity returned from catalog".to_string(),
+            ))
         }?;
         if let Relation::MaterializedView(matview) = self
             .catalog
@@ -147,7 +143,9 @@ impl MaterializedViewBuilder {
         {
             Ok(matview)
         } else {
-            Err(anyhow!("Building the materialized view failed because registering the materialized view in the catalog didn't return a materialzied view."))
+            Err(Error::InvalidFormat(
+                "Entity returned from catalog".to_string(),
+            ))
         }
     }
 }

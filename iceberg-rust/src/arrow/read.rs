@@ -4,8 +4,6 @@
 
 use std::{convert, sync::Arc};
 
-use anyhow::anyhow;
-
 use arrow::record_batch::RecordBatch;
 use futures::{stream, Stream, StreamExt};
 use object_store::ObjectStore;
@@ -15,6 +13,7 @@ use parquet::{
 };
 
 use crate::{
+    error::Error,
     spec::manifest::{FileFormat, ManifestEntry},
     util,
 };
@@ -35,13 +34,13 @@ pub async fn read(
                             .await?;
 
                         let object_reader = ParquetObjectReader::new(object_store, object_meta);
-                        Ok::<_, anyhow::Error>(
+                        Ok::<_, Error>(
                             ParquetRecordBatchStreamBuilder::new(object_reader)
                                 .await?
                                 .build()?,
                         )
                     }
-                    _ => Err(anyhow!("Fileformat not supported.")),
+                    _ => Err(Error::NotSupported("fileformat".to_string())),
                 }
             }
         })

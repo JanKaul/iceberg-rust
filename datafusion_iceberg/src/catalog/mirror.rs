@@ -4,7 +4,10 @@ use datafusion::{datasource::TableProvider, error::DataFusionError};
 use futures::{executor::LocalPool, task::LocalSpawnExt};
 use std::{collections::HashSet, sync::Arc};
 
-use iceberg_rust::catalog::{identifier::Identifier, namespace::Namespace, Catalog};
+use iceberg_rust::{
+    catalog::{identifier::Identifier, namespace::Namespace, Catalog},
+    error::Error as IcebergError,
+};
 
 use crate::DataFusionTable;
 
@@ -79,7 +82,7 @@ impl Mirror {
                         .as_slice(),
                 )
             })
-            .collect::<Result<_, anyhow::Error>>()
+            .collect::<Result<_, IcebergError>>()
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))
     }
     pub async fn table(&self, identifier: Identifier) -> Option<Arc<dyn TableProvider>> {

@@ -4,12 +4,13 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
-
-use crate::spec::{
-    schema::Schema,
-    view_metadata::{
-        GeneralViewMetadata, Operation as SummaryOperation, Representation, Summary, Version,
+use crate::{
+    error::Error,
+    spec::{
+        schema::Schema,
+        view_metadata::{
+            GeneralViewMetadata, Operation as SummaryOperation, Representation, Summary, Version,
+        },
     },
 };
 
@@ -26,7 +27,7 @@ pub enum Operation<T: Representation> {
 
 impl<T: Representation> Operation<T> {
     /// Execute operation
-    pub async fn execute(self, metadata: &mut GeneralViewMetadata<T>) -> Result<()> {
+    pub async fn execute(self, metadata: &mut GeneralViewMetadata<T>) -> Result<(), Error> {
         match self {
             Operation::UpdateRepresentation {
                 representation,

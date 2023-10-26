@@ -5,11 +5,12 @@ use std::{collections::HashMap, fmt, ops::Index};
 
 use derive_builder::Builder;
 
-use anyhow::{anyhow, Result};
 use serde::{
-    de::{self, Error, IntoDeserializer, MapAccess, Visitor},
+    de::{self, Error as SerdeError, IntoDeserializer, MapAccess, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
 };
+
+use crate::error::Error;
 
 use super::partition::Transform;
 
@@ -117,8 +118,7 @@ where
         .trim_start_matches(r"decimal(")
         .trim_end_matches(')')
         .split_once(',')
-        .ok_or_else(|| anyhow!("Decimal requires precision and scale: {s}"))
-        .map_err(D::Error::custom)?;
+        .ok_or_else(|| D::Error::custom("Decimal requires precision and scale: {s}"))?;
 
     Ok(PrimitiveType::Decimal {
         precision: precision.parse().map_err(D::Error::custom)?,
@@ -329,7 +329,7 @@ pub struct MapType {
 
 impl Type {
     /// Perform a partition transformation for the given type
-    pub fn tranform(&self, transform: &Transform) -> Result<Type> {
+    pub fn tranform(&self, transform: &Transform) -> Result<Type, Error> {
         match transform {
             Transform::Identity => Ok(self.clone()),
             Transform::Bucket(_) => Ok(Type::Primitive(PrimitiveType::Int)),
@@ -338,9 +338,7 @@ impl Type {
             Transform::Month => Ok(Type::Primitive(PrimitiveType::Int)),
             Transform::Day => Ok(Type::Primitive(PrimitiveType::Int)),
             Transform::Hour => Ok(Type::Primitive(PrimitiveType::Int)),
-            _ => Err(anyhow!(
-                "Partition transform operation currently not supported."
-            )),
+            Transform::Void => Err(Error::NotSupported("void transform".to_string())),
         }
     }
 }

@@ -2,13 +2,13 @@
  * Defines the [Transaction] type for materialized views to perform multiple [Operation]s with ACID guarantees.
 */
 
-use anyhow::anyhow;
 use futures::StreamExt;
 use object_store::path::Path;
 use uuid::Uuid;
 
 use crate::{
     catalog::relation::Relation,
+    error::Error,
     spec::{materialized_view_metadata::MaterializedViewRepresentation, schema::Schema},
     view::transaction::operation::Operation as ViewOperation,
 };
@@ -42,14 +42,14 @@ impl<'view> Transaction<'view> {
         self
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
-    pub async fn commit(self) -> Result<(), anyhow::Error> {
+    pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.materialized_view.catalog();
         let object_store = catalog.object_store();
         let identifier = self.materialized_view.identifier().clone();
         // Execute the table operations
         let materialized_view = futures::stream::iter(self.operations)
             .fold(
-                Ok::<&mut MaterializedView, anyhow::Error>(self.materialized_view),
+                Ok::<&mut MaterializedView, Error>(self.materialized_view),
                 |view, op| async move {
                     let view = view?;
                     op.execute(&mut view.metadata).await?;
@@ -61,8 +61,7 @@ impl<'view> Transaction<'view> {
         let location = &&materialized_view.metadata().location;
         let transaction_uuid = Uuid::new_v4();
         let version = &&materialized_view.metadata().current_version_id;
-        let metadata_json = serde_json::to_string(&materialized_view.metadata())
-            .map_err(|err| anyhow!(err.to_string()))?;
+        let metadata_json = serde_json::to_string(&materialized_view.metadata())?;
         let metadata_file_location: Path = (location.to_string()
             + "/metadata/"
             + &version.to_string()
@@ -72,8 +71,7 @@ impl<'view> Transaction<'view> {
             .into();
         object_store
             .put(&metadata_file_location, metadata_json.into())
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
+            .await?;
         let previous_metadata_file_location = materialized_view.metadata_location();
         if let Relation::MaterializedView(new_mv) = catalog
             .clone()
@@ -87,8 +85,8 @@ impl<'view> Transaction<'view> {
             *materialized_view = new_mv;
             Ok(())
         } else {
-            Err(anyhow!(
-                "Updating the table for the transaction didn't return a table."
+            Err(Error::InvalidFormat(
+                "Entity returned from catalog".to_string(),
             ))
         }
     }

@@ -17,8 +17,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Build
-      run: cargo build --verbose
-    - name: Run iceberg-rust tests
-      run: cargo test --verbose -p iceberg-rust
-    - name: Run datafusion-iceberg tests
-      run: cargo test --verbose -p datafusion_iceberg -j 2
+      run: cargo build --verbose -j 2
+    - name: Run tests
+      run: cargo test --verbose -j 2

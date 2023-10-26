@@ -2,16 +2,17 @@
  * Convert between datafusion and iceberg schema
 */
 
-use anyhow::{anyhow, Result};
-
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 
 use arrow::datatypes::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
 
-use crate::spec::types::{PrimitiveType, StructField, StructType, Type};
+use crate::{
+    error::Error,
+    spec::types::{PrimitiveType, StructField, StructType, Type},
+};
 
 impl TryInto<ArrowSchema> for &StructType {
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn try_into(self) -> Result<ArrowSchema, Self::Error> {
         let fields = self
@@ -26,14 +27,14 @@ impl TryInto<ArrowSchema> for &StructType {
                     false,
                 ))
             })
-            .collect::<Result<_, anyhow::Error>>()?;
+            .collect::<Result<_, Error>>()?;
         let metadata = HashMap::new();
         Ok(ArrowSchema { fields, metadata })
     }
 }
 
 impl TryFrom<&ArrowSchema> for StructType {
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn try_from(value: &ArrowSchema) -> Result<Self, Self::Error> {
         let fields = value
@@ -43,7 +44,7 @@ impl TryFrom<&ArrowSchema> for StructType {
                 Ok(StructField {
                     id: field
                         .dict_id()
-                        .ok_or_else(|| anyhow!("Schema field is missing id."))?
+                        .ok_or_else(|| Error::InvalidFormat("Schema field id".to_string()))?
                         as i32,
                     name: field.name().to_owned(),
                     required: !field.is_nullable(),
@@ -51,13 +52,13 @@ impl TryFrom<&ArrowSchema> for StructType {
                     doc: None,
                 })
             })
-            .collect::<Result<_, anyhow::Error>>()?;
+            .collect::<Result<_, Error>>()?;
         Ok(StructType::new(fields))
     }
 }
 
 impl TryFrom<&Type> for DataType {
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn try_from(value: &Type) -> Result<Self, Self::Error> {
         match value {
@@ -102,7 +103,7 @@ impl TryFrom<&Type> for DataType {
                             false,
                         ))
                     })
-                    .collect::<Result<_, anyhow::Error>>()?,
+                    .collect::<Result<_, Error>>()?,
             )),
             Type::Map(map) => Ok(DataType::Map(
                 Arc::new(Field::new_dict(
@@ -134,7 +135,7 @@ impl TryFrom<&Type> for DataType {
 }
 
 impl TryFrom<&DataType> for Type {
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn try_from(value: &DataType) -> Result<Self, Self::Error> {
         match value {
@@ -155,7 +156,7 @@ impl TryFrom<&DataType> for Type {
                 Ok(Type::Primitive(PrimitiveType::Fixed(*len as u64)))
             }
             DataType::Binary => Ok(Type::Primitive(PrimitiveType::Binary)),
-            _ => Err(anyhow!("Other arrow datatypes not supported")),
+            _ => Err(Error::NotSupported("datatype to arrow".to_string())),
         }
     }
 }

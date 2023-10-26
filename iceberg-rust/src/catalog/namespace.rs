@@ -5,9 +5,7 @@ Defining the [Namespace] struct for handling namespaces in the catalog.
 use core::fmt::{self, Display};
 use itertools::Itertools;
 
-use crate::catalog::identifier::SEPARATOR;
-
-use anyhow::{anyhow, Result};
+use crate::{catalog::identifier::SEPARATOR, error::Error};
 
 /// Namespace struct for iceberg catalogs
 #[derive(Clone, Debug)]
@@ -17,11 +15,9 @@ pub struct Namespace {
 
 impl Namespace {
     /// Try to create new namespace with sequence of strings.
-    pub fn try_new(levels: &[String]) -> Result<Self> {
+    pub fn try_new(levels: &[String]) -> Result<Self, Error> {
         if levels.iter().any(|x| x.is_empty()) {
-            Err(anyhow!(
-                "Error: Cannot create a namespace with an empty entry."
-            ))
+            Err(Error::InvalidFormat("namespace sequence".to_string()))
         } else {
             Ok(Namespace {
                 levels: levels.to_vec(),

@@ -10,8 +10,6 @@ use std::{
     ops::Deref,
 };
 
-use anyhow::{anyhow, Result};
-
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
@@ -23,6 +21,8 @@ use serde::{
 use serde_bytes::ByteBuf;
 use serde_json::{Map as JsonMap, Number, Value as JsonValue};
 use uuid::Uuid;
+
+use crate::error::Error;
 
 use super::{
     partition::{PartitionField, Transform},
@@ -136,19 +136,19 @@ impl Struct {
         self,
         schema: &StructType,
         partition_spec: &[PartitionField],
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Error> {
         let map = partition_spec
             .iter()
             .map(|partition_field| {
                 let field = schema
                     .get(partition_field.source_id as usize)
-                    .ok_or(anyhow!("Partition field doesn't exist in schema"))?;
+                    .ok_or(Error::InvalidFormat("partition spec".to_string()))?;
                 Ok((
                     field.name.clone(),
                     field.field_type.tranform(&partition_field.transform)?,
                 ))
             })
-            .collect::<Result<HashMap<_, _>>>()?;
+            .collect::<Result<HashMap<_, _>, Error>>()?;
         Ok(Struct::from_iter(
             self.fields
                 .into_iter()
@@ -158,15 +158,15 @@ impl Struct {
                         .lookup
                         .iter()
                         .find(|(_, v)| **v == idx)
-                        .ok_or(anyhow!("Index not in lookup."))?
+                        .ok_or(Error::InvalidFormat("partition struct".to_string()))?
                         .0;
                     let datatype = map
                         .get(name)
-                        .ok_or(anyhow!("Can't find partition field by name"))?;
+                        .ok_or(Error::InvalidFormat("schema".to_string()))?;
                     let value = field.map(|value| value.cast(datatype)).transpose()?;
                     Ok((name.clone(), value))
                 })
-                .collect::<Result<Vec<_>, anyhow::Error>>()?,
+                .collect::<Result<Vec<_>, Error>>()?,
         ))
     }
 }
@@ -238,7 +238,7 @@ impl<'de> Deserialize<'de> for Struct {
 
 impl Value {
     /// Perform a partition transformation for the given value
-    pub fn tranform(&self, transform: &Transform) -> Result<Value> {
+    pub fn tranform(&self, transform: &Transform) -> Result<Value, Error> {
         match transform {
             Transform::Identity => Ok(self.clone()),
             Transform::Bucket(n) => {
@@ -254,8 +254,8 @@ impl Value {
                     s.truncate(*w as usize);
                     Ok(Value::String(s))
                 }
-                _ => Err(anyhow!(
-                    "Datatype is not supported for truncate partition transform."
+                _ => Err(Error::NotSupported(
+                    "Datatype for truncate partition transform.".to_string(),
                 )),
             },
             Transform::Year => match self {
@@ -284,8 +284,8 @@ impl Value {
                         .num_days()
                         / 364) as i32,
                 )),
-                _ => Err(anyhow!(
-                    "Datatype is not supported for year partition transform."
+                _ => Err(Error::NotSupported(
+                    "Datatype for year partition transform.".to_string(),
                 )),
             },
             Transform::Month => match self {
@@ -312,8 +312,8 @@ impl Value {
                         )
                         .num_weeks()) as i32,
                 )),
-                _ => Err(anyhow!(
-                    "Datatype is not supported for month partition transform."
+                _ => Err(Error::NotSupported(
+                    "Datatype for month partition transform.".to_string(),
                 )),
             },
             Transform::Day => match self {
@@ -340,8 +340,8 @@ impl Value {
                         )
                         .num_days()) as i32,
                 )),
-                _ => Err(anyhow!(
-                    "Datatype is not supported for day partition transform."
+                _ => Err(Error::NotSupported(
+                    "Datatype for day partition transform.".to_string(),
                 )),
             },
             Transform::Hour => match self {
@@ -367,19 +367,19 @@ impl Value {
                         )
                         .num_hours()) as i32,
                 )),
-                _ => Err(anyhow!(
-                    "Datatype is not supported for hour partition transform."
+                _ => Err(Error::NotSupported(
+                    "Datatype for hour partition transform.".to_string(),
                 )),
             },
-            _ => Err(anyhow!(
-                "Partition transform operation currently not supported."
+            _ => Err(Error::NotSupported(
+                "Partition transform operation".to_string(),
             )),
         }
     }
 
     #[inline]
     /// Create iceberg value from bytes
-    pub fn try_from_bytes(bytes: &[u8], data_type: &Type) -> Result<Self, anyhow::Error> {
+    pub fn try_from_bytes(bytes: &[u8], data_type: &Type) -> Result<Self, Error> {
         match data_type {
             Type::Primitive(primitive) => match primitive {
                 PrimitiveType::Boolean => {
@@ -411,39 +411,40 @@ impl Value {
                 )))),
                 PrimitiveType::Fixed(len) => Ok(Value::Fixed(*len as usize, Vec::from(bytes))),
                 PrimitiveType::Binary => Ok(Value::Binary(Vec::from(bytes))),
-                _ => Err(anyhow!("Decimal cannot be stored as bytes.")),
+                _ => Err(Error::Type("decimal".to_string(), "bytes".to_string())),
             },
-            _ => Err(anyhow!("Only primitive types can be stored as bytes.")),
+            _ => Err(Error::NotSupported("Complex types as bytes".to_string())),
         }
     }
 
     /// Create iceberg value from a json value
-    pub fn try_from_json(value: JsonValue, data_type: &Type) -> Result<Option<Self>> {
+    pub fn try_from_json(value: JsonValue, data_type: &Type) -> Result<Option<Self>, Error> {
         match data_type {
             Type::Primitive(primitive) => match (primitive, value) {
                 (PrimitiveType::Boolean, JsonValue::Bool(bool)) => Ok(Some(Value::Boolean(bool))),
                 (PrimitiveType::Int, JsonValue::Number(number)) => Ok(Some(Value::Int(
                     number
                         .as_i64()
-                        .ok_or(anyhow!("Failed to convert json number to int"))?
+                        .ok_or(Error::Conversion(
+                            "json number".to_string(),
+                            "int".to_string(),
+                        ))?
                         .try_into()?,
                 ))),
                 (PrimitiveType::Long, JsonValue::Number(number)) => {
-                    Ok(Some(Value::LongInt(number.as_i64().ok_or(anyhow!(
-                        "Failed to convert json number to long"
-                    ))?)))
+                    Ok(Some(Value::LongInt(number.as_i64().ok_or(
+                        Error::Conversion("json number".to_string(), "long".to_string()),
+                    )?)))
                 }
-                (PrimitiveType::Float, JsonValue::Number(number)) => {
-                    Ok(Some(Value::Float(OrderedFloat(
-                        number
-                            .as_f64()
-                            .ok_or(anyhow!("Failed to convert json number to float"))?
-                            as f32,
-                    ))))
-                }
+                (PrimitiveType::Float, JsonValue::Number(number)) => Ok(Some(Value::Float(
+                    OrderedFloat(number.as_f64().ok_or(Error::Conversion(
+                        "json number".to_string(),
+                        "float".to_string(),
+                    ))? as f32),
+                ))),
                 (PrimitiveType::Double, JsonValue::Number(number)) => {
                     Ok(Some(Value::Double(OrderedFloat(number.as_f64().ok_or(
-                        anyhow!("Failed to convert json number to float"),
+                        Error::Conversion("json number".to_string(), "double".to_string()),
                     )?))))
                 }
                 (PrimitiveType::Date, JsonValue::String(s)) => Ok(Some(Value::Date(
@@ -476,11 +477,7 @@ impl Value {
                     JsonValue::String(_),
                 ) => todo!(),
                 (_, JsonValue::Null) => Ok(None),
-                (i, j) => Err(anyhow!(
-                    "The json value {} doesn't fit to the iceberg type {}.",
-                    j,
-                    i
-                )),
+                (i, j) => Err(Error::Type(i.to_string(), j.to_string())),
             },
             Type::Struct(schema) => {
                 if let JsonValue::Object(mut object) = value {
@@ -491,7 +488,9 @@ impl Value {
                                 object.remove(&field.id.to_string()).and_then(|value| {
                                     Value::try_from_json(value, &field.field_type)
                                         .and_then(|value| {
-                                            value.ok_or(anyhow!("Key of map cannot be null"))
+                                            value.ok_or(Error::InvalidFormat(
+                                                "key of map".to_string(),
+                                            ))
                                         })
                                         .ok()
                                 }),
@@ -499,8 +498,9 @@ impl Value {
                         }),
                     ))))
                 } else {
-                    Err(anyhow!(
-                        "The json value for a struct type must be an object."
+                    Err(Error::Type(
+                        "json for a struct".to_string(),
+                        "object".to_string(),
                     ))
                 }
             }
@@ -510,10 +510,13 @@ impl Value {
                         array
                             .into_iter()
                             .map(|value| Value::try_from_json(value, &list.element))
-                            .collect::<Result<Vec<_>>>()?,
+                            .collect::<Result<Vec<_>, Error>>()?,
                     )))
                 } else {
-                    Err(anyhow!("The json value for a list type must be an array."))
+                    Err(Error::Type(
+                        "json for a list".to_string(),
+                        "array".to_string(),
+                    ))
                 }
             }
             Type::Map(map) => {
@@ -527,18 +530,26 @@ impl Value {
                                 .map(|(key, value)| {
                                     Ok((
                                         Value::try_from_json(key, &map.key).and_then(|value| {
-                                            value.ok_or(anyhow!("Key of map cannot be null"))
+                                            value.ok_or(Error::InvalidFormat(
+                                                "key of map".to_string(),
+                                            ))
                                         })?,
                                         Value::try_from_json(value, &map.value)?,
                                     ))
                                 })
-                                .collect::<Result<Vec<_>>>()?,
+                                .collect::<Result<Vec<_>, Error>>()?,
                         ))))
                     } else {
-                        Err(anyhow!("The json value for a list type must be an array."))
+                        Err(Error::Type(
+                            "json for a list".to_string(),
+                            "array".to_string(),
+                        ))
                     }
                 } else {
-                    Err(anyhow!("The json value for a list type must be an array."))
+                    Err(Error::Type(
+                        "json for a list".to_string(),
+                        "array".to_string(),
+                    ))
                 }
             }
         }
@@ -589,7 +600,7 @@ impl Value {
         }
     }
     /// Cast value to different type
-    pub fn cast(self, data_type: &Type) -> Result<Self, anyhow::Error> {
+    pub fn cast(self, data_type: &Type) -> Result<Self, Error> {
         if self.datatype() == *data_type {
             Ok(self)
         } else {
@@ -607,7 +618,7 @@ impl Value {
                 (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestampz)) => {
                     Ok(Value::TimestampTZ(input))
                 }
-                _ => Err(anyhow!("Cast is not supported")),
+                _ => Err(Error::NotSupported("cast".to_string())),
             }
         }
     }

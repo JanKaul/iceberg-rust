@@ -1,6 +1,8 @@
 [workspace]
 members = ["iceberg-rust", "datafusion_iceberg"]
 
+workspace.resolver = "2"
+
 [workspace.dependencies]  
 anyhow = "^1.0"
 object_store = { version = "0.7", features = ["aws", "gcp"] }
@@ -11,4 +13,5 @@ futures = "0.3.28"
 async-trait = "0.1.68"
 chrono = { version = "0.4.23", default-features = false, features = ["serde"] }
 datafusion = "31.0.0"
+thiserror = "1.0"
 url = "^2.2"

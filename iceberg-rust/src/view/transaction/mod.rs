@@ -2,7 +2,6 @@
  * Defines the [Transaction] type for views to perform multiple view [Operation]s with ACID guarantees.
 */
 
-use anyhow::{anyhow, Result};
 use futures::StreamExt;
 use object_store::path::Path;
 use uuid::Uuid;
@@ -11,6 +10,7 @@ pub mod operation;
 
 use crate::{
     catalog::relation::Relation,
+    error::Error,
     spec::{schema::Schema, view_metadata::ViewRepresentation},
 };
 
@@ -45,7 +45,7 @@ impl<'view> Transaction<'view> {
         self
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
-    pub async fn commit(self) -> Result<()> {
+    pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.view.catalog();
         let object_store = catalog.object_store();
         let identifier = self.view.identifier().clone();
@@ -53,21 +53,17 @@ impl<'view> Transaction<'view> {
         self.view.increment_version_number();
         // Execute the table operations
         let view = futures::stream::iter(self.operations)
-            .fold(
-                Ok::<&mut View, anyhow::Error>(self.view),
-                |view, op| async move {
-                    let view = view?;
-                    op.execute(&mut view.metadata).await?;
-                    Ok(view)
-                },
-            )
+            .fold(Ok::<&mut View, Error>(self.view), |view, op| async move {
+                let view = view?;
+                op.execute(&mut view.metadata).await?;
+                Ok(view)
+            })
             .await?;
 
         let location = &&view.metadata().location;
         let transaction_uuid = Uuid::new_v4();
         let version = &&view.metadata().current_version_id;
-        let metadata_json =
-            serde_json::to_string(&view.metadata()).map_err(|err| anyhow!(err.to_string()))?;
+        let metadata_json = serde_json::to_string(&view.metadata())?;
         let metadata_file_location: Path = (location.to_string()
             + "/metadata/"
             + &version.to_string()
@@ -77,8 +73,7 @@ impl<'view> Transaction<'view> {
             .into();
         object_store
             .put(&metadata_file_location, metadata_json.into())
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
+            .await?;
         let previous_metadata_file_location = view.metadata_location();
         if let Relation::View(new_view) = catalog
             .clone()
@@ -92,8 +87,8 @@ impl<'view> Transaction<'view> {
             *view = new_view;
             Ok(())
         } else {
-            Err(anyhow!(
-                "Updating the table for the transaction didn't return a table."
+            Err(Error::InvalidFormat(
+                "Entity returned from catalog".to_string(),
             ))
         }
     }

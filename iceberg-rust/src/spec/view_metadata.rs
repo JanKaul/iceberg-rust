@@ -7,11 +7,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::anyhow;
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
+
+use crate::error::Error;
 
 use super::schema::Schema;
 
@@ -56,19 +57,19 @@ pub struct GeneralViewMetadata<T: Representation> {
 impl<T: Representation> GeneralViewMetadata<T> {
     /// Get current schema
     #[inline]
-    pub fn current_schema(&self) -> Result<&Schema, anyhow::Error> {
+    pub fn current_schema(&self) -> Result<&Schema, Error> {
         let id = self.current_version()?.schema_id;
         self.schemas
             .as_ref()
             .and_then(|schema| schema.get(&id))
-            .ok_or_else(|| anyhow!("Schema not found"))
+            .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
     /// Get current version
     #[inline]
-    pub fn current_version(&self) -> Result<&Version<T>, anyhow::Error> {
+    pub fn current_version(&self) -> Result<&Version<T>, Error> {
         self.versions
             .get(&self.current_version_id)
-            .ok_or_else(|| anyhow!("Version {} not found", self.current_version_id))
+            .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
     /// Add schema to view metadata
     #[inline]
@@ -90,7 +91,10 @@ mod _serde {
     use serde::{Deserialize, Serialize};
     use uuid::Uuid;
 
-    use crate::spec::{schema::SchemaV2, table_metadata::VersionNumber};
+    use crate::{
+        error::Error,
+        spec::{schema::SchemaV2, table_metadata::VersionNumber},
+    };
 
     use super::{FormatVersion, GeneralViewMetadata, Representation, Version, VersionLogStruct};
 
@@ -127,7 +131,7 @@ mod _serde {
     }
 
     impl<T: Representation> TryFrom<ViewMetadataEnum<T>> for GeneralViewMetadata<T> {
-        type Error = anyhow::Error;
+        type Error = Error;
         fn try_from(value: ViewMetadataEnum<T>) -> Result<Self, Self::Error> {
             match value {
                 ViewMetadataEnum::V1(metadata) => metadata.try_into(),
@@ -144,7 +148,7 @@ mod _serde {
     }
 
     impl<T: Representation> TryFrom<ViewMetadataV1<T>> for GeneralViewMetadata<T> {
-        type Error = anyhow::Error;
+        type Error = Error;
         fn try_from(value: ViewMetadataV1<T>) -> Result<Self, Self::Error> {
             Ok(GeneralViewMetadata {
                 view_uuid: value.view_uuid,
@@ -159,7 +163,7 @@ mod _serde {
                         schemas
                             .into_iter()
                             .map(|x| Ok((x.schema_id, x.try_into()?)))
-                            .collect::<Result<Vec<_>, anyhow::Error>>()?,
+                            .collect::<Result<Vec<_>, Error>>()?,
                     )),
                     None => None,
                 },
@@ -318,12 +322,10 @@ pub trait Representation: Clone {}
 #[cfg(test)]
 mod tests {
 
-    use anyhow::Result;
-
-    use crate::spec::view_metadata::ViewMetadata;
+    use crate::{error::Error, spec::view_metadata::ViewMetadata};
 
     #[test]
-    fn test_deserialize_view_data_v1() -> Result<()> {
+    fn test_deserialize_view_data_v1() -> Result<(), Error> {
         let data = r#"
         {
         "view-uuid": "fa6506c3-7681-40c8-86dc-e36561f83385",

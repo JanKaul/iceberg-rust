@@ -10,11 +10,10 @@ use std::{
 use object_store::path::Path;
 use uuid::Uuid;
 
-use crate::catalog::identifier::Identifier;
 use crate::catalog::relation::Relation;
 use crate::spec::table_metadata::TableMetadataBuilder;
 use crate::table::Table;
-use anyhow::{anyhow, Result};
+use crate::{catalog::identifier::Identifier, error::Error};
 
 use super::Catalog;
 
@@ -40,7 +39,7 @@ impl DerefMut for TableBuilder {
 
 impl TableBuilder {
     /// Creates a new [TableBuilder] to create a Metastore Table with some default metadata entries already set.
-    pub fn new(identifier: impl ToString, catalog: Arc<dyn Catalog>) -> Result<Self> {
+    pub fn new(identifier: impl ToString, catalog: Arc<dyn Catalog>) -> Result<Self, Error> {
         Ok(TableBuilder {
             metadata: TableMetadataBuilder::default(),
             catalog,
@@ -48,14 +47,13 @@ impl TableBuilder {
         })
     }
     /// Building a table writes the metadata file and commits the table to either the metastore or the filesystem
-    pub async fn build(&mut self) -> Result<Table> {
+    pub async fn build(&mut self) -> Result<Table, Error> {
         let object_store = self.catalog.object_store();
         let metadata = self.metadata.build()?;
         let location = &metadata.location;
         let uuid = Uuid::new_v4();
         let version = &metadata.last_sequence_number;
-        let metadata_json =
-            serde_json::to_string(&metadata).map_err(|err| anyhow!(err.to_string()))?;
+        let metadata_json = serde_json::to_string(&metadata)?;
         let path: Path = (location.to_string()
             + "/metadata/"
             + &version.to_string()
@@ -63,10 +61,7 @@ impl TableBuilder {
             + &uuid.to_string()
             + ".metadata.json")
             .into();
-        object_store
-            .put(&path, metadata_json.into())
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
+        object_store.put(&path, metadata_json.into()).await?;
         if let Relation::Table(table) = self
             .catalog
             .clone()
@@ -75,7 +70,9 @@ impl TableBuilder {
         {
             Ok(table)
         } else {
-            Err(anyhow!("Building the table failed because registering the table in the catalog didn't return a table."))
+            Err(Error::InvalidFormat(
+                "Entity returned from catalog".to_string(),
+            ))
         }
     }
 }

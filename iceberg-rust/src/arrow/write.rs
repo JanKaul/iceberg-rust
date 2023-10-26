@@ -37,11 +37,7 @@ pub async fn write_parquet_partitioned(
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<Vec<(String, DatafileMetadata)>, ArrowError> {
     let streams = partition_record_batches(batches, partition_spec, schema).await?;
-    let arrow_schema: Arc<ArrowSchema> = Arc::new(
-        (&schema.fields)
-            .try_into()
-            .map_err(|err: anyhow::Error| ArrowError::SchemaError(err.to_string()))?,
-    );
+    let arrow_schema: Arc<ArrowSchema> = Arc::new((&schema.fields).try_into()?);
     stream::iter(streams.into_iter())
         .then(|batches| {
             let arrow_schema = arrow_schema.clone();

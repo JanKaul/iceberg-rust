@@ -1,13 +1,15 @@
 /*!
  * Partitioning
 */
-use anyhow::anyhow;
+
 use serde::{
-    de::{Error, IntoDeserializer},
+    de::{Error as SerdeError, IntoDeserializer},
     Deserialize, Deserializer, Serialize, Serializer,
 };
 
 use derive_builder::Builder;
+
+use crate::error::Error;
 
 use super::types::{StructType, Type};
 
@@ -132,7 +134,7 @@ pub struct PartitionSpec {
 
 impl PartitionSpec {
     /// Get datatypes of partition fields
-    pub fn data_types(&self, schema: &StructType) -> Result<Vec<Type>, anyhow::Error> {
+    pub fn data_types(&self, schema: &StructType) -> Result<Vec<Type>, Error> {
         self.fields
             .iter()
             .map(|field| {
@@ -141,7 +143,7 @@ impl PartitionSpec {
                     .map(|x| x.field_type.clone())
             })
             .collect::<Option<Vec<_>>>()
-            .ok_or(anyhow!("Failed to get datatypes of partition fields."))
+            .ok_or(Error::InvalidFormat("partition spec".to_string()))
     }
 }
 

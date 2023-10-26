@@ -3,14 +3,15 @@ Defines the [table metadata](https://iceberg.apache.org/spec/#table-metadata).
 The main struct here is [TableMetadataV2] which defines the data for a table.
 */
 
-use anyhow::anyhow;
-
 use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::spec::{partition::PartitionSpec, snapshot::Reference, sort};
+use crate::{
+    error::Error,
+    spec::{partition::PartitionSpec, snapshot::Reference, sort},
+};
 
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -121,30 +122,28 @@ pub struct TableMetadata {
 impl TableMetadata {
     /// Get current schema
     #[inline]
-    pub fn current_schema(&self) -> Result<&Schema, anyhow::Error> {
+    pub fn current_schema(&self) -> Result<&Schema, Error> {
         self.schemas
             .get(&self.current_schema_id)
-            .ok_or_else(|| anyhow!("Schema {} not found", self.current_schema_id))
+            .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
     /// Get default partition spec
     #[inline]
-    pub fn default_partition_spec(&self) -> Result<&PartitionSpec, anyhow::Error> {
+    pub fn default_partition_spec(&self) -> Result<&PartitionSpec, Error> {
         self.partition_specs
             .get(&self.default_spec_id)
-            .ok_or_else(|| anyhow!("Partition spec {} not found", self.default_spec_id))
+            .ok_or_else(|| Error::InvalidFormat("partition spec".to_string()))
     }
 
     /// Get current snapshot
     #[inline]
-    pub fn current_snapshot(&self) -> Result<Option<&Snapshot>, anyhow::Error> {
+    pub fn current_snapshot(&self) -> Result<Option<&Snapshot>, Error> {
         match (&self.current_snapshot_id, &self.snapshots) {
             (Some(snapshot_id), Some(snapshots)) => Ok(snapshots.get(snapshot_id)),
             (Some(-1), None) => Ok(None),
             (None, None) => Ok(None),
-            (Some(_), None) => Err(anyhow!("Snapshot id provided but there are no snapshots")),
-            (None, Some(_)) => Err(anyhow!(
-                "There are snapshots but no snapshot id is provided"
-            )),
+            (Some(_), None) => Err(Error::InvalidFormat("snapshots".to_string())),
+            (None, Some(_)) => Err(Error::InvalidFormat("snapshots".to_string())),
         }
     }
     /// Get particular snapshot
@@ -160,19 +159,21 @@ impl TableMetadata {
 mod _serde {
     use std::collections::HashMap;
 
-    use anyhow::anyhow;
     use itertools::Itertools;
     use serde::{Deserialize, Serialize};
     use uuid::Uuid;
 
-    use crate::spec::{
-        partition::{PartitionField, PartitionSpec},
-        schema,
-        snapshot::{
-            Reference, Retention,
-            _serde::{SnapshotV1, SnapshotV2},
+    use crate::{
+        error::Error,
+        spec::{
+            partition::{PartitionField, PartitionSpec},
+            schema,
+            snapshot::{
+                Reference, Retention,
+                _serde::{SnapshotV1, SnapshotV2},
+            },
+            sort,
         },
-        sort,
     };
 
     use super::{
@@ -340,8 +341,8 @@ mod _serde {
     }
 
     impl TryFrom<TableMetadataEnum> for TableMetadata {
-        type Error = anyhow::Error;
-        fn try_from(value: TableMetadataEnum) -> Result<Self, anyhow::Error> {
+        type Error = Error;
+        fn try_from(value: TableMetadataEnum) -> Result<Self, Error> {
             match value {
                 TableMetadataEnum::V2(value) => value.try_into(),
                 TableMetadataEnum::V1(value) => value.try_into(),
@@ -359,8 +360,8 @@ mod _serde {
     }
 
     impl TryFrom<TableMetadataV2> for TableMetadata {
-        type Error = anyhow::Error;
-        fn try_from(value: TableMetadataV2) -> Result<Self, anyhow::Error> {
+        type Error = Error;
+        fn try_from(value: TableMetadataV2) -> Result<Self, Error> {
             let current_snapshot_id = if let &Some(-1) = &value.current_snapshot_id {
                 None
             } else {
@@ -371,7 +372,7 @@ mod _serde {
                     .schemas
                     .into_iter()
                     .map(|schema| Ok((schema.schema_id, schema.try_into()?)))
-                    .collect::<Result<Vec<_>, anyhow::Error>>()?,
+                    .collect::<Result<Vec<_>, Error>>()?,
             );
             Ok(TableMetadata {
                 format_version: FormatVersion::V2,
@@ -383,10 +384,7 @@ mod _serde {
                 current_schema_id: if schemas.keys().contains(&value.current_schema_id) {
                     Ok(value.current_schema_id)
                 } else {
-                    Err(anyhow!(
-                        "No schema exists with the schema id {}",
-                        &value.current_schema_id
-                    ))
+                    Err(Error::InvalidFormat("schema".to_string()))
                 }?,
                 schemas,
                 partition_specs: HashMap::from_iter(
@@ -414,19 +412,19 @@ mod _serde {
     }
 
     impl TryFrom<TableMetadataV1> for TableMetadata {
-        type Error = anyhow::Error;
-        fn try_from(value: TableMetadataV1) -> Result<Self, anyhow::Error> {
+        type Error = Error;
+        fn try_from(value: TableMetadataV1) -> Result<Self, Error> {
             let schemas = value
                 .schemas
                 .map(|schemas| {
-                    Ok::<_, anyhow::Error>(HashMap::from_iter(
+                    Ok::<_, Error>(HashMap::from_iter(
                         schemas
                             .into_iter()
                             .enumerate()
                             .map(|(i, schema)| {
                                 Ok((schema.schema_id.unwrap_or(i as i32), schema.try_into()?))
                             })
-                            .collect::<Result<Vec<_>, anyhow::Error>>()?
+                            .collect::<Result<Vec<_>, Error>>()?
                             .into_iter(),
                     ))
                 })
@@ -474,11 +472,11 @@ mod _serde {
                 snapshots: value
                     .snapshots
                     .map(|snapshots| {
-                        Ok::<_, anyhow::Error>(HashMap::from_iter(
+                        Ok::<_, Error>(HashMap::from_iter(
                             snapshots
                                 .into_iter()
                                 .map(|x| Ok((x.snapshot_id, x.into())))
-                                .collect::<Result<Vec<_>, anyhow::Error>>()?,
+                                .collect::<Result<Vec<_>, Error>>()?,
                         ))
                     })
                     .transpose()?,
@@ -627,14 +625,17 @@ pub enum FormatVersion {
 }
 
 impl TryFrom<u8> for FormatVersion {
-    type Error = anyhow::Error;
+    type Error = Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match char::from_u32(value as u32)
-            .ok_or_else(|| anyhow!("Failed to convert u8 to char."))?
+            .ok_or_else(|| Error::Conversion("u8".to_string(), "char".to_string()))?
         {
             '1' => Ok(FormatVersion::V1),
             '2' => Ok(FormatVersion::V2),
-            _ => Err(anyhow!("Failed to convert u8 to FormatVersion.")),
+            _ => Err(Error::Conversion(
+                "u8".to_string(),
+                "format version".to_string(),
+            )),
         }
     }
 }
@@ -651,12 +652,10 @@ impl From<FormatVersion> for u8 {
 #[cfg(test)]
 mod tests {
 
-    use anyhow::Result;
-
-    use crate::spec::table_metadata::TableMetadata;
+    use crate::{error::Error, spec::table_metadata::TableMetadata};
 
     #[test]
-    fn test_deserialize_table_data_v2() -> Result<()> {
+    fn test_deserialize_table_data_v2() -> Result<(), Error> {
         let data = r#"
             {
                 "format-version" : 2,
@@ -721,7 +720,7 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_table_data_v1() -> Result<()> {
+    fn test_deserialize_table_data_v1() -> Result<(), Error> {
         let data = r#"
         {
             "format-version" : 1,

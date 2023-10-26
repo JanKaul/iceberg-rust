@@ -3,6 +3,8 @@
 */
 use serde::{Deserialize, Serialize};
 
+use crate::error::Error;
+
 use super::types::StructType;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -21,7 +23,7 @@ pub struct Schema {
 }
 
 impl TryFrom<SchemaV2> for Schema {
-    type Error = anyhow::Error;
+    type Error = Error;
     fn try_from(value: SchemaV2) -> Result<Self, Self::Error> {
         Ok(Schema {
             schema_id: value.schema_id,
@@ -32,7 +34,7 @@ impl TryFrom<SchemaV2> for Schema {
 }
 
 impl TryFrom<SchemaV1> for Schema {
-    type Error = anyhow::Error;
+    type Error = Error;
     fn try_from(value: SchemaV1) -> Result<Self, Self::Error> {
         Ok(Schema {
             schema_id: value.schema_id.unwrap_or(0),

@@ -4,8 +4,6 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{anyhow, Result};
-
 use parquet::{
     file::{metadata::RowGroupMetaData, writer::TrackedWrite},
     format::FileMetaData,
@@ -13,11 +11,14 @@ use parquet::{
 };
 use thrift::protocol::{TCompactOutputProtocol, TSerializable};
 
-use crate::spec::{
-    manifest::{AvroMap, Content, DataFile, FileFormat},
-    partition::{PartitionField, Transform},
-    schema::Schema,
-    values::{Struct, Value},
+use crate::{
+    error::Error,
+    spec::{
+        manifest::{AvroMap, Content, DataFile, FileFormat},
+        partition::{PartitionField, Transform},
+        schema::Schema,
+        values::{Struct, Value},
+    },
 };
 
 /// Read datafile statistics from parquetfile
@@ -27,27 +28,27 @@ pub fn parquet_to_datafile(
     file_metadata: &FileMetaData,
     schema: &Schema,
     partition_spec: &[PartitionField],
-) -> Result<DataFile> {
+) -> Result<DataFile, Error> {
     let mut partition = partition_spec
         .iter()
         .map(|x| {
             let field = schema
                 .fields
                 .get(x.source_id as usize)
-                .ok_or_else(|| anyhow!("Column with id {} is missing in schema.", x.source_id))?;
+                .ok_or_else(|| Error::InvalidFormat("partition column in schema".to_string()))?;
             Ok((field.name.clone(), None))
         })
-        .collect::<Result<Struct>>()?;
+        .collect::<Result<Struct, Error>>()?;
     let transforms = partition_spec
         .iter()
         .map(|x| {
             let field = schema
                 .fields
                 .get(x.source_id as usize)
-                .ok_or_else(|| anyhow!("Column with id {} is missing in schema.", x.source_id))?;
+                .ok_or_else(|| Error::InvalidFormat("partition column in schema".to_string()))?;
             Ok((field.name.clone(), x.transform.clone()))
         })
-        .collect::<Result<HashMap<String, Transform>>>()?;
+        .collect::<Result<HashMap<String, Transform>, Error>>()?;
     let parquet_schema = Arc::new(SchemaDescriptor::new(from_thrift(&file_metadata.schema)?));
 
     let mut column_sizes = Some(AvroMap(HashMap::new()));
@@ -62,9 +63,11 @@ pub fn parquet_to_datafile(
 
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
-            let id = schema.fields
-                    .get_name(column_name)
-                    .ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.id;
+            let id = schema
+                .fields
+                .get_name(column_name)
+                .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
+                .id;
             if let Some(column_sizes) = &mut column_sizes {
                 if let Some(entry) = column_sizes.0.get_mut(&id) {
                     *entry += column.compressed_size()
@@ -90,7 +93,11 @@ pub fn parquet_to_datafile(
                 }
                 if let Some(lower_bounds) = &mut lower_bounds {
                     if let Some(entry) = lower_bounds.get_mut(&id) {
-                        let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
+                        let data_type = &schema
+                            .fields
+                            .get(id as usize)
+                            .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
+                            .field_type;
 
                         let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
                         match (&entry, &new) {
@@ -140,7 +147,11 @@ pub fn parquet_to_datafile(
                 }
                 if let Some(upper_bounds) = &mut upper_bounds {
                     if let Some(entry) = upper_bounds.get_mut(&id) {
-                        let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
+                        let data_type = &schema
+                            .fields
+                            .get(id as usize)
+                            .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
+                            .field_type;
                         let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
                         match (&entry, &new) {
                             (Value::Int(current), Value::Int(new_val)) => {
@@ -189,10 +200,14 @@ pub fn parquet_to_datafile(
                 }
                 if let Some(partition_value) = partition.get_mut(column_name) {
                     if partition_value.is_none() {
-                        let data_type = &schema.fields.get(id as usize).ok_or_else(|| anyhow!("Error: Failed to add Parquet file to table. Colummn {} doesn't exist in schema.", column_name))?.field_type;
-                        let transform = transforms.get(column_name).ok_or_else(|| {
-                            anyhow!("Transform for column {} doesn't exist", column_name)
-                        })?;
+                        let data_type = &schema
+                            .fields
+                            .get(id as usize)
+                            .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
+                            .field_type;
+                        let transform = transforms
+                            .get(column_name)
+                            .ok_or_else(|| Error::InvalidFormat("transform".to_string()))?;
                         let min = Value::try_from_bytes(statistics.min_bytes(), data_type)?
                             .tranform(transform)?;
                         let max = Value::try_from_bytes(statistics.max_bytes(), data_type)?
@@ -228,7 +243,7 @@ pub fn parquet_to_datafile(
 }
 
 /// Get parquet metadata size
-pub fn thrift_size<T: TSerializable>(metadata: &T) -> Result<usize, anyhow::Error> {
+pub fn thrift_size<T: TSerializable>(metadata: &T) -> Result<usize, Error> {
     let mut buffer = TrackedWrite::new(Vec::<u8>::new());
     let mut protocol = TCompactOutputProtocol::new(&mut buffer);
     metadata.write_to_out_protocol(&mut protocol)?;

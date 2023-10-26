@@ -4,13 +4,14 @@ Defining an in memory catalog struct.
 
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 use futures::lock::Mutex;
 use object_store::ObjectStore;
 use rusqlite::{Connection, Row};
 
-use crate::{materialized_view::MaterializedView, table::Table, util::strip_prefix, view::View};
+use crate::{
+    error::Error, materialized_view::MaterializedView, table::Table, util::strip_prefix, view::View,
+};
 
 use super::{
     identifier::Identifier,
@@ -28,7 +29,7 @@ pub struct MemoryCatalog {
 
 impl MemoryCatalog {
     /// create new in memory catalog
-    pub fn new(name: &str, object_store: Arc<dyn ObjectStore>) -> Result<Self, anyhow::Error> {
+    pub fn new(name: &str, object_store: Arc<dyn ObjectStore>) -> Result<Self, Error> {
         let connection = Connection::open_in_memory()?;
         connection.execute(
             "create table iceberg_tables (
@@ -70,7 +71,7 @@ impl Catalog for MemoryCatalog {
     async fn list_tables(
         &self,
         namespace: &super::namespace::Namespace,
-    ) -> anyhow::Result<Vec<super::identifier::Identifier>> {
+    ) -> Result<Vec<super::identifier::Identifier>, Error> {
         let connection = self.connection.lock().await;
         let mut stmt = connection.prepare("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = ?1 and table_namespace = ?2")?;
         let iter = stmt.query_map([&self.name, &namespace.to_string()], query_map)?;
@@ -82,18 +83,18 @@ impl Catalog for MemoryCatalog {
             })
         })
         .collect::<Result<_, rusqlite::Error>>()
-        .map_err(anyhow::Error::msg)
+        .map_err(Into::into)
     }
     async fn list_namespaces(
         &self,
         _parent: Option<&str>,
-    ) -> anyhow::Result<Vec<super::namespace::Namespace>> {
+    ) -> Result<Vec<super::namespace::Namespace>, Error> {
         unimplemented!()
     }
     async fn table_exists(
         &self,
         identifier: &super::identifier::Identifier,
-    ) -> anyhow::Result<bool> {
+    ) -> Result<bool, Error> {
         let connection = self.connection.lock().await;
         let mut stmt = connection.prepare("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = ?1 and table_namespace = ?2 and table_name = ?3")?;
         let mut iter = stmt.query_map(
@@ -107,7 +108,7 @@ impl Catalog for MemoryCatalog {
 
         Ok(iter.next().is_some())
     }
-    async fn drop_table(&self, identifier: &super::identifier::Identifier) -> anyhow::Result<()> {
+    async fn drop_table(&self, identifier: &super::identifier::Identifier) -> Result<(), Error> {
         let connection = self.connection.lock().await;
         connection.execute("delete from iceberg_tables where catalog_name = ?1 and table_namespace = ?2 and table_name = ?3", (self.name.clone(),identifier.namespace().to_string(),identifier.name().to_string()))?;
         Ok(())
@@ -115,7 +116,7 @@ impl Catalog for MemoryCatalog {
     async fn load_table(
         self: Arc<Self>,
         identifier: &super::identifier::Identifier,
-    ) -> anyhow::Result<super::relation::Relation> {
+    ) -> Result<super::relation::Relation, Error> {
         let path = {
             let connection = self.connection.lock().await;
             let mut stmt = connection.prepare("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = ?1 and table_namespace = ?2 and table_name = ?3")?;
@@ -129,21 +130,16 @@ impl Catalog for MemoryCatalog {
             )?;
 
             iter.next()
-                .ok_or(anyhow!("No table found."))??
+                .ok_or(Error::InvalidFormat("Catalog response".to_string()))??
                 .metadata_location
         };
         let bytes = &self
             .object_store
             .get(&strip_prefix(&path).as_str().into())
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?
+            .await?
             .bytes()
-            .await
-            .map_err(|err| anyhow!(err.to_string()))?;
-        let metadata: RelationMetadata = serde_json::from_str(
-            std::str::from_utf8(bytes).map_err(|err| anyhow!(err.to_string()))?,
-        )
-        .map_err(|err| anyhow!(err.to_string()))?;
+            .await?;
+        let metadata: RelationMetadata = serde_json::from_str(std::str::from_utf8(bytes)?)?;
         let catalog: Arc<dyn Catalog> = self;
         match metadata {
             RelationMetadata::Table(metadata) => Ok(Relation::Table(
@@ -178,14 +174,14 @@ impl Catalog for MemoryCatalog {
     async fn invalidate_table(
         &self,
         _identifier: &super::identifier::Identifier,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         unimplemented!()
     }
     async fn register_table(
         self: Arc<Self>,
         identifier: super::identifier::Identifier,
         metadata_file_location: &str,
-    ) -> anyhow::Result<super::relation::Relation> {
+    ) -> Result<super::relation::Relation, Error> {
         {
             let connection = self.connection.lock().await;
             connection.execute("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values (?1, ?2, ?3, ?4)", (self.name.clone(),identifier.namespace().to_string(),identifier.name().to_string(), metadata_file_location.to_string()))?;
@@ -197,7 +193,7 @@ impl Catalog for MemoryCatalog {
         identifier: super::identifier::Identifier,
         metadata_file_location: &str,
         previous_metadata_file_location: &str,
-    ) -> anyhow::Result<super::relation::Relation> {
+    ) -> Result<super::relation::Relation, Error> {
         {
             let connection = self.connection.lock().await;
             connection.execute("update iceberg_tables set metadata_location = ?4, previous_metadata_location = ?5 where catalog_name = ?1 and table_namespace = ?2 and table_name = ?3", (self.name.clone(),identifier.namespace().to_string(),identifier.name().to_string(), metadata_file_location, previous_metadata_file_location))?;
@@ -207,7 +203,7 @@ impl Catalog for MemoryCatalog {
     async fn initialize(
         self: Arc<Self>,
         _properties: &std::collections::HashMap<String, String>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         unimplemented!()
     }
     fn object_store(&self) -> Arc<dyn object_store::ObjectStore> {
