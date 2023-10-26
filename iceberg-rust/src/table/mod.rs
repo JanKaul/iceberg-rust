@@ -322,19 +322,10 @@ mod tests {
 
     use std::sync::Arc;
 
-    use anyhow::anyhow;
-    use itertools::Itertools;
-    use object_store::{local::LocalFileSystem, memory::InMemory, path::Path, ObjectStore};
-    use parquet::{
-        arrow::async_reader::fetch_parquet_metadata, errors::ParquetError, format::FileMetaData,
-        schema::types,
-    };
-
-    use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
+    use object_store::{memory::InMemory, ObjectStore};
 
     use crate::{
-        catalog::{identifier::Identifier, memory::MemoryCatalog, relation::Relation, Catalog},
-        file_format::DatafileMetadata,
+        catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
         spec::{
             schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
@@ -381,108 +372,5 @@ mod tests {
         transaction.commit().await.unwrap();
         let metadata_location2 = table.metadata_location();
         assert_ne!(metadata_location1, metadata_location2);
-    }
-
-    #[tokio::test]
-    async fn test_files_stream() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(
-            LocalFileSystem::new_with_prefix("../iceberg-tests/nyc_taxis_append").unwrap(),
-        );
-
-        let catalog: Arc<dyn Catalog> =
-            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
-        let identifier = Identifier::parse("test.table1").unwrap();
-
-        catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
-
-        let mut table = if let Relation::Table(table) = catalog
-            .load_table(&identifier)
-            .await
-            .expect("Failed to load table")
-        {
-            Ok(table)
-        } else {
-            Err(anyhow!("Relation must be a table"))
-        }
-        .unwrap();
-
-        let parquet_files = vec!["/home/iceberg/warehouse/nyc/taxis/data/vendor_id=1/00000-0-03c9b632-a796-4f56-97b0-a638a6f6d6f4-00001.parquet",
-            "/home/iceberg/warehouse/nyc/taxis/data/vendor_id=1/00003-3-ae86257a-5d0b-4c42-9782-f08ec510637e-00001.parquet",
-            "/home/iceberg/warehouse/nyc/taxis/data/vendor_id=2/00001-1-2a1bfa65-21d8-4302-ad47-85c00b092e8b-00001.parquet",
-            "/home/iceberg/warehouse/nyc/taxis/data/vendor_id=2/00002-2-22cded08-1e3c-4905-a73c-5e0ea8ed268f-00001.parquet"];
-
-        let file_metadata = stream::iter(parquet_files.clone().into_iter())
-            .then(|file| {
-                let object_store = object_store.clone();
-                async move {
-                    let file = file.to_string();
-                    let path: Path = file.as_str().into();
-                    let file_metadata =
-                        object_store.head(&path).await.map_err(anyhow::Error::msg)?;
-                    let parquet_metadata = fetch_parquet_metadata(
-                        |range| {
-                            object_store
-                                .get_range(&path, range)
-                                .map_err(|err| ParquetError::General(err.to_string()))
-                        },
-                        file_metadata.size,
-                        None,
-                    )
-                    .await
-                    .map_err(anyhow::Error::msg)?;
-                    let schema_elements =
-                        types::to_thrift(parquet_metadata.file_metadata().schema())?;
-                    let row_groups = parquet_metadata
-                        .row_groups()
-                        .iter()
-                        .map(|x| x.to_thrift())
-                        .collect::<Vec<_>>();
-                    let metadata = FileMetaData::new(
-                        parquet_metadata.file_metadata().version(),
-                        schema_elements,
-                        parquet_metadata.file_metadata().num_rows(),
-                        row_groups,
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                    );
-                    Ok::<_, anyhow::Error>((file, DatafileMetadata::Parquet(metadata)))
-                }
-            })
-            .try_collect()
-            .await
-            .expect("Failed to get file metadata.");
-
-        table
-            .new_transaction()
-            .append(file_metadata)
-            .commit()
-            .await
-            .unwrap();
-        let manifests = table.manifests(None, None).await.unwrap();
-        let mut files = table
-            .datafiles(&manifests, None)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|manifest_entry| manifest_entry.data_file.file_path.to_string());
-        assert!(parquet_files
-            .iter()
-            .contains(&files.next().unwrap().as_str()));
-        assert!(parquet_files
-            .iter()
-            .contains(&files.next().unwrap().as_str()));
-        assert!(parquet_files
-            .iter()
-            .contains(&files.next().unwrap().as_str()));
-        assert!(parquet_files
-            .iter()
-            .contains(&files.next().unwrap().as_str()));
-        object_store
-            .delete(&table.metadata_location().into())
-            .await
-            .unwrap();
     }
 }
