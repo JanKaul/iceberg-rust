@@ -7,10 +7,11 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{anyhow, Result};
 
 use parquet::{
-    file::metadata::RowGroupMetaData,
+    file::{metadata::RowGroupMetaData, writer::TrackedWrite},
     format::FileMetaData,
     schema::types::{from_thrift, SchemaDescriptor},
 };
+use thrift::protocol::{TCompactOutputProtocol, TSerializable};
 
 use crate::spec::{
     manifest::{AvroMap, Content, DataFile, FileFormat},
@@ -22,6 +23,7 @@ use crate::spec::{
 /// Read datafile statistics from parquetfile
 pub fn parquet_to_datafile(
     location: &str,
+    file_size: usize,
     file_metadata: &FileMetaData,
     schema: &Schema,
     partition_spec: &[PartitionField],
@@ -48,8 +50,6 @@ pub fn parquet_to_datafile(
         .collect::<Result<HashMap<String, Transform>>>()?;
     let parquet_schema = Arc::new(SchemaDescriptor::new(from_thrift(&file_metadata.schema)?));
 
-    let mut file_size = 0;
-
     let mut column_sizes = Some(AvroMap(HashMap::new()));
     let mut value_counts = Some(AvroMap(HashMap::new()));
     let mut null_value_counts = Some(AvroMap(HashMap::new()));
@@ -59,8 +59,6 @@ pub fn parquet_to_datafile(
 
     for row_group in &file_metadata.row_groups {
         let row_group = RowGroupMetaData::from_thrift(parquet_schema.clone(), row_group.clone())?;
-
-        file_size += row_group.compressed_size();
 
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
@@ -213,7 +211,7 @@ pub fn parquet_to_datafile(
         file_format: FileFormat::Parquet,
         partition,
         record_count: file_metadata.num_rows,
-        file_size_in_bytes: file_size,
+        file_size_in_bytes: file_size as i64,
         column_sizes,
         value_counts,
         null_value_counts,
@@ -227,4 +225,12 @@ pub fn parquet_to_datafile(
         sort_order_id: None,
     };
     Ok(content)
+}
+
+/// Get parquet metadata size
+pub fn thrift_size<T: TSerializable>(metadata: &T) -> Result<usize, anyhow::Error> {
+    let mut buffer = TrackedWrite::new(Vec::<u8>::new());
+    let mut protocol = TCompactOutputProtocol::new(&mut buffer);
+    metadata.write_to_out_protocol(&mut protocol)?;
+    Ok(buffer.bytes_written())
 }

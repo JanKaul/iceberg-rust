@@ -26,7 +26,7 @@ use crate::{
 
 use super::partition::partition_record_batches;
 
-const MAX_PARQUET_SIZE: usize = 128_000_000;
+const MAX_PARQUET_SIZE: usize = 512_000_000;
 
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
 pub async fn write_parquet_partitioned(

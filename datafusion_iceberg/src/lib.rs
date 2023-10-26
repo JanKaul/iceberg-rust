@@ -1,5 +1,4 @@
 pub mod catalog;
-pub mod insert;
 pub mod materialized_view;
 mod pruning_statistics;
 pub mod sql;

@@ -2,15 +2,23 @@
  * Tableprovider to use iceberg table with datafusion.
 */
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
+use futures::{stream, StreamExt, TryStreamExt};
 use object_store::ObjectMeta;
-use std::{any::Any, collections::HashMap, ops::Deref, sync::Arc};
+use std::{
+    any::Any,
+    collections::HashMap,
+    fmt,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 use tokio::sync::RwLock;
 
 use datafusion::{
     arrow::datatypes::{DataType, SchemaRef},
-    common::DataFusionError,
+    common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
     datasource::{
         file_format::{parquet::ParquetFormat, FileFormat},
         listing::PartitionedFile,
@@ -18,21 +26,24 @@ use datafusion::{
         physical_plan::FileScanConfig,
         TableProvider, ViewTable,
     },
-    execution::context::SessionState,
+    execution::{context::SessionState, TaskContext},
     logical_expr::{TableSource, TableType},
     optimizer::utils::conjunction,
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
-    physical_plan::{ExecutionPlan, Statistics},
+    physical_plan::{
+        insert::{DataSink, FileSinkExec},
+        DisplayAs, DisplayFormatType, ExecutionPlan, SendableRecordBatchStream, Statistics,
+    },
     prelude::Expr,
     scalar::ScalarValue,
     sql::parser::DFParser,
 };
-use url::Url;
 
 use crate::pruning_statistics::{PruneDataFiles, PruneManifests};
 
 use iceberg_rust::{
+    arrow::write::write_parquet_partitioned,
     catalog::relation::Relation,
     materialized_view::MaterializedView,
     spec::{types::StructField, view_metadata::ViewRepresentation},
@@ -42,7 +53,7 @@ use iceberg_rust::{
 };
 // mod value;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Iceberg table for datafusion
 pub struct DataFusionTable {
     pub snapshot_range: (Option<i64>, Option<i64>),
@@ -78,45 +89,13 @@ impl DataFusionTable {
     pub fn new(tabular: Relation, start: Option<i64>, end: Option<i64>) -> Self {
         let schema = match &tabular {
             Relation::Table(table) => {
-                let mut schema = table.schema().unwrap().clone();
-                // Add the partition columns to the table schema
-                for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
-                    schema.fields.fields.push(StructField {
-                        id: partition_field.field_id,
-                        name: partition_field.name.clone(),
-                        field_type: schema
-                            .fields
-                            .get(partition_field.source_id as usize)
-                            .unwrap()
-                            .field_type
-                            .tranform(&partition_field.transform)
-                            .unwrap(),
-                        required: true,
-                        doc: None,
-                    })
-                }
+                let schema = table.schema().unwrap().clone();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
             Relation::View(view) => Arc::new((&view.schema().unwrap().fields).try_into().unwrap()),
             Relation::MaterializedView(mv) => {
                 let table = mv.storage_table();
-                let mut schema = table.schema().unwrap().clone();
-                // Add the partition columns to the table schema
-                for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
-                    schema.fields.fields.push(StructField {
-                        id: partition_field.field_id,
-                        name: partition_field.name.clone(),
-                        field_type: schema
-                            .fields
-                            .get(partition_field.source_id as usize)
-                            .unwrap()
-                            .field_type
-                            .tranform(&partition_field.transform)
-                            .unwrap(),
-                        required: true,
-                        doc: None,
-                    })
-                }
+                let schema = table.schema().unwrap().clone();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
         };
@@ -205,6 +184,26 @@ impl TableProvider for DataFusionTable {
             }
         }
     }
+    async fn insert_into(
+        &self,
+        _state: &SessionState,
+        input: Arc<dyn ExecutionPlan>,
+        overwrite: bool,
+    ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
+        // Create a physical plan from the logical plan.
+        // Check that the schema of the plan matches the schema of this table.
+        if !self.schema().equivalent_names_and_types(&input.schema()) {
+            return plan_err!("Inserting query must have the same schema with the table.");
+        }
+        if overwrite {
+            return not_impl_err!("Overwrite not implemented for MemoryTable yet");
+        }
+        Ok(Arc::new(FileSinkExec::new(
+            input,
+            Arc::new(self.clone()),
+            self.schema.clone(),
+        )))
+    }
 }
 async fn table_scan(
     table: &Table,
@@ -220,10 +219,9 @@ async fn table_scan(
     let object_store_url = ObjectStoreUrl::parse(
         "iceberg://".to_owned() + &util::strip_prefix(&table.metadata().location).replace('/', "-"),
     )?;
-    let url: &Url = object_store_url.as_ref();
     session
         .runtime_env()
-        .register_object_store(url, table.object_store());
+        .register_object_store(&object_store_url.as_ref(), table.object_store());
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
@@ -365,9 +363,28 @@ async fn table_scan(
         .collect::<Result<Vec<_>, DataFusionError>>()
         .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
 
+    // Add the partition columns to the table schema
+    let mut file_schema = table.schema().unwrap().clone();
+    for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
+        file_schema.fields.fields.push(StructField {
+            id: partition_field.field_id,
+            name: partition_field.name.clone(),
+            field_type: file_schema
+                .fields
+                .get(partition_field.source_id as usize)
+                .unwrap()
+                .field_type
+                .tranform(&partition_field.transform)
+                .unwrap(),
+            required: true,
+            doc: None,
+        })
+    }
+    let file_schema: SchemaRef = Arc::new((&file_schema.fields).try_into().unwrap());
+
     let file_scan_config = FileScanConfig {
         object_store_url,
-        file_schema: schema,
+        file_schema,
         file_groups: file_groups.into_values().collect(),
         statistics,
         projection: projection.cloned(),
@@ -399,6 +416,56 @@ impl DataFusionTable {
     }
 }
 
+impl DisplayAs for DataFusionTable {
+    fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match t {
+            DisplayFormatType::Default | DisplayFormatType::Verbose => {
+                write!(f, "IcebergTable")
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl DataSink for DataFusionTable {
+    async fn write_all(
+        &self,
+        data: Vec<SendableRecordBatchStream>,
+        _context: &Arc<TaskContext>,
+    ) -> Result<u64, DataFusionError> {
+        let batches = stream::iter(data.into_iter()).flatten().map_err(Into::into);
+        let mut lock = self.tabular.write().await;
+        let table = if let Relation::Table(table) = lock.deref_mut() {
+            Ok(table)
+        } else {
+            Err(anyhow!("Can only insert into a table."))
+        }
+        .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+
+        let object_store = table.object_store();
+        let schema = table
+            .schema()
+            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        let location = &table.metadata().location;
+        let partition_spec = table
+            .metadata()
+            .default_partition_spec()
+            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        let metadata_files =
+            write_parquet_partitioned(location, schema, partition_spec, batches, object_store)
+                .await?;
+
+        table
+            .new_transaction()
+            .append(metadata_files)
+            .commit()
+            .await
+            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+
+        Ok(0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -406,15 +473,20 @@ mod tests {
 
     use anyhow::anyhow;
     use datafusion::{
-        arrow::{array::Float32Array, record_batch::RecordBatch},
+        arrow::{
+            array::{Float32Array, Int64Array},
+            record_batch::RecordBatch,
+        },
         prelude::SessionContext,
     };
     use iceberg_rust::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, relation::Relation, Catalog},
         spec::{
+            partition::{PartitionField, PartitionSpecBuilder, Transform},
             schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
+            types::{PrimitiveType, StructField, StructType, StructTypeBuilder, Type},
         },
+        table::table_builder::TableBuilder,
         view::view_builder::ViewBuilder,
     };
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
@@ -562,5 +634,136 @@ mod tests {
 
         // Value can either be 0.9 or 1.8
         assert!(((1.35 - values.value(0)).abs() - 0.45).abs() < 0.001)
+    }
+
+    #[tokio::test]
+    pub async fn test_datafusion_table_insert() {
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+
+        let catalog: Arc<dyn Catalog> =
+            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
+
+        let schema = Schema {
+            schema_id: 1,
+            identifier_field_ids: None,
+            fields: StructTypeBuilder::default()
+                .with_struct_field(StructField {
+                    id: 1,
+                    name: "id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 2,
+                    name: "customer_id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 3,
+                    name: "product_id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 4,
+                    name: "date".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Date),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 5,
+                    name: "amount".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Int),
+                    doc: None,
+                })
+                .build()
+                .unwrap(),
+        };
+        let partition_spec = PartitionSpecBuilder::default()
+            .spec_id(1)
+            .with_partition_field(PartitionField {
+                source_id: 4,
+                field_id: 1000,
+                name: "day".to_string(),
+                transform: Transform::Day,
+            })
+            .build()
+            .expect("Failed to create partition spec");
+
+        let mut builder =
+            TableBuilder::new("test.orders", catalog).expect("Failed to create table builder");
+        builder
+            .location("/test/orders")
+            .with_schema((1, schema))
+            .current_schema_id(1)
+            .with_partition_spec((1, partition_spec))
+            .default_spec_id(1);
+        let table = Arc::new(DataFusionTable::from(
+            builder.build().await.expect("Failed to create table."),
+        ));
+
+        let ctx = SessionContext::new();
+
+        ctx.register_table("orders", table).unwrap();
+
+        ctx.sql(
+            "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES 
+                (1, 1, 1, '2020-01-01', 1),
+                (2, 2, 1, '2020-01-01', 1),
+                (3, 3, 1, '2020-01-01', 3),
+                (4, 1, 2, '2020-02-02', 1),
+                (5, 1, 1, '2020-02-02', 2),
+                (6, 3, 3, '2020-02-02', 3),
+                (7, 1, 3, '2020-01-03', 1),
+                (8, 2, 1, '2020-01-03', 2),
+                (9, 2, 2, '2020-01-03', 1);",
+        )
+        .await
+        .expect("Failed to create query plan for insert")
+        .collect()
+        .await
+        .expect("Failed to insert values into table");
+
+        let batches = ctx
+            .sql("select product_id, sum(amount) from orders group by product_id;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (order_ids, amounts) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (order_id, amount) in order_ids.iter().zip(amounts) {
+                    if order_id.unwrap() == 1 {
+                        assert_eq!(amount.unwrap(), 9)
+                    } else if order_id.unwrap() == 2 {
+                        assert_eq!(amount.unwrap(), 2)
+                    } else if order_id.unwrap() == 3 {
+                        assert_eq!(amount.unwrap(), 4)
+                    } else {
+                        panic!("Unexpected order id")
+                    }
+                }
+            }
+        }
     }
 }

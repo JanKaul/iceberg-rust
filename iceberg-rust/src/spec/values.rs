@@ -590,7 +590,6 @@ impl Value {
     }
     /// Cast value to different type
     pub fn cast(self, data_type: &Type) -> Result<Self, anyhow::Error> {
-        dbg!(&self, data_type);
         if self.datatype() == *data_type {
             Ok(self)
         } else {
