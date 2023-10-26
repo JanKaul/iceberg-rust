@@ -3,8 +3,7 @@ members = ["iceberg-rust", "datafusion_iceberg"]
 
 workspace.resolver = "2"
 
-[workspace.dependencies]  
-anyhow = "^1.0"
+[workspace.dependencies]
 object_store = { version = "0.7", features = ["aws", "gcp"] }
 serde = "^1.0"
 serde_derive = "^1.0"

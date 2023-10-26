@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use datafusion::{
     arrow::error::ArrowError,
     datasource::{empty::EmptyTable, TableProvider},
@@ -12,11 +11,9 @@ use iceberg_rust::{
     spec::materialized_view_metadata::MaterializedViewRepresentation,
 };
 
-use crate::DataFusionTable;
+use crate::{error::Error, DataFusionTable};
 
-pub async fn refresh_materialized_view(
-    matview: &mut MaterializedView,
-) -> Result<(), anyhow::Error> {
+pub async fn refresh_materialized_view(matview: &mut MaterializedView) -> Result<(), Error> {
     let metadata = matview.metadata();
     let ctx = SessionContext::new();
 
@@ -41,9 +38,8 @@ pub async fn refresh_materialized_view(
         })
         .flatten()
         .try_for_each(|(identifier, table)| {
-            ctx.register_table(&identifier, table)
-                .map_err(|_| anyhow!("Failed to register table"))?;
-            Ok::<_, anyhow::Error>(())
+            ctx.register_table(&identifier, table)?;
+            Ok::<_, Error>(())
         })?;
 
     let sql = match &matview.metadata().current_version()?.representations[0] {

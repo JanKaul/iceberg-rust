@@ -2,7 +2,6 @@
  * Tableprovider to use iceberg table with datafusion.
 */
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
 use futures::{stream, StreamExt, TryStreamExt};
@@ -40,7 +39,10 @@ use datafusion::{
     sql::parser::DFParser,
 };
 
-use crate::pruning_statistics::{PruneDataFiles, PruneManifests};
+use crate::{
+    error::Error,
+    pruning_statistics::{PruneDataFiles, PruneManifests},
+};
 
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned,
@@ -134,7 +136,7 @@ impl TableProvider for DataFusionTable {
                 let sql = match &view
                     .metadata()
                     .current_version()
-                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?
+                    .map_err(Into::<Error>::into)?
                     .representations[0]
                 {
                     ViewRepresentation::Sql { sql, .. } => sql,
@@ -147,10 +149,7 @@ impl TableProvider for DataFusionTable {
             }
             Relation::Table(table) => {
                 let schema = self.schema();
-                let statistics = self
-                    .statistics()
-                    .await
-                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+                let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
                 table_scan(
                     table,
                     &self.snapshot_range,
@@ -166,10 +165,7 @@ impl TableProvider for DataFusionTable {
             Relation::MaterializedView(mv) => {
                 let table = mv.storage_table();
                 let schema = self.schema();
-                let statistics = self
-                    .statistics()
-                    .await
-                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+                let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
                 table_scan(
                     table,
                     &self.snapshot_range,
@@ -242,13 +238,13 @@ async fn table_scan(
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(Into::<Error>::into)?;
         let manifests_to_prune =
             pruning_predicate.prune(&PruneManifests::new(table, &manifests))?;
         let data_files = table
             .datafiles(&manifests, Some(manifests_to_prune))
             .await
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(Into::<Error>::into)?;
         // After the first pruning stage the data_files are pruned again based on the pruning statistics in the manifest files.
         let files_to_prune = pruning_predicate.prune(&PruneDataFiles::new(table, &data_files))?;
         data_files
@@ -295,11 +291,11 @@ async fn table_scan(
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(Into::<Error>::into)?;
         let data_files = table
             .datafiles(&manifests, None)
             .await
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(Into::<Error>::into)?;
         data_files.into_iter().for_each(|manifest| {
             let partition_values = manifest
                 .data_file
@@ -341,7 +337,7 @@ async fn table_scan(
     let table_partition_cols: Vec<(String, DataType)> = table
         .metadata()
         .default_partition_spec()
-        .map_err(|err| DataFusionError::Internal(format!("{}", err)))?
+        .map_err(Into::<Error>::into)?
         .fields
         .iter()
         .map(|field| {
@@ -349,19 +345,19 @@ async fn table_scan(
                 field.name.clone(),
                 (&table
                     .schema()
-                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?
+                    .map_err(Into::<Error>::into)?
                     .fields
                     .get(field.source_id as usize)
                     .unwrap()
                     .field_type
                     .tranform(&field.transform)
-                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?)
+                    .map_err(Into::<Error>::into)?)
                     .try_into()
-                    .map_err(|err| DataFusionError::Internal(format!("{}", err)))?,
+                    .map_err(Into::<Error>::into)?,
             ))
         })
         .collect::<Result<Vec<_>, DataFusionError>>()
-        .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        .map_err(Into::<Error>::into)?;
 
     // Add the partition columns to the table schema
     let mut file_schema = table.schema().unwrap().clone();
@@ -438,19 +434,17 @@ impl DataSink for DataFusionTable {
         let table = if let Relation::Table(table) = lock.deref_mut() {
             Ok(table)
         } else {
-            Err(anyhow!("Can only insert into a table."))
+            Err(Error::InvalidFormat("database entity".to_string()))
         }
-        .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        .map_err(Into::<Error>::into)?;
 
         let object_store = table.object_store();
-        let schema = table
-            .schema()
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        let schema = table.schema().map_err(Into::<Error>::into)?;
         let location = &table.metadata().location;
         let partition_spec = table
             .metadata()
             .default_partition_spec()
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(Into::<Error>::into)?;
         let metadata_files =
             write_parquet_partitioned(location, schema, partition_spec, batches, object_store)
                 .await?;
@@ -460,7 +454,7 @@ impl DataSink for DataFusionTable {
             .append(metadata_files)
             .commit()
             .await
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(Into::<Error>::into)?;
 
         Ok(0)
     }
@@ -469,9 +463,6 @@ impl DataSink for DataFusionTable {
 #[cfg(test)]
 mod tests {
 
-    use std::sync::Arc;
-
-    use anyhow::anyhow;
     use datafusion::{
         arrow::{
             array::{Float32Array, Int64Array},
@@ -490,8 +481,9 @@ mod tests {
         view::view_builder::ViewBuilder,
     };
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
+    use std::sync::Arc;
 
-    use crate::DataFusionTable;
+    use crate::{error::Error, DataFusionTable};
 
     #[tokio::test]
     pub async fn test_datafusion_table_scan() {
@@ -511,7 +503,9 @@ mod tests {
         {
             Ok(Arc::new(DataFusionTable::from(table)))
         } else {
-            Err(anyhow!("Relation must be a table"))
+            Err(Error::InvalidFormat(
+                "Entity returned from catalog".to_string(),
+            ))
         }
         .unwrap();
 

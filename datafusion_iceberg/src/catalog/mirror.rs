@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
 use futures::{executor::LocalPool, task::LocalSpawnExt};
@@ -9,7 +8,7 @@ use iceberg_rust::{
     error::Error as IcebergError,
 };
 
-use crate::DataFusionTable;
+use crate::{error::Error, DataFusionTable};
 
 type NamespaceNode = HashSet<String>;
 
@@ -52,10 +51,10 @@ impl Mirror {
         let tables = self
             .storage
             .get(&namespace.to_string())
-            .ok_or_else(|| anyhow!("Namespace not found."))
+            .ok_or_else(|| Error::InvalidFormat("namespace in catalog".to_string()))
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         let names = match tables.value() {
-            Node::Relation(_) => Err(anyhow!("Cannot list tables of a table.")),
+            Node::Relation(_) => Err(Error::InvalidFormat("table in namespace".to_string())),
             Node::Namespace(names) => Ok(names),
         }
         .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;

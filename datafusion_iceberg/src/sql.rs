@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use datafusion::{
     arrow::datatypes::{FieldRef, Schema as ArrowSchema},
     sql::{
@@ -10,17 +9,17 @@ use datafusion::{
 };
 use iceberg_rust::{catalog::Catalog, spec::types::StructType};
 
-use crate::catalog::context::IcebergContext;
+use crate::{catalog::context::IcebergContext, error::Error};
 
 pub async fn get_schema(
     sql: &str,
     relations: Vec<String>,
     catalog: Arc<dyn Catalog>,
-) -> Result<StructType, anyhow::Error> {
+) -> Result<StructType, Error> {
     let context = IcebergContext::new(relations, catalog).await?;
     let statement = Parser::parse_sql(&GenericDialect, sql)?
         .pop()
-        .ok_or(anyhow!("No sql statement found.".to_string()))?;
+        .ok_or(Error::InvalidFormat("sql statement".to_string()))?;
 
     let planner = SqlToRel::new(&context);
 

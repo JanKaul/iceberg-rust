@@ -8,7 +8,7 @@ use datafusion::{
 };
 use iceberg_rust::catalog::{identifier::Identifier, Catalog};
 
-use crate::DataFusionTable;
+use crate::{error::Error, DataFusionTable};
 
 pub struct IcebergContext {
     sources: HashMap<String, Arc<dyn TableSource>>,
@@ -19,7 +19,7 @@ impl IcebergContext {
     pub async fn new(
         tables: Vec<String>,
         catalog: Arc<dyn Catalog>,
-    ) -> Result<IcebergContext, anyhow::Error> {
+    ) -> Result<IcebergContext, Error> {
         let mut sources = HashMap::new();
         for table in tables {
             let identifier = Identifier::parse(&table)?;
