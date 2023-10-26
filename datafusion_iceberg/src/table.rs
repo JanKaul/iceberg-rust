@@ -13,7 +13,7 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use datafusion::{
     arrow::datatypes::{DataType, SchemaRef},
@@ -110,6 +110,10 @@ impl DataFusionTable {
     #[inline]
     pub fn new_table(table: Table, start: Option<i64>, end: Option<i64>) -> Self {
         Self::new(Relation::Table(table), start, end)
+    }
+
+    pub async fn inner_mut(&self) -> RwLockWriteGuard<'_, Relation> {
+        self.tabular.write().await
     }
 }
 
@@ -785,8 +789,8 @@ mod tests {
 
         let mut builder = ViewBuilder::new(
             "select product_id, amount from orders where product_id < 3;",
-            view_schema,
             "test.orders_view",
+            view_schema,
             catalog,
         )
         .expect("Failed to create filesystem view builder.");

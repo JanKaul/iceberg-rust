@@ -130,7 +130,10 @@ impl Catalog for MemoryCatalog {
             )?;
 
             iter.next()
-                .ok_or(Error::InvalidFormat("Catalog response".to_string()))??
+                .ok_or(Error::NotFound(
+                    "Table".to_string(),
+                    format!("{}", identifier),
+                ))??
                 .metadata_location
         };
         let bytes = &self

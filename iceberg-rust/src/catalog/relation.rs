@@ -15,6 +15,8 @@ use crate::spec::view_metadata::ViewMetadata;
 use crate::table::Table;
 use crate::view::View;
 
+use super::Catalog;
+
 #[derive(Debug)]
 /// Enum for different types that can be queried like a table, for example view
 pub enum Relation {
@@ -27,6 +29,7 @@ pub enum Relation {
 }
 
 impl Relation {
+    #[inline]
     /// Return metadata location for relation.
     pub fn metadata_location(&self) -> &str {
         match self {
@@ -34,6 +37,59 @@ impl Relation {
             Relation::View(view) => view.metadata_location(),
             Relation::MaterializedView(mv) => mv.metadata_location(),
         }
+    }
+
+    #[inline]
+    /// Return catalog for relation.
+    pub fn catalog(&self) -> Arc<dyn Catalog> {
+        match self {
+            Relation::Table(table) => table.catalog(),
+            Relation::View(view) => view.catalog(),
+            Relation::MaterializedView(mv) => mv.catalog(),
+        }
+    }
+
+    /// Reload relation from catalog
+    pub async fn reload(&mut self) -> Result<(), Error> {
+        match self {
+            Relation::Table(table) => {
+                let new = if let Relation::Table(table) =
+                    table.catalog().load_table(table.identifier()).await?
+                {
+                    Ok(table)
+                } else {
+                    Err(Error::InvalidFormat(
+                        "Tabular type from catalog response".to_string(),
+                    ))
+                }?;
+                let _ = std::mem::replace(table, new);
+            }
+            Relation::View(view) => {
+                let new = if let Relation::View(view) =
+                    view.catalog().load_table(view.identifier()).await?
+                {
+                    Ok(view)
+                } else {
+                    Err(Error::InvalidFormat(
+                        "Tabular type from catalog response".to_string(),
+                    ))
+                }?;
+                let _ = std::mem::replace(view, new);
+            }
+            Relation::MaterializedView(matview) => {
+                let new = if let Relation::MaterializedView(matview) =
+                    matview.catalog().load_table(matview.identifier()).await?
+                {
+                    Ok(matview)
+                } else {
+                    Err(Error::InvalidFormat(
+                        "Tabular type from catalog response".to_string(),
+                    ))
+                }?;
+                let _ = std::mem::replace(matview, new);
+            }
+        };
+        Ok(())
     }
 }
 

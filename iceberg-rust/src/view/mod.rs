@@ -127,8 +127,8 @@ mod tests {
         };
         let mut builder = ViewBuilder::new(
             "SELECT trip_distance FROM nyc_taxis",
-            schema,
             identifier,
+            schema,
             catalog,
         )
         .unwrap();

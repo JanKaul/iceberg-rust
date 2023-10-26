@@ -41,8 +41,8 @@ impl ViewBuilder {
     /// Creates a new [TableBuilder] to create a Metastore view with some default metadata entries already set.
     pub fn new(
         sql: impl ToString,
-        schema: Schema,
         identifier: impl ToString,
+        schema: Schema,
         catalog: Arc<dyn Catalog>,
     ) -> Result<Self, Error> {
         let identifier = Identifier::parse(&identifier.to_string())?;
