@@ -484,7 +484,7 @@ mod tests {
         spec::{
             partition::{PartitionField, PartitionSpecBuilder, Transform},
             schema::Schema,
-            types::{PrimitiveType, StructField, StructType, StructTypeBuilder, Type},
+            types::{PrimitiveType, StructField, StructTypeBuilder, Type},
         },
         table::table_builder::TableBuilder,
         view::view_builder::ViewBuilder,
@@ -521,100 +521,6 @@ mod tests {
 
         let df = ctx
             .sql("SELECT vendor_id, MIN(trip_distance) FROM nyc_taxis GROUP BY vendor_id")
-            .await
-            .unwrap();
-
-        // execute the plan
-        let results: Vec<RecordBatch> = df.collect().await.expect("Failed to execute query plan.");
-
-        let batch = results
-            .into_iter()
-            .find(|batch| batch.num_rows() > 0)
-            .expect("All record batches are empty");
-
-        let values = batch
-            .column(1)
-            .as_any()
-            .downcast_ref::<Float32Array>()
-            .expect("Failed to get values from batch.");
-
-        // Value can either be 0.9 or 1.8
-        assert!(((1.35 - values.value(0)).abs() - 0.45).abs() < 0.001)
-    }
-
-    #[tokio::test]
-    pub async fn test_datafusion_view_scan() {
-        let object_store: Arc<dyn ObjectStore> =
-            Arc::new(LocalFileSystem::new_with_prefix("../iceberg-tests/nyc_taxis").unwrap());
-
-        let memory_object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-
-        let catalog: Arc<dyn Catalog> =
-            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
-        let memory_catalog: Arc<dyn Catalog> =
-            Arc::new(MemoryCatalog::new("test", memory_object_store.clone()).unwrap());
-        let identifier = Identifier::parse("test.table1").unwrap();
-
-        catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
-
-        let table = if let Relation::Table(table) = catalog
-            .clone()
-            .load_table(&identifier)
-            .await
-            .expect("Failed to load table")
-        {
-            Ok(Arc::new(DataFusionTable::from(table)))
-        } else {
-            Err(anyhow!("Relation must be a table"))
-        }
-        .unwrap();
-
-        let ctx = SessionContext::new();
-
-        ctx.register_table("nyc_taxis", table).unwrap();
-
-        let schema = Schema {
-            schema_id: 1,
-            identifier_field_ids: Some(vec![1, 2]),
-            fields: StructType::new(vec![
-                StructField {
-                    id: 1,
-                    name: "vendor_id".to_string(),
-                    required: false,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                },
-                StructField {
-                    id: 2,
-                    name: "min_trip_distance".to_string(),
-                    required: false,
-                    field_type: Type::Primitive(PrimitiveType::Float),
-                    doc: None,
-                },
-            ]),
-        };
-        let view_identifier = Identifier::parse("test.view1").unwrap();
-
-        let mut builder = ViewBuilder::new(
-            "SELECT vendor_id, MIN(trip_distance) FROM nyc_taxis GROUP BY vendor_id",
-            schema,
-            view_identifier,
-            memory_catalog,
-        )
-        .expect("Failed to create filesystem view builder.");
-        builder.location("test/nyc_taxis_view");
-
-        let view = Arc::new(DataFusionTable::from(
-            builder
-                .build()
-                .await
-                .expect("Failed to create filesystem view"),
-        ));
-
-        ctx.register_table("nyc_taxis_view", view).unwrap();
-
-        let df = ctx
-            .sql("SELECT vendor_id, min_trip_distance FROM nyc_taxis_view")
             .await
             .unwrap();
 
@@ -759,6 +665,175 @@ mod tests {
                         assert_eq!(amount.unwrap(), 2)
                     } else if order_id.unwrap() == 3 {
                         assert_eq!(amount.unwrap(), 4)
+                    } else {
+                        panic!("Unexpected order id")
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    pub async fn test_datafusion_view_scan() {
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+
+        let catalog: Arc<dyn Catalog> =
+            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
+
+        let schema = Schema {
+            schema_id: 1,
+            identifier_field_ids: None,
+            fields: StructTypeBuilder::default()
+                .with_struct_field(StructField {
+                    id: 1,
+                    name: "id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 2,
+                    name: "customer_id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 3,
+                    name: "product_id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 4,
+                    name: "date".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Date),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 5,
+                    name: "amount".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Int),
+                    doc: None,
+                })
+                .build()
+                .unwrap(),
+        };
+        let partition_spec = PartitionSpecBuilder::default()
+            .spec_id(1)
+            .with_partition_field(PartitionField {
+                source_id: 4,
+                field_id: 1000,
+                name: "day".to_string(),
+                transform: Transform::Day,
+            })
+            .build()
+            .expect("Failed to create partition spec");
+
+        let mut builder = TableBuilder::new("test.orders", catalog.clone())
+            .expect("Failed to create table builder");
+        builder
+            .location("/test/orders")
+            .with_schema((1, schema.clone()))
+            .current_schema_id(1)
+            .with_partition_spec((1, partition_spec))
+            .default_spec_id(1);
+        let table = Arc::new(DataFusionTable::from(
+            builder.build().await.expect("Failed to create table."),
+        ));
+
+        let ctx = SessionContext::new();
+
+        ctx.register_table("orders", table).unwrap();
+
+        ctx.sql(
+            "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES 
+                (1, 1, 1, '2020-01-01', 1),
+                (2, 2, 1, '2020-01-01', 1),
+                (3, 3, 1, '2020-01-01', 3),
+                (4, 1, 2, '2020-02-02', 1),
+                (5, 1, 1, '2020-02-02', 2),
+                (6, 3, 3, '2020-02-02', 3),
+                (7, 1, 3, '2020-01-03', 1),
+                (8, 2, 1, '2020-01-03', 2),
+                (9, 2, 2, '2020-01-03', 1);",
+        )
+        .await
+        .expect("Failed to create query plan for insert")
+        .collect()
+        .await
+        .expect("Failed to insert values into table");
+
+        let view_schema = Schema {
+            schema_id: 1,
+            identifier_field_ids: None,
+            fields: StructTypeBuilder::default()
+                .with_struct_field(StructField {
+                    id: 1,
+                    name: "product_id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 2,
+                    name: "amount".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Int),
+                    doc: None,
+                })
+                .build()
+                .unwrap(),
+        };
+
+        let mut builder = ViewBuilder::new(
+            "select product_id, amount from orders where product_id < 3;",
+            view_schema,
+            "test.orders_view",
+            catalog,
+        )
+        .expect("Failed to create filesystem view builder.");
+        builder.location("test/orders_view");
+
+        let view = Arc::new(DataFusionTable::from(
+            builder
+                .build()
+                .await
+                .expect("Failed to create filesystem view"),
+        ));
+
+        ctx.register_table("orders_view", view).unwrap();
+
+        let batches = ctx
+            .sql("select product_id, sum(amount) from orders_view group by product_id;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (order_ids, amounts) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (order_id, amount) in order_ids.iter().zip(amounts) {
+                    if order_id.unwrap() == 1 {
+                        assert_eq!(amount.unwrap(), 9)
+                    } else if order_id.unwrap() == 2 {
+                        assert_eq!(amount.unwrap(), 2)
                     } else {
                         panic!("Unexpected order id")
                     }
