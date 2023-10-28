@@ -7,40 +7,22 @@ use datafusion::{
 };
 use futures::TryStreamExt;
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned, materialized_view::MaterializedView,
-    spec::materialized_view_metadata::MaterializedViewRepresentation,
+    arrow::write::write_parquet_partitioned,
+    materialized_view::MaterializedView,
+    spec::materialized_view_metadata::{BaseTable, MaterializedViewRepresentation},
+};
+use itertools::Itertools;
+
+use crate::{
+    error::Error,
+    sql::{transform_name, transform_relations},
+    DataFusionTable,
 };
 
-use crate::{error::Error, DataFusionTable};
-
-pub async fn refresh_materialized_view(matview: &mut MaterializedView) -> Result<(), Error> {
+pub async fn refresh_materialized_view(matview: &MaterializedView) -> Result<(), Error> {
     let metadata = matview.metadata();
+
     let ctx = SessionContext::new();
-
-    let base_tables = matview.base_tables().await?;
-
-    // Full refresh
-
-    base_tables
-        .into_iter()
-        .map(|(base_table, _)| {
-            let identifier = base_table.identifier().to_string();
-            let table = Arc::new(DataFusionTable::new_table(base_table, None, None))
-                as Arc<dyn TableProvider>;
-            let schema = table.schema().clone();
-            vec![
-                (identifier.clone(), table),
-                (
-                    identifier + "__delta__",
-                    Arc::new(EmptyTable::new(schema)) as Arc<dyn TableProvider>,
-                ),
-            ]
-        })
-        .flatten()
-        .try_for_each(|(identifier, table)| {
-            ctx.register_table(&identifier, table)?;
-            Ok::<_, Error>(())
-        })?;
 
     let sql = match &matview.metadata().current_version()?.representations[0] {
         MaterializedViewRepresentation::SqlMaterialized {
@@ -51,7 +33,50 @@ pub async fn refresh_materialized_view(matview: &mut MaterializedView) -> Result
         } => sql,
     };
 
-    let logical_plan = ctx.state().create_logical_plan(sql).await?;
+    let version_id = matview.metadata().current_version_id;
+
+    let mut storage_table = matview.storage_table().await?;
+
+    let base_tables = if storage_table.version_id()? == Some(version_id) {
+        storage_table.base_tables(None).await?
+    } else {
+        storage_table.base_tables(Some(&sql)).await?
+    };
+
+    // Full refresh
+
+    let new_tables = base_tables
+        .into_iter()
+        .map(|(base_table, _)| {
+            let identifier = base_table.identifier().to_string();
+            let snapshot_id = base_table.metadata().current_snapshot_id.unwrap_or(-1);
+            let table = Arc::new(DataFusionTable::new_table(base_table, None, None))
+                as Arc<dyn TableProvider>;
+            let schema = table.schema().clone();
+            vec![
+                (identifier.clone(), snapshot_id, table),
+                (
+                    identifier + "__delta__",
+                    snapshot_id,
+                    Arc::new(EmptyTable::new(schema)) as Arc<dyn TableProvider>,
+                ),
+            ]
+        })
+        .flatten()
+        .map(|(identifier, snapshot_id, table)| {
+            ctx.register_table(&transform_name(&identifier), table)?;
+            Ok::<_, Error>((identifier, snapshot_id))
+        })
+        .filter_ok(|(identifier, _)| !identifier.ends_with("__delta__"))
+        .map_ok(|(identifier, snapshot_id)| BaseTable {
+            identifier,
+            snapshot_id,
+        })
+        .collect::<Result<_, _>>()?;
+
+    let sql_statements = transform_relations(&sql)?;
+
+    let logical_plan = ctx.state().create_logical_plan(&sql_statements[0]).await?;
 
     let batches = ctx
         .execute_logical_plan(logical_plan)
@@ -63,21 +88,16 @@ pub async fn refresh_materialized_view(matview: &mut MaterializedView) -> Result
     let files = write_parquet_partitioned(
         &metadata.location,
         metadata.current_schema()?,
-        matview
-            .storage_table()
-            .metadata()
-            .default_partition_spec()?,
+        storage_table.metadata().default_partition_spec()?,
         batches,
         matview.object_store(),
     )
     .await?;
 
-    matview
-        .storage_table_mut()
-        .new_transaction()
-        .append(files)
-        .commit()
+    storage_table
+        .full_refresh(files, version_id, new_tables)
         .await?;
+
     Ok(())
 }
 
@@ -105,17 +125,7 @@ mod tests {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
         let catalog: Arc<dyn Catalog> =
-            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
-
-        let datafusion_catalog = Arc::new(
-            IcebergCatalog::new(catalog.clone())
-                .await
-                .expect("Failed to create datafusion catalog"),
-        );
-
-        let ctx = SessionContext::new();
-
-        ctx.register_catalog("iceberg", datafusion_catalog);
+            Arc::new(MemoryCatalog::new("iceberg", object_store.clone()).unwrap());
 
         let schema = Schema {
             schema_id: 1,
@@ -207,14 +217,26 @@ mod tests {
             "select product_id, amount from iceberg.test.orders where product_id < 3;",
             "test.orders_view",
             matview_schema,
-            catalog,
+            catalog.clone(),
         )
         .expect("Failed to create filesystem view builder.");
         builder.location("test/orders_view");
-        let mut matview = builder
+        let matview = builder
             .build()
             .await
             .expect("Failed to create filesystem view");
+
+        // Datafusion
+
+        let datafusion_catalog = Arc::new(
+            IcebergCatalog::new(catalog)
+                .await
+                .expect("Failed to create datafusion catalog"),
+        );
+
+        let ctx = SessionContext::new();
+
+        ctx.register_catalog("iceberg", datafusion_catalog);
 
         ctx.sql(
             "INSERT INTO iceberg.test.orders (id, customer_id, product_id, date, amount) VALUES 
@@ -231,12 +253,14 @@ mod tests {
         .await
         .expect("Failed to insert values into table");
 
-        refresh_materialized_view(&mut matview)
+        refresh_materialized_view(&matview)
             .await
             .expect("Failed to refresh materialized view");
 
         let batches = ctx
-            .sql("select product_id, sum(amount) from orders_view group by product_id;")
+            .sql(
+                "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
+            )
             .await
             .expect("Failed to create plan for select")
             .collect()
@@ -259,9 +283,9 @@ mod tests {
                 );
                 for (order_id, amount) in order_ids.iter().zip(amounts) {
                     if order_id.unwrap() == 1 {
-                        assert_eq!(amount.unwrap(), 9)
+                        assert_eq!(amount.unwrap(), 7)
                     } else if order_id.unwrap() == 2 {
-                        assert_eq!(amount.unwrap(), 2)
+                        assert_eq!(amount.unwrap(), 1)
                     } else {
                         panic!("Unexpected order id")
                     }
@@ -270,7 +294,7 @@ mod tests {
         }
 
         ctx.sql(
-            "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES 
+            "INSERT INTO iceberg.test.orders (id, customer_id, product_id, date, amount) VALUES 
                 (7, 1, 3, '2020-01-03', 1),
                 (8, 2, 1, '2020-01-03', 2),
                 (9, 2, 2, '2020-01-03', 1);",
@@ -281,12 +305,14 @@ mod tests {
         .await
         .expect("Failed to insert values into table");
 
-        refresh_materialized_view(&mut matview)
+        refresh_materialized_view(&matview)
             .await
             .expect("Failed to refresh materialized view");
 
         let batches = ctx
-            .sql("select product_id, sum(amount) from orders_view group by product_id;")
+            .sql(
+                "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
+            )
             .await
             .expect("Failed to create plan for select")
             .collect()

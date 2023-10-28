@@ -15,6 +15,7 @@ use crate::{
 
 use super::{
     identifier::Identifier,
+    namespace::Namespace,
     relation::{Relation, RelationMetadata},
     Catalog,
 };
@@ -50,6 +51,7 @@ impl MemoryCatalog {
     }
 }
 
+#[derive(Debug)]
 struct TableRef {
     table_namespace: String,
     table_name: String,
@@ -89,7 +91,20 @@ impl Catalog for MemoryCatalog {
         &self,
         _parent: Option<&str>,
     ) -> Result<Vec<super::namespace::Namespace>, Error> {
-        unimplemented!()
+        let connection = self.connection.lock().await;
+        let mut stmt = connection.prepare(
+            "select distinct table_namespace from iceberg_tables where catalog_name = ?1",
+        )?;
+        let iter = stmt.query_map([&self.name], |row| row.get::<_, String>(0))?;
+
+        iter.map(|x| {
+            x.and_then(|y| {
+                Namespace::try_new(&y.split(".").map(ToString::to_string).collect::<Vec<_>>())
+                    .map_err(|_| rusqlite::Error::InvalidQuery)
+            })
+        })
+        .collect::<Result<_, rusqlite::Error>>()
+        .map_err(Into::into)
     }
     async fn table_exists(
         &self,

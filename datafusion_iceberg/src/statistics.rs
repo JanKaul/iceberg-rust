@@ -52,7 +52,7 @@ impl DataFusionTable {
                 ),
             Relation::View(_) => Err(Error::NotSupported("Statistics for views".to_string())),
             Relation::MaterializedView(mv) => {
-                let table = mv.storage_table();
+                let table = mv.storage_table().await.map_err(Error::from)?;
                 table
                     .manifests(self.snapshot_range.0, self.snapshot_range.1)
                     .await?

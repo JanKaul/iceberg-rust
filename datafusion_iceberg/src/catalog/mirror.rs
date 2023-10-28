@@ -12,6 +12,7 @@ use crate::{error::Error, DataFusionTable};
 
 type NamespaceNode = HashSet<String>;
 
+#[derive(Debug)]
 enum Node {
     Namespace(NamespaceNode),
     Relation(Identifier),

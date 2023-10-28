@@ -56,7 +56,10 @@ pub struct TableMetadata {
     pub schemas: HashMap<i32, Schema>,
     /// ID of the table’s current schema.
     pub current_schema_id: i32,
-    #[builder(setter(each(name = "with_partition_spec")), default)]
+    #[builder(
+        setter(each(name = "with_partition_spec")),
+        default = "HashMap::from_iter(vec![(0,PartitionSpec::default())])"
+    )]
     /// A list of partition specs, stored as full partition spec objects.
     pub partition_specs: HashMap<i32, PartitionSpec>,
     #[builder(default)]

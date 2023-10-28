@@ -68,8 +68,8 @@ pub async fn partition_record_batches(
                     .iter()
                     .map(|x| distinct_values(x.clone()))
                     .collect::<Result<Vec<_>, ArrowError>>()?;
-                let mut true_buffer = BooleanBufferBuilder::new(partition_columns[0].len());
-                true_buffer.append_n(partition_columns[0].len(), true);
+                let mut true_buffer = BooleanBufferBuilder::new(record_batch.num_rows());
+                true_buffer.append_n(record_batch.num_rows(), true);
                 let predicates = distinct_values
                     .into_iter()
                     .zip(partition_columns.iter())

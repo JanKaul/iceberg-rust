@@ -989,6 +989,7 @@ dependencies = [
  "datafusion",
  "futures",
  "iceberg-rust",
+ "itertools 0.10.5",
  "object_store",
  "serde_json",
  "thiserror",

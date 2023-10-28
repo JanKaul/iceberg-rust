@@ -82,11 +82,14 @@ impl Table {
         end: Option<i64>,
     ) -> Result<Vec<ManifestListEntry>, Error> {
         let metadata = self.metadata();
-        let end_snapshot = end.and_then(|id| metadata.snapshot(id)).unwrap_or(
-            metadata
-                .current_snapshot()?
-                .ok_or(Error::InvalidFormat("snapshot for table".to_string()))?,
-        );
+        let current_snapshot = if let Some(current) = metadata.current_snapshot()? {
+            current
+        } else {
+            return Ok(vec![]);
+        };
+        let end_snapshot = end
+            .and_then(|id| metadata.snapshot(id))
+            .unwrap_or(current_snapshot);
         let start_sequence_number =
             start
                 .and_then(|id| metadata.snapshot(id))

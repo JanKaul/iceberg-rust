@@ -27,14 +27,17 @@ use crate::{
     util::strip_prefix,
 };
 
+#[derive(Debug)]
 ///Table operations
 pub enum Operation {
     /// Update schema
     UpdateSchema(SchemaV2),
     /// Update spec
     UpdateSpec(i32),
-    // /// Update table properties
+    /// Update table properties
     UpdateProperties(Vec<(String, String)>),
+    /// Update snapshot summary
+    UpdateSnapshotSummary(Vec<(String, String)>),
     /// Replace the sort order
     // ReplaceSortOrder,
     // /// Update the table location
@@ -165,10 +168,13 @@ impl Operation {
                                         partition_values,
                                     ))
                                 } else {
-                                    None
+                                    Some((
+                                        Ok::<ManifestListEntry, ManifestListEntry>(manifest),
+                                        vec![],
+                                    ))
                                 }
                             } else {
-                                None
+                                Some((Ok::<ManifestListEntry, ManifestListEntry>(manifest), vec![]))
                             }
                         }
                     }))
@@ -393,6 +399,26 @@ impl Operation {
                         });
                     }
                     None => (),
+                }
+                Ok(())
+            }
+            Operation::UpdateSnapshotSummary(entries) => {
+                let snapshot = table
+                    .metadata
+                    .snapshots
+                    .as_mut()
+                    .zip(table.metadata.current_snapshot_id)
+                    .and_then(|(snapshots, id)| snapshots.get_mut(&id))
+                    .ok_or(Error::NotFound(
+                        "Snapshot".to_string(),
+                        table
+                            .metadata
+                            .current_snapshot_id
+                            .map(|x| x.to_string())
+                            .unwrap_or("id".to_string()),
+                    ))?;
+                for (key, value) in entries {
+                    snapshot.summary.other.insert(key, value);
                 }
                 Ok(())
             }

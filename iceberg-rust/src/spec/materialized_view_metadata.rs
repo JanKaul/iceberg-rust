@@ -2,8 +2,6 @@
  * A Struct for the materialized view metadata   
 */
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -69,14 +67,19 @@ impl From<FormatVersionSerde> for FormatVersion {
 
 impl Representation for MaterializedViewRepresentation {}
 
+/// Version id of the materialized view when the refresh operation was performed.
+pub type VersionId = i64;
+/// Map from references in the sql expression to snapshot_ids of the last refresh operation
+pub type BaseTables = Vec<BaseTable>;
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Freshness information of the materialized view
-pub struct Freshness {
-    /// Version id of the materialized view when the refresh operation was performed.
-    pub version_id: i64,
-    /// Map from references in the sql expression to snapshot_ids of the last refresh operation
-    pub base_tables: HashMap<String, i64>,
+pub struct BaseTable {
+    /// Table reference in the SQL expression.
+    pub identifier: String,
+    /// Snapshot id of the base table when the refresh operation was performed.
+    pub snapshot_id: i64,
 }
 
 #[cfg(test)]

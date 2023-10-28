@@ -17,7 +17,7 @@ bytes = "1.4.0"
 chrono = { workspace = true }
 futures = { workspace = true }
 getrandom = "0.2.8"
-itertools = "0.10.5"
+itertools = { workspace = true }
 murmur3 = "0.5.2"
 object_store = { workspace = true }
 parquet = { version = "46.0.0", features = ["async","object_store"] }

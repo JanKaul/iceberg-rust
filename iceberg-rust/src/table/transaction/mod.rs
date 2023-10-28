@@ -47,6 +47,12 @@ impl<'table> TableTransaction<'table> {
         self.operations.push(Operation::UpdateProperties(entries));
         self
     }
+    /// Update the snapshot summary of the table
+    pub fn update_snapshot_summary(mut self, entries: Vec<(String, String)>) -> Self {
+        self.operations
+            .push(Operation::UpdateSnapshotSummary(entries));
+        self
+    }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<(), Error> {
         let object_store = self.table.object_store();

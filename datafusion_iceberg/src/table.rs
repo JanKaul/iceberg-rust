@@ -96,8 +96,7 @@ impl DataFusionTable {
             }
             Relation::View(view) => Arc::new((&view.schema().unwrap().fields).try_into().unwrap()),
             Relation::MaterializedView(mv) => {
-                let table = mv.storage_table();
-                let schema = table.schema().unwrap().clone();
+                let schema = mv.metadata().current_schema().unwrap();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
         };
@@ -167,11 +166,11 @@ impl TableProvider for DataFusionTable {
                 .await
             }
             Relation::MaterializedView(mv) => {
-                let table = mv.storage_table();
+                let table = mv.storage_table().await.map_err(Error::from)?;
                 let schema = self.schema();
                 let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
                 table_scan(
-                    table,
+                    &table,
                     &self.snapshot_range,
                     schema,
                     statistics,
@@ -623,7 +622,52 @@ mod tests {
                 (3, 3, 1, '2020-01-01', 3),
                 (4, 1, 2, '2020-02-02', 1),
                 (5, 1, 1, '2020-02-02', 2),
-                (6, 3, 3, '2020-02-02', 3),
+                (6, 3, 3, '2020-02-02', 3);",
+        )
+        .await
+        .expect("Failed to create query plan for insert")
+        .collect()
+        .await
+        .expect("Failed to insert values into table");
+
+        let batches = ctx
+            .sql("select product_id, sum(amount) from orders group by product_id;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (order_ids, amounts) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (order_id, amount) in order_ids.iter().zip(amounts) {
+                    if order_id.unwrap() == 1 {
+                        assert_eq!(amount.unwrap(), 7)
+                    } else if order_id.unwrap() == 2 {
+                        assert_eq!(amount.unwrap(), 1)
+                    } else if order_id.unwrap() == 3 {
+                        assert_eq!(amount.unwrap(), 3)
+                    } else {
+                        panic!("Unexpected order id")
+                    }
+                }
+            }
+        }
+
+        ctx.sql(
+            "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES 
                 (7, 1, 3, '2020-01-03', 1),
                 (8, 2, 1, '2020-01-03', 2),
                 (9, 2, 2, '2020-01-03', 1);",

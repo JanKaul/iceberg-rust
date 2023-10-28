@@ -121,7 +121,7 @@ pub struct PartitionField {
     pub transform: Transform,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
 #[serde(rename_all = "kebab-case")]
 ///  Partition spec that defines how to produce a tuple of partition values from a record.
 pub struct PartitionSpec {
