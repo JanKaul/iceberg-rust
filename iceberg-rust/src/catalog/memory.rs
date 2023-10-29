@@ -16,7 +16,7 @@ use crate::{
 use super::{
     identifier::Identifier,
     namespace::Namespace,
-    tabular::{RelationMetadata, Tabular},
+    tabular::{Tabular, TabularMetadata},
     Catalog,
 };
 
@@ -157,10 +157,10 @@ impl Catalog for MemoryCatalog {
             .await?
             .bytes()
             .await?;
-        let metadata: RelationMetadata = serde_json::from_str(std::str::from_utf8(bytes)?)?;
+        let metadata: TabularMetadata = serde_json::from_str(std::str::from_utf8(bytes)?)?;
         let catalog: Arc<dyn Catalog> = self;
         match metadata {
-            RelationMetadata::Table(metadata) => Ok(Tabular::Table(
+            TabularMetadata::Table(metadata) => Ok(Tabular::Table(
                 Table::new(
                     identifier.clone(),
                     Arc::clone(&catalog),
@@ -169,7 +169,7 @@ impl Catalog for MemoryCatalog {
                 )
                 .await?,
             )),
-            RelationMetadata::View(metadata) => Ok(Tabular::View(
+            TabularMetadata::View(metadata) => Ok(Tabular::View(
                 View::new(
                     identifier.clone(),
                     Arc::clone(&catalog),
@@ -178,7 +178,7 @@ impl Catalog for MemoryCatalog {
                 )
                 .await?,
             )),
-            RelationMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
+            TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
                 MaterializedView::new(
                     identifier.clone(),
                     catalog.clone(),

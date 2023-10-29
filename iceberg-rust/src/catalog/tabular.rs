@@ -96,7 +96,7 @@ impl Tabular {
 /// Metadata of an iceberg relation
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
-pub enum RelationMetadata {
+pub enum TabularMetadata {
     /// Table metadata
     Table(TableMetadata),
     /// View metadata
@@ -109,7 +109,7 @@ pub enum RelationMetadata {
 pub async fn get_tabular_metadata(
     metadata_location: &str,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<RelationMetadata, Error> {
+) -> Result<TabularMetadata, Error> {
     let bytes = object_store
         .get(&metadata_location.into())
         .await?
