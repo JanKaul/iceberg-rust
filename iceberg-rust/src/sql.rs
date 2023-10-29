@@ -8,6 +8,7 @@ use sqlparser::{ast::visit_relations, dialect::GenericDialect, parser::Parser};
 
 use crate::error::Error;
 
+/// Find all table references in a SQL query
 pub fn find_relations(sql: &str) -> Result<Vec<String>, Error> {
     let statements = Parser::parse_sql(&GenericDialect, sql)?;
     let mut visited = Vec::new();
