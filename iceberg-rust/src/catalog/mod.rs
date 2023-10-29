@@ -15,7 +15,7 @@ use object_store::ObjectStore;
 use crate::error::Error;
 
 use self::namespace::Namespace;
-use self::relation::Relation;
+use self::relation::Tabular;
 
 pub mod relation;
 
@@ -35,7 +35,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// Drop a table and delete all data and metadata files.
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Load a table.
-    async fn load_table(self: Arc<Self>, identifier: &Identifier) -> Result<Relation, Error>;
+    async fn load_table(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
     /// Invalidate cached table metadata from current catalog.
     async fn invalidate_table(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Register a table with the catalog if it doesn't exist.
@@ -43,14 +43,14 @@ pub trait Catalog: Send + Sync + Debug {
         self: Arc<Self>,
         identifier: Identifier,
         metadata_file_location: &str,
-    ) -> Result<Relation, Error>;
+    ) -> Result<Tabular, Error>;
     /// Update a table by atomically changing the pointer to the metadata file
     async fn update_table(
         self: Arc<Self>,
         identifier: Identifier,
         metadata_file_location: &str,
         previous_metadata_file_location: &str,
-    ) -> Result<Relation, Error>;
+    ) -> Result<Tabular, Error>;
     /// Initialize a catalog given a custom name and a map of catalog properties.
     /// A custom Catalog implementation must have a no-arg constructor. A compute engine like Spark
     /// or Flink will first initialize the catalog without any arguments, and then call this method to

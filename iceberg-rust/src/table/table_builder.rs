@@ -10,7 +10,7 @@ use std::{
 use object_store::path::Path;
 use uuid::Uuid;
 
-use crate::catalog::relation::Relation;
+use crate::catalog::relation::Tabular;
 use crate::spec::table_metadata::TableMetadataBuilder;
 use crate::table::Table;
 use crate::{catalog::identifier::Identifier, error::Error};
@@ -62,7 +62,7 @@ impl TableBuilder {
             + ".metadata.json")
             .into();
         object_store.put(&path, metadata_json.into()).await?;
-        if let Relation::Table(table) = self
+        if let Tabular::Table(table) = self
             .catalog
             .clone()
             .register_table(self.identifier.clone(), path.as_ref())

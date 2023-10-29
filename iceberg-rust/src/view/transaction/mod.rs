@@ -9,7 +9,7 @@ use uuid::Uuid;
 pub mod operation;
 
 use crate::{
-    catalog::relation::Relation,
+    catalog::relation::Tabular,
     error::Error,
     spec::{schema::Schema, view_metadata::ViewRepresentation},
 };
@@ -75,7 +75,7 @@ impl<'view> Transaction<'view> {
             .put(&metadata_file_location, metadata_json.into())
             .await?;
         let previous_metadata_file_location = view.metadata_location();
-        if let Relation::View(new_view) = catalog
+        if let Tabular::View(new_view) = catalog
             .clone()
             .update_table(
                 identifier,

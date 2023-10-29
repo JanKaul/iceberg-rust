@@ -9,7 +9,7 @@ use object_store::path::Path;
 use uuid::Uuid;
 
 use crate::catalog::identifier::Identifier;
-use crate::catalog::relation::Relation;
+use crate::catalog::relation::Tabular;
 use crate::error::Error;
 use crate::spec::schema::Schema;
 use crate::spec::view_metadata::{VersionBuilder, ViewMetadataBuilder, ViewRepresentation};
@@ -83,7 +83,7 @@ impl ViewBuilder {
             + ".metadata.json")
             .into();
         object_store.put(&path, metadata_json.into()).await?;
-        if let Relation::View(view) = self
+        if let Tabular::View(view) = self
             .catalog
             .register_table(self.identifier, path.as_ref())
             .await?

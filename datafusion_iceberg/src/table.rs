@@ -46,7 +46,7 @@ use crate::{
 
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned,
-    catalog::relation::Relation,
+    catalog::relation::Tabular,
     materialized_view::MaterializedView,
     spec::{types::StructField, view_metadata::ViewRepresentation},
     table::Table,
@@ -59,43 +59,43 @@ use iceberg_rust::{
 /// Iceberg table for datafusion
 pub struct DataFusionTable {
     pub snapshot_range: (Option<i64>, Option<i64>),
-    pub tabular: Arc<RwLock<Relation>>,
+    pub tabular: Arc<RwLock<Tabular>>,
     pub schema: SchemaRef,
 }
 
-impl From<Relation> for DataFusionTable {
-    fn from(value: Relation) -> Self {
+impl From<Tabular> for DataFusionTable {
+    fn from(value: Tabular) -> Self {
         Self::new(value, None, None)
     }
 }
 
 impl From<Table> for DataFusionTable {
     fn from(value: Table) -> Self {
-        Self::new(Relation::Table(value), None, None)
+        Self::new(Tabular::Table(value), None, None)
     }
 }
 
 impl From<View> for DataFusionTable {
     fn from(value: View) -> Self {
-        Self::new(Relation::View(value), None, None)
+        Self::new(Tabular::View(value), None, None)
     }
 }
 
 impl From<MaterializedView> for DataFusionTable {
     fn from(value: MaterializedView) -> Self {
-        Self::new(Relation::MaterializedView(value), None, None)
+        Self::new(Tabular::MaterializedView(value), None, None)
     }
 }
 
 impl DataFusionTable {
-    pub fn new(tabular: Relation, start: Option<i64>, end: Option<i64>) -> Self {
+    pub fn new(tabular: Tabular, start: Option<i64>, end: Option<i64>) -> Self {
         let schema = match &tabular {
-            Relation::Table(table) => {
+            Tabular::Table(table) => {
                 let schema = table.schema().unwrap().clone();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
-            Relation::View(view) => Arc::new((&view.schema().unwrap().fields).try_into().unwrap()),
-            Relation::MaterializedView(mv) => {
+            Tabular::View(view) => Arc::new((&view.schema().unwrap().fields).try_into().unwrap()),
+            Tabular::MaterializedView(mv) => {
                 let schema = mv.metadata().current_schema().unwrap();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
@@ -108,10 +108,10 @@ impl DataFusionTable {
     }
     #[inline]
     pub fn new_table(table: Table, start: Option<i64>, end: Option<i64>) -> Self {
-        Self::new(Relation::Table(table), start, end)
+        Self::new(Tabular::Table(table), start, end)
     }
 
-    pub async fn inner_mut(&self) -> RwLockWriteGuard<'_, Relation> {
+    pub async fn inner_mut(&self) -> RwLockWriteGuard<'_, Tabular> {
         self.tabular.write().await
     }
 }
@@ -135,7 +135,7 @@ impl TableProvider for DataFusionTable {
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
         match self.tabular.read().await.deref() {
-            Relation::View(view) => {
+            Tabular::View(view) => {
                 let sql = match &view
                     .metadata()
                     .current_version()
@@ -150,7 +150,7 @@ impl TableProvider for DataFusionTable {
                     .scan(session, projection, filters, limit)
                     .await
             }
-            Relation::Table(table) => {
+            Tabular::Table(table) => {
                 let schema = self.schema();
                 let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
                 table_scan(
@@ -165,7 +165,7 @@ impl TableProvider for DataFusionTable {
                 )
                 .await
             }
-            Relation::MaterializedView(mv) => {
+            Tabular::MaterializedView(mv) => {
                 let table = mv.storage_table().await.map_err(Error::from)?;
                 let schema = self.schema();
                 let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
@@ -434,7 +434,7 @@ impl DataSink for DataFusionTable {
     ) -> Result<u64, DataFusionError> {
         let batches = stream::iter(data.into_iter()).flatten().map_err(Into::into);
         let mut lock = self.tabular.write().await;
-        let table = if let Relation::Table(table) = lock.deref_mut() {
+        let table = if let Tabular::Table(table) = lock.deref_mut() {
             Ok(table)
         } else {
             Err(Error::InvalidFormat("database entity".to_string()))
@@ -474,7 +474,7 @@ mod tests {
         prelude::SessionContext,
     };
     use iceberg_rust::{
-        catalog::{identifier::Identifier, memory::MemoryCatalog, relation::Relation, Catalog},
+        catalog::{identifier::Identifier, memory::MemoryCatalog, relation::Tabular, Catalog},
         spec::{
             partition::{PartitionField, PartitionSpecBuilder, Transform},
             schema::Schema,
@@ -499,7 +499,7 @@ mod tests {
 
         catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
 
-        let table = if let Relation::Table(table) = catalog
+        let table = if let Tabular::Table(table) = catalog
             .load_table(&identifier)
             .await
             .expect("Failed to load table")

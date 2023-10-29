@@ -19,7 +19,7 @@ use super::Catalog;
 
 #[derive(Debug)]
 /// Enum for different types that can be queried like a table, for example view
-pub enum Relation {
+pub enum Tabular {
     /// An iceberg table
     Table(Table),
     /// An iceberg view
@@ -28,14 +28,14 @@ pub enum Relation {
     MaterializedView(MaterializedView),
 }
 
-impl Relation {
+impl Tabular {
     #[inline]
     /// Return metadata location for relation.
     pub fn metadata_location(&self) -> &str {
         match self {
-            Relation::Table(table) => table.metadata_location(),
-            Relation::View(view) => view.metadata_location(),
-            Relation::MaterializedView(mv) => mv.metadata_location(),
+            Tabular::Table(table) => table.metadata_location(),
+            Tabular::View(view) => view.metadata_location(),
+            Tabular::MaterializedView(mv) => mv.metadata_location(),
         }
     }
 
@@ -43,17 +43,17 @@ impl Relation {
     /// Return catalog for relation.
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         match self {
-            Relation::Table(table) => table.catalog(),
-            Relation::View(view) => view.catalog(),
-            Relation::MaterializedView(mv) => mv.catalog(),
+            Tabular::Table(table) => table.catalog(),
+            Tabular::View(view) => view.catalog(),
+            Tabular::MaterializedView(mv) => mv.catalog(),
         }
     }
 
     /// Reload relation from catalog
     pub async fn reload(&mut self) -> Result<(), Error> {
         match self {
-            Relation::Table(table) => {
-                let new = if let Relation::Table(table) =
+            Tabular::Table(table) => {
+                let new = if let Tabular::Table(table) =
                     table.catalog().load_table(table.identifier()).await?
                 {
                     Ok(table)
@@ -64,8 +64,8 @@ impl Relation {
                 }?;
                 let _ = std::mem::replace(table, new);
             }
-            Relation::View(view) => {
-                let new = if let Relation::View(view) =
+            Tabular::View(view) => {
+                let new = if let Tabular::View(view) =
                     view.catalog().load_table(view.identifier()).await?
                 {
                     Ok(view)
@@ -76,8 +76,8 @@ impl Relation {
                 }?;
                 let _ = std::mem::replace(view, new);
             }
-            Relation::MaterializedView(matview) => {
-                let new = if let Relation::MaterializedView(matview) =
+            Tabular::MaterializedView(matview) => {
+                let new = if let Tabular::MaterializedView(matview) =
                     matview.catalog().load_table(matview.identifier()).await?
                 {
                     Ok(matview)

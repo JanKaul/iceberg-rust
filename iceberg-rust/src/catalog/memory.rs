@@ -16,7 +16,7 @@ use crate::{
 use super::{
     identifier::Identifier,
     namespace::Namespace,
-    relation::{Relation, RelationMetadata},
+    relation::{RelationMetadata, Tabular},
     Catalog,
 };
 
@@ -131,7 +131,7 @@ impl Catalog for MemoryCatalog {
     async fn load_table(
         self: Arc<Self>,
         identifier: &super::identifier::Identifier,
-    ) -> Result<super::relation::Relation, Error> {
+    ) -> Result<super::relation::Tabular, Error> {
         let path = {
             let connection = self.connection.lock().await;
             let mut stmt = connection.prepare("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = ?1 and table_namespace = ?2 and table_name = ?3")?;
@@ -160,7 +160,7 @@ impl Catalog for MemoryCatalog {
         let metadata: RelationMetadata = serde_json::from_str(std::str::from_utf8(bytes)?)?;
         let catalog: Arc<dyn Catalog> = self;
         match metadata {
-            RelationMetadata::Table(metadata) => Ok(Relation::Table(
+            RelationMetadata::Table(metadata) => Ok(Tabular::Table(
                 Table::new(
                     identifier.clone(),
                     Arc::clone(&catalog),
@@ -169,7 +169,7 @@ impl Catalog for MemoryCatalog {
                 )
                 .await?,
             )),
-            RelationMetadata::View(metadata) => Ok(Relation::View(
+            RelationMetadata::View(metadata) => Ok(Tabular::View(
                 View::new(
                     identifier.clone(),
                     Arc::clone(&catalog),
@@ -178,7 +178,7 @@ impl Catalog for MemoryCatalog {
                 )
                 .await?,
             )),
-            RelationMetadata::MaterializedView(metadata) => Ok(Relation::MaterializedView(
+            RelationMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
                 MaterializedView::new(
                     identifier.clone(),
                     catalog.clone(),
@@ -199,7 +199,7 @@ impl Catalog for MemoryCatalog {
         self: Arc<Self>,
         identifier: super::identifier::Identifier,
         metadata_file_location: &str,
-    ) -> Result<super::relation::Relation, Error> {
+    ) -> Result<super::relation::Tabular, Error> {
         {
             let connection = self.connection.lock().await;
             connection.execute("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values (?1, ?2, ?3, ?4)", (self.name.clone(),identifier.namespace().to_string(),identifier.name().to_string(), metadata_file_location.to_string()))?;
@@ -211,7 +211,7 @@ impl Catalog for MemoryCatalog {
         identifier: super::identifier::Identifier,
         metadata_file_location: &str,
         previous_metadata_file_location: &str,
-    ) -> Result<super::relation::Relation, Error> {
+    ) -> Result<super::relation::Tabular, Error> {
         {
             let connection = self.connection.lock().await;
             connection.execute("update iceberg_tables set metadata_location = ?4, previous_metadata_location = ?5 where catalog_name = ?1 and table_namespace = ?2 and table_name = ?3", (self.name.clone(),identifier.namespace().to_string(),identifier.name().to_string(), metadata_file_location, previous_metadata_file_location))?;

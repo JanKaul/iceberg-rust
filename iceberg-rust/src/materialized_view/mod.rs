@@ -7,7 +7,7 @@ use std::sync::Arc;
 use object_store::ObjectStore;
 
 use crate::{
-    catalog::{identifier::Identifier, relation::Relation, Catalog},
+    catalog::{identifier::Identifier, relation::Tabular, Catalog},
     error::Error,
     spec::{
         materialized_view_metadata::{MaterializedViewMetadata, MaterializedViewRepresentation},
@@ -88,7 +88,7 @@ impl MaterializedView {
                 storage_table,
             } => storage_table,
         };
-        if let Relation::Table(table) = self
+        if let Tabular::Table(table) = self
             .catalog
             .clone()
             .load_table(&Identifier::parse(

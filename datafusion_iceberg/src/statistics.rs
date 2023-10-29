@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use datafusion::physical_plan::{ColumnStatistics, Statistics};
-use iceberg_rust::catalog::relation::Relation;
+use iceberg_rust::catalog::relation::Tabular;
 
 use crate::error::Error;
 
@@ -10,7 +10,7 @@ use super::table::DataFusionTable;
 impl DataFusionTable {
     pub(crate) async fn statistics(&self) -> Result<Statistics, Error> {
         match self.tabular.read().await.deref() {
-            Relation::Table(table) => table
+            Tabular::Table(table) => table
                 .manifests(self.snapshot_range.0, self.snapshot_range.1)
                 .await?
                 .iter()
@@ -50,8 +50,8 @@ impl DataFusionTable {
                         })
                     },
                 ),
-            Relation::View(_) => Err(Error::NotSupported("Statistics for views".to_string())),
-            Relation::MaterializedView(mv) => {
+            Tabular::View(_) => Err(Error::NotSupported("Statistics for views".to_string())),
+            Tabular::MaterializedView(mv) => {
                 let table = mv.storage_table().await.map_err(Error::from)?;
                 table
                     .manifests(self.snapshot_range.0, self.snapshot_range.1)

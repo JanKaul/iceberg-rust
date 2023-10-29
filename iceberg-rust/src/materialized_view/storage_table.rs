@@ -7,7 +7,7 @@ use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 
 use crate::{
-    catalog::{identifier::Identifier, relation::Relation},
+    catalog::{identifier::Identifier, relation::Tabular},
     error::Error,
     file_format::DatafileMetadata,
     spec::{
@@ -96,8 +96,8 @@ impl StorageTable {
                         )?)
                         .await?
                     {
-                        Relation::Table(table) => table,
-                        Relation::MaterializedView(mv) => mv.storage_table().await?.0,
+                        Tabular::Table(table) => table,
+                        Tabular::MaterializedView(mv) => mv.storage_table().await?.0,
                         _ => return Err(Error::InvalidFormat("storage table".to_string())),
                     };
 
@@ -154,7 +154,7 @@ impl StorageTable {
         object_store
             .put(&metadata_location.clone().into(), bytes.into())
             .await?;
-        let mut table = if let Relation::Table(table) = table_catalog
+        let mut table = if let Tabular::Table(table) = table_catalog
             .update_table(
                 table_identifier,
                 &metadata_location,

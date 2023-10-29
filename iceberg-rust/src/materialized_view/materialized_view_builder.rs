@@ -10,7 +10,7 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
-    catalog::{identifier::Identifier, relation::Relation, Catalog},
+    catalog::{identifier::Identifier, relation::Tabular, Catalog},
     error::Error,
     spec::{
         materialized_view_metadata::{
@@ -124,7 +124,7 @@ impl MaterializedViewBuilder {
         object_store
             .put(&table_path, table_metadata_json.into())
             .await?;
-        if let Relation::Table(_) = self
+        if let Tabular::Table(_) = self
             .catalog
             .clone()
             .register_table(table_identifier, table_path.as_ref())
@@ -136,7 +136,7 @@ impl MaterializedViewBuilder {
                 "Entity returned from catalog".to_string(),
             ))
         }?;
-        if let Relation::MaterializedView(matview) = self
+        if let Tabular::MaterializedView(matview) = self
             .catalog
             .register_table(self.identifier, path.as_ref())
             .await?

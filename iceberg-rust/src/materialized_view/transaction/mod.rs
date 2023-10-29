@@ -7,7 +7,7 @@ use object_store::path::Path;
 use uuid::Uuid;
 
 use crate::{
-    catalog::relation::Relation,
+    catalog::relation::Tabular,
     error::Error,
     spec::{materialized_view_metadata::MaterializedViewRepresentation, schema::Schema},
     view::transaction::operation::Operation as ViewOperation,
@@ -73,7 +73,7 @@ impl<'view> Transaction<'view> {
             .put(&metadata_file_location, metadata_json.into())
             .await?;
         let previous_metadata_file_location = materialized_view.metadata_location();
-        if let Relation::MaterializedView(new_mv) = catalog
+        if let Tabular::MaterializedView(new_mv) = catalog
             .clone()
             .update_table(
                 identifier,

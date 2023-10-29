@@ -5,7 +5,7 @@
 use futures::StreamExt;
 
 use crate::{
-    catalog::relation::Relation, error::Error, file_format::DatafileMetadata,
+    catalog::relation::Tabular, error::Error, file_format::DatafileMetadata,
     spec::schema::SchemaV2, table::Table, util::strip_prefix,
 };
 
@@ -89,7 +89,7 @@ impl<'table> TableTransaction<'table> {
             )
             .await?;
         let previous_metadata_file_location = table.metadata_location();
-        if let Relation::Table(new_table) = catalog
+        if let Tabular::Table(new_table) = catalog
             .clone()
             .update_table(
                 identifier,
