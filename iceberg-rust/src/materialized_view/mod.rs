@@ -7,7 +7,7 @@ use std::sync::Arc;
 use object_store::ObjectStore;
 
 use crate::{
-    catalog::{identifier::Identifier, relation::Tabular, Catalog},
+    catalog::{identifier::Identifier, tabular::Tabular, Catalog},
     error::Error,
     spec::{
         materialized_view_metadata::{MaterializedViewMetadata, MaterializedViewRepresentation},

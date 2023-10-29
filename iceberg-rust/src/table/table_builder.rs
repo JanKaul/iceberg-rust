@@ -10,7 +10,7 @@ use std::{
 use object_store::path::Path;
 use uuid::Uuid;
 
-use crate::catalog::relation::Tabular;
+use crate::catalog::tabular::Tabular;
 use crate::spec::table_metadata::TableMetadataBuilder;
 use crate::table::Table;
 use crate::{catalog::identifier::Identifier, error::Error};

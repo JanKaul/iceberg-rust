@@ -7,7 +7,7 @@ use object_store::path::Path;
 use uuid::Uuid;
 
 use crate::{
-    catalog::relation::Tabular,
+    catalog::tabular::Tabular,
     error::Error,
     spec::{materialized_view_metadata::MaterializedViewRepresentation, schema::Schema},
     view::transaction::operation::Operation as ViewOperation,

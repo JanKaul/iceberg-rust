@@ -9,7 +9,7 @@ use object_store::path::Path;
 use uuid::Uuid;
 
 use crate::catalog::identifier::Identifier;
-use crate::catalog::relation::Tabular;
+use crate::catalog::tabular::Tabular;
 use crate::error::Error;
 use crate::spec::schema::Schema;
 use crate::spec::view_metadata::{VersionBuilder, ViewMetadataBuilder, ViewRepresentation};

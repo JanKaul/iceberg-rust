@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use datafusion::physical_plan::{ColumnStatistics, Statistics};
-use iceberg_rust::catalog::relation::Tabular;
+use iceberg_rust::catalog::tabular::Tabular;
 
 use crate::error::Error;
 

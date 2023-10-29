@@ -5,8 +5,8 @@
 use futures::StreamExt;
 
 use crate::{
-    catalog::relation::Tabular, error::Error, file_format::DatafileMetadata,
-    spec::schema::SchemaV2, table::Table, util::strip_prefix,
+    catalog::tabular::Tabular, error::Error, file_format::DatafileMetadata, spec::schema::SchemaV2,
+    table::Table, util::strip_prefix,
 };
 
 use self::operation::Operation;

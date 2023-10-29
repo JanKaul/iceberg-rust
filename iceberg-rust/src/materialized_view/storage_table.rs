@@ -7,7 +7,7 @@ use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 
 use crate::{
-    catalog::{identifier::Identifier, relation::Tabular},
+    catalog::{identifier::Identifier, tabular::Tabular},
     error::Error,
     file_format::DatafileMetadata,
     spec::{

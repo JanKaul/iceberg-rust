@@ -9,7 +9,7 @@ use uuid::Uuid;
 pub mod operation;
 
 use crate::{
-    catalog::relation::Tabular,
+    catalog::tabular::Tabular,
     error::Error,
     spec::{schema::Schema, view_metadata::ViewRepresentation},
 };

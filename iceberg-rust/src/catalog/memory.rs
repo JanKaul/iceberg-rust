@@ -16,7 +16,7 @@ use crate::{
 use super::{
     identifier::Identifier,
     namespace::Namespace,
-    relation::{RelationMetadata, Tabular},
+    tabular::{RelationMetadata, Tabular},
     Catalog,
 };
 
@@ -131,7 +131,7 @@ impl Catalog for MemoryCatalog {
     async fn load_table(
         self: Arc<Self>,
         identifier: &super::identifier::Identifier,
-    ) -> Result<super::relation::Tabular, Error> {
+    ) -> Result<super::tabular::Tabular, Error> {
         let path = {
             let connection = self.connection.lock().await;
             let mut stmt = connection.prepare("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = ?1 and table_namespace = ?2 and table_name = ?3")?;
@@ -199,7 +199,7 @@ impl Catalog for MemoryCatalog {
         self: Arc<Self>,
         identifier: super::identifier::Identifier,
         metadata_file_location: &str,
-    ) -> Result<super::relation::Tabular, Error> {
+    ) -> Result<super::tabular::Tabular, Error> {
         {
             let connection = self.connection.lock().await;
             connection.execute("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values (?1, ?2, ?3, ?4)", (self.name.clone(),identifier.namespace().to_string(),identifier.name().to_string(), metadata_file_location.to_string()))?;
@@ -211,7 +211,7 @@ impl Catalog for MemoryCatalog {
         identifier: super::identifier::Identifier,
         metadata_file_location: &str,
         previous_metadata_file_location: &str,
-    ) -> Result<super::relation::Tabular, Error> {
+    ) -> Result<super::tabular::Tabular, Error> {
         {
             let connection = self.connection.lock().await;
             connection.execute("update iceberg_tables set metadata_location = ?4, previous_metadata_location = ?5 where catalog_name = ?1 and table_namespace = ?2 and table_name = ?3", (self.name.clone(),identifier.namespace().to_string(),identifier.name().to_string(), metadata_file_location, previous_metadata_file_location))?;

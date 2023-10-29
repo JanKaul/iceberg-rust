@@ -46,7 +46,7 @@ use crate::{
 
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned,
-    catalog::relation::Tabular,
+    catalog::tabular::Tabular,
     materialized_view::MaterializedView,
     spec::{types::StructField, view_metadata::ViewRepresentation},
     table::Table,
@@ -474,7 +474,7 @@ mod tests {
         prelude::SessionContext,
     };
     use iceberg_rust::{
-        catalog::{identifier::Identifier, memory::MemoryCatalog, relation::Tabular, Catalog},
+        catalog::{identifier::Identifier, memory::MemoryCatalog, tabular::Tabular, Catalog},
         spec::{
             partition::{PartitionField, PartitionSpecBuilder, Transform},
             schema::Schema,

@@ -15,9 +15,9 @@ use object_store::ObjectStore;
 use crate::error::Error;
 
 use self::namespace::Namespace;
-use self::relation::Tabular;
+use self::tabular::Tabular;
 
-pub mod relation;
+pub mod tabular;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod memory;
