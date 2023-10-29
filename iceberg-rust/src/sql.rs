@@ -8,7 +8,7 @@ use sqlparser::{ast::visit_relations, dialect::GenericDialect, parser::Parser};
 
 use crate::error::Error;
 
-pub(crate) fn find_relations(sql: &str) -> Result<Vec<String>, Error> {
+pub fn find_relations(sql: &str) -> Result<Vec<String>, Error> {
     let statements = Parser::parse_sql(&GenericDialect, sql)?;
     let mut visited = Vec::new();
 
