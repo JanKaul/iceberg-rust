@@ -19,8 +19,13 @@ use crate::{
     DataFusionTable,
 };
 
-pub async fn refresh_materialized_view(matview: &MaterializedView) -> Result<(), Error> {
+pub async fn refresh_materialized_view(
+    matview: &MaterializedView,
+    branch: Option<&str>,
+) -> Result<(), Error> {
     let metadata = matview.metadata();
+
+    let branch = branch.map(ToString::to_string);
 
     let ctx = SessionContext::new();
 
@@ -37,10 +42,12 @@ pub async fn refresh_materialized_view(matview: &MaterializedView) -> Result<(),
 
     let mut storage_table = matview.storage_table().await?;
 
-    let base_tables = if storage_table.version_id()? == Some(version_id) {
-        storage_table.base_tables(None).await?
+    let base_tables = if storage_table.version_id(branch.clone())? == Some(version_id) {
+        storage_table.base_tables(None, branch.clone()).await?
     } else {
-        storage_table.base_tables(Some(&sql)).await?
+        storage_table
+            .base_tables(Some(&sql), branch.clone())
+            .await?
     };
 
     // Full refresh
@@ -95,7 +102,7 @@ pub async fn refresh_materialized_view(matview: &MaterializedView) -> Result<(),
     .await?;
 
     storage_table
-        .full_refresh(files, version_id, new_tables)
+        .full_refresh(files, version_id, new_tables, branch)
         .await?;
 
     Ok(())
@@ -253,7 +260,7 @@ mod tests {
         .await
         .expect("Failed to insert values into table");
 
-        refresh_materialized_view(&matview)
+        refresh_materialized_view(&matview, None)
             .await
             .expect("Failed to refresh materialized view");
 
@@ -305,7 +312,7 @@ mod tests {
         .await
         .expect("Failed to insert values into table");
 
-        refresh_materialized_view(&matview)
+        refresh_materialized_view(&matview, None)
             .await
             .expect("Failed to refresh materialized view");
 

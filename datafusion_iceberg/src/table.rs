@@ -453,7 +453,7 @@ impl DataSink for DataFusionTable {
                 .await?;
 
         table
-            .new_transaction()
+            .new_transaction(None)
             .append(metadata_files)
             .commit()
             .await

@@ -43,10 +43,10 @@ pub enum StorageTableState {
 impl StorageTable {
     #[inline]
     /// Returns the version id of the last refresh.
-    pub fn version_id(&self) -> Result<Option<i64>, Error> {
+    pub fn version_id(&self, branch: Option<String>) -> Result<Option<i64>, Error> {
         self.0
             .metadata()
-            .current_snapshot(None)?
+            .current_snapshot(branch)?
             .and_then(|snapshot| snapshot.summary.other.get("version-id"))
             .map(|json| Ok(serde_json::from_str::<VersionId>(json)?))
             .transpose()
@@ -56,6 +56,7 @@ impl StorageTable {
     pub async fn base_tables(
         &self,
         sql: Option<&str>,
+        branch: Option<String>,
     ) -> Result<Vec<(Table, StorageTableState)>, Error> {
         let base_tables = if let Some(sql) = sql {
             find_relations(sql)?
@@ -67,7 +68,7 @@ impl StorageTable {
                 .collect::<Vec<_>>()
         } else {
             self.metadata()
-                .current_snapshot(None)?
+                .current_snapshot(branch.clone())?
                 .and_then(|snapshot| snapshot.summary.other.get("base-tables"))
                 .ok_or(Error::NotFound(
                     "Snapshot summary field".to_string(),
@@ -86,6 +87,7 @@ impl StorageTable {
         stream::iter(base_tables.iter())
             .then(|(pointer, snapshot_id)| {
                 let catalog = catalog.clone();
+                let branch = branch.clone();
                 async move {
                     // if !pointer.starts_with("identifier:") {
                     //     return Err(anyhow!("Only identifiers supported as base table pointers"));
@@ -104,7 +106,7 @@ impl StorageTable {
                     let snapshot_id = if let Some(snapshot_id) = snapshot_id {
                         if base_table
                             .metadata()
-                            .current_snapshot(None)?
+                            .current_snapshot(branch)?
                             .unwrap()
                             .snapshot_id
                             == *snapshot_id
@@ -132,6 +134,7 @@ impl StorageTable {
         files: Vec<DataFile>,
         version_id: VersionId,
         base_tables: Vec<BaseTable>,
+        branch: Option<String>,
     ) -> Result<(), Error> {
         let object_store = self.object_store();
 
@@ -170,7 +173,7 @@ impl StorageTable {
         }?;
 
         table
-            .new_transaction()
+            .new_transaction(branch.as_ref().map(String::as_str))
             .append(files)
             .update_snapshot_summary(vec![
                 (

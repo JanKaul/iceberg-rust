@@ -7,7 +7,7 @@ use futures::StreamExt;
 use crate::{
     catalog::tabular::Tabular,
     error::Error,
-    spec::{manifest::DataFile, schema::SchemaV2},
+    spec::{manifest::DataFile, schema::Schema},
     table::Table,
     util::strip_prefix,
 };
@@ -20,18 +20,20 @@ mod operation;
 pub struct TableTransaction<'table> {
     table: &'table mut Table,
     operations: Vec<Operation>,
+    branch: Option<String>,
 }
 
 impl<'table> TableTransaction<'table> {
     /// Create a transaction for the given table.
-    pub fn new(table: &'table mut Table) -> Self {
+    pub fn new(table: &'table mut Table, branch: Option<&str>) -> Self {
         TableTransaction {
             table,
             operations: vec![],
+            branch: branch.map(ToString::to_string),
         }
     }
     /// Update the schmema of the table
-    pub fn update_schema(mut self, schema: SchemaV2) -> Self {
+    pub fn update_schema(mut self, schema: Schema) -> Self {
         self.operations.push(Operation::UpdateSchema(schema));
         self
     }
@@ -42,7 +44,10 @@ impl<'table> TableTransaction<'table> {
     }
     /// Quickly append files to the table
     pub fn append(mut self, files: Vec<DataFile>) -> Self {
-        self.operations.push(Operation::NewAppend { files });
+        self.operations.push(Operation::NewAppend {
+            branch: self.branch.clone(),
+            files,
+        });
         self
     }
     /// Update the properties of the table
@@ -52,8 +57,10 @@ impl<'table> TableTransaction<'table> {
     }
     /// Update the snapshot summary of the table
     pub fn update_snapshot_summary(mut self, entries: Vec<(String, String)>) -> Self {
-        self.operations
-            .push(Operation::UpdateSnapshotSummary(entries));
+        self.operations.push(Operation::UpdateSnapshotSummary {
+            branch: self.branch.clone(),
+            entries,
+        });
         self
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
@@ -61,14 +68,18 @@ impl<'table> TableTransaction<'table> {
         let object_store = self.table.object_store();
         let catalog = self.table.catalog();
         let identifier = self.table.identifier.clone();
+        let branch = self.branch;
 
         // Before executing the transactions operations, update the metadata for a new snapshot
         self.table.increment_sequence_number();
         if self.operations.iter().any(|op| match op {
-            Operation::NewAppend { files: _ } => true,
+            Operation::NewAppend {
+                branch: _,
+                files: _,
+            } => true,
             _ => false,
         }) {
-            self.table.new_snapshot(None).await?;
+            self.table.new_snapshot(branch).await?;
         }
         // Execute the table operations
         let table = futures::stream::iter(self.operations)

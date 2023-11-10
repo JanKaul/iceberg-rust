@@ -134,9 +134,12 @@ impl TableMetadata {
 
     /// Get current snapshot
     #[inline]
-    pub fn current_snapshot(&self, snapshot_ref: Option<&str>) -> Result<Option<&Snapshot>, Error> {
-        let branch = snapshot_ref.unwrap_or(MAIN_BRANCH);
-        let snapshot_id = self.refs.get(branch).map(|x| x.snapshot_id);
+    pub fn current_snapshot(
+        &self,
+        snapshot_ref: Option<String>,
+    ) -> Result<Option<&Snapshot>, Error> {
+        let branch = snapshot_ref.unwrap_or(MAIN_BRANCH.to_string());
+        let snapshot_id = self.refs.get(&branch).map(|x| x.snapshot_id);
         match snapshot_id {
             Some(snapshot_id) => Ok(self.snapshots.get(&snapshot_id)),
             None => {
@@ -153,10 +156,10 @@ impl TableMetadata {
     #[inline]
     pub fn current_snapshot_mut(
         &mut self,
-        snapshot_ref: Option<&str>,
+        snapshot_ref: Option<String>,
     ) -> Result<Option<&mut Snapshot>, Error> {
-        let branch = snapshot_ref.unwrap_or(MAIN_BRANCH);
-        let snapshot_id = self.refs.get(branch).map(|x| x.snapshot_id);
+        let branch = snapshot_ref.unwrap_or(MAIN_BRANCH.to_string());
+        let snapshot_id = self.refs.get(&branch).map(|x| x.snapshot_id);
         match snapshot_id {
             Some(-1) => {
                 if self.snapshots.is_empty() {

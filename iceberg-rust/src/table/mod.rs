@@ -173,8 +173,8 @@ impl Table {
             .any(|entry| !matches!(entry.data_file.content, Content::Data)))
     }
     /// Create a new transaction for this table
-    pub fn new_transaction(&mut self) -> TableTransaction {
-        TableTransaction::new(self)
+    pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction {
+        TableTransaction::new(self, branch)
     }
 
     /// delete all datafiles, manifests and metadata files, does not remove table from catalog
@@ -251,14 +251,14 @@ impl Table {
 
     /// Create a new table snapshot based on the manifest_list file of the previous snapshot.
     pub(crate) async fn new_snapshot(&mut self, branch: Option<String>) -> Result<(), Error> {
-        let branch = branch.unwrap_or("main".to_string());
-
         let mut bytes: [u8; 8] = [0u8; 8];
         getrandom::getrandom(&mut bytes).unwrap();
         let snapshot_id = i64::from_le_bytes(bytes);
         let object_store = self.object_store();
         let metadata = &mut self.metadata;
-        let old_manifest_list_location = metadata.current_snapshot(None)?.map(|x| &x.manifest_list);
+        let old_manifest_list_location = metadata
+            .current_snapshot(branch.clone())?
+            .map(|x| &x.manifest_list);
         let new_manifest_list_location = metadata.location.to_string()
             + "/metadata/snap-"
             + &snapshot_id.to_string()
@@ -299,17 +299,20 @@ impl Table {
             schema_id: Some(metadata.current_schema_id as i64),
         };
 
+        let branch_name = branch.unwrap_or("main".to_string());
+
         metadata.snapshots.insert(snapshot_id, snapshot);
-        if &branch == MAIN_BRANCH {
+        if &branch_name == MAIN_BRANCH {
             metadata.current_snapshot_id = Some(snapshot_id);
         }
-        metadata.refs.insert(
-            branch,
-            Reference {
+        metadata
+            .refs
+            .entry(branch_name)
+            .and_modify(|x| x.snapshot_id = snapshot_id)
+            .or_insert(Reference {
                 snapshot_id,
                 retention: Retention::default(),
-            },
-        );
+            });
         Ok(())
     }
 }
@@ -376,7 +379,7 @@ mod tests {
 
         let metadata_location1 = table.metadata_location().to_string();
 
-        let transaction = table.new_transaction();
+        let transaction = table.new_transaction(None);
         transaction.commit().await.unwrap();
         let metadata_location2 = table.metadata_location();
         assert_ne!(metadata_location1, metadata_location2);

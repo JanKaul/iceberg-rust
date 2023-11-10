@@ -18,7 +18,7 @@ use crate::{
         },
         manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
         partition::PartitionField,
-        schema::{Schema, SchemaV2},
+        schema::Schema,
         types::StructField,
         values::{Struct, Value},
     },
@@ -30,19 +30,25 @@ use crate::{
 ///Table operations
 pub enum Operation {
     /// Update schema
-    UpdateSchema(SchemaV2),
+    UpdateSchema(Schema),
     /// Update spec
     UpdateSpec(i32),
     /// Update table properties
     UpdateProperties(Vec<(String, String)>),
     /// Update snapshot summary
-    UpdateSnapshotSummary(Vec<(String, String)>),
+    UpdateSnapshotSummary {
+        branch: Option<String>,
+        entries: Vec<(String, String)>,
+    },
     /// Replace the sort order
     // ReplaceSortOrder,
     // /// Update the table location
     // UpdateLocation,
     /// Append new files to the table
-    NewAppend { files: Vec<DataFile> },
+    NewAppend {
+        branch: Option<String>,
+        files: Vec<DataFile>,
+    },
     // /// Quickly append new files to the table
     // NewFastAppend {
     //     paths: Vec<String>,
@@ -69,14 +75,14 @@ pub enum Operation {
 impl Operation {
     pub async fn execute(self, table: &mut Table) -> Result<(), Error> {
         match self {
-            Operation::NewAppend { files: paths } => {
+            Operation::NewAppend { branch, files } => {
                 let object_store = table.object_store();
                 let table_metadata = table.metadata();
                 let partition_spec = table_metadata.default_partition_spec()?;
                 let schema = table_metadata.current_schema()?;
 
                 let datafiles = Arc::new(
-                    stream::iter(paths.into_iter())
+                    stream::iter(files.into_iter())
                         .map(Ok::<_, Error>)
                         .try_fold(
                             HashMap::<Struct, Vec<DataFile>>::new(),
@@ -100,7 +106,7 @@ impl Operation {
                 let existing_partitions = Arc::new(Mutex::new(HashSet::new()));
 
                 let manifest_list_location = &table_metadata
-                    .current_snapshot(None)?
+                    .current_snapshot(branch.clone())?
                     .ok_or_else(|| Error::InvalidFormat("manifest list in metadata".to_string()))?
                     .manifest_list;
 
@@ -224,6 +230,7 @@ impl Operation {
                     let object_store = object_store.clone();
                     let datafiles = datafiles.clone();
                     let partition_columns = partition_columns.clone();
+                    let branch = branch.clone();
                     async move {
                         let manifest_schema = ManifestEntry::schema(
                             &partition_value_schema(
@@ -286,7 +293,7 @@ impl Operation {
                                     status: Status::Added,
                                     snapshot_id: table_metadata.current_snapshot_id,
                                     sequence_number: table_metadata
-                                        .current_snapshot(None)?
+                                        .current_snapshot(branch.clone())?
                                         .map(|x| x.sequence_number),
                                     data_file: datafile.clone(),
                                 };
@@ -373,11 +380,11 @@ impl Operation {
                 });
                 Ok(())
             }
-            Operation::UpdateSnapshotSummary(entries) => {
+            Operation::UpdateSnapshotSummary { branch, entries } => {
                 let snapshot =
                     table
                         .metadata
-                        .current_snapshot_mut(None)?
+                        .current_snapshot_mut(branch)?
                         .ok_or(Error::NotFound(
                             "Current".to_string(),
                             "snapshot".to_string(),

@@ -284,7 +284,7 @@ pub mod tests {
 
         let metadata_location = table.metadata_location().to_string();
 
-        let transaction = table.new_transaction();
+        let transaction = table.new_transaction(None);
         transaction.commit().await.expect("Transaction failed.");
 
         let new_metadata_location = table.metadata_location().to_string();
