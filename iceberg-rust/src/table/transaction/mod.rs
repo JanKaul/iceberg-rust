@@ -2,8 +2,6 @@
  * Defines the [Transaction] type that performs multiple [Operation]s with ACID properties.
 */
 
-use futures::StreamExt;
-
 use crate::{
     catalog::tabular::Tabular,
     error::Error,
@@ -72,37 +70,51 @@ impl<'table> TableTransaction<'table> {
 
         // Before executing the transactions operations, update the metadata for a new snapshot
         self.table.increment_sequence_number();
-        if self.operations.iter().any(|op| match op {
+        let manifest_list_bytes = if self.operations.iter().any(|op| match op {
             Operation::NewAppend {
                 branch: _,
                 files: _,
             } => true,
             _ => false,
         }) {
-            self.table.new_snapshot(branch).await?;
-        }
-        // Execute the table operations
-        let table = futures::stream::iter(self.operations)
-            .fold(
-                Ok::<&mut Table, Error>(self.table),
-                |table, op| async move {
-                    let table = table?;
-                    op.execute(table).await?;
-                    Ok(table)
-                },
-            )
-            .await?;
-        // Write the new state to the object store
+            self.table.new_snapshot(branch.clone()).await?
+        } else {
+            None
+        };
 
-        let metadata_json = serde_json::to_string(&table.metadata())?;
-        let metadata_file_location = table.new_metadata_location()?;
+        let mut context = TransactionContext {
+            manifest_list_bytes,
+        };
+        // Execute the table operations
+        for op in self.operations {
+            op.execute(self.table, &mut context).await?
+        }
+
+        if let Some(snapshot) = &self.table.metadata.current_snapshot(branch)? {
+            object_store
+                .put(
+                    &strip_prefix(&snapshot.manifest_list).into(),
+                    context
+                        .manifest_list_bytes
+                        .ok_or(Error::NotFound(
+                            "Manifest list".to_string(),
+                            "bytes".to_string(),
+                        ))?
+                        .into(),
+                )
+                .await?;
+        }
+
+        // Write the new state to the object store
+        let metadata_json = serde_json::to_string(&self.table.metadata())?;
+        let metadata_file_location = self.table.new_metadata_location()?;
         object_store
             .put(
                 &strip_prefix(&metadata_file_location).into(),
                 metadata_json.into(),
             )
             .await?;
-        let previous_metadata_file_location = table.metadata_location();
+        let previous_metadata_file_location = self.table.metadata_location();
         if let Tabular::Table(new_table) = catalog
             .clone()
             .update_table(
@@ -112,7 +124,7 @@ impl<'table> TableTransaction<'table> {
             )
             .await?
         {
-            *table = new_table;
+            *self.table = new_table;
             Ok(())
         } else {
             Err(Error::InvalidFormat(
@@ -120,4 +132,10 @@ impl<'table> TableTransaction<'table> {
             ))
         }
     }
+}
+
+/// Contexxt for Transactions
+#[derive(Debug)]
+pub struct TransactionContext {
+    manifest_list_bytes: Option<Vec<u8>>,
 }

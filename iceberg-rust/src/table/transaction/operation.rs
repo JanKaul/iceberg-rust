@@ -26,6 +26,8 @@ use crate::{
     util::strip_prefix,
 };
 
+use super::TransactionContext;
+
 #[derive(Debug)]
 ///Table operations
 pub enum Operation {
@@ -73,7 +75,11 @@ pub enum Operation {
 }
 
 impl Operation {
-    pub async fn execute(self, table: &mut Table) -> Result<(), Error> {
+    pub async fn execute(
+        self,
+        table: &mut Table,
+        context: &mut TransactionContext,
+    ) -> Result<(), Error> {
         match self {
             Operation::NewAppend { branch, files } => {
                 let object_store = table.object_store();
@@ -110,18 +116,12 @@ impl Operation {
                     .ok_or_else(|| Error::InvalidFormat("manifest list in metadata".to_string()))?
                     .manifest_list;
 
-                let manifest_list_bytes: Vec<u8> = object_store
-                    .get(&strip_prefix(manifest_list_location).as_str().into())
-                    .await?
-                    .bytes()
-                    .await?
-                    .into();
-
                 // Check if file has content "null", if so manifest_list file is empty
-                let existing_manifest_iter = if manifest_list_bytes == vec![110, 117, 108, 108] {
-                    None
-                } else {
-                    let manifest_list_reader = apache_avro::Reader::new(&*manifest_list_bytes)?;
+                let existing_manifest_iter = if let Some(manifest_list_bytes) =
+                    &context.manifest_list_bytes
+                {
+                    let manifest_list_reader =
+                        apache_avro::Reader::new(manifest_list_bytes.as_slice())?;
 
                     Some(stream::iter(manifest_list_reader).filter_map(|manifest| {
                         let datafiles = datafiles.clone();
@@ -163,10 +163,13 @@ impl Operation {
                             }
                         }
                     }))
+                } else {
+                    None
                 };
 
-                let manifest_count = if existing_manifest_iter.is_some() {
-                    apache_avro::Reader::new(&*manifest_list_bytes)?.count()
+                let manifest_count = if let Some(manifest_list_bytes) = &context.manifest_list_bytes
+                {
+                    apache_avro::Reader::new(manifest_list_bytes.as_slice())?.count()
                 } else {
                     0
                 };
@@ -364,12 +367,7 @@ impl Operation {
                     .into_inner()
                     .into_inner()?;
 
-                object_store
-                    .put(
-                        &strip_prefix(manifest_list_location).as_str().into(),
-                        manifest_list_bytes.into(),
-                    )
-                    .await?;
+                context.manifest_list_bytes = Some(manifest_list_bytes);
 
                 Ok(())
             }

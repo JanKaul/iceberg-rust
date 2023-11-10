@@ -250,7 +250,10 @@ impl Table {
     }
 
     /// Create a new table snapshot based on the manifest_list file of the previous snapshot.
-    pub(crate) async fn new_snapshot(&mut self, branch: Option<String>) -> Result<(), Error> {
+    pub(crate) async fn new_snapshot(
+        &mut self,
+        branch: Option<String>,
+    ) -> Result<Option<Vec<u8>>, Error> {
         let mut bytes: [u8; 8] = [0u8; 8];
         getrandom::getrandom(&mut bytes).unwrap();
         let snapshot_id = i64::from_le_bytes(bytes);
@@ -258,31 +261,13 @@ impl Table {
         let metadata = &mut self.metadata;
         let old_manifest_list_location = metadata
             .current_snapshot(branch.clone())?
-            .map(|x| &x.manifest_list);
+            .map(|x| &x.manifest_list)
+            .cloned();
         let new_manifest_list_location = metadata.location.to_string()
             + "/metadata/snap-"
             + &snapshot_id.to_string()
             + &uuid::Uuid::new_v4().to_string()
             + ".avro";
-        // If there is a previous snapshot with a manifest_list file, that file gets copied for the new snapshot. If not, a new empty file is created.
-        match old_manifest_list_location {
-            Some(old_manifest_list_location) => {
-                object_store
-                    .copy(
-                        &strip_prefix(old_manifest_list_location).as_str().into(),
-                        &strip_prefix(&new_manifest_list_location).as_str().into(),
-                    )
-                    .await?
-            }
-            None => {
-                object_store
-                    .put(
-                        &strip_prefix(&new_manifest_list_location).as_str().into(),
-                        "null".as_bytes().into(),
-                    )
-                    .await?;
-            }
-        };
         let snapshot = Snapshot {
             snapshot_id,
             parent_snapshot_id: metadata.current_snapshot_id,
@@ -313,7 +298,17 @@ impl Table {
                 snapshot_id,
                 retention: Retention::default(),
             });
-        Ok(())
+        match old_manifest_list_location {
+            Some(old_manifest_list_location) => Ok(Some(
+                object_store
+                    .get(&strip_prefix(&old_manifest_list_location).as_str().into())
+                    .await?
+                    .bytes()
+                    .await?
+                    .into(),
+            )),
+            None => Ok(None),
+        }
     }
 }
 
