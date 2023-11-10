@@ -12,7 +12,6 @@ use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
 
 use crate::{
     error::Error,
-    file_format::{parquet::parquet_to_datafile, DatafileMetadata},
     spec::{
         manifest::{
             partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status,
@@ -43,9 +42,7 @@ pub enum Operation {
     // /// Update the table location
     // UpdateLocation,
     /// Append new files to the table
-    NewAppend {
-        paths: Vec<(String, DatafileMetadata)>,
-    },
+    NewAppend { files: Vec<DataFile> },
     // /// Quickly append new files to the table
     // NewFastAppend {
     //     paths: Vec<String>,
@@ -72,33 +69,15 @@ pub enum Operation {
 impl Operation {
     pub async fn execute(self, table: &mut Table) -> Result<(), Error> {
         match self {
-            Operation::NewAppend { paths } => {
+            Operation::NewAppend { files: paths } => {
                 let object_store = table.object_store();
                 let table_metadata = table.metadata();
                 let partition_spec = table_metadata.default_partition_spec()?;
                 let schema = table_metadata.current_schema()?;
 
                 let datafiles = Arc::new(
-                    stream::iter(paths.iter())
-                        .then(|(path, file_metadata)| {
-                            let object_store = object_store.clone();
-                            async move {
-                                let size = object_store.head(&path.as_str().into()).await?.size;
-                                let datafile = match file_metadata {
-                                    DatafileMetadata::Parquet(file_metadata) => {
-                                        parquet_to_datafile(
-                                            path,
-                                            size,
-                                            file_metadata,
-                                            schema,
-                                            &partition_spec.fields,
-                                        )?
-                                    }
-                                };
-
-                                Ok::<_, Error>(datafile)
-                            }
-                        })
+                    stream::iter(paths.into_iter())
+                        .map(Ok::<_, Error>)
                         .try_fold(
                             HashMap::<Struct, Vec<DataFile>>::new(),
                             |mut acc, x| async move {
@@ -121,7 +100,7 @@ impl Operation {
                 let existing_partitions = Arc::new(Mutex::new(HashSet::new()));
 
                 let manifest_list_location = &table_metadata
-                    .current_snapshot()?
+                    .current_snapshot(None)?
                     .ok_or_else(|| Error::InvalidFormat("manifest list in metadata".to_string()))?
                     .manifest_list;
 
@@ -307,7 +286,7 @@ impl Operation {
                                     status: Status::Added,
                                     snapshot_id: table_metadata.current_snapshot_id,
                                     sequence_number: table_metadata
-                                        .current_snapshot()?
+                                        .current_snapshot(None)?
                                         .map(|x| x.sequence_number),
                                     data_file: datafile.clone(),
                                 };
@@ -389,34 +368,20 @@ impl Operation {
             }
             Operation::UpdateProperties(entries) => {
                 let properties = &mut table.metadata.properties;
-                if properties.is_none() {
-                    *properties = Some(HashMap::new());
-                }
-                match properties {
-                    Some(properties) => {
-                        entries.into_iter().for_each(|(key, value)| {
-                            properties.insert(key, value);
-                        });
-                    }
-                    None => (),
-                }
+                entries.into_iter().for_each(|(key, value)| {
+                    properties.insert(key, value);
+                });
                 Ok(())
             }
             Operation::UpdateSnapshotSummary(entries) => {
-                let snapshot = table
-                    .metadata
-                    .snapshots
-                    .as_mut()
-                    .zip(table.metadata.current_snapshot_id)
-                    .and_then(|(snapshots, id)| snapshots.get_mut(&id))
-                    .ok_or(Error::NotFound(
-                        "Snapshot".to_string(),
-                        table
-                            .metadata
-                            .current_snapshot_id
-                            .map(|x| x.to_string())
-                            .unwrap_or("id".to_string()),
-                    ))?;
+                let snapshot =
+                    table
+                        .metadata
+                        .current_snapshot_mut(None)?
+                        .ok_or(Error::NotFound(
+                            "Current".to_string(),
+                            "snapshot".to_string(),
+                        ))?;
                 for (key, value) in entries {
                     snapshot.summary.other.insert(key, value);
                 }

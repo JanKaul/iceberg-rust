@@ -16,8 +16,8 @@ use crate::{
         manifest::{Content, ManifestEntry, ManifestReader},
         manifest_list::ManifestListEntry,
         schema::Schema,
-        snapshot::{Operation, Snapshot, Summary},
-        table_metadata::TableMetadata,
+        snapshot::{Operation, Reference, Retention, Snapshot, Summary},
+        table_metadata::{TableMetadata, MAIN_BRANCH},
     },
     table::transaction::TableTransaction,
     util::{self, strip_prefix},
@@ -82,7 +82,7 @@ impl Table {
         end: Option<i64>,
     ) -> Result<Vec<ManifestListEntry>, Error> {
         let metadata = self.metadata();
-        let current_snapshot = if let Some(current) = metadata.current_snapshot()? {
+        let current_snapshot = if let Some(current) = metadata.current_snapshot(None)? {
             current
         } else {
             return Ok(vec![]);
@@ -208,20 +208,18 @@ impl Table {
             })
             .await?;
 
-        if let Some(snapshots) = snapshots {
-            stream::iter(snapshots.values())
-                .map(Ok::<_, Error>)
-                .try_for_each_concurrent(None, |snapshot| {
-                    let object_store = object_store.clone();
-                    async move {
-                        object_store
-                            .delete(&snapshot.manifest_list.as_str().into())
-                            .await?;
-                        Ok(())
-                    }
-                })
-                .await?;
-        }
+        stream::iter(snapshots.values())
+            .map(Ok::<_, Error>)
+            .try_for_each_concurrent(None, |snapshot| {
+                let object_store = object_store.clone();
+                async move {
+                    object_store
+                        .delete(&snapshot.manifest_list.as_str().into())
+                        .await?;
+                    Ok(())
+                }
+            })
+            .await?;
 
         object_store
             .delete(&self.metadata_location().into())
@@ -252,13 +250,15 @@ impl Table {
     }
 
     /// Create a new table snapshot based on the manifest_list file of the previous snapshot.
-    pub(crate) async fn new_snapshot(&mut self) -> Result<(), Error> {
+    pub(crate) async fn new_snapshot(&mut self, branch: Option<String>) -> Result<(), Error> {
+        let branch = branch.unwrap_or("main".to_string());
+
         let mut bytes: [u8; 8] = [0u8; 8];
         getrandom::getrandom(&mut bytes).unwrap();
         let snapshot_id = i64::from_le_bytes(bytes);
         let object_store = self.object_store();
         let metadata = &mut self.metadata;
-        let old_manifest_list_location = metadata.current_snapshot()?.map(|x| &x.manifest_list);
+        let old_manifest_list_location = metadata.current_snapshot(None)?.map(|x| &x.manifest_list);
         let new_manifest_list_location = metadata.location.to_string()
             + "/metadata/snap-"
             + &snapshot_id.to_string()
@@ -298,13 +298,18 @@ impl Table {
             },
             schema_id: Some(metadata.current_schema_id as i64),
         };
-        if let Some(snapshots) = &mut metadata.snapshots {
-            snapshots.insert(snapshot_id, snapshot);
-            metadata.current_snapshot_id = Some(snapshot_id)
-        } else {
-            metadata.snapshots = Some(HashMap::from_iter(vec![(snapshot_id, snapshot)]));
-            metadata.current_snapshot_id = Some(snapshot_id)
-        };
+
+        metadata.snapshots.insert(snapshot_id, snapshot);
+        if &branch == MAIN_BRANCH {
+            metadata.current_snapshot_id = Some(snapshot_id);
+        }
+        metadata.refs.insert(
+            branch,
+            Reference {
+                snapshot_id,
+                retention: Retention::default(),
+            },
+        );
         Ok(())
     }
 }

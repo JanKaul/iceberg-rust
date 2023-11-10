@@ -248,3 +248,13 @@ pub enum Retention {
         max_ref_age_ms: i64,
     },
 }
+
+impl Default for Retention {
+    fn default() -> Self {
+        Retention::Branch {
+            max_ref_age_ms: None,
+            max_snapshot_age_ms: None,
+            min_snapshots_to_keep: None,
+        }
+    }
+}

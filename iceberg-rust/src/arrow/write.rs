@@ -20,8 +20,8 @@ use parquet::arrow::AsyncArrowWriter;
 use uuid::Uuid;
 
 use crate::{
-    file_format::DatafileMetadata,
-    spec::{partition::PartitionSpec, schema::Schema},
+    file_format::parquet::parquet_to_datafile,
+    spec::{manifest::DataFile, partition::PartitionSpec, schema::Schema},
 };
 
 use super::partition::partition_record_batches;
@@ -35,7 +35,7 @@ pub async fn write_parquet_partitioned(
     partition_spec: &PartitionSpec,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<Vec<(String, DatafileMetadata)>, ArrowError> {
+) -> Result<Vec<DataFile>, ArrowError> {
     let streams = partition_record_batches(batches, partition_spec, schema).await?;
     let arrow_schema: Arc<ArrowSchema> = Arc::new((&schema.fields).try_into()?);
     stream::iter(streams.into_iter())
@@ -43,7 +43,15 @@ pub async fn write_parquet_partitioned(
             let arrow_schema = arrow_schema.clone();
             let object_store = object_store.clone();
             async move {
-                write_parquet_files(location, &arrow_schema, batches, object_store.clone()).await
+                write_parquet_files(
+                    location,
+                    schema,
+                    &arrow_schema,
+                    partition_spec,
+                    batches,
+                    object_store.clone(),
+                )
+                .await
             }
         })
         .try_fold(vec![], |mut acc, x| async move {
@@ -54,14 +62,16 @@ pub async fn write_parquet_partitioned(
 }
 
 /// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
-pub async fn write_parquet_files(
+async fn write_parquet_files(
     location: &str,
-    schema: &ArrowSchema,
+    schema: &Schema,
+    arrow_schema: &ArrowSchema,
+    partition_spec: &PartitionSpec,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<Vec<(String, DatafileMetadata)>, ArrowError> {
+) -> Result<Vec<DataFile>, ArrowError> {
     let current_writer = Arc::new(Mutex::new(
-        create_arrow_writer(location, schema, object_store.clone()).await?,
+        create_arrow_writer(location, arrow_schema, object_store.clone()).await?,
     ));
 
     let (mut writer_sender, writer_reciever): (
@@ -90,7 +100,7 @@ pub async fn write_parquet_files(
                 if current.is_ok() {
                     let finished_writer = std::mem::replace(
                         &mut *current_writer,
-                        create_arrow_writer(location, schema, object_store)
+                        create_arrow_writer(location, arrow_schema, object_store)
                             .await
                             .unwrap(),
                     );
@@ -112,9 +122,23 @@ pub async fn write_parquet_files(
     writer_sender.close_channel();
 
     writer_reciever
-        .then(|writer| async move {
-            let metadata = writer.1.close().await?;
-            Ok::<_, ArrowError>((writer.0, DatafileMetadata::Parquet(metadata)))
+        .then(|writer| {
+            let object_store = object_store.clone();
+            async move {
+                let metadata = writer.1.close().await?;
+                let size = object_store
+                    .head(&writer.0.as_str().into())
+                    .await
+                    .map_err(|err| ArrowError::from_external_error(err.into()))?
+                    .size;
+                Ok(parquet_to_datafile(
+                    &writer.0,
+                    size,
+                    &metadata,
+                    schema,
+                    &partition_spec.fields,
+                )?)
+            }
         })
         .try_collect::<Vec<_>>()
         .await
@@ -144,6 +168,7 @@ async fn create_arrow_writer(
     ))
 }
 
+#[inline]
 fn record_batch_size(batch: &RecordBatch) -> usize {
     batch
         .schema()

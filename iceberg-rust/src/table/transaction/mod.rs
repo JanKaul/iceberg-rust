@@ -5,8 +5,11 @@
 use futures::StreamExt;
 
 use crate::{
-    catalog::tabular::Tabular, error::Error, file_format::DatafileMetadata, spec::schema::SchemaV2,
-    table::Table, util::strip_prefix,
+    catalog::tabular::Tabular,
+    error::Error,
+    spec::{manifest::DataFile, schema::SchemaV2},
+    table::Table,
+    util::strip_prefix,
 };
 
 use self::operation::Operation;
@@ -38,8 +41,8 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Quickly append files to the table
-    pub fn append(mut self, files: Vec<(String, DatafileMetadata)>) -> Self {
-        self.operations.push(Operation::NewAppend { paths: files });
+    pub fn append(mut self, files: Vec<DataFile>) -> Self {
+        self.operations.push(Operation::NewAppend { files });
         self
     }
     /// Update the properties of the table
@@ -62,10 +65,10 @@ impl<'table> TableTransaction<'table> {
         // Before executing the transactions operations, update the metadata for a new snapshot
         self.table.increment_sequence_number();
         if self.operations.iter().any(|op| match op {
-            Operation::NewAppend { paths: _ } => true,
+            Operation::NewAppend { files: _ } => true,
             _ => false,
         }) {
-            self.table.new_snapshot().await?;
+            self.table.new_snapshot(None).await?;
         }
         // Execute the table operations
         let table = futures::stream::iter(self.operations)

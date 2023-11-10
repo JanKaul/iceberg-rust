@@ -21,7 +21,7 @@ use derive_builder::Builder;
 
 use super::{schema::Schema, snapshot::Snapshot};
 
-static MAIN_BRANCH: &str = "main";
+pub(crate) static MAIN_BRANCH: &str = "main";
 static DEFAULT_SORT_ORDER_ID: i64 = 0;
 static DEFAULT_SPEC_ID: i32 = 0;
 
@@ -71,30 +71,26 @@ pub struct TableMetadata {
     ///A string to string map of table properties. This is used to control settings that
     /// affect reading and writing and is not intended to be used for arbitrary metadata.
     /// For example, commit.retry.num-retries is used to control the number of commit retries.
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(default)]
-    pub properties: Option<HashMap<String, String>>,
+    pub properties: HashMap<String, String>,
     /// long ID of the current table snapshot; must be the same as the current
     /// ID of the main branch in refs.
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(default)]
     pub current_snapshot_id: Option<i64>,
     ///A list of valid snapshots. Valid snapshots are snapshots for which all
     /// data files exist in the file system. A data file must not be deleted
     /// from the file system until the last snapshot in which it was listed is
     /// garbage collected.
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(default)]
-    pub snapshots: Option<HashMap<i64, Snapshot>>,
+    pub snapshots: HashMap<i64, Snapshot>,
     /// A list (optional) of timestamp and snapshot ID pairs that encodes changes
     /// to the current snapshot for the table. Each time the current-snapshot-id
     /// is changed, a new entry should be added with the last-updated-ms
     /// and the new current-snapshot-id. When snapshots are expired from
     /// the list of valid snapshots, all entries before a snapshot that has
     /// expired should be removed.
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(default)]
-    pub snapshot_log: Option<Vec<SnapshotLog>>,
+    pub snapshot_log: Vec<SnapshotLog>,
 
     /// A list (optional) of timestamp and metadata file location pairs
     /// that encodes changes to the previous metadata files for the table.
@@ -102,9 +98,8 @@ pub struct TableMetadata {
     /// previous metadata file location should be added to the list.
     /// Tables can be configured to remove oldest metadata log entries and
     /// keep a fixed-size log of the most recent entries after a commit.
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(default)]
-    pub metadata_log: Option<Vec<MetadataLog>>,
+    pub metadata_log: Vec<MetadataLog>,
     #[builder(setter(each(name = "with_sort_order")), default)]
     /// A list of sort orders, stored as full sort order objects.
     pub sort_orders: HashMap<i64, sort::SortOrder>,
@@ -117,9 +112,8 @@ pub struct TableMetadata {
     /// names in the table, and the map values are snapshot reference objects.
     /// There is always a main branch reference pointing to the current-snapshot-id
     /// even if the refs map is null.
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(default)]
-    pub refs: Option<HashMap<String, Reference>>,
+    pub refs: HashMap<String, Reference>,
 }
 
 impl TableMetadata {
@@ -140,22 +134,51 @@ impl TableMetadata {
 
     /// Get current snapshot
     #[inline]
-    pub fn current_snapshot(&self) -> Result<Option<&Snapshot>, Error> {
-        match (&self.current_snapshot_id, &self.snapshots) {
-            (Some(snapshot_id), Some(snapshots)) => Ok(snapshots.get(snapshot_id)),
-            (Some(-1), None) => Ok(None),
-            (None, None) => Ok(None),
-            (Some(_), None) => Err(Error::InvalidFormat("snapshots".to_string())),
-            (None, Some(_)) => Err(Error::InvalidFormat("snapshots".to_string())),
+    pub fn current_snapshot(&self, snapshot_ref: Option<&str>) -> Result<Option<&Snapshot>, Error> {
+        let branch = snapshot_ref.unwrap_or(MAIN_BRANCH);
+        let snapshot_id = self.refs.get(branch).map(|x| x.snapshot_id);
+        match snapshot_id {
+            Some(snapshot_id) => Ok(self.snapshots.get(&snapshot_id)),
+            None => {
+                if self.snapshots.is_empty() {
+                    Ok(None)
+                } else {
+                    Err(Error::InvalidFormat("snapshots".to_string()))
+                }
+            }
+        }
+    }
+
+    /// Get current snapshot
+    #[inline]
+    pub fn current_snapshot_mut(
+        &mut self,
+        snapshot_ref: Option<&str>,
+    ) -> Result<Option<&mut Snapshot>, Error> {
+        let branch = snapshot_ref.unwrap_or(MAIN_BRANCH);
+        let snapshot_id = self.refs.get(branch).map(|x| x.snapshot_id);
+        match snapshot_id {
+            Some(-1) => {
+                if self.snapshots.is_empty() {
+                    Ok(None)
+                } else {
+                    Err(Error::InvalidFormat("snapshots".to_string()))
+                }
+            }
+            Some(snapshot_id) => Ok(self.snapshots.get_mut(&snapshot_id)),
+            None => {
+                if self.snapshots.is_empty() {
+                    Ok(None)
+                } else {
+                    Err(Error::InvalidFormat("snapshots".to_string()))
+                }
+            }
         }
     }
     /// Get particular snapshot
     #[inline]
     pub fn snapshot(&self, snapshot_id: i64) -> Option<&Snapshot> {
-        match &self.snapshots {
-            Some(snapshots) => snapshots.get(&snapshot_id),
-            None => None,
-        }
+        self.snapshots.get(&snapshot_id)
     }
 }
 
@@ -223,8 +246,8 @@ mod _serde {
         ///A string to string map of table properties. This is used to control settings that
         /// affect reading and writing and is not intended to be used for arbitrary metadata.
         /// For example, commit.retry.num-retries is used to control the number of commit retries.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub properties: Option<HashMap<String, String>>,
+        #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+        pub properties: HashMap<String, String>,
         /// long ID of the current table snapshot; must be the same as the current
         /// ID of the main branch in refs.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -241,8 +264,8 @@ mod _serde {
         /// and the new current-snapshot-id. When snapshots are expired from
         /// the list of valid snapshots, all entries before a snapshot that has
         /// expired should be removed.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub snapshot_log: Option<Vec<SnapshotLog>>,
+        #[serde(skip_serializing_if = "Vec::is_empty", default)]
+        pub snapshot_log: Vec<SnapshotLog>,
 
         /// A list (optional) of timestamp and metadata file location pairs
         /// that encodes changes to the previous metadata files for the table.
@@ -250,8 +273,8 @@ mod _serde {
         /// previous metadata file location should be added to the list.
         /// Tables can be configured to remove oldest metadata log entries and
         /// keep a fixed-size log of the most recent entries after a commit.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub metadata_log: Option<Vec<MetadataLog>>,
+        #[serde(skip_serializing_if = "Vec::is_empty", default)]
+        pub metadata_log: Vec<MetadataLog>,
 
         /// A list of sort orders, stored as full sort order objects.
         pub sort_orders: Vec<sort::SortOrder>,
@@ -263,8 +286,8 @@ mod _serde {
         /// names in the table, and the map values are snapshot reference objects.
         /// There is always a main branch reference pointing to the current-snapshot-id
         /// even if the refs map is null.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub refs: Option<HashMap<String, Reference>>,
+        #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+        pub refs: HashMap<String, Reference>,
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -305,8 +328,8 @@ mod _serde {
         ///A string to string map of table properties. This is used to control settings that
         /// affect reading and writing and is not intended to be used for arbitrary metadata.
         /// For example, commit.retry.num-retries is used to control the number of commit retries.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub properties: Option<HashMap<String, String>>,
+        #[serde(skip_serializing_if = "HashMap::is_empty", default)]
+        pub properties: HashMap<String, String>,
         /// long ID of the current table snapshot; must be the same as the current
         /// ID of the main branch in refs.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -323,8 +346,8 @@ mod _serde {
         /// and the new current-snapshot-id. When snapshots are expired from
         /// the list of valid snapshots, all entries before a snapshot that has
         /// expired should be removed.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub snapshot_log: Option<Vec<SnapshotLog>>,
+        #[serde(skip_serializing_if = "Vec::is_empty", default)]
+        pub snapshot_log: Vec<SnapshotLog>,
 
         /// A list (optional) of timestamp and metadata file location pairs
         /// that encodes changes to the previous metadata files for the table.
@@ -332,8 +355,8 @@ mod _serde {
         /// previous metadata file location should be added to the list.
         /// Tables can be configured to remove oldest metadata log entries and
         /// keep a fixed-size log of the most recent entries after a commit.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pub metadata_log: Option<Vec<MetadataLog>>,
+        #[serde(skip_serializing_if = "Vec::is_empty", default)]
+        pub metadata_log: Vec<MetadataLog>,
 
         /// A list of sort orders, stored as full sort order objects.
         pub sort_orders: Option<Vec<sort::SortOrder>>,
@@ -377,6 +400,13 @@ mod _serde {
                     .map(|schema| Ok((schema.schema_id, schema.try_into()?)))
                     .collect::<Result<Vec<_>, Error>>()?,
             );
+            let mut refs = value.refs;
+            if let Some(snapshot_id) = current_snapshot_id {
+                refs.entry(MAIN_BRANCH.to_string()).or_insert(Reference {
+                    snapshot_id,
+                    retention: Retention::default(),
+                });
+            }
             Ok(TableMetadata {
                 format_version: FormatVersion::V2,
                 table_uuid: value.table_uuid,
@@ -397,9 +427,12 @@ mod _serde {
                 last_partition_id: value.last_partition_id,
                 properties: value.properties,
                 current_snapshot_id,
-                snapshots: value.snapshots.map(|snapshots| {
-                    HashMap::from_iter(snapshots.into_iter().map(|x| (x.snapshot_id, x.into())))
-                }),
+                snapshots: value
+                    .snapshots
+                    .map(|snapshots| {
+                        HashMap::from_iter(snapshots.into_iter().map(|x| (x.snapshot_id, x.into())))
+                    })
+                    .unwrap_or_default(),
                 snapshot_log: value.snapshot_log,
                 metadata_log: value.metadata_log,
                 sort_orders: HashMap::from_iter(
@@ -409,7 +442,7 @@ mod _serde {
                         .map(|x| (x.order_id as i64, x)),
                 ),
                 default_sort_order_id: value.default_sort_order_id,
-                refs: value.refs,
+                refs,
             })
         }
     }
@@ -482,7 +515,8 @@ mod _serde {
                                 .collect::<Result<Vec<_>, Error>>()?,
                         ))
                     })
-                    .transpose()?,
+                    .transpose()?
+                    .unwrap_or_default(),
                 snapshot_log: value.snapshot_log,
                 metadata_log: value.metadata_log,
                 sort_orders: match value.sort_orders {
@@ -492,7 +526,7 @@ mod _serde {
                     None => HashMap::new(),
                 },
                 default_sort_order_id: value.default_sort_order_id.unwrap_or(DEFAULT_SORT_ORDER_ID),
-                refs: Some(HashMap::from_iter(vec![(
+                refs: HashMap::from_iter(vec![(
                     MAIN_BRANCH.to_string(),
                     Reference {
                         snapshot_id: value.current_snapshot_id.unwrap_or_default(),
@@ -502,7 +536,7 @@ mod _serde {
                             max_ref_age_ms: None,
                         },
                     },
-                )])),
+                )]),
             })
         }
     }
@@ -523,9 +557,7 @@ mod _serde {
                 last_partition_id: v.last_partition_id,
                 properties: v.properties,
                 current_snapshot_id: v.current_snapshot_id.or(Some(-1)),
-                snapshots: v
-                    .snapshots
-                    .map(|snapshots| snapshots.into_values().map(|x| x.into()).collect()),
+                snapshots: Some(v.snapshots.into_values().map(|x| x.into()).collect()),
                 snapshot_log: v.snapshot_log,
                 metadata_log: v.metadata_log,
                 sort_orders: v.sort_orders.into_values().collect(),
@@ -556,9 +588,7 @@ mod _serde {
                 last_partition_id: Some(v.last_partition_id),
                 properties: v.properties,
                 current_snapshot_id: v.current_snapshot_id.or(Some(-1)),
-                snapshots: v
-                    .snapshots
-                    .map(|snapshots| snapshots.into_values().map(|x| x.into()).collect()),
+                snapshots: Some(v.snapshots.into_values().map(|x| x.into()).collect()),
                 snapshot_log: v.snapshot_log,
                 metadata_log: v.metadata_log,
                 sort_orders: Some(v.sort_orders.into_values().collect()),
