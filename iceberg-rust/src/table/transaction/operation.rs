@@ -19,6 +19,7 @@ use crate::{
         manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
         partition::PartitionField,
         schema::Schema,
+        snapshot::Reference,
         types::StructField,
         values::{Struct, Value},
     },
@@ -42,6 +43,8 @@ pub enum Operation {
         branch: Option<String>,
         entries: Vec<(String, String)>,
     },
+    /// Set Ref
+    SetRef((String, Reference)),
     /// Replace the sort order
     // ReplaceSortOrder,
     // /// Update the table location
@@ -390,6 +393,10 @@ impl Operation {
                 for (key, value) in entries {
                     snapshot.summary.other.insert(key, value);
                 }
+                Ok(())
+            }
+            Operation::SetRef((key, value)) => {
+                table.metadata.refs.insert(key, value);
                 Ok(())
             }
             _ => Ok(()),

@@ -5,7 +5,7 @@
 use crate::{
     catalog::tabular::Tabular,
     error::Error,
-    spec::{manifest::DataFile, schema::Schema},
+    spec::{manifest::DataFile, schema::Schema, snapshot::Reference},
     table::Table,
     util::strip_prefix,
 };
@@ -61,12 +61,22 @@ impl<'table> TableTransaction<'table> {
         });
         self
     }
+    /// Set snapshot reference
+    pub fn set_ref(mut self, entry: (String, Reference)) -> Self {
+        self.operations.push(Operation::SetRef(entry));
+        self
+    }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<(), Error> {
         let object_store = self.table.object_store();
         let catalog = self.table.catalog();
         let identifier = self.table.identifier.clone();
         let branch = self.branch;
+
+        // Perform the SetRef first in case a new branch is created or a branch is merged
+        if let Operation::SetRef((key, value)) = &self.operations[0] {
+            self.table.metadata.refs.insert(key.clone(), value.clone());
+        }
 
         // Before executing the transactions operations, update the metadata for a new snapshot
         self.table.increment_sequence_number();
