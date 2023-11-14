@@ -95,8 +95,7 @@ impl MaterializedViewBuilder {
                 *schema_id,
                 metadata
                     .schemas
-                    .as_ref()
-                    .and_then(|schemas| schemas.get(schema_id))
+                    .get(schema_id)
                     .ok_or(Error::InvalidFormat("schema in metadata".to_string()))?
                     .clone(),
             ))

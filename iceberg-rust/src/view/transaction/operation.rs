@@ -23,6 +23,8 @@ pub enum Operation<T: Representation> {
         /// Schema of the representation
         schema: Schema,
     },
+    /// Update view properties
+    UpdateProperties(Vec<(String, String)>),
 }
 
 impl<T: Representation> Operation<T> {
@@ -53,6 +55,13 @@ impl<T: Representation> Operation<T> {
                         .as_micros() as i64,
                 };
                 metadata.versions.insert(new_version_number, version);
+                Ok(())
+            }
+            Operation::UpdateProperties(entries) => {
+                let properties = &mut metadata.properties;
+                entries.into_iter().for_each(|(key, value)| {
+                    properties.insert(key, value);
+                });
                 Ok(())
             }
         }

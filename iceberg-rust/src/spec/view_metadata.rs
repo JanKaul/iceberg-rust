@@ -45,13 +45,13 @@ pub struct GeneralViewMetadata<T: Representation> {
     /// A list of timestamp and version ID pairs that encodes changes to the current version for the view.
     /// Each time the current-version-id is changed, a new entry should be added with the last-updated-ms and the new current-version-id.
     pub version_log: Vec<VersionLogStruct>,
+    #[builder(setter(each(name = "with_schema")), default)]
+    ///	A list of schemas, the same as the ‘schemas’ field from Iceberg table spec.
+    pub schemas: HashMap<i32, Schema>,
     #[builder(default)]
     /// A string to string map of view properties. This is used for metadata such as “comment” and for settings that affect view maintenance.
     /// This is not intended to be used for arbitrary metadata.
-    pub properties: Option<HashMap<String, String>>,
-    #[builder(setter(strip_option, each(name = "with_schema")), default)]
-    ///	A list of schemas, the same as the ‘schemas’ field from Iceberg table spec.
-    pub schemas: Option<HashMap<i32, Schema>>,
+    pub properties: HashMap<String, String>,
 }
 
 impl<T: Representation> GeneralViewMetadata<T> {
@@ -60,8 +60,7 @@ impl<T: Representation> GeneralViewMetadata<T> {
     pub fn current_schema(&self) -> Result<&Schema, Error> {
         let id = self.current_version()?.schema_id;
         self.schemas
-            .as_ref()
-            .and_then(|schema| schema.get(&id))
+            .get(&id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
     /// Get current version
@@ -74,14 +73,7 @@ impl<T: Representation> GeneralViewMetadata<T> {
     /// Add schema to view metadata
     #[inline]
     pub fn add_schema(&mut self, schema: Schema) {
-        match &mut self.schemas {
-            Some(schemas) => {
-                schemas.insert(schema.schema_id, schema);
-            }
-            x => {
-                *x = Some(HashMap::from_iter(vec![(schema.schema_id, schema)]));
-            }
-        }
+        self.schemas.insert(schema.schema_id, schema);
     }
 }
 
@@ -123,11 +115,11 @@ mod _serde {
         /// A list of timestamp and version ID pairs that encodes changes to the current version for the view.
         /// Each time the current-version-id is changed, a new entry should be added with the last-updated-ms and the new current-version-id.
         pub version_log: Vec<VersionLogStruct>,
+        /// A list of schemas, the same as the ‘schemas’ field from Iceberg table spec.
+        pub schemas: Vec<SchemaV2>,
         /// A string to string map of view properties. This is used for metadata such as “comment” and for settings that affect view maintenance.
         /// This is not intended to be used for arbitrary metadata.
         pub properties: Option<HashMap<String, String>>,
-        ///	A list of schemas, the same as the ‘schemas’ field from Iceberg table spec.
-        pub schemas: Option<Vec<SchemaV2>>,
     }
 
     impl<T: Representation> TryFrom<ViewMetadataEnum<T>> for GeneralViewMetadata<T> {
@@ -157,16 +149,14 @@ mod _serde {
                 current_version_id: value.current_version_id,
                 versions: HashMap::from_iter(value.versions.into_iter().map(|x| (x.version_id, x))),
                 version_log: value.version_log,
-                properties: value.properties,
-                schemas: match value.schemas {
-                    Some(schemas) => Some(HashMap::from_iter(
-                        schemas
-                            .into_iter()
-                            .map(|x| Ok((x.schema_id, x.try_into()?)))
-                            .collect::<Result<Vec<_>, Error>>()?,
-                    )),
-                    None => None,
-                },
+                properties: value.properties.unwrap_or_default(),
+                schemas: HashMap::from_iter(
+                    value
+                        .schemas
+                        .into_iter()
+                        .map(|x| Ok((x.schema_id, x.try_into()?)))
+                        .collect::<Result<Vec<_>, Error>>()?,
+                ),
             })
         }
     }
@@ -180,10 +170,12 @@ mod _serde {
                 current_version_id: value.current_version_id,
                 versions: value.versions.into_values().collect(),
                 version_log: value.version_log,
-                properties: value.properties,
-                schemas: value
-                    .schemas
-                    .map(|schemas| schemas.into_values().map(|x| x.into()).collect()),
+                properties: if value.properties.is_empty() {
+                    None
+                } else {
+                    Some(value.properties)
+                },
+                schemas: value.schemas.into_values().map(Into::into).collect(),
             }
         }
     }

@@ -74,7 +74,7 @@ impl<'table> TableTransaction<'table> {
         let branch = self.branch;
 
         // Perform the SetRef first in case a new branch is created or a branch is merged
-        if let Operation::SetRef((key, value)) = &self.operations[0] {
+        if let Some(Operation::SetRef((key, value))) = &self.operations.first() {
             self.table.metadata.refs.insert(key.clone(), value.clone());
         }
 
