@@ -44,6 +44,12 @@ impl<'view> Transaction<'view> {
         });
         self
     }
+    /// Update view properties
+    pub fn update_properties(mut self, entries: Vec<(String, String)>) -> Self {
+        self.operations
+            .push(ViewOperation::UpdateProperties(entries));
+        self
+    }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.view.catalog();
