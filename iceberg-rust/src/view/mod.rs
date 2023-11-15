@@ -59,8 +59,8 @@ impl View {
         self.catalog.object_store()
     }
     /// Get the schema of the view
-    pub fn schema(&self) -> Result<&Schema, Error> {
-        self.metadata.current_schema()
+    pub fn schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
+        self.metadata.current_schema(branch)
     }
     /// Get the metadata of the view
     pub fn metadata(&self) -> &ViewMetadata {
@@ -71,16 +71,8 @@ impl View {
         &self.metadata_location
     }
     /// Create a new transaction for this view
-    pub fn new_transaction(&mut self) -> ViewTransaction {
-        ViewTransaction::new(self)
-    }
-}
-
-/// Private interface of the view.
-impl View {
-    /// Increment the version number of the view. Is typically used when commiting a new view transaction.
-    pub(crate) fn increment_version_number(&mut self) {
-        self.metadata.current_version_id += 1;
+    pub fn new_transaction(&mut self, branch: Option<&str>) -> ViewTransaction {
+        ViewTransaction::new(self, branch)
     }
 }
 
@@ -137,7 +129,7 @@ mod tests {
 
         let metadata_location1 = view.metadata_location().to_owned();
 
-        let transaction = view.new_transaction();
+        let transaction = view.new_transaction(None);
         transaction.commit().await.unwrap();
         let metadata_location2 = view.metadata_location();
         assert_ne!(metadata_location1, metadata_location2);

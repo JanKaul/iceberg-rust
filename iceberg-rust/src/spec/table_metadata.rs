@@ -51,7 +51,7 @@ pub struct TableMetadata {
     #[builder(default)]
     /// An integer; the highest assigned column ID for the table.
     pub last_column_id: i32,
-    #[builder(setter(each(name = "with_schema")), default)]
+    #[builder(setter(each(name = "with_schema")))]
     /// A list of schemas, stored as objects with schema-id.
     pub schemas: HashMap<i32, Schema>,
     /// ID of the table’s current schema.
@@ -120,8 +120,12 @@ impl TableMetadata {
     /// Get current schema
     #[inline]
     pub fn current_schema(&self) -> Result<&Schema, Error> {
+        let schema_id = self
+            .current_snapshot(None)?
+            .and_then(|x| x.schema_id)
+            .unwrap_or(self.current_schema_id);
         self.schemas
-            .get(&self.current_schema_id)
+            .get(&schema_id)
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
     /// Get default partition spec
@@ -138,8 +142,10 @@ impl TableMetadata {
         &self,
         snapshot_ref: Option<String>,
     ) -> Result<Option<&Snapshot>, Error> {
-        let branch = snapshot_ref.unwrap_or(MAIN_BRANCH.to_string());
-        let snapshot_id = self.refs.get(&branch).map(|x| x.snapshot_id);
+        let snapshot_id = match snapshot_ref {
+            None => self.current_snapshot_id,
+            Some(reference) => self.refs.get(&reference).map(|x| x.snapshot_id),
+        };
         match snapshot_id {
             Some(snapshot_id) => Ok(self.snapshots.get(&snapshot_id)),
             None => {
@@ -158,8 +164,10 @@ impl TableMetadata {
         &mut self,
         snapshot_ref: Option<String>,
     ) -> Result<Option<&mut Snapshot>, Error> {
-        let branch = snapshot_ref.unwrap_or(MAIN_BRANCH.to_string());
-        let snapshot_id = self.refs.get(&branch).map(|x| x.snapshot_id);
+        let snapshot_id = match snapshot_ref {
+            None => self.current_snapshot_id,
+            Some(reference) => self.refs.get(&reference).map(|x| x.snapshot_id),
+        };
         match snapshot_id {
             Some(-1) => {
                 if self.snapshots.is_empty() {

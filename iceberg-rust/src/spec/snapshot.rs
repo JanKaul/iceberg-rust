@@ -33,7 +33,7 @@ pub struct Snapshot {
     /// A string map that summarizes the snapshot changes, including operation.
     pub summary: Summary,
     /// ID of the table’s current schema when the snapshot was created.
-    pub schema_id: Option<i64>,
+    pub schema_id: Option<i32>,
 }
 
 impl Snapshot {
@@ -86,7 +86,7 @@ pub(crate) mod _serde {
         pub summary: Summary,
         /// ID of the table’s current schema when the snapshot was created.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub schema_id: Option<i64>,
+        pub schema_id: Option<i32>,
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -114,7 +114,7 @@ pub(crate) mod _serde {
         pub summary: Option<Summary>,
         /// ID of the table’s current schema when the snapshot was created.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub schema_id: Option<i64>,
+        pub schema_id: Option<i32>,
     }
 
     impl From<SnapshotV1> for Snapshot {

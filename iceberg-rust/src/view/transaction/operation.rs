@@ -8,8 +8,11 @@ use crate::{
     error::Error,
     spec::{
         schema::Schema,
+        table_metadata::MAIN_BRANCH,
+        types::StructType,
         view_metadata::{
             GeneralViewMetadata, Operation as SummaryOperation, Representation, Summary, Version,
+            REF_PREFIX,
         },
     },
 };
@@ -21,7 +24,9 @@ pub enum Operation<T: Representation> {
         /// Representation to add
         representation: T,
         /// Schema of the representation
-        schema: Schema,
+        schema: StructType,
+        /// Branch where to add the representation
+        branch: Option<String>,
     },
     /// Update view properties
     UpdateProperties(Vec<(String, String)>),
@@ -34,12 +39,20 @@ impl<T: Representation> Operation<T> {
             Operation::UpdateRepresentation {
                 representation,
                 schema,
+                branch,
             } => {
-                let new_version_number = metadata.versions.keys().max().unwrap_or(&0) + 1;
-                let schema_id = schema.schema_id;
-                metadata.add_schema(schema);
+                let version_id = metadata.versions.keys().max().unwrap_or(&0) + 1;
+                let schema_id = metadata.schemas.keys().max().unwrap_or(&0) + 1;
+                metadata.schemas.insert(
+                    schema_id,
+                    Schema {
+                        schema_id,
+                        identifier_field_ids: None,
+                        fields: schema,
+                    },
+                );
                 let version = Version {
-                    version_id: new_version_number,
+                    version_id,
                     schema_id,
                     summary: Summary {
                         operation: SummaryOperation::Replace,
@@ -54,7 +67,17 @@ impl<T: Representation> Operation<T> {
                         .unwrap()
                         .as_micros() as i64,
                 };
-                metadata.versions.insert(new_version_number, version);
+                metadata.versions.insert(version_id, version);
+
+                let branch_name = branch.unwrap_or("main".to_string());
+                if &branch_name == MAIN_BRANCH {
+                    metadata.current_version_id = version_id;
+                }
+                metadata.properties.insert(
+                    REF_PREFIX.to_string() + &branch_name,
+                    version_id.to_string(),
+                );
+
                 Ok(())
             }
             Operation::UpdateProperties(entries) => {

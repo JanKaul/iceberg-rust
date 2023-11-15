@@ -25,11 +25,9 @@ pub async fn refresh_materialized_view(
 ) -> Result<(), Error> {
     let metadata = matview.metadata();
 
-    let branch = branch.map(ToString::to_string);
-
     let ctx = SessionContext::new();
 
-    let sql = match &matview.metadata().current_version()?.representations[0] {
+    let sql = match &matview.metadata().current_version(branch)?.representations[0] {
         MaterializedViewRepresentation::SqlMaterialized {
             sql,
             dialect: _,
@@ -40,7 +38,9 @@ pub async fn refresh_materialized_view(
 
     let version_id = matview.metadata().current_version_id;
 
-    let mut storage_table = matview.storage_table().await?;
+    let mut storage_table = matview.storage_table(branch).await?;
+
+    let branch = branch.map(ToString::to_string);
 
     let base_tables = if storage_table.version_id(branch.clone())? == Some(version_id) {
         storage_table.base_tables(None, branch.clone()).await?
@@ -94,7 +94,7 @@ pub async fn refresh_materialized_view(
 
     let files = write_parquet_partitioned(
         &metadata.location,
-        metadata.current_schema()?,
+        metadata.current_schema(branch.as_deref())?,
         storage_table.metadata().default_partition_spec()?,
         batches,
         matview.object_store(),

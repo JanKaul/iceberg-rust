@@ -11,7 +11,7 @@ pub mod operation;
 use crate::{
     catalog::tabular::Tabular,
     error::Error,
-    spec::{schema::Schema, view_metadata::ViewRepresentation},
+    spec::{types::StructType, view_metadata::ViewRepresentation},
 };
 
 use self::operation::Operation as ViewOperation;
@@ -22,25 +22,28 @@ use super::View;
 pub struct Transaction<'view> {
     view: &'view mut View,
     operations: Vec<ViewOperation<ViewRepresentation>>,
+    branch: Option<String>,
 }
 
 impl<'view> Transaction<'view> {
     /// Create a transaction for the given view.
-    pub fn new(view: &'view mut View) -> Self {
+    pub fn new(view: &'view mut View, branch: Option<&str>) -> Self {
         Transaction {
             view,
             operations: vec![],
+            branch: branch.map(ToString::to_string),
         }
     }
     /// Update the schmema of the view
     pub fn update_representation(
         mut self,
         representation: ViewRepresentation,
-        schema: Schema,
+        schema: StructType,
     ) -> Self {
         self.operations.push(ViewOperation::UpdateRepresentation {
             representation,
             schema,
+            branch: self.branch.clone(),
         });
         self
     }
@@ -55,8 +58,6 @@ impl<'view> Transaction<'view> {
         let catalog = self.view.catalog();
         let object_store = catalog.object_store();
         let identifier = self.view.identifier().clone();
-        // Before executing the transactions operations, update the version number
-        self.view.increment_version_number();
         // Execute the table operations
         let view = futures::stream::iter(self.operations)
             .fold(Ok::<&mut View, Error>(self.view), |view, op| async move {

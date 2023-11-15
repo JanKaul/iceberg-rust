@@ -281,7 +281,7 @@ impl Table {
                 operation: Operation::Append,
                 other: HashMap::new(),
             },
-            schema_id: Some(metadata.current_schema_id as i64),
+            schema_id: Some(metadata.current_schema_id),
         };
 
         let branch_name = branch.unwrap_or("main".to_string());

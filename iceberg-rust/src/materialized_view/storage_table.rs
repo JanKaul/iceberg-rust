@@ -99,7 +99,9 @@ impl StorageTable {
                         .await?
                     {
                         Tabular::Table(table) => table,
-                        Tabular::MaterializedView(mv) => mv.storage_table().await?.0,
+                        Tabular::MaterializedView(mv) => {
+                            mv.storage_table(branch.as_deref()).await?.0
+                        }
                         _ => return Err(Error::InvalidFormat("storage table".to_string())),
                     };
 

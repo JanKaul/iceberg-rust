@@ -80,7 +80,7 @@ impl MaterializedViewBuilder {
     pub async fn build(self) -> Result<MaterializedView, Error> {
         let metadata = self.metadata.build()?;
         let table_identifier =
-            Identifier::parse(match &metadata.current_version()?.representations[0] {
+            Identifier::parse(match &metadata.current_version(None)?.representations[0] {
                 MaterializedViewRepresentation::SqlMaterialized {
                     sql: _,
                     dialect: _,
@@ -88,7 +88,7 @@ impl MaterializedViewBuilder {
                     storage_table,
                 } => storage_table,
             })?;
-        let schema_id = &metadata.current_version()?.schema_id;
+        let schema_id = &metadata.current_version(None)?.schema_id;
         let table_metadata = TableMetadataBuilder::default()
             .location(&metadata.location)
             .with_schema((

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::{
     catalog::tabular::Tabular,
     error::Error,
-    spec::{materialized_view_metadata::MaterializedViewRepresentation, schema::Schema},
+    spec::{materialized_view_metadata::MaterializedViewRepresentation, types::StructType},
     view::transaction::operation::Operation as ViewOperation,
 };
 
@@ -19,25 +19,28 @@ use super::MaterializedView;
 pub struct Transaction<'view> {
     materialized_view: &'view mut MaterializedView,
     operations: Vec<ViewOperation<MaterializedViewRepresentation>>,
+    branch: Option<String>,
 }
 
 impl<'view> Transaction<'view> {
     /// Create a transaction for the given view.
-    pub fn new(view: &'view mut MaterializedView) -> Self {
+    pub fn new(view: &'view mut MaterializedView, branch: Option<&str>) -> Self {
         Transaction {
             materialized_view: view,
             operations: vec![],
+            branch: branch.map(ToString::to_string),
         }
     }
     /// Update the schmema of the view
     pub fn update_representation(
         mut self,
         representation: MaterializedViewRepresentation,
-        schema: Schema,
+        schema: StructType,
     ) -> Self {
         self.operations.push(ViewOperation::UpdateRepresentation {
             representation,
             schema,
+            branch: self.branch.clone(),
         });
         self
     }

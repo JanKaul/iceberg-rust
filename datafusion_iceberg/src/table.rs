@@ -94,9 +94,11 @@ impl DataFusionTable {
                 let schema = table.schema().unwrap().clone();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
-            Tabular::View(view) => Arc::new((&view.schema().unwrap().fields).try_into().unwrap()),
+            Tabular::View(view) => {
+                Arc::new((&view.schema(None).unwrap().fields).try_into().unwrap())
+            }
             Tabular::MaterializedView(mv) => {
-                let schema = mv.metadata().current_schema().unwrap();
+                let schema = mv.metadata().current_schema(None).unwrap();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
         };
@@ -138,7 +140,7 @@ impl TableProvider for DataFusionTable {
             Tabular::View(view) => {
                 let sql = match &view
                     .metadata()
-                    .current_version()
+                    .current_version(None)
                     .map_err(Into::<Error>::into)?
                     .representations[0]
                 {
@@ -166,7 +168,7 @@ impl TableProvider for DataFusionTable {
                 .await
             }
             Tabular::MaterializedView(mv) => {
-                let table = mv.storage_table().await.map_err(Error::from)?;
+                let table = mv.storage_table(None).await.map_err(Error::from)?;
                 let schema = self.schema();
                 let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
                 table_scan(

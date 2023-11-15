@@ -63,8 +63,8 @@ impl MaterializedView {
         self.catalog.object_store()
     }
     /// Get the schema of the view
-    pub fn schema(&self) -> Result<&Schema, Error> {
-        self.metadata.current_schema()
+    pub fn schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
+        self.metadata.current_schema(branch)
     }
     /// Get the metadata of the view
     pub fn metadata(&self) -> &MaterializedViewMetadata {
@@ -75,12 +75,12 @@ impl MaterializedView {
         &self.metadata_location
     }
     /// Create a new transaction for this view
-    pub fn new_transaction(&mut self) -> MaterializedViewTransaction {
-        MaterializedViewTransaction::new(self)
+    pub fn new_transaction(&mut self, branch: Option<&str>) -> MaterializedViewTransaction {
+        MaterializedViewTransaction::new(self, branch)
     }
     /// Get the storage table of the materialized view
-    pub async fn storage_table(&self) -> Result<StorageTable, Error> {
-        let storage_table_name = match &self.metadata.current_version()?.representations[0] {
+    pub async fn storage_table(&self, branch: Option<&str>) -> Result<StorageTable, Error> {
+        let storage_table_name = match &self.metadata.current_version(branch)?.representations[0] {
             MaterializedViewRepresentation::SqlMaterialized {
                 sql: _sql,
                 dialect: _dialect,

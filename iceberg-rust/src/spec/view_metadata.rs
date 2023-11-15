@@ -18,6 +18,8 @@ use super::schema::Schema;
 
 use _serde::ViewMetadataEnum;
 
+pub(crate) static REF_PREFIX: &str = "ref-";
+
 /// Fields for the version 1 of the view metadata.
 pub type ViewMetadata = GeneralViewMetadata<ViewRepresentation>;
 /// Builder for the view metadata
@@ -57,17 +59,25 @@ pub struct GeneralViewMetadata<T: Representation> {
 impl<T: Representation> GeneralViewMetadata<T> {
     /// Get current schema
     #[inline]
-    pub fn current_schema(&self) -> Result<&Schema, Error> {
-        let id = self.current_version()?.schema_id;
+    pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
+        let id = self.current_version(branch)?.schema_id;
         self.schemas
             .get(&id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
     /// Get current version
     #[inline]
-    pub fn current_version(&self) -> Result<&Version<T>, Error> {
+    pub fn current_version(&self, snapshot_ref: Option<&str>) -> Result<&Version<T>, Error> {
+        let version_id: i64 = match snapshot_ref {
+            None => self.current_version_id,
+            Some(reference) => self
+                .properties
+                .get(&(REF_PREFIX.to_string() + &reference))
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(self.current_version_id),
+        };
         self.versions
-            .get(&self.current_version_id)
+            .get(&version_id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
     /// Add schema to view metadata
