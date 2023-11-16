@@ -12,7 +12,7 @@ use crate::{
     spec::{
         manifest::DataFile,
         materialized_view_metadata::{BaseTable, VersionId},
-        table_metadata::TableMetadataBuilder,
+        table_metadata::{new_metadata_location, TableMetadataBuilder},
     },
     sql::find_relations,
     table::Table,
@@ -152,7 +152,7 @@ impl StorageTable {
             .partition_specs(table_metadata.partition_specs.clone())
             .default_spec_id(table_metadata.default_spec_id)
             .build()?;
-        let metadata_location = self.new_metadata_location()?;
+        let metadata_location = new_metadata_location(self.metadata())?;
 
         let bytes = serde_json::to_vec(&table_metadata)?;
 

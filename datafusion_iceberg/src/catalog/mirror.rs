@@ -106,8 +106,12 @@ impl Mirror {
                         .as_ref()
                         .and_then(|branch| table.metadata().refs.get(branch))
                         .map(|x| x.snapshot_id);
-                    Arc::new(DataFusionTable::new(Tabular::Table(table), None, end))
-                        as Arc<dyn TableProvider>
+                    Arc::new(DataFusionTable::new(
+                        Tabular::Table(table),
+                        None,
+                        end,
+                        self.branch.as_deref(),
+                    )) as Arc<dyn TableProvider>
                 }
                 Tabular::View(view) => {
                     let end = self
@@ -119,8 +123,12 @@ impl Mirror {
                                 .get(&(REF_PREFIX.to_string() + &branch))
                         })
                         .map(|x| x.parse::<i64>().unwrap());
-                    Arc::new(DataFusionTable::new(Tabular::View(view), None, end))
-                        as Arc<dyn TableProvider>
+                    Arc::new(DataFusionTable::new(
+                        Tabular::View(view),
+                        None,
+                        end,
+                        self.branch.as_deref(),
+                    )) as Arc<dyn TableProvider>
                 }
                 Tabular::MaterializedView(matview) => {
                     let end = self
@@ -137,6 +145,7 @@ impl Mirror {
                         Tabular::MaterializedView(matview),
                         None,
                         end,
+                        self.branch.as_deref(),
                     )) as Arc<dyn TableProvider>
                 }
             })

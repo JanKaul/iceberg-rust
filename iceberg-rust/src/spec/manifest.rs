@@ -166,65 +166,6 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
     }
 }
 
-/// Lists data files or delete files, along with each file’s
-/// partition data tuple, metrics, and tracking information.
-pub enum ManifestMetadata {
-    /// Version 2 of the manifest metadata
-    V2(ManifestMetadataV2),
-    /// Version 1 of the manifest metadata
-    V1(ManifestMetadataV1),
-}
-
-/// Lists data files or delete files, along with each file’s
-/// partition data tuple, metrics, and tracking information.
-/// Should this be called metadata?
-pub struct ManifestMetadataV1 {
-    /// JSON representation of the table schema at the time the manifest was written
-    /// Should this be Typed?
-    pub schema: String,
-    /// ID of the schema used to write the manifest as a string
-    /// Should this be typed into a
-    pub schema_id: Option<String>,
-    /// JSON fields representation of the partition spec used to write the manifest
-    pub partition_spec: String,
-    /// ID of the partition spec used to write the manifest as a string
-    pub partition_spec_id: Option<String>,
-    /// Table format version number of the manifest as a string
-    pub format_version: Option<FormatVersion>,
-}
-
-/// Lists data files or delete files, along with each file’s
-/// partition data tuple, metrics, and tracking information.
-/// Should this be called metadata?
-pub struct ManifestMetadataV2 {
-    /// JSON representation of the table schema at the time the manifest was written
-    /// Should this be Typed?
-    pub schema: String,
-    /// ID of the schema used to write the manifest as a string
-    /// Should this be typed into a
-    pub schema_id: String,
-    /// JSON fields representation of the partition spec used to write the manifest
-    pub partition_spec: String,
-    /// ID of the partition spec used to write the manifest as a string
-    pub partition_spec_id: String,
-    /// Table format version number of the manifest as a string
-    pub format_version: FormatVersion,
-    /// Type of content files tracked by the manifest: “data” or “deletes”
-    pub content: Content,
-}
-
-#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
-#[repr(u8)]
-/// Used to track additions and deletions
-pub enum Status {
-    /// Existing files
-    Existing = 0,
-    /// Added files
-    Added = 1,
-    /// Deleted files
-    Deleted = 2,
-}
-
 /// Entry in manifest with the iceberg spec version 2.
 #[derive(Debug, Serialize, PartialEq, Clone)]
 #[serde(into = "ManifestEntryEnum")]
@@ -426,6 +367,18 @@ impl ManifestEntry {
         };
         AvroSchema::parse_str(&schema).map_err(Into::into)
     }
+}
+
+#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
+#[repr(u8)]
+/// Used to track additions and deletions
+pub enum Status {
+    /// Existing files
+    Existing = 0,
+    /// Added files
+    Added = 1,
+    /// Deleted files
+    Deleted = 2,
 }
 
 #[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]

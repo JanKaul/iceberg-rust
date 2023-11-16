@@ -180,6 +180,7 @@ impl Operation {
                 let new_manifest_iter = stream::iter(datafiles.iter().enumerate()).filter_map(
                     |(i, (partition_value, _))| {
                         let existing_partitions = existing_partitions.clone();
+                        let branch = branch.clone();
                         async move {
                             if !existing_partitions.lock().await.contains(partition_value) {
                                 let manifest_location = manifest_list_location
@@ -197,7 +198,12 @@ impl Operation {
                                     content: Content::Data,
                                     sequence_number: table_metadata.last_sequence_number,
                                     min_sequence_number: 0,
-                                    added_snapshot_id: table_metadata.current_snapshot_id.unwrap(),
+                                    added_snapshot_id: table_metadata
+                                        .refs
+                                        .get(branch.as_deref().unwrap_or("main"))
+                                        .map(|x| x.snapshot_id)
+                                        .or(table_metadata.current_snapshot_id)
+                                        .unwrap(),
                                     added_files_count: Some(0),
                                     existing_files_count: Some(0),
                                     deleted_files_count: Some(0),

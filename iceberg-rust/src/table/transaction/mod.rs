@@ -5,7 +5,10 @@
 use crate::{
     catalog::tabular::Tabular,
     error::Error,
-    spec::{manifest::DataFile, schema::Schema, snapshot::Reference},
+    spec::{
+        manifest::DataFile, schema::Schema, snapshot::Reference,
+        table_metadata::new_metadata_location,
+    },
     table::Table,
     util::strip_prefix,
 };
@@ -117,7 +120,7 @@ impl<'table> TableTransaction<'table> {
 
         // Write the new state to the object store
         let metadata_json = serde_json::to_string(&self.table.metadata())?;
-        let metadata_file_location = self.table.new_metadata_location()?;
+        let metadata_file_location = new_metadata_location(self.table.metadata())?;
         object_store
             .put(
                 &strip_prefix(&metadata_file_location).into(),

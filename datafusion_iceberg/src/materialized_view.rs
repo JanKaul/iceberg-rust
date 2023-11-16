@@ -57,8 +57,12 @@ pub async fn refresh_materialized_view(
         .map(|(base_table, _)| {
             let identifier = base_table.identifier().to_string();
             let snapshot_id = base_table.metadata().current_snapshot_id.unwrap_or(-1);
-            let table = Arc::new(DataFusionTable::new_table(base_table, None, None))
-                as Arc<dyn TableProvider>;
+            let table = Arc::new(DataFusionTable::new_table(
+                base_table,
+                None,
+                None,
+                branch.as_deref(),
+            )) as Arc<dyn TableProvider>;
             let schema = table.schema().clone();
             vec![
                 (identifier.clone(), snapshot_id, table),

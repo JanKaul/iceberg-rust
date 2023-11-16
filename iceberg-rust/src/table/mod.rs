@@ -7,7 +7,6 @@ use std::{collections::HashMap, io::Cursor, iter::repeat, sync::Arc, time::Syste
 use object_store::{path::Path, ObjectStore};
 
 use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
-use uuid::Uuid;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
@@ -51,26 +50,32 @@ impl Table {
             metadata_location: metadata_location.to_string(),
         })
     }
+    #[inline]
     /// Get the table identifier in the catalog. Returns None of it is a filesystem table.
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
+    #[inline]
     /// Get the catalog associated to the table. Returns None if the table is a filesystem table
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
+    #[inline]
     /// Get the object_store associated to the table
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog.object_store()
     }
+    #[inline]
     /// Get the schema of the table for a given branch. Defaults to main.
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch)
     }
+    #[inline]
     /// Get the metadata of the table
     pub fn metadata(&self) -> &TableMetadata {
         &self.metadata
     }
+    #[inline]
     /// Get the location of the current metadata file
     pub fn metadata_location(&self) -> &str {
         &self.metadata_location
@@ -82,14 +87,16 @@ impl Table {
         end: Option<i64>,
     ) -> Result<Vec<ManifestListEntry>, Error> {
         let metadata = self.metadata();
-        let current_snapshot = if let Some(current) = metadata.current_snapshot(None)? {
-            current
-        } else {
-            return Ok(vec![]);
+        let end_snapshot = match end.and_then(|id| metadata.snapshots.get(&id)) {
+            Some(snapshot) => snapshot,
+            None => {
+                if let Some(current) = metadata.current_snapshot(None)? {
+                    current
+                } else {
+                    return Ok(vec![]);
+                }
+            }
         };
-        let end_snapshot = end
-            .and_then(|id| metadata.snapshots.get(&id))
-            .unwrap_or(current_snapshot);
         let start_sequence_number =
             start
                 .and_then(|id| metadata.snapshots.get(&id))
@@ -229,21 +236,9 @@ impl Table {
     }
 }
 
-impl Table {
-    pub(crate) fn new_metadata_location(&self) -> Result<String, Error> {
-        let transaction_uuid = Uuid::new_v4();
-        let version = self.metadata().last_sequence_number;
-        Ok(self.metadata().location.to_string()
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &transaction_uuid.to_string()
-            + ".metadata.json")
-    }
-}
-
 /// Private interface of the table.
 impl Table {
+    #[inline]
     /// Increment the sequence number of the table. Is typically used when commiting a new table transaction.
     pub(crate) fn increment_sequence_number(&mut self) {
         self.metadata.last_sequence_number += 1;
@@ -258,6 +253,10 @@ impl Table {
         getrandom::getrandom(&mut bytes).unwrap();
         let snapshot_id = i64::from_le_bytes(bytes);
         let object_store = self.object_store();
+        let parent_snapshot_id = branch
+            .as_deref()
+            .map(|x| self.metadata.refs.get(x).map(|x| x.snapshot_id))
+            .unwrap_or(self.metadata.current_snapshot_id);
         let metadata = &mut self.metadata;
         let old_manifest_list_location = metadata
             .current_snapshot(branch.as_deref())?
@@ -270,7 +269,7 @@ impl Table {
             + ".avro";
         let snapshot = Snapshot {
             snapshot_id,
-            parent_snapshot_id: metadata.current_snapshot_id,
+            parent_snapshot_id,
             sequence_number: metadata.last_sequence_number + 1,
             timestamp_ms: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -312,6 +311,7 @@ impl Table {
     }
 }
 
+#[inline]
 // Filter manifest files according to predicate. Returns Some(&ManifestFile) of the predicate is true and None if it is false.
 fn filter_manifest(
     (manifest, predicate): (&ManifestListEntry, bool),

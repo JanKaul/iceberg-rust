@@ -197,6 +197,17 @@ impl TableMetadata {
     }
 }
 
+pub(crate) fn new_metadata_location(metadata: &TableMetadata) -> Result<String, Error> {
+    let transaction_uuid = Uuid::new_v4();
+    let version = metadata.last_sequence_number;
+    Ok(metadata.location.to_string()
+        + "/metadata/"
+        + &version.to_string()
+        + "-"
+        + &transaction_uuid.to_string()
+        + ".metadata.json")
+}
+
 mod _serde {
     use std::collections::HashMap;
 

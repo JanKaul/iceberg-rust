@@ -58,37 +58,43 @@ use iceberg_rust::{
 #[derive(Debug, Clone)]
 /// Iceberg table for datafusion
 pub struct DataFusionTable {
-    pub snapshot_range: (Option<i64>, Option<i64>),
     pub tabular: Arc<RwLock<Tabular>>,
     pub schema: SchemaRef,
+    pub snapshot_range: (Option<i64>, Option<i64>),
+    pub branch: Option<String>,
 }
 
 impl From<Tabular> for DataFusionTable {
     fn from(value: Tabular) -> Self {
-        Self::new(value, None, None)
+        Self::new(value, None, None, None)
     }
 }
 
 impl From<Table> for DataFusionTable {
     fn from(value: Table) -> Self {
-        Self::new(Tabular::Table(value), None, None)
+        Self::new(Tabular::Table(value), None, None, None)
     }
 }
 
 impl From<View> for DataFusionTable {
     fn from(value: View) -> Self {
-        Self::new(Tabular::View(value), None, None)
+        Self::new(Tabular::View(value), None, None, None)
     }
 }
 
 impl From<MaterializedView> for DataFusionTable {
     fn from(value: MaterializedView) -> Self {
-        Self::new(Tabular::MaterializedView(value), None, None)
+        Self::new(Tabular::MaterializedView(value), None, None, None)
     }
 }
 
 impl DataFusionTable {
-    pub fn new(tabular: Tabular, start: Option<i64>, end: Option<i64>) -> Self {
+    pub fn new(
+        tabular: Tabular,
+        start: Option<i64>,
+        end: Option<i64>,
+        branch: Option<&str>,
+    ) -> Self {
         let schema = match &tabular {
             Tabular::Table(table) => {
                 let schema = end
@@ -113,11 +119,17 @@ impl DataFusionTable {
             tabular: Arc::new(RwLock::new(tabular)),
             snapshot_range: (start, end),
             schema,
+            branch: branch.map(ToOwned::to_owned),
         }
     }
     #[inline]
-    pub fn new_table(table: Table, start: Option<i64>, end: Option<i64>) -> Self {
-        Self::new(Tabular::Table(table), start, end)
+    pub fn new_table(
+        table: Table,
+        start: Option<i64>,
+        end: Option<i64>,
+        branch: Option<&str>,
+    ) -> Self {
+        Self::new(Tabular::Table(table), start, end, branch)
     }
 
     pub async fn inner_mut(&self) -> RwLockWriteGuard<'_, Tabular> {
@@ -228,6 +240,7 @@ async fn table_scan(
         .1
         .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
         .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
+
     // Create a unique URI for this particular object store
     let object_store_url = ObjectStoreUrl::parse(
         "iceberg://".to_owned() + &util::strip_prefix(&table.metadata().location).replace('/', "-"),
@@ -470,7 +483,7 @@ impl DataSink for DataFusionTable {
                 .await?;
 
         table
-            .new_transaction(None)
+            .new_transaction(self.branch.as_deref())
             .append(metadata_files)
             .commit()
             .await
@@ -503,7 +516,7 @@ mod tests {
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
     use std::sync::Arc;
 
-    use crate::{error::Error, DataFusionTable};
+    use crate::{catalog::catalog::IcebergCatalog, error::Error, DataFusionTable};
 
     #[tokio::test]
     pub async fn test_datafusion_table_scan() {
@@ -697,6 +710,189 @@ mod tests {
 
         let batches = ctx
             .sql("select product_id, sum(amount) from orders group by product_id;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (order_ids, amounts) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (order_id, amount) in order_ids.iter().zip(amounts) {
+                    if order_id.unwrap() == 1 {
+                        assert_eq!(amount.unwrap(), 9)
+                    } else if order_id.unwrap() == 2 {
+                        assert_eq!(amount.unwrap(), 2)
+                    } else if order_id.unwrap() == 3 {
+                        assert_eq!(amount.unwrap(), 4)
+                    } else {
+                        panic!("Unexpected order id")
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    pub async fn test_datafusion_table_branch_insert() {
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+
+        let catalog: Arc<dyn Catalog> =
+            Arc::new(MemoryCatalog::new("iceberg", object_store.clone()).unwrap());
+
+        let schema = Schema {
+            schema_id: 1,
+            identifier_field_ids: None,
+            fields: StructTypeBuilder::default()
+                .with_struct_field(StructField {
+                    id: 1,
+                    name: "id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 2,
+                    name: "customer_id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 3,
+                    name: "product_id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 4,
+                    name: "date".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Date),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 5,
+                    name: "amount".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Int),
+                    doc: None,
+                })
+                .build()
+                .unwrap(),
+        };
+        let partition_spec = PartitionSpecBuilder::default()
+            .spec_id(1)
+            .with_partition_field(PartitionField {
+                source_id: 4,
+                field_id: 1000,
+                name: "day".to_string(),
+                transform: Transform::Day,
+            })
+            .build()
+            .expect("Failed to create partition spec");
+
+        let mut builder = TableBuilder::new("test.orders", catalog.clone())
+            .expect("Failed to create table builder");
+        builder
+            .location("/test/orders")
+            .with_schema((1, schema.clone()))
+            .current_schema_id(1)
+            .with_partition_spec((1, partition_spec))
+            .default_spec_id(1);
+
+        builder.build().await.expect("Failed to create table.");
+
+        // Datafusion
+
+        let datafusion_catalog = Arc::new(
+            IcebergCatalog::new(catalog.clone(), Some("dev"))
+                .await
+                .expect("Failed to create datafusion catalog"),
+        );
+
+        let ctx = SessionContext::new();
+
+        ctx.register_catalog("iceberg", datafusion_catalog);
+
+        ctx.sql(
+            "INSERT INTO iceberg.test.orders (id, customer_id, product_id, date, amount) VALUES 
+                (1, 1, 1, '2020-01-01', 1),
+                (2, 2, 1, '2020-01-01', 1),
+                (3, 3, 1, '2020-01-01', 3),
+                (4, 1, 2, '2020-02-02', 1),
+                (5, 1, 1, '2020-02-02', 2),
+                (6, 3, 3, '2020-02-02', 3);",
+        )
+        .await
+        .expect("Failed to create query plan for insert")
+        .collect()
+        .await
+        .expect("Failed to insert values into table");
+
+        let batches = ctx
+            .sql("select product_id, sum(amount) from iceberg.test.orders group by product_id;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (order_ids, amounts) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (order_id, amount) in order_ids.iter().zip(amounts) {
+                    if order_id.unwrap() == 1 {
+                        assert_eq!(amount.unwrap(), 7)
+                    } else if order_id.unwrap() == 2 {
+                        assert_eq!(amount.unwrap(), 1)
+                    } else if order_id.unwrap() == 3 {
+                        assert_eq!(amount.unwrap(), 3)
+                    } else {
+                        panic!("Unexpected order id")
+                    }
+                }
+            }
+        }
+
+        ctx.sql(
+            "INSERT INTO iceberg.test.orders (id, customer_id, product_id, date, amount) VALUES 
+                (7, 1, 3, '2020-01-03', 1),
+                (8, 2, 1, '2020-01-03', 2),
+                (9, 2, 2, '2020-01-03', 1);",
+        )
+        .await
+        .expect("Failed to create query plan for insert")
+        .collect()
+        .await
+        .expect("Failed to insert values into table");
+
+        let batches = ctx
+            .sql("select product_id, sum(amount) from iceberg.test.orders group by product_id;")
             .await
             .expect("Failed to create plan for select")
             .collect()
