@@ -38,12 +38,15 @@ pub async fn write_parquet_partitioned(
 ) -> Result<Vec<DataFile>, ArrowError> {
     let streams = partition_record_batches(batches, partition_spec, schema).await?;
     let arrow_schema: Arc<ArrowSchema> = Arc::new((&schema.fields).try_into()?);
+    let finished = Arc::new(Mutex::new(Vec::new()));
     stream::iter(streams.into_iter())
-        .then(|batches| {
+        .map(Ok::<_, ArrowError>)
+        .try_for_each_concurrent(None, |batches| {
             let arrow_schema = arrow_schema.clone();
             let object_store = object_store.clone();
+            let finished = finished.clone();
             async move {
-                write_parquet_files(
+                let files = write_parquet_files(
                     location,
                     schema,
                     &arrow_schema,
@@ -51,14 +54,13 @@ pub async fn write_parquet_partitioned(
                     batches,
                     object_store.clone(),
                 )
-                .await
+                .await?;
+                finished.lock().await.extend_from_slice(&files);
+                Ok(())
             }
         })
-        .try_fold(vec![], |mut acc, x| async move {
-            acc.extend_from_slice(&x);
-            Ok(acc)
-        })
-        .await
+        .await?;
+    Ok(Arc::try_unwrap(finished).unwrap().into_inner())
 }
 
 /// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
@@ -82,7 +84,7 @@ async fn write_parquet_files(
     let num_bytes = Arc::new(AtomicUsize::new(0));
 
     batches
-        .for_each_concurrent(None, |batch| {
+        .try_for_each_concurrent(None, |batch| {
             let current_writer = current_writer.clone();
             let mut writer_sender = writer_sender.clone();
             let num_bytes = num_bytes.clone();
@@ -104,16 +106,17 @@ async fn write_parquet_files(
                             .await
                             .unwrap(),
                     );
-                    writer_sender.try_send(finished_writer).unwrap();
+                    writer_sender
+                        .try_send(finished_writer)
+                        .map_err(|err| ArrowError::ComputeError(err.to_string()))?;
                 }
-                if let Ok(batch) = batch {
-                    current_writer.1.write(&batch).await.unwrap();
-                    let batch_size = record_batch_size(&batch);
-                    num_bytes.fetch_add(batch_size, Ordering::AcqRel);
-                }
+                current_writer.1.write(&batch).await?;
+                let batch_size = record_batch_size(&batch);
+                num_bytes.fetch_add(batch_size, Ordering::AcqRel);
+                Ok(())
             }
         })
-        .await;
+        .await?;
 
     let last = Arc::try_unwrap(current_writer).unwrap().into_inner();
 
