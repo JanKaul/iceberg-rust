@@ -3,9 +3,9 @@
 */
 
 use futures::{
-    channel::mpsc::{channel, Receiver, Sender},
+    channel::mpsc::{channel, unbounded, Receiver, Sender},
     lock::Mutex,
-    stream, StreamExt, TryStreamExt,
+    stream, SinkExt, StreamExt, TryStreamExt,
 };
 use object_store::ObjectStore;
 use std::sync::{
@@ -20,6 +20,7 @@ use parquet::arrow::AsyncArrowWriter;
 use uuid::Uuid;
 
 use crate::{
+    error::Error,
     file_format::parquet::parquet_to_datafile,
     spec::{manifest::DataFile, partition::PartitionSpec, schema::Schema},
 };
@@ -39,12 +40,14 @@ pub async fn write_parquet_partitioned(
     let streams = partition_record_batches(batches, partition_spec, schema).await?;
     let arrow_schema: Arc<ArrowSchema> = Arc::new((&schema.fields).try_into()?);
     let finished = Arc::new(Mutex::new(Vec::new()));
+    let (sender, reciever) = unbounded();
     stream::iter(streams.into_iter())
         .map(Ok::<_, ArrowError>)
         .try_for_each_concurrent(None, |batches| {
             let arrow_schema = arrow_schema.clone();
             let object_store = object_store.clone();
             let finished = finished.clone();
+            let mut sender = sender.clone();
             async move {
                 let files = write_parquet_files(
                     location,
@@ -56,11 +59,18 @@ pub async fn write_parquet_partitioned(
                 )
                 .await?;
                 finished.lock().await.extend_from_slice(&files);
+                sender.send(files).await.map_err(Error::from)?;
                 Ok(())
             }
         })
         .await?;
-    Ok(Arc::try_unwrap(finished).unwrap().into_inner())
+    sender.close_channel();
+    Ok(reciever
+        .fold(Vec::new(), |mut acc, x| async move {
+            acc.extend(x);
+            acc
+        })
+        .await)
 }
 
 /// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
