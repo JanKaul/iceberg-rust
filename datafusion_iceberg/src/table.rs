@@ -91,7 +91,7 @@ impl DataFusionTable {
     pub fn new(tabular: Tabular, start: Option<i64>, end: Option<i64>) -> Self {
         let schema = match &tabular {
             Tabular::Table(table) => {
-                let schema = table.schema().unwrap().clone();
+                let schema = table.schema(None).unwrap().clone();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
             Tabular::View(view) => {
@@ -349,7 +349,7 @@ async fn table_scan(
             Ok((
                 field.name.clone(),
                 (&table
-                    .schema()
+                    .schema(None)
                     .map_err(Into::<Error>::into)?
                     .fields
                     .get(field.source_id as usize)
@@ -365,7 +365,7 @@ async fn table_scan(
         .map_err(Into::<Error>::into)?;
 
     // Add the partition columns to the table schema
-    let mut file_schema = table.schema().unwrap().clone();
+    let mut file_schema = table.schema(None).unwrap().clone();
     for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
         file_schema.fields.fields.push(StructField {
             id: partition_field.field_id,
@@ -444,7 +444,7 @@ impl DataSink for DataFusionTable {
         .map_err(Into::<Error>::into)?;
 
         let object_store = table.object_store();
-        let schema = table.schema().map_err(Into::<Error>::into)?;
+        let schema = table.schema(None).map_err(Into::<Error>::into)?;
         let location = &table.metadata().location;
         let partition_spec = table
             .metadata()

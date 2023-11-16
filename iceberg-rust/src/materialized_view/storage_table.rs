@@ -46,7 +46,7 @@ impl StorageTable {
     pub fn version_id(&self, branch: Option<String>) -> Result<Option<i64>, Error> {
         self.0
             .metadata()
-            .current_snapshot(branch)?
+            .current_snapshot(branch.as_deref())?
             .and_then(|snapshot| snapshot.summary.other.get("version-id"))
             .map(|json| Ok(serde_json::from_str::<VersionId>(json)?))
             .transpose()
@@ -68,7 +68,7 @@ impl StorageTable {
                 .collect::<Vec<_>>()
         } else {
             self.metadata()
-                .current_snapshot(branch.clone())?
+                .current_snapshot(branch.as_deref())?
                 .and_then(|snapshot| snapshot.summary.other.get("base-tables"))
                 .ok_or(Error::NotFound(
                     "Snapshot summary field".to_string(),
@@ -108,7 +108,7 @@ impl StorageTable {
                     let snapshot_id = if let Some(snapshot_id) = snapshot_id {
                         if base_table
                             .metadata()
-                            .current_snapshot(branch)?
+                            .current_snapshot(branch.as_deref())?
                             .unwrap()
                             .snapshot_id
                             == *snapshot_id

@@ -121,9 +121,10 @@ impl<'a, W: std::io::Write> DerefMut for ManifestWriter<'a, W> {
 
 impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
     pub(crate) fn new(
+        writer: W,
         schema: &'a AvroSchema,
         table_metadata: &TableMetadata,
-        writer: W,
+        branch: Option<&str>,
     ) -> Result<Self, Error> {
         let mut avro_writer = AvroWriter::new(&schema, writer);
 
@@ -139,10 +140,10 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
             "schema".to_string(),
             match table_metadata.format_version {
                 FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
-                    table_metadata.current_schema()?.clone(),
+                    table_metadata.current_schema(branch)?.clone(),
                 ))?,
                 FormatVersion::V2 => serde_json::to_string(&Into::<SchemaV2>::into(
-                    table_metadata.current_schema()?.clone(),
+                    table_metadata.current_schema(branch)?.clone(),
                 ))?,
             },
         )?;
@@ -1593,7 +1594,7 @@ mod tests {
 
         let partition_schema = partition_value_schema(
             &table_metadata.default_partition_spec().unwrap().fields,
-            &table_metadata.current_schema().unwrap(),
+            &table_metadata.current_schema(None).unwrap(),
         )
         .unwrap();
 
@@ -1651,7 +1652,7 @@ mod tests {
                 manifest_entry,
                 ManifestEntry::try_from_v2(
                     entry,
-                    table_metadata.current_schema().unwrap(),
+                    table_metadata.current_schema(None).unwrap(),
                     table_metadata.default_partition_spec().unwrap()
                 )
                 .unwrap()
@@ -1726,7 +1727,7 @@ mod tests {
 
         let partition_schema = partition_value_schema(
             &table_metadata.default_partition_spec().unwrap().fields,
-            &table_metadata.current_schema().unwrap(),
+            &table_metadata.current_schema(None).unwrap(),
         )
         .unwrap();
 
@@ -1784,7 +1785,7 @@ mod tests {
             manifest_entry,
             ManifestEntry::try_from_v2(
                 metadata_entry,
-                table_metadata.current_schema().unwrap(),
+                table_metadata.current_schema(None).unwrap(),
                 table_metadata.default_partition_spec().unwrap()
             )
             .unwrap()

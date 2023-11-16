@@ -119,9 +119,9 @@ pub struct TableMetadata {
 impl TableMetadata {
     /// Get current schema
     #[inline]
-    pub fn current_schema(&self) -> Result<&Schema, Error> {
+    pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         let schema_id = self
-            .current_snapshot(None)?
+            .current_snapshot(branch)?
             .and_then(|x| x.schema_id)
             .unwrap_or(self.current_schema_id);
         self.schemas
@@ -138,13 +138,10 @@ impl TableMetadata {
 
     /// Get current snapshot
     #[inline]
-    pub fn current_snapshot(
-        &self,
-        snapshot_ref: Option<String>,
-    ) -> Result<Option<&Snapshot>, Error> {
+    pub fn current_snapshot(&self, snapshot_ref: Option<&str>) -> Result<Option<&Snapshot>, Error> {
         let snapshot_id = match snapshot_ref {
             None => self.current_snapshot_id,
-            Some(reference) => self.refs.get(&reference).map(|x| x.snapshot_id),
+            Some(reference) => self.refs.get(reference).map(|x| x.snapshot_id),
         };
         match snapshot_id {
             Some(snapshot_id) => Ok(self.snapshots.get(&snapshot_id)),

@@ -25,7 +25,7 @@ impl DataFusionTable {
                                 min_value: None,
                                 distinct_count: None
                             };
-                            table.schema()?.fields.fields.len()
+                            table.schema(None)?.fields.fields.len()
                         ]),
                         is_exact: true,
                     },
@@ -44,7 +44,7 @@ impl DataFusionTable {
                                     min_value: None,
                                     distinct_count: None
                                 };
-                                table.schema()?.fields.fields.len()
+                                table.schema(None)?.fields.fields.len()
                             ]),
                             is_exact: true,
                         })
@@ -68,7 +68,7 @@ impl DataFusionTable {
                                     min_value: None,
                                     distinct_count: None
                                 };
-                                table.schema()?.fields.fields.len()
+                                table.schema(None)?.fields.fields.len()
                             ]),
                             is_exact: true,
                         },
@@ -87,7 +87,11 @@ impl DataFusionTable {
                                         min_value: None,
                                         distinct_count: None
                                     };
-                                    table.schema()?.fields.fields.len()
+                                    table
+                                        .schema(None)?
+                                        .fields
+                                        .fields
+                                        .len()
                                 ]),
                                 is_exact: true,
                             })

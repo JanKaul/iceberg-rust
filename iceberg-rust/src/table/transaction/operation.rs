@@ -88,7 +88,7 @@ impl Operation {
                 let object_store = table.object_store();
                 let table_metadata = table.metadata();
                 let partition_spec = table_metadata.default_partition_spec()?;
-                let schema = table_metadata.current_schema()?;
+                let schema = table_metadata.current_schema(branch.as_deref())?;
 
                 let datafiles = Arc::new(
                     stream::iter(files.into_iter())
@@ -115,7 +115,7 @@ impl Operation {
                 let existing_partitions = Arc::new(Mutex::new(HashSet::new()));
 
                 let manifest_list_location = &table_metadata
-                    .current_snapshot(branch.clone())?
+                    .current_snapshot(branch.as_deref())?
                     .ok_or_else(|| Error::InvalidFormat("manifest list in metadata".to_string()))?
                     .manifest_list;
 
@@ -246,8 +246,12 @@ impl Operation {
                             &table_metadata.format_version,
                         )?;
 
-                        let mut manifest_writer =
-                            ManifestWriter::new(&manifest_schema, &table_metadata, Vec::new())?;
+                        let mut manifest_writer = ManifestWriter::new(
+                            Vec::new(),
+                            &manifest_schema,
+                            &table_metadata,
+                            branch.as_deref(),
+                        )?;
 
                         let mut manifest = match manifest {
                             Ok(manifest) => {
@@ -299,7 +303,7 @@ impl Operation {
                                     status: Status::Added,
                                     snapshot_id: table_metadata.current_snapshot_id,
                                     sequence_number: table_metadata
-                                        .current_snapshot(branch.clone())?
+                                        .current_snapshot(branch.as_deref())?
                                         .map(|x| x.sequence_number),
                                     data_file: datafile.clone(),
                                 };

@@ -293,7 +293,7 @@ impl ManifestListEntry {
     ) -> Result<ManifestListEntry, Error> {
         let partition_types = table_metadata
             .default_partition_spec()?
-            .data_types(&table_metadata.current_schema()?.fields)?;
+            .data_types(&table_metadata.current_schema(None)?.fields)?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V2,
             manifest_path: entry.manifest_path,
@@ -328,7 +328,7 @@ impl ManifestListEntry {
     ) -> Result<ManifestListEntry, Error> {
         let partition_types = table_metadata
             .default_partition_spec()?
-            .data_types(&table_metadata.current_schema()?.fields)?;
+            .data_types(&table_metadata.current_schema(None)?.fields)?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V1,
             manifest_path: entry.manifest_path,

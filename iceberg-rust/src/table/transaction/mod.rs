@@ -100,7 +100,7 @@ impl<'table> TableTransaction<'table> {
             op.execute(self.table, &mut context).await?
         }
 
-        if let Some(snapshot) = &self.table.metadata.current_snapshot(branch)? {
+        if let Some(snapshot) = &self.table.metadata.current_snapshot(branch.as_deref())? {
             object_store
                 .put(
                     &strip_prefix(&snapshot.manifest_list).into(),

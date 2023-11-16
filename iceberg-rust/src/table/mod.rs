@@ -63,9 +63,9 @@ impl Table {
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog.object_store()
     }
-    /// Get the metadata of the table
-    pub fn schema(&self) -> Result<&Schema, Error> {
-        self.metadata.current_schema()
+    /// Get the schema of the table for a given branch. Defaults to main.
+    pub fn schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
+        self.metadata.current_schema(branch)
     }
     /// Get the metadata of the table
     pub fn metadata(&self) -> &TableMetadata {
@@ -260,7 +260,7 @@ impl Table {
         let object_store = self.object_store();
         let metadata = &mut self.metadata;
         let old_manifest_list_location = metadata
-            .current_snapshot(branch.clone())?
+            .current_snapshot(branch.as_deref())?
             .map(|x| &x.manifest_list)
             .cloned();
         let new_manifest_list_location = metadata.location.to_string()
