@@ -64,7 +64,7 @@ impl Table {
         self.catalog.object_store()
     }
     /// Get the schema of the table for a given branch. Defaults to main.
-    pub fn schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
+    pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch)
     }
     /// Get the metadata of the table
@@ -88,11 +88,11 @@ impl Table {
             return Ok(vec![]);
         };
         let end_snapshot = end
-            .and_then(|id| metadata.snapshot(id))
+            .and_then(|id| metadata.snapshots.get(&id))
             .unwrap_or(current_snapshot);
         let start_sequence_number =
             start
-                .and_then(|id| metadata.snapshot(id))
+                .and_then(|id| metadata.snapshots.get(&id))
                 .and_then(|snapshot| {
                     let sequence_number = snapshot.sequence_number;
                     if sequence_number == 0 {

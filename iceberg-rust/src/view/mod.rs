@@ -59,7 +59,7 @@ impl View {
         self.catalog.object_store()
     }
     /// Get the schema of the view
-    pub fn schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
+    pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch)
     }
     /// Get the metadata of the view

@@ -128,6 +128,18 @@ impl TableMetadata {
             .get(&schema_id)
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
+    /// Get schema for snapshot
+    #[inline]
+    pub fn schema(&self, snapshot_id: i64) -> Result<&Schema, Error> {
+        let schema_id = self
+            .snapshots
+            .get(&snapshot_id)
+            .and_then(|x| x.schema_id)
+            .unwrap_or(self.current_schema_id);
+        self.schemas
+            .get(&schema_id)
+            .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
+    }
     /// Get default partition spec
     #[inline]
     pub fn default_partition_spec(&self) -> Result<&PartitionSpec, Error> {
@@ -182,11 +194,6 @@ impl TableMetadata {
                 }
             }
         }
-    }
-    /// Get particular snapshot
-    #[inline]
-    pub fn snapshot(&self, snapshot_id: i64) -> Option<&Snapshot> {
-        self.snapshots.get(&snapshot_id)
     }
 }
 

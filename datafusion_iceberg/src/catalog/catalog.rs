@@ -13,9 +13,9 @@ pub struct IcebergCatalog {
 }
 
 impl IcebergCatalog {
-    pub async fn new(catalog: Arc<dyn Catalog>) -> Result<Self> {
+    pub async fn new(catalog: Arc<dyn Catalog>, branch: Option<&str>) -> Result<Self> {
         Ok(IcebergCatalog {
-            catalog: Arc::new(Mirror::new(catalog).await?),
+            catalog: Arc::new(Mirror::new(catalog, branch.map(ToOwned::to_owned)).await?),
         })
     }
 }

@@ -91,14 +91,21 @@ impl DataFusionTable {
     pub fn new(tabular: Tabular, start: Option<i64>, end: Option<i64>) -> Self {
         let schema = match &tabular {
             Tabular::Table(table) => {
-                let schema = table.schema(None).unwrap().clone();
+                let schema = end
+                    .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
+                    .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
                 Arc::new((&schema.fields).try_into().unwrap())
             }
             Tabular::View(view) => {
-                Arc::new((&view.schema(None).unwrap().fields).try_into().unwrap())
+                let schema = end
+                    .and_then(|version_id| view.metadata().schema(version_id).ok().cloned())
+                    .unwrap_or_else(|| view.current_schema(None).unwrap().clone());
+                Arc::new((&schema.fields).try_into().unwrap())
             }
-            Tabular::MaterializedView(mv) => {
-                let schema = mv.metadata().current_schema(None).unwrap();
+            Tabular::MaterializedView(matview) => {
+                let schema = end
+                    .and_then(|version_id| matview.metadata().schema(version_id).ok().cloned())
+                    .unwrap_or_else(|| matview.current_schema(None).unwrap().clone());
                 Arc::new((&schema.fields).try_into().unwrap())
             }
         };
@@ -138,12 +145,13 @@ impl TableProvider for DataFusionTable {
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
         match self.tabular.read().await.deref() {
             Tabular::View(view) => {
-                let sql = match &view
-                    .metadata()
-                    .current_version(None)
-                    .map_err(Into::<Error>::into)?
-                    .representations[0]
-                {
+                let metadata = view.metadata();
+                let version = self
+                    .snapshot_range
+                    .1
+                    .and_then(|version_id| metadata.versions.get(&version_id))
+                    .unwrap_or(metadata.current_version(None).map_err(Error::from)?);
+                let sql = match &version.representations[0] {
                     ViewRepresentation::Sql { sql, .. } => sql,
                 };
                 let statement = DFParser::new(sql)?.parse_statement()?;
@@ -209,13 +217,17 @@ impl TableProvider for DataFusionTable {
 async fn table_scan(
     table: &Table,
     snapshot_range: &(Option<i64>, Option<i64>),
-    schema: SchemaRef,
+    arrow_schema: SchemaRef,
     statistics: Statistics,
     session: &SessionState,
     projection: Option<&Vec<usize>>,
     filters: &[Expr],
     limit: Option<usize>,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
+    let schema = snapshot_range
+        .1
+        .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
+        .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
     // Create a unique URI for this particular object store
     let object_store_url = ObjectStoreUrl::parse(
         "iceberg://".to_owned() + &util::strip_prefix(&table.metadata().location).replace('/', "-"),
@@ -231,15 +243,16 @@ async fn table_scan(
     let physical_predicate = if let Some(predicate) = conjunction(filters.iter().cloned()) {
         Some(create_physical_expr(
             &predicate,
-            &schema.as_ref().clone().try_into()?,
-            &schema,
+            &arrow_schema.as_ref().clone().try_into()?,
+            &arrow_schema,
             session.execution_props(),
         )?)
     } else {
         None
     };
     if let Some(physical_predicate) = physical_predicate.clone() {
-        let pruning_predicate = PruningPredicate::try_new(physical_predicate, schema.clone())?;
+        let pruning_predicate =
+            PruningPredicate::try_new(physical_predicate, arrow_schema.clone())?;
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
@@ -348,9 +361,7 @@ async fn table_scan(
         .map(|field| {
             Ok((
                 field.name.clone(),
-                (&table
-                    .schema(None)
-                    .map_err(Into::<Error>::into)?
+                (&schema
                     .fields
                     .get(field.source_id as usize)
                     .unwrap()
@@ -365,7 +376,7 @@ async fn table_scan(
         .map_err(Into::<Error>::into)?;
 
     // Add the partition columns to the table schema
-    let mut file_schema = table.schema(None).unwrap().clone();
+    let mut file_schema = schema.clone();
     for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
         file_schema.fields.fields.push(StructField {
             id: partition_field.field_id,
@@ -444,14 +455,18 @@ impl DataSink for DataFusionTable {
         .map_err(Into::<Error>::into)?;
 
         let object_store = table.object_store();
-        let schema = table.schema(None).map_err(Into::<Error>::into)?;
+        let schema = self
+            .snapshot_range
+            .1
+            .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
+            .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
         let location = &table.metadata().location;
         let partition_spec = table
             .metadata()
             .default_partition_spec()
             .map_err(Into::<Error>::into)?;
         let metadata_files =
-            write_parquet_partitioned(location, schema, partition_spec, batches, object_store)
+            write_parquet_partitioned(location, &schema, partition_spec, batches, object_store)
                 .await?;
 
         table

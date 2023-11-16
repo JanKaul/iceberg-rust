@@ -18,7 +18,8 @@ use super::schema::Schema;
 
 use _serde::ViewMetadataEnum;
 
-pub(crate) static REF_PREFIX: &str = "ref-";
+/// Prefix used to denote branch references in the view properties
+pub static REF_PREFIX: &str = "ref-";
 
 /// Fields for the version 1 of the view metadata.
 pub type ViewMetadata = GeneralViewMetadata<ViewRepresentation>;
@@ -61,6 +62,18 @@ impl<T: Representation> GeneralViewMetadata<T> {
     #[inline]
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         let id = self.current_version(branch)?.schema_id;
+        self.schemas
+            .get(&id)
+            .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
+    }
+    /// Get schema for version
+    #[inline]
+    pub fn schema(&self, version_id: i64) -> Result<&Schema, Error> {
+        let id = self
+            .versions
+            .get(&version_id)
+            .ok_or_else(|| Error::NotFound("Version".to_string(), version_id.to_string()))?
+            .schema_id;
         self.schemas
             .get(&id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))

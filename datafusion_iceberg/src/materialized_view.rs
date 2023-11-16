@@ -236,7 +236,7 @@ mod tests {
         // Datafusion
 
         let datafusion_catalog = Arc::new(
-            IcebergCatalog::new(catalog)
+            IcebergCatalog::new(catalog, None)
                 .await
                 .expect("Failed to create datafusion catalog"),
         );

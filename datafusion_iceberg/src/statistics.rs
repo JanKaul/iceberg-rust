@@ -25,7 +25,11 @@ impl DataFusionTable {
                                 min_value: None,
                                 distinct_count: None
                             };
-                            table.schema(None)?.fields.fields.len()
+                            table
+                                .current_schema(None)?
+                                .fields
+                                .fields
+                                .len()
                         ]),
                         is_exact: true,
                     },
@@ -44,7 +48,11 @@ impl DataFusionTable {
                                     min_value: None,
                                     distinct_count: None
                                 };
-                                table.schema(None)?.fields.fields.len()
+                                table
+                                    .current_schema(None)?
+                                    .fields
+                                    .fields
+                                    .len()
                             ]),
                             is_exact: true,
                         })
@@ -68,7 +76,11 @@ impl DataFusionTable {
                                     min_value: None,
                                     distinct_count: None
                                 };
-                                table.schema(None)?.fields.fields.len()
+                                table
+                                    .current_schema(None)?
+                                    .fields
+                                    .fields
+                                    .len()
                             ]),
                             is_exact: true,
                         },
@@ -88,7 +100,7 @@ impl DataFusionTable {
                                         distinct_count: None
                                     };
                                     table
-                                        .schema(None)?
+                                        .current_schema(None)?
                                         .fields
                                         .fields
                                         .len()

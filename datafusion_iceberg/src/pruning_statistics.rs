@@ -44,7 +44,7 @@ impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
 impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
         let partition_spec = &self.table.metadata().default_partition_spec().ok()?.fields;
-        let schema = self.table.schema(None).ok()?;
+        let schema = self.table.current_schema(None).ok()?;
         let (index, partition_field) = partition_spec
             .iter()
             .enumerate()
@@ -68,7 +68,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
         let partition_spec = self.table.metadata().default_partition_spec().ok()?;
-        let schema = self.table.schema(None).ok()?;
+        let schema = self.table.current_schema(None).ok()?;
         let (index, partition_field) = partition_spec
             .fields
             .iter()
@@ -127,7 +127,9 @@ impl<'table, 'manifests> PruneDataFiles<'table, 'manifests> {
 
 impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = (&self.table.schema(None).ok()?.fields).try_into().ok()?;
+        let schema: Schema = (&self.table.current_schema(None).ok()?.fields)
+            .try_into()
+            .ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
         let min_values = self
@@ -142,7 +144,9 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         any_iter_to_array(min_values, datatype).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = (&self.table.schema(None).ok()?.fields).try_into().ok()?;
+        let schema: Schema = (&self.table.current_schema(None).ok()?.fields)
+            .try_into()
+            .ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
         let max_values = self
@@ -160,7 +164,9 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         self.files.len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = (&self.table.schema(None).ok()?.fields).try_into().ok()?;
+        let schema: Schema = (&self.table.current_schema(None).ok()?.fields)
+            .try_into()
+            .ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let null_counts =
             self.files

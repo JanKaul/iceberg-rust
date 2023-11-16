@@ -4,8 +4,9 @@ use futures::{executor::LocalPool, task::LocalSpawnExt};
 use std::{collections::HashSet, sync::Arc};
 
 use iceberg_rust::{
-    catalog::{identifier::Identifier, namespace::Namespace, Catalog},
+    catalog::{identifier::Identifier, namespace::Namespace, tabular::Tabular, Catalog},
     error::Error as IcebergError,
+    spec::view_metadata::REF_PREFIX,
 };
 
 use crate::{error::Error, DataFusionTable};
@@ -21,10 +22,14 @@ enum Node {
 pub struct Mirror {
     storage: DashMap<String, Node>,
     catalog: Arc<dyn Catalog>,
+    branch: Option<String>,
 }
 
 impl Mirror {
-    pub async fn new(catalog: Arc<dyn Catalog>) -> Result<Self, DataFusionError> {
+    pub async fn new(
+        catalog: Arc<dyn Catalog>,
+        branch: Option<String>,
+    ) -> Result<Self, DataFusionError> {
         let storage = DashMap::new();
         let namespaces = catalog
             .clone()
@@ -45,7 +50,11 @@ impl Mirror {
             storage.insert(namespace.to_string(), Node::Namespace(namespace_node));
         }
 
-        Ok(Mirror { storage, catalog })
+        Ok(Mirror {
+            storage,
+            catalog,
+            branch,
+        })
     }
     /// Lists all tables in the given namespace.
     pub fn table_names(&self, namespace: &Namespace) -> Result<Vec<Identifier>, DataFusionError> {
@@ -90,7 +99,47 @@ impl Mirror {
             .clone()
             .load_table(&identifier)
             .await
-            .map(|x| Arc::new(DataFusionTable::from(x)) as Arc<dyn TableProvider>)
+            .map(|tabular| match tabular {
+                Tabular::Table(table) => {
+                    let end = self
+                        .branch
+                        .as_ref()
+                        .and_then(|branch| table.metadata().refs.get(branch))
+                        .map(|x| x.snapshot_id);
+                    Arc::new(DataFusionTable::new(Tabular::Table(table), None, end))
+                        as Arc<dyn TableProvider>
+                }
+                Tabular::View(view) => {
+                    let end = self
+                        .branch
+                        .as_ref()
+                        .and_then(|branch| {
+                            view.metadata()
+                                .properties
+                                .get(&(REF_PREFIX.to_string() + &branch))
+                        })
+                        .map(|x| x.parse::<i64>().unwrap());
+                    Arc::new(DataFusionTable::new(Tabular::View(view), None, end))
+                        as Arc<dyn TableProvider>
+                }
+                Tabular::MaterializedView(matview) => {
+                    let end = self
+                        .branch
+                        .as_ref()
+                        .and_then(|branch| {
+                            matview
+                                .metadata()
+                                .properties
+                                .get(&(REF_PREFIX.to_string() + &branch))
+                        })
+                        .map(|x| x.parse::<i64>().unwrap());
+                    Arc::new(DataFusionTable::new(
+                        Tabular::MaterializedView(matview),
+                        None,
+                        end,
+                    )) as Arc<dyn TableProvider>
+                }
+            })
             .ok()
     }
     pub fn table_exists(&self, identifier: Identifier) -> bool {
