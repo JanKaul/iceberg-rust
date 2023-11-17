@@ -39,7 +39,7 @@ pub struct GeneralViewMetadata<T: Representation> {
     #[builder(setter(into))]
     /// The view’s base location. This is used to determine where to store manifest files and view metadata files.
     pub location: String,
-    ///	Current version of the view. Set to ‘1’ when the view is first created.
+    /// Current version of the view. Set to ‘1’ when the view is first created.
     pub current_version_id: i64,
     #[builder(setter(each(name = "with_version")), default)]
     /// An array of structs describing the last known versions of the view. Controlled by the table property: “version.history.num-entries”. See section Versions.
@@ -49,7 +49,7 @@ pub struct GeneralViewMetadata<T: Representation> {
     /// Each time the current-version-id is changed, a new entry should be added with the last-updated-ms and the new current-version-id.
     pub version_log: Vec<VersionLogStruct>,
     #[builder(setter(each(name = "with_schema")), default)]
-    ///	A list of schemas, the same as the ‘schemas’ field from Iceberg table spec.
+    /// A list of schemas, the same as the ‘schemas’ field from Iceberg table spec.
     pub schemas: HashMap<i32, Schema>,
     #[builder(default)]
     /// A string to string map of view properties. This is used for metadata such as “comment” and for settings that affect view maintenance.
@@ -131,7 +131,7 @@ mod _serde {
         pub format_version: VersionNumber<1>,
         /// The view’s base location. This is used to determine where to store manifest files and view metadata files.
         pub location: String,
-        ///	Current version of the view. Set to ‘1’ when the view is first created.
+        /// Current version of the view. Set to ‘1’ when the view is first created.
         pub current_version_id: i64,
         /// An array of structs describing the last known versions of the view. Controlled by the table property: “version.history.num-entries”. See section Versions.
         pub versions: Vec<Version<T>>,
@@ -206,15 +206,11 @@ mod _serde {
 #[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
 #[repr(u8)]
 /// Iceberg format version
+#[derive(Default)]
 pub enum FormatVersion {
     /// Iceberg spec version 1
+    #[default]
     V1 = b'1',
-}
-
-impl Default for FormatVersion {
-    fn default() -> Self {
-        FormatVersion::V1
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
@@ -228,7 +224,7 @@ pub struct Version<T> {
     #[builder(
         default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64"
     )]
-    ///	Timestamp expressed in ms since epoch at which the version of the view was created.
+    /// Timestamp expressed in ms since epoch at which the version of the view was created.
     pub timestamp_ms: i64,
     #[builder(default)]
     /// A string map summarizes the version changes, including operation, described in Summary.
@@ -249,7 +245,7 @@ pub struct Version<T> {
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the view metadata.
 pub struct VersionLogStruct {
-    ///	The timestamp when the referenced version was made the current version
+    /// The timestamp when the referenced version was made the current version
     pub timestamp_ms: i64,
     /// Version id of the view
     pub version_id: i64,
@@ -257,17 +253,13 @@ pub struct VersionLogStruct {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 /// View operation that create the metadata file
+#[derive(Default)]
 pub enum Operation {
     /// Create view
+    #[default]
     Create,
     /// Replace view
     Replace,
-}
-
-impl Default for Operation {
-    fn default() -> Self {
-        Operation::Create
-    }
 }
 
 /// Serialize for PrimitiveType wit special handling for

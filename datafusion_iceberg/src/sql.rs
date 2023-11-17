@@ -41,7 +41,7 @@ pub async fn get_schema(
 }
 
 pub(crate) fn transform_name(input: &str) -> String {
-    input.replace(".", "__")
+    input.replace('.', "__")
 }
 
 pub(crate) fn transform_relations(sql: &str) -> Result<Vec<String>, Error> {

@@ -62,7 +62,7 @@ impl StorageTable {
             find_relations(sql)?
                 .into_iter()
                 .map(|ident| {
-                    Itertools::intersperse(ident.split(".").skip(1), ".").collect::<String>()
+                    Itertools::intersperse(ident.split('.').skip(1), ".").collect::<String>()
                 })
                 .zip(repeat(None))
                 .collect::<Vec<_>>()
@@ -94,7 +94,7 @@ impl StorageTable {
                     // }
                     let base_table = match catalog
                         .load_table(&Identifier::parse(
-                            &pointer.trim_start_matches("identifier:"),
+                            pointer.trim_start_matches("identifier:"),
                         )?)
                         .await?
                     {
@@ -114,12 +114,10 @@ impl StorageTable {
                             == *snapshot_id
                         {
                             StorageTableState::Fresh
+                        } else if *snapshot_id == -1 {
+                            StorageTableState::Empty
                         } else {
-                            if *snapshot_id == -1 {
-                                StorageTableState::Empty
-                            } else {
-                                StorageTableState::Outdated(*snapshot_id)
-                            }
+                            StorageTableState::Outdated(*snapshot_id)
                         }
                     } else {
                         StorageTableState::Empty
@@ -175,7 +173,7 @@ impl StorageTable {
         }?;
 
         table
-            .new_transaction(branch.as_ref().map(String::as_str))
+            .new_transaction(branch.as_deref())
             .append(files)
             .update_snapshot_summary(vec![
                 (

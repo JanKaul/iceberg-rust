@@ -258,7 +258,7 @@ async fn table_scan(
     )?;
     session
         .runtime_env()
-        .register_object_store(&object_store_url.as_ref(), table.object_store());
+        .register_object_store(object_store_url.as_ref(), table.object_store());
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
@@ -297,7 +297,7 @@ async fn table_scan(
     if let Some(physical_predicate) = physical_predicate.clone() {
         let partition_predicates = conjunction(
             filters
-                .into_iter()
+                .iter()
                 .filter(|expr| {
                     if let Ok(set) = expr.to_columns() {
                         let set: HashSet<String> =
@@ -328,11 +328,11 @@ async fn table_scan(
             let manifests_to_prune =
                 pruning_predicate.prune(&PruneManifests::new(table, &manifests))?;
 
-            let data_files = table
+            
+            table
                 .datafiles(&manifests, Some(manifests_to_prune))
                 .await
-                .map_err(Into::<Error>::into)?;
-            data_files
+                .map_err(Into::<Error>::into)?
         } else {
             table
                 .datafiles(&manifests, None)

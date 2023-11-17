@@ -31,6 +31,9 @@ use crate::spec::{partition::PartitionSpec, schema::Schema, values::Value};
 
 use super::transform::transform_arrow;
 
+type SendableRecordBatchStream =
+    Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>;
+
 /// Partition stream of record batches according to partition spec
 pub async fn partition_record_batches(
     record_batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
@@ -38,8 +41,8 @@ pub async fn partition_record_batches(
     schema: &Schema,
 ) -> Result<Vec<impl Stream<Item = Result<RecordBatch, ArrowError>> + Send>, ArrowError> {
     let (partition_sender, partition_reciever): (
-        UnboundedSender<Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>>,
-        UnboundedReceiver<Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>>,
+        UnboundedSender<SendableRecordBatchStream>,
+        UnboundedReceiver<SendableRecordBatchStream>,
     ) = unbounded();
     let partition_streams: Arc<
         Mutex<HashMap<Vec<Value>, UnboundedSender<Result<RecordBatch, ArrowError>>>>,

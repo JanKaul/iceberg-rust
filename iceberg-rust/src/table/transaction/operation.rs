@@ -255,7 +255,7 @@ impl Operation {
                         let mut manifest_writer = ManifestWriter::new(
                             Vec::new(),
                             &manifest_schema,
-                            &table_metadata,
+                            table_metadata,
                             branch.as_deref(),
                         )?;
 

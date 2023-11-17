@@ -99,7 +99,7 @@ impl Catalog for MemoryCatalog {
 
         iter.map(|x| {
             x.and_then(|y| {
-                Namespace::try_new(&y.split(".").map(ToString::to_string).collect::<Vec<_>>())
+                Namespace::try_new(&y.split('.').map(ToString::to_string).collect::<Vec<_>>())
                     .map_err(|_| rusqlite::Error::InvalidQuery)
             })
         })

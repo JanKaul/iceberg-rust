@@ -46,7 +46,7 @@ pub async fn refresh_materialized_view(
         storage_table.base_tables(None, branch.clone()).await?
     } else {
         storage_table
-            .base_tables(Some(&sql), branch.clone())
+            .base_tables(Some(sql), branch.clone())
             .await?
     };
 
@@ -54,7 +54,7 @@ pub async fn refresh_materialized_view(
 
     let new_tables = base_tables
         .into_iter()
-        .map(|(base_table, _)| {
+        .flat_map(|(base_table, _)| {
             let identifier = base_table.identifier().to_string();
             let snapshot_id = base_table.metadata().current_snapshot_id.unwrap_or(-1);
             let table = Arc::new(DataFusionTable::new_table(
@@ -73,7 +73,6 @@ pub async fn refresh_materialized_view(
                 ),
             ]
         })
-        .flatten()
         .map(|(identifier, snapshot_id, table)| {
             ctx.register_table(&transform_name(&identifier), table)?;
             Ok::<_, Error>((identifier, snapshot_id))
@@ -85,7 +84,7 @@ pub async fn refresh_materialized_view(
         })
         .collect::<Result<_, _>>()?;
 
-    let sql_statements = transform_relations(&sql)?;
+    let sql_statements = transform_relations(sql)?;
 
     let logical_plan = ctx.state().create_logical_plan(&sql_statements[0]).await?;
 

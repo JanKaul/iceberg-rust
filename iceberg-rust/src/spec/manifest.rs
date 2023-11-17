@@ -126,7 +126,7 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
         table_metadata: &TableMetadata,
         branch: Option<&str>,
     ) -> Result<Self, Error> {
-        let mut avro_writer = AvroWriter::new(&schema, writer);
+        let mut avro_writer = AvroWriter::new(schema, writer);
 
         avro_writer.add_user_metadata(
             "format-version".to_string(),
@@ -1553,7 +1553,7 @@ mod tests {
 
         let partition_schema = partition_value_schema(
             &table_metadata.default_partition_spec().unwrap().fields,
-            &table_metadata.current_schema(None).unwrap(),
+            table_metadata.current_schema(None).unwrap(),
         )
         .unwrap();
 
@@ -1686,7 +1686,7 @@ mod tests {
 
         let partition_schema = partition_value_schema(
             &table_metadata.default_partition_spec().unwrap().fields,
-            &table_metadata.current_schema(None).unwrap(),
+            table_metadata.current_schema(None).unwrap(),
         )
         .unwrap();
 
