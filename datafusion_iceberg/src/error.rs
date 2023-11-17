@@ -23,6 +23,9 @@ pub enum Error {
     /// Not supported
     #[error("Feature {0} is not supported.")]
     NotSupported(String),
+    /// Not found
+    #[error("{0} {1} not found.")]
+    NotFound(String, String),
     /// Datafusion error
     #[error("datafusion error")]
     Datafusion(#[from] datafusion::error::DataFusionError),

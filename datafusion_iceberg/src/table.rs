@@ -8,7 +8,7 @@ use futures::TryStreamExt;
 use object_store::ObjectMeta;
 use std::{
     any::Any,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -26,7 +26,7 @@ use datafusion::{
         TableProvider, ViewTable,
     },
     execution::{context::SessionState, TaskContext},
-    logical_expr::{TableSource, TableType},
+    logical_expr::{TableProviderFilterPushDown, TableSource, TableType},
     optimizer::utils::conjunction,
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
@@ -227,6 +227,15 @@ impl TableProvider for DataFusionTable {
             None,
         )))
     }
+    fn supports_filters_pushdown(
+        &self,
+        filters: &[&Expr],
+    ) -> Result<Vec<TableProviderFilterPushDown>, DataFusionError> {
+        Ok(filters
+            .iter()
+            .map(|_| TableProviderFilterPushDown::Inexact)
+            .collect())
+    }
 }
 async fn table_scan(
     table: &Table,
@@ -254,6 +263,26 @@ async fn table_scan(
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
     let mut file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> = HashMap::new();
+
+    let partition_column_names = table
+        .metadata()
+        .default_partition_spec()
+        .map_err(Error::from)?
+        .fields
+        .iter()
+        .map(|x| {
+            Ok(schema
+                .fields
+                .get(x.source_id as usize)
+                .ok_or(Error::NotFound(
+                    "Field".to_string(),
+                    x.source_id.to_string(),
+                ))?
+                .name
+                .clone())
+        })
+        .collect::<Result<HashSet<_>, Error>>()?;
+
     // If there is a filter expression the manifests to read are pruned based on the pruning statistics available in the manifest_list file.
     let physical_predicate = if let Some(predicate) = conjunction(filters.iter().cloned()) {
         Some(create_physical_expr(
@@ -266,20 +295,56 @@ async fn table_scan(
         None
     };
     if let Some(physical_predicate) = physical_predicate.clone() {
-        let pruning_predicate =
-            PruningPredicate::try_new(physical_predicate, arrow_schema.clone())?;
+        let partition_predicates = conjunction(
+            filters
+                .into_iter()
+                .filter(|expr| {
+                    if let Ok(set) = expr.to_columns() {
+                        let set: HashSet<String> =
+                            set.into_iter().map(|x| x.name.clone()).collect();
+                        set.is_subset(&partition_column_names)
+                    } else {
+                        false
+                    }
+                })
+                .cloned(),
+        );
+
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
             .map_err(Into::<Error>::into)?;
-        let manifests_to_prune =
-            pruning_predicate.prune(&PruneManifests::new(table, &manifests))?;
-        let data_files = table
-            .datafiles(&manifests, Some(manifests_to_prune))
-            .await
-            .map_err(Into::<Error>::into)?;
+
+        // If there is a filter expression on the partition column, the manifest files to read are pruned.
+        let data_files = if let Some(predicate) = partition_predicates {
+            let physical_partition_predicate = create_physical_expr(
+                &predicate,
+                &arrow_schema.as_ref().clone().try_into()?,
+                &arrow_schema,
+                session.execution_props(),
+            )?;
+            let pruning_predicate =
+                PruningPredicate::try_new(physical_partition_predicate, arrow_schema.clone())?;
+            let manifests_to_prune =
+                pruning_predicate.prune(&PruneManifests::new(table, &manifests))?;
+
+            let data_files = table
+                .datafiles(&manifests, Some(manifests_to_prune))
+                .await
+                .map_err(Into::<Error>::into)?;
+            data_files
+        } else {
+            table
+                .datafiles(&manifests, None)
+                .await
+                .map_err(Into::<Error>::into)?
+        };
+
+        let pruning_predicate =
+            PruningPredicate::try_new(physical_predicate, arrow_schema.clone())?;
         // After the first pruning stage the data_files are pruned again based on the pruning statistics in the manifest files.
         let files_to_prune = pruning_predicate.prune(&PruneDataFiles::new(table, &data_files))?;
+
         data_files
             .into_iter()
             .zip(files_to_prune.into_iter())

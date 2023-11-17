@@ -24,7 +24,7 @@ impl DataFusionTable {
     }
 }
 
-async fn table_statistics(
+pub(crate) async fn table_statistics(
     table: &Table,
     snapshot_range: &(Option<i64>, Option<i64>),
 ) -> Result<Statistics, Error> {
