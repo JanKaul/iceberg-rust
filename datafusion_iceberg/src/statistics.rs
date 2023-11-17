@@ -3,8 +3,9 @@ use std::ops::Deref;
 use datafusion::{
     common::stats::Precision,
     physical_plan::{ColumnStatistics, Statistics},
+    scalar::ScalarValue,
 };
-use iceberg_rust::{catalog::tabular::Tabular, table::Table};
+use iceberg_rust::{catalog::tabular::Tabular, spec::values::Value, table::Table};
 
 use crate::error::Error;
 
@@ -36,7 +37,7 @@ async fn table_statistics(
     Ok(datafiles.iter().fold(
         Statistics {
             num_rows: Precision::Exact(0),
-            total_byte_size: Precision::Absent,
+            total_byte_size: Precision::Exact(0),
             column_statistics: vec![
                 ColumnStatistics {
                     null_count: Precision::Absent,
@@ -47,6 +48,100 @@ async fn table_statistics(
                 schema.fields.fields.len()
             ],
         },
-        |acc, _| acc,
+        |acc, manifest| {
+            let column_statistics =
+                schema
+                    .fields
+                    .fields
+                    .iter()
+                    .map(|x| x.id)
+                    .map(|id| ColumnStatistics {
+                        null_count: manifest
+                            .data_file
+                            .null_value_counts
+                            .as_ref()
+                            .and_then(|x| x.get(&id))
+                            .map(|x| Precision::Exact(*x as usize))
+                            .unwrap_or(Precision::Absent),
+                        max_value: manifest
+                            .data_file
+                            .upper_bounds
+                            .as_ref()
+                            .and_then(|x| x.get(&id))
+                            .and_then(|x| {
+                                Some(Precision::Exact(
+                                    convert_value_to_scalar_value(x.clone()).ok()?,
+                                ))
+                            })
+                            .unwrap_or(Precision::Absent),
+                        min_value: manifest
+                            .data_file
+                            .lower_bounds
+                            .as_ref()
+                            .and_then(|x| x.get(&id))
+                            .and_then(|x| {
+                                Some(Precision::Exact(
+                                    convert_value_to_scalar_value(x.clone()).ok()?,
+                                ))
+                            })
+                            .unwrap_or(Precision::Absent),
+                        distinct_count: manifest
+                            .data_file
+                            .distinct_counts
+                            .as_ref()
+                            .and_then(|x| x.get(&id))
+                            .map(|x| Precision::Exact(*x as usize))
+                            .unwrap_or(Precision::Absent),
+                    });
+            Statistics {
+                num_rows: acc
+                    .num_rows
+                    .add(&Precision::Exact(manifest.data_file.record_count as usize)),
+                total_byte_size: acc.total_byte_size.add(&Precision::Exact(
+                    manifest.data_file.file_size_in_bytes as usize,
+                )),
+                column_statistics: acc
+                    .column_statistics
+                    .into_iter()
+                    .zip(column_statistics)
+                    .map(|(acc, x)| ColumnStatistics {
+                        null_count: acc.null_count.add(&x.null_count),
+                        max_value: acc.max_value.max(&x.max_value),
+                        min_value: acc.min_value.min(&x.min_value),
+                        distinct_count: acc.distinct_count.add(&x.distinct_count),
+                    })
+                    .collect(),
+            }
+        },
     ))
+}
+
+fn convert_value_to_scalar_value(value: Value) -> Result<ScalarValue, Error> {
+    match value {
+        Value::Boolean(b) => Ok(ScalarValue::Boolean(Some(b))),
+        Value::Int(i) => Ok(ScalarValue::Int32(Some(i))),
+        Value::LongInt(l) => Ok(ScalarValue::Int64(Some(l))),
+        Value::Float(f) => Ok(ScalarValue::Float32(Some(f.0))),
+        Value::Double(d) => Ok(ScalarValue::Float64(Some(d.0))),
+        Value::Date(d) => Ok(ScalarValue::Date32(Some(d))),
+        Value::Time(t) => Ok(ScalarValue::Time64Microsecond(Some(t))),
+        Value::Timestamp(ts) => Ok(ScalarValue::TimestampMicrosecond(Some(ts), None)),
+        Value::TimestampTZ(ts) => Ok(ScalarValue::TimestampMicrosecond(Some(ts), None)),
+        Value::String(s) => Ok(ScalarValue::Utf8(Some(s))),
+        Value::UUID(u) => Ok(ScalarValue::FixedSizeBinary(
+            16,
+            Some(u.into_bytes().into()),
+        )),
+        Value::Fixed(size, data) => Ok(ScalarValue::FixedSizeBinary(size as i32, Some(data))),
+        Value::Binary(data) => Ok(ScalarValue::Binary(Some(data))),
+        Value::Decimal(decimal) => Ok(ScalarValue::Decimal128(
+            Some(decimal.try_into().unwrap()),
+            0,
+            0,
+        )),
+        x => Err(Error::Conversion(
+            "Iceberg value".to_string(),
+            format!("{:?}", x),
+        )),
+    }
 }
