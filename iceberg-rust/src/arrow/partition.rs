@@ -34,6 +34,8 @@ use super::transform::transform_arrow;
 type SendableRecordBatchStream =
     Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>;
 
+type RecordBatchSender = UnboundedSender<Result<RecordBatch, ArrowError>>;
+
 /// Partition stream of record batches according to partition spec
 pub async fn partition_record_batches(
     record_batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
@@ -44,9 +46,8 @@ pub async fn partition_record_batches(
         UnboundedSender<SendableRecordBatchStream>,
         UnboundedReceiver<SendableRecordBatchStream>,
     ) = unbounded();
-    let partition_streams: Arc<
-        Mutex<HashMap<Vec<Value>, UnboundedSender<Result<RecordBatch, ArrowError>>>>,
-    > = Arc::new(Mutex::new(HashMap::new()));
+    let partition_streams: Arc<Mutex<HashMap<Vec<Value>, RecordBatchSender>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     record_batches
         .try_for_each_concurrent(None, |record_batch| {
             let partition_streams = partition_streams.clone();
