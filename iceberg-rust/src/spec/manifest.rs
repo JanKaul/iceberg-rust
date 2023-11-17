@@ -538,6 +538,12 @@ impl<T: Serialize + Clone> core::ops::Deref for AvroMap<T> {
     }
 }
 
+impl<T: Serialize + Clone> core::ops::DerefMut for AvroMap<T> {
+    fn deref_mut(self: &'_ mut AvroMap<T>) -> &'_ mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl<T: Serialize + Clone> Serialize for AvroMap<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

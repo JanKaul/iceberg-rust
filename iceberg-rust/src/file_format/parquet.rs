@@ -2,7 +2,10 @@
  * Helpers for parquet files
 */
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
 use parquet::{
     file::{metadata::RowGroupMetaData, writer::TrackedWrite},
@@ -17,6 +20,7 @@ use crate::{
         manifest::{AvroMap, Content, DataFile, FileFormat},
         partition::{PartitionField, Transform},
         schema::Schema,
+        types::Type,
         values::{Struct, Value},
     },
 };
@@ -51,12 +55,12 @@ pub fn parquet_to_datafile(
         .collect::<Result<HashMap<String, Transform>, Error>>()?;
     let parquet_schema = Arc::new(SchemaDescriptor::new(from_thrift(&file_metadata.schema)?));
 
-    let mut column_sizes = Some(AvroMap(HashMap::new()));
-    let mut value_counts = Some(AvroMap(HashMap::new()));
-    let mut null_value_counts = Some(AvroMap(HashMap::new()));
-    let mut distinct_counts = Some(AvroMap(HashMap::new()));
-    let mut lower_bounds: Option<HashMap<i32, Value>> = Some(HashMap::new());
-    let mut upper_bounds: Option<HashMap<i32, Value>> = Some(HashMap::new());
+    let mut column_sizes = AvroMap(HashMap::new());
+    let mut value_counts = AvroMap(HashMap::new());
+    let mut null_value_counts = AvroMap(HashMap::new());
+    let mut distinct_counts = AvroMap(HashMap::new());
+    let mut lower_bounds: HashMap<i32, Value> = HashMap::new();
+    let mut upper_bounds: HashMap<i32, Value> = HashMap::new();
 
     for row_group in &file_metadata.row_groups {
         let row_group = RowGroupMetaData::from_thrift(parquet_schema.clone(), row_group.clone())?;
@@ -68,152 +72,150 @@ pub fn parquet_to_datafile(
                 .get_name(column_name)
                 .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
                 .id;
-            if let Some(column_sizes) = &mut column_sizes {
-                if let Some(entry) = column_sizes.0.get_mut(&id) {
-                    *entry += column.compressed_size()
-                }
-            }
-            if let Some(value_counts) = &mut value_counts {
-                if let Some(entry) = value_counts.0.get_mut(&id) {
-                    *entry += row_group.num_rows()
-                }
-            }
-            if let Some(statistics) = column.statistics() {
-                if let Some(null_value_counts) = &mut null_value_counts {
-                    if let Some(entry) = null_value_counts.0.get_mut(&id) {
-                        *entry += statistics.null_count() as i64
-                    }
-                }
-                if let Some(distinct_count) = &mut distinct_counts {
-                    if let (Some(entry), Some(distinct_count)) =
-                        (distinct_count.0.get_mut(&id), statistics.distinct_count())
-                    {
-                        *entry += distinct_count as i64
-                    }
-                }
-                if let Some(lower_bounds) = &mut lower_bounds {
-                    if let Some(entry) = lower_bounds.get_mut(&id) {
-                        let data_type = &schema
-                            .fields
-                            .get(id as usize)
-                            .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
-                            .field_type;
+            column_sizes
+                .entry(id)
+                .and_modify(|x| *x += column.compressed_size())
+                .or_insert(column.compressed_size());
+            value_counts
+                .entry(id)
+                .and_modify(|x| *x += row_group.num_rows())
+                .or_insert(row_group.num_rows());
 
-                        let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
-                        match (&entry, &new) {
-                            (Value::Int(current), Value::Int(new_val)) => {
-                                if *current > *new_val {
-                                    *entry = new
+            if let Some(statistics) = column.statistics() {
+                null_value_counts
+                    .entry(id)
+                    .and_modify(|x| *x += statistics.null_count() as i64)
+                    .or_insert(statistics.null_count() as i64);
+                if let Some(distinct_count) = statistics.distinct_count() {
+                    distinct_counts
+                        .entry(id)
+                        .and_modify(|x| *x += distinct_count as i64)
+                        .or_insert(distinct_count as i64);
+                }
+                let data_type = &schema
+                    .fields
+                    .get(id as usize)
+                    .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
+                    .field_type;
+
+                if let Type::Primitive(_) = &data_type {
+                    let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
+                    match lower_bounds.entry(id) {
+                        Entry::Occupied(mut entry) => {
+                            let entry = entry.get_mut();
+                            match (&entry, &new) {
+                                (Value::Int(current), Value::Int(new_val)) => {
+                                    if *current > *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::LongInt(current), Value::LongInt(new_val)) => {
-                                if *current > *new_val {
-                                    *entry = new
+                                (Value::LongInt(current), Value::LongInt(new_val)) => {
+                                    if *current > *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Float(current), Value::Float(new_val)) => {
-                                if *current > *new_val {
-                                    *entry = new
+                                (Value::Float(current), Value::Float(new_val)) => {
+                                    if *current > *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Double(current), Value::Double(new_val)) => {
-                                if *current > *new_val {
-                                    *entry = new
+                                (Value::Double(current), Value::Double(new_val)) => {
+                                    if *current > *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Date(current), Value::Date(new_val)) => {
-                                if *current > *new_val {
-                                    *entry = new
+                                (Value::Date(current), Value::Date(new_val)) => {
+                                    if *current > *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Time(current), Value::Time(new_val)) => {
-                                if *current > *new_val {
-                                    *entry = new
+                                (Value::Time(current), Value::Time(new_val)) => {
+                                    if *current > *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Timestamp(current), Value::Timestamp(new_val)) => {
-                                if *current > *new_val {
-                                    *entry = new
+                                (Value::Timestamp(current), Value::Timestamp(new_val)) => {
+                                    if *current > *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::TimestampTZ(current), Value::TimestampTZ(new_val)) => {
-                                if *current > *new_val {
-                                    *entry = new
+                                (Value::TimestampTZ(current), Value::TimestampTZ(new_val)) => {
+                                    if *current > *new_val {
+                                        *entry = new
+                                    }
                                 }
+                                _ => (),
                             }
-                            _ => (),
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(new);
                         }
                     }
-                }
-                if let Some(upper_bounds) = &mut upper_bounds {
-                    if let Some(entry) = upper_bounds.get_mut(&id) {
-                        let data_type = &schema
-                            .fields
-                            .get(id as usize)
-                            .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
-                            .field_type;
-                        let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
-                        match (&entry, &new) {
-                            (Value::Int(current), Value::Int(new_val)) => {
-                                if *current < *new_val {
-                                    *entry = new
+                    let new = Value::try_from_bytes(statistics.max_bytes(), data_type)?;
+                    match upper_bounds.entry(id) {
+                        Entry::Occupied(mut entry) => {
+                            let entry = entry.get_mut();
+                            match (&entry, &new) {
+                                (Value::Int(current), Value::Int(new_val)) => {
+                                    if *current < *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::LongInt(current), Value::LongInt(new_val)) => {
-                                if *current < *new_val {
-                                    *entry = new
+                                (Value::LongInt(current), Value::LongInt(new_val)) => {
+                                    if *current < *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Float(current), Value::Float(new_val)) => {
-                                if *current < *new_val {
-                                    *entry = new
+                                (Value::Float(current), Value::Float(new_val)) => {
+                                    if *current < *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Double(current), Value::Double(new_val)) => {
-                                if *current < *new_val {
-                                    *entry = new
+                                (Value::Double(current), Value::Double(new_val)) => {
+                                    if *current < *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Date(current), Value::Date(new_val)) => {
-                                if *current < *new_val {
-                                    *entry = new
+                                (Value::Date(current), Value::Date(new_val)) => {
+                                    if *current < *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Time(current), Value::Time(new_val)) => {
-                                if *current < *new_val {
-                                    *entry = new
+                                (Value::Time(current), Value::Time(new_val)) => {
+                                    if *current < *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::Timestamp(current), Value::Timestamp(new_val)) => {
-                                if *current < *new_val {
-                                    *entry = new
+                                (Value::Timestamp(current), Value::Timestamp(new_val)) => {
+                                    if *current < *new_val {
+                                        *entry = new
+                                    }
                                 }
-                            }
-                            (Value::TimestampTZ(current), Value::TimestampTZ(new_val)) => {
-                                if *current < *new_val {
-                                    *entry = new
+                                (Value::TimestampTZ(current), Value::TimestampTZ(new_val)) => {
+                                    if *current < *new_val {
+                                        *entry = new
+                                    }
                                 }
+                                _ => (),
                             }
-                            _ => (),
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(new);
                         }
                     }
-                }
-                if let Some(partition_value) = partition.get_mut(column_name) {
-                    if partition_value.is_none() {
-                        let data_type = &schema
-                            .fields
-                            .get(id as usize)
-                            .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
-                            .field_type;
-                        let transform = transforms
-                            .get(column_name)
-                            .ok_or_else(|| Error::InvalidFormat("transform".to_string()))?;
-                        let min = Value::try_from_bytes(statistics.min_bytes(), data_type)?
-                            .tranform(transform)?;
-                        let max = Value::try_from_bytes(statistics.max_bytes(), data_type)?
-                            .tranform(transform)?;
-                        if min == max {
-                            *partition_value = Some(min)
+
+                    if let Some(partition_value) = partition.get_mut(column_name) {
+                        if partition_value.is_none() {
+                            let transform = transforms
+                                .get(column_name)
+                                .ok_or_else(|| Error::InvalidFormat("transform".to_string()))?;
+                            let min = Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                .tranform(transform)?;
+                            let max = Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                .tranform(transform)?;
+                            if min == max {
+                                *partition_value = Some(min)
+                            }
                         }
                     }
                 }
@@ -227,13 +229,13 @@ pub fn parquet_to_datafile(
         partition,
         record_count: file_metadata.num_rows,
         file_size_in_bytes: file_size as i64,
-        column_sizes,
-        value_counts,
-        null_value_counts,
+        column_sizes: Some(column_sizes),
+        value_counts: Some(value_counts),
+        null_value_counts: Some(null_value_counts),
         nan_value_counts: None,
-        distinct_counts,
-        lower_bounds,
-        upper_bounds,
+        distinct_counts: Some(distinct_counts),
+        lower_bounds: Some(lower_bounds),
+        upper_bounds: Some(upper_bounds),
         key_metadata: None,
         split_offsets: None,
         equality_ids: None,
