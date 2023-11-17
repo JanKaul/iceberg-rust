@@ -349,7 +349,7 @@ async fn table_scan(
             .into_iter()
             .zip(files_to_prune.into_iter())
             .for_each(|(manifest, prune_file)| {
-                if !prune_file {
+                if prune_file {
                     let partition_values = manifest
                         .data_file
                         .partition
