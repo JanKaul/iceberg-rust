@@ -38,7 +38,7 @@ impl IcebergContext {
 }
 
 impl ContextProvider for IcebergContext {
-    fn get_table_provider(
+    fn get_table_source(
         &self,
         name: datafusion::sql::TableReference,
     ) -> datafusion::error::Result<Arc<dyn TableSource>> {

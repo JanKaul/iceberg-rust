@@ -11,10 +11,10 @@ serde_json = "^1.0"
 futures = "0.3.28"
 async-trait = "0.1.68"
 chrono = { version = "0.4.23", default-features = false, features = ["serde"] }
-arrow = "46.0.0"
-datafusion = "31.0.0"
-parquet = { version = "46.0.0", features = ["async","object_store"] }
-sqlparser = { version = "0.38.0", features = ["visitor"] }
+arrow = "48.0.1"
+datafusion = "33.0.0"
+parquet = { version = "48.0.1", features = ["async","object_store"] }
+sqlparser = { version = "0.39.0", features = ["visitor"] }
 thiserror = "1.0"
 url = "^2.2"
 itertools = "0.10.5"

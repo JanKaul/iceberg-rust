@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use object_store::ObjectMeta;
 use std::{
     any::Any,
@@ -16,7 +16,7 @@ use std::{
 use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use datafusion::{
-    arrow::datatypes::{DataType, SchemaRef},
+    arrow::datatypes::{Field, SchemaRef},
     common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
     datasource::{
         file_format::{parquet::ParquetFormat, FileFormat},
@@ -32,6 +32,7 @@ use datafusion::{
     physical_optimizer::pruning::PruningPredicate,
     physical_plan::{
         insert::{DataSink, FileSinkExec},
+        metrics::MetricsSet,
         DisplayAs, DisplayFormatType, ExecutionPlan, SendableRecordBatchStream, Statistics,
     },
     prelude::Expr,
@@ -221,8 +222,9 @@ impl TableProvider for DataFusionTable {
         }
         Ok(Arc::new(FileSinkExec::new(
             input,
-            Arc::new(self.clone()),
+            Arc::new(self.clone().into_data_sink()),
             self.schema.clone(),
+            None,
         )))
     }
 }
@@ -365,24 +367,23 @@ async fn table_scan(
     };
 
     // Get all partition columns
-    let table_partition_cols: Vec<(String, DataType)> = table
+    let table_partition_cols: Vec<Field> = table
         .metadata()
         .default_partition_spec()
         .map_err(Into::<Error>::into)?
         .fields
         .iter()
         .map(|field| {
-            Ok((
+            let struct_field = schema.fields.get(field.source_id as usize).unwrap();
+            Ok(Field::new(
                 field.name.clone(),
-                (&schema
-                    .fields
-                    .get(field.source_id as usize)
-                    .unwrap()
+                (&struct_field
                     .field_type
                     .tranform(&field.transform)
                     .map_err(Into::<Error>::into)?)
                     .try_into()
                     .map_err(Into::<Error>::into)?,
+                !struct_field.required,
             ))
         })
         .collect::<Result<Vec<_>, DataFusionError>>()
@@ -451,15 +452,32 @@ impl DisplayAs for DataFusionTable {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct IcebergDataSink(DataFusionTable);
+
+impl DataFusionTable {
+    pub(crate) fn into_data_sink(self) -> IcebergDataSink {
+        IcebergDataSink(self)
+    }
+}
+
+impl DisplayAs for IcebergDataSink {
+    fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt_as(t, f)
+    }
+}
+
 #[async_trait]
-impl DataSink for DataFusionTable {
+impl DataSink for IcebergDataSink {
+    fn as_any(&self) -> &dyn Any {
+        self.0.as_any()
+    }
     async fn write_all(
         &self,
-        data: Vec<SendableRecordBatchStream>,
+        data: SendableRecordBatchStream,
         _context: &Arc<TaskContext>,
     ) -> Result<u64, DataFusionError> {
-        let batches = stream::iter(data.into_iter()).flatten().map_err(Into::into);
-        let mut lock = self.tabular.write().await;
+        let mut lock = self.0.tabular.write().await;
         let table = if let Tabular::Table(table) = lock.deref_mut() {
             Ok(table)
         } else {
@@ -469,6 +487,7 @@ impl DataSink for DataFusionTable {
 
         let object_store = table.object_store();
         let schema = self
+            .0
             .snapshot_range
             .1
             .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
@@ -478,18 +497,26 @@ impl DataSink for DataFusionTable {
             .metadata()
             .default_partition_spec()
             .map_err(Into::<Error>::into)?;
-        let metadata_files =
-            write_parquet_partitioned(location, &schema, partition_spec, batches, object_store)
-                .await?;
+        let metadata_files = write_parquet_partitioned(
+            location,
+            &schema,
+            partition_spec,
+            data.map_err(Into::into),
+            object_store,
+        )
+        .await?;
 
         table
-            .new_transaction(self.branch.as_deref())
+            .new_transaction(self.0.branch.as_deref())
             .append(metadata_files)
             .commit()
             .await
             .map_err(Into::<Error>::into)?;
 
         Ok(0)
+    }
+    fn metrics(&self) -> Option<MetricsSet> {
+        None
     }
 }
 

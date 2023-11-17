@@ -1,6 +1,9 @@
 use std::ops::Deref;
 
-use datafusion::physical_plan::{ColumnStatistics, Statistics};
+use datafusion::{
+    common::stats::Precision,
+    physical_plan::{ColumnStatistics, Statistics},
+};
 use iceberg_rust::{catalog::tabular::Tabular, table::Table};
 
 use crate::error::Error;
@@ -32,18 +35,17 @@ async fn table_statistics(
     let datafiles = table.datafiles(&manifests, None).await?;
     Ok(datafiles.iter().fold(
         Statistics {
-            num_rows: Some(0),
-            total_byte_size: None,
-            column_statistics: Some(vec![
+            num_rows: Precision::Exact(0),
+            total_byte_size: Precision::Absent,
+            column_statistics: vec![
                 ColumnStatistics {
-                    null_count: None,
-                    max_value: None,
-                    min_value: None,
-                    distinct_count: None
+                    null_count: Precision::Absent,
+                    max_value: Precision::Absent,
+                    min_value: Precision::Absent,
+                    distinct_count: Precision::Absent
                 };
                 schema.fields.fields.len()
-            ]),
-            is_exact: true,
+            ],
         },
         |acc, _| acc,
     ))
