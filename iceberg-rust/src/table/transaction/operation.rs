@@ -282,24 +282,25 @@ impl Operation {
                             ))? {
                                 let mut added_rows_count = 0;
 
-                                let mut partitions = match &manifest.partitions {
-                                    Some(partitions) => partitions.clone(),
-                                    None => table_metadata
-                                        .default_partition_spec()?
-                                        .fields
-                                        .iter()
-                                        .map(|_| FieldSummary {
-                                            contains_null: false,
-                                            contains_nan: None,
-                                            lower_bound: None,
-                                            upper_bound: None,
-                                        })
-                                        .collect::<Vec<FieldSummary>>(),
-                                };
+                                if manifest.partitions.is_none() {
+                                    manifest.partitions = Some(
+                                        table_metadata
+                                            .default_partition_spec()?
+                                            .fields
+                                            .iter()
+                                            .map(|_| FieldSummary {
+                                                contains_null: false,
+                                                contains_nan: None,
+                                                lower_bound: None,
+                                                upper_bound: None,
+                                            })
+                                            .collect::<Vec<FieldSummary>>(),
+                                    );
+                                }
 
                                 added_rows_count += datafile.record_count;
                                 update_partitions(
-                                    &mut partitions,
+                                    manifest.partitions.as_mut().unwrap(),
                                     &datafile.partition,
                                     &partition_columns,
                                 )?;
@@ -324,7 +325,6 @@ impl Operation {
                                     Some(count) => Some(count + added_rows_count),
                                     None => Some(added_rows_count),
                                 };
-                                manifest.partitions = Some(partitions);
                             }
                         }
 
