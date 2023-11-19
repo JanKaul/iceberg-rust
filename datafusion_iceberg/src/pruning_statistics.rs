@@ -24,11 +24,8 @@ use datafusion::{
     prelude::Column,
     scalar::ScalarValue,
 };
-
-use iceberg_rust::{
-    spec::{manifest::ManifestEntry, manifest_list::ManifestListEntry},
-    table::Table,
-};
+use iceberg_rust::table::Table;
+use iceberg_rust_spec::spec::{manifest::ManifestEntry, manifest_list::ManifestListEntry};
 
 pub(crate) struct PruneManifests<'table, 'manifests> {
     table: &'table Table,
@@ -137,7 +134,8 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .iter()
             .map(|manifest| match &manifest.data_file.lower_bounds {
                 Some(map) => map
-                    .get(&(column_id as i32)).map(|value| value.clone().into_any()),
+                    .get(&(column_id as i32))
+                    .map(|value| value.clone().into_any()),
                 None => None,
             });
         any_iter_to_array(min_values, datatype).ok()
@@ -153,7 +151,8 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .iter()
             .map(|manifest| match &manifest.data_file.upper_bounds {
                 Some(map) => map
-                    .get(&(column_id as i32)).map(|value| value.clone().into_any()),
+                    .get(&(column_id as i32))
+                    .map(|value| value.clone().into_any()),
                 None => None,
             });
         any_iter_to_array(max_values, datatype).ok()

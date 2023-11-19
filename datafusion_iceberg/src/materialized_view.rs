@@ -6,10 +6,9 @@ use datafusion::{
     prelude::SessionContext,
 };
 use futures::TryStreamExt;
-use iceberg_rust::{
-    arrow::write::write_parquet_partitioned,
-    materialized_view::MaterializedView,
-    spec::materialized_view_metadata::{BaseTable, MaterializedViewRepresentation},
+use iceberg_rust::{arrow::write::write_parquet_partitioned, materialized_view::MaterializedView};
+use iceberg_rust_spec::spec::materialized_view_metadata::{
+    BaseTable, MaterializedViewRepresentation,
 };
 use itertools::Itertools;
 
@@ -45,9 +44,7 @@ pub async fn refresh_materialized_view(
     let base_tables = if storage_table.version_id(branch.clone())? == Some(version_id) {
         storage_table.base_tables(None, branch.clone()).await?
     } else {
-        storage_table
-            .base_tables(Some(sql), branch.clone())
-            .await?
+        storage_table.base_tables(Some(sql), branch.clone()).await?
     };
 
     // Full refresh
@@ -118,12 +115,12 @@ mod tests {
     use iceberg_rust::{
         catalog::{memory::MemoryCatalog, Catalog},
         materialized_view::materialized_view_builder::MaterializedViewBuilder,
-        spec::{
-            partition::{PartitionField, PartitionSpecBuilder, Transform},
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructTypeBuilder, Type},
-        },
         table::table_builder::TableBuilder,
+    };
+    use iceberg_rust_spec::spec::{
+        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        schema::Schema,
+        types::{PrimitiveType, StructField, StructTypeBuilder, Type},
     };
     use object_store::{memory::InMemory, ObjectStore};
     use std::sync::Arc;

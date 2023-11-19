@@ -46,14 +46,10 @@ use crate::{
 };
 
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned,
-    catalog::tabular::Tabular,
-    materialized_view::MaterializedView,
-    spec::{types::StructField, view_metadata::ViewRepresentation},
-    table::Table,
-    util,
-    view::View,
+    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular,
+    materialized_view::MaterializedView, table::Table, util, view::View,
 };
+use iceberg_rust_spec::spec::{types::StructField, view_metadata::ViewRepresentation};
 // mod value;
 
 #[derive(Debug, Clone)]
@@ -328,7 +324,6 @@ async fn table_scan(
             let manifests_to_prune =
                 pruning_predicate.prune(&PruneManifests::new(table, &manifests))?;
 
-            
             table
                 .datafiles(&manifests, Some(manifests_to_prune))
                 .await
@@ -597,13 +592,13 @@ mod tests {
     };
     use iceberg_rust::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, tabular::Tabular, Catalog},
-        spec::{
-            partition::{PartitionField, PartitionSpecBuilder, Transform},
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructTypeBuilder, Type},
-        },
         table::table_builder::TableBuilder,
         view::view_builder::ViewBuilder,
+    };
+    use iceberg_rust_spec::spec::{
+        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        schema::Schema,
+        types::{PrimitiveType, StructField, StructTypeBuilder, Type},
     };
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
     use std::sync::Arc;

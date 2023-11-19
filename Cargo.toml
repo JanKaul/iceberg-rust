@@ -12,6 +12,7 @@ futures = "0.3.28"
 async-trait = "0.1.68"
 chrono = { version = "0.4.23", default-features = false, features = ["serde"] }
 arrow = "48.0.1"
+arrow-schema = "48.0.1"
 datafusion = "33.0.0"
 parquet = { version = "48.0.1", features = ["async","object_store"] }
 sqlparser = { version = "0.39.0", features = ["visitor"] }

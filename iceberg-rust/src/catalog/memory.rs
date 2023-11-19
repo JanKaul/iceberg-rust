@@ -231,15 +231,15 @@ impl Catalog for MemoryCatalog {
 
 #[cfg(test)]
 pub mod tests {
+    use iceberg_rust_spec::spec::{
+        schema::Schema,
+        types::{PrimitiveType, StructField, StructType, Type},
+    };
     use std::sync::Arc;
 
     use crate::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
         object_store::{memory::InMemory, ObjectStore},
-        spec::{
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
-        },
         table::table_builder::TableBuilder,
     };
 

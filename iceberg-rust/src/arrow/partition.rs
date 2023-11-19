@@ -27,7 +27,7 @@ use futures::{
 };
 use itertools::{iproduct, Itertools};
 
-use crate::spec::{partition::PartitionSpec, schema::Schema, values::Value};
+use iceberg_rust_spec::spec::{partition::PartitionSpec, schema::Schema, values::Value};
 
 use super::transform::transform_arrow;
 
@@ -221,7 +221,7 @@ mod tests {
         record_batch::RecordBatch,
     };
 
-    use crate::spec::{
+    use iceberg_rust_spec::spec::{
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         types::{PrimitiveType, StructField, StructType, Type},

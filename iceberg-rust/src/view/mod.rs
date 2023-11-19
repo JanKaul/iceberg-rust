@@ -4,12 +4,12 @@
 
 use std::sync::Arc;
 
+use iceberg_rust_spec::spec::{schema::Schema, view_metadata::ViewMetadata};
 use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     error::Error,
-    spec::{schema::Schema, view_metadata::ViewMetadata},
 };
 
 use self::transaction::Transaction as ViewTransaction;
@@ -60,7 +60,7 @@ impl View {
     }
     /// Get the schema of the view
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
-        self.metadata.current_schema(branch)
+        self.metadata.current_schema(branch).map_err(Error::from)
     }
     /// Get the metadata of the view
     pub fn metadata(&self) -> &ViewMetadata {
@@ -81,14 +81,14 @@ mod tests {
 
     use std::sync::Arc;
 
+    use iceberg_rust_spec::spec::{
+        schema::Schema,
+        types::{PrimitiveType, StructField, StructType, Type},
+    };
     use object_store::{memory::InMemory, ObjectStore};
 
     use crate::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
-        spec::{
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
-        },
         view::view_builder::ViewBuilder,
     };
 

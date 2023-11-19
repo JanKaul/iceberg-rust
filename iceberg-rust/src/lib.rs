@@ -7,10 +7,8 @@ pub mod catalog;
 pub mod error;
 pub mod file_format;
 pub mod materialized_view;
-pub mod spec;
 pub mod sql;
 pub mod table;
-pub mod util;
 pub mod view;
 
 pub use object_store;

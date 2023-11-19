@@ -3,13 +3,14 @@
 */
 
 use futures::StreamExt;
+use iceberg_rust_spec::spec::{
+    materialized_view_metadata::MaterializedViewRepresentation, types::StructType,
+};
 use object_store::path::Path;
 use uuid::Uuid;
 
 use crate::{
-    catalog::tabular::Tabular,
-    error::Error,
-    spec::{materialized_view_metadata::MaterializedViewRepresentation, types::StructType},
+    catalog::tabular::Tabular, error::Error,
     view::transaction::operation::Operation as ViewOperation,
 };
 

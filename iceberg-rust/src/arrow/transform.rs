@@ -11,7 +11,7 @@ use arrow::{
     error::ArrowError,
 };
 
-use crate::spec::partition::Transform;
+use iceberg_rust_spec::spec::partition::Transform;
 
 /// Perform iceberg transform on arrow array
 pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRef, ArrowError> {

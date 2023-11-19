@@ -7,12 +7,9 @@ use object_store::path::Path;
 use uuid::Uuid;
 
 pub mod operation;
+use iceberg_rust_spec::spec::{types::StructType, view_metadata::ViewRepresentation};
 
-use crate::{
-    catalog::tabular::Tabular,
-    error::Error,
-    spec::{types::StructType, view_metadata::ViewRepresentation},
-};
+use crate::{catalog::tabular::Tabular, error::Error};
 
 use self::operation::Operation as ViewOperation;
 

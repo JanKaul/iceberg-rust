@@ -26,6 +26,9 @@ pub enum Error {
     /// Not supported
     #[error("Feature {0} is not supported.")]
     NotSupported(String),
+    /// Iceberg spec error
+    #[error("iceberg error")]
+    Iceberg(#[from] iceberg_rust_spec::error::Error),
     /// Arrow error
     #[error("arrow error")]
     Arrow(#[from] arrow::error::ArrowError),
@@ -79,13 +82,17 @@ pub enum Error {
     ParseInt(#[from] std::num::ParseIntError),
     /// table metadata builder
     #[error("table metadata builder")]
-    TableMetadataBuilder(#[from] crate::spec::table_metadata::TableMetadataBuilderError),
+    TableMetadataBuilder(
+        #[from] iceberg_rust_spec::spec::table_metadata::TableMetadataBuilderError,
+    ),
     /// view metadata builder
     #[error("view metadata builder")]
-    ViewMetadataBuilder(#[from] crate::spec::view_metadata::GeneralViewMetadataBuilderError),
+    ViewMetadataBuilder(
+        #[from] iceberg_rust_spec::spec::view_metadata::GeneralViewMetadataBuilderError,
+    ),
     /// version builder
     #[error("version builder")]
-    VersionBuilder(#[from] crate::spec::view_metadata::VersionBuilderError),
+    VersionBuilder(#[from] iceberg_rust_spec::spec::view_metadata::VersionBuilderError),
 }
 
 impl From<Error> for ArrowError {

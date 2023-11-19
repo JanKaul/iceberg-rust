@@ -1003,6 +1003,7 @@ dependencies = [
  "datafusion",
  "futures",
  "iceberg-rust",
+ "iceberg-rust-spec",
  "itertools 0.10.5",
  "object_store",
  "serde_json",
@@ -1475,6 +1476,7 @@ dependencies = [
  "derive_builder",
  "futures",
  "getrandom",
+ "iceberg-rust-spec",
  "itertools 0.10.5",
  "murmur3",
  "object_store",
@@ -1500,6 +1502,7 @@ name = "iceberg-rust-spec"
 version = "0.1.0"
 dependencies = [
  "apache-avro",
+ "arrow-schema",
  "chrono",
  "derive_builder",
  "itertools 0.10.5",

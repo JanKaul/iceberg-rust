@@ -3,6 +3,5 @@
 */
 pub mod partition;
 pub mod read;
-pub mod schema;
 pub mod transform;
 pub mod write;

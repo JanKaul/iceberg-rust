@@ -4,15 +4,15 @@
 
 use std::sync::Arc;
 
+use iceberg_rust_spec::spec::{
+    materialized_view_metadata::{MaterializedViewMetadata, MaterializedViewRepresentation},
+    schema::Schema,
+};
 use object_store::ObjectStore;
 
 use crate::{
     catalog::{identifier::Identifier, tabular::Tabular, Catalog},
     error::Error,
-    spec::{
-        materialized_view_metadata::{MaterializedViewMetadata, MaterializedViewRepresentation},
-        schema::Schema,
-    },
 };
 
 use self::{storage_table::StorageTable, transaction::Transaction as MaterializedViewTransaction};
@@ -64,7 +64,7 @@ impl MaterializedView {
     }
     /// Get the schema of the view
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
-        self.metadata.current_schema(branch)
+        self.metadata.current_schema(branch).map_err(Error::from)
     }
     /// Get the metadata of the view
     pub fn metadata(&self) -> &MaterializedViewMetadata {

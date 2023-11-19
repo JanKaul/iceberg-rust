@@ -38,6 +38,9 @@ pub enum Error {
     /// Iceberg error
     #[error("iceberg error")]
     Iceberg(#[from] iceberg_rust::error::Error),
+    /// Iceberg error
+    #[error("iceberg error")]
+    IcebergSpec(#[from] iceberg_rust_spec::error::Error),
     /// Serde json
     #[error("serde json error")]
     JSONSerde(#[from] serde_json::Error),

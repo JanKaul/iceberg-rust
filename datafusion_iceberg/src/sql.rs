@@ -11,7 +11,8 @@ use datafusion::{
         },
     },
 };
-use iceberg_rust::{catalog::Catalog, spec::types::StructType};
+use iceberg_rust::catalog::Catalog;
+use iceberg_rust_spec::spec::types::StructType;
 use itertools::Itertools;
 
 use crate::{catalog::context::IcebergContext, error::Error};

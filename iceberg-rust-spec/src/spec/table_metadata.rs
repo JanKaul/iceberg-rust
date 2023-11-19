@@ -21,7 +21,7 @@ use derive_builder::Builder;
 
 use super::{schema::Schema, snapshot::Snapshot};
 
-pub(crate) static MAIN_BRANCH: &str = "main";
+pub static MAIN_BRANCH: &str = "main";
 static DEFAULT_SORT_ORDER_ID: i64 = 0;
 static DEFAULT_SPEC_ID: i32 = 0;
 

@@ -9,23 +9,17 @@ use std::{
 
 use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
-
-use crate::{
-    error::Error,
-    spec::{
-        manifest::{
-            partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status,
-        },
-        manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
-        partition::PartitionField,
-        schema::Schema,
-        snapshot::Reference,
-        types::StructField,
-        values::{Struct, Value},
-    },
-    table::Table,
-    util::strip_prefix,
+use iceberg_rust_spec::spec::{
+    manifest::{partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status},
+    manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
+    partition::PartitionField,
+    schema::Schema,
+    snapshot::Reference,
+    types::StructField,
+    values::{Struct, Value},
 };
+
+use crate::{error::Error, table::Table, util::strip_prefix};
 
 use super::TransactionContext;
 

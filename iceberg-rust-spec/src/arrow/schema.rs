@@ -4,12 +4,10 @@
 
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 
-use arrow::datatypes::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
+use crate::spec::types::{PrimitiveType, StructField, StructType, Type};
+use arrow_schema::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
 
-use crate::{
-    error::Error,
-    spec::types::{PrimitiveType, StructField, StructType, Type},
-};
+use crate::error::Error;
 
 impl TryInto<ArrowSchema> for &StructType {
     type Error = Error;

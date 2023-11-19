@@ -4,16 +4,16 @@ use std::{
 };
 
 use futures::{stream, StreamExt, TryStreamExt};
+use iceberg_rust_spec::spec::{
+    manifest::DataFile,
+    materialized_view_metadata::{BaseTable, VersionId},
+    table_metadata::{new_metadata_location, TableMetadataBuilder},
+};
 use itertools::Itertools;
 
 use crate::{
     catalog::{identifier::Identifier, tabular::Tabular},
     error::Error,
-    spec::{
-        manifest::DataFile,
-        materialized_view_metadata::{BaseTable, VersionId},
-        table_metadata::{new_metadata_location, TableMetadataBuilder},
-    },
     sql::find_relations,
     table::Table,
 };

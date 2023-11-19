@@ -7,6 +7,13 @@ use std::{
     sync::Arc,
 };
 
+use iceberg_rust_spec::spec::{
+    manifest::{AvroMap, Content, DataFile, FileFormat},
+    partition::{PartitionField, Transform},
+    schema::Schema,
+    types::Type,
+    values::{Struct, Value},
+};
 use parquet::{
     file::{metadata::RowGroupMetaData, writer::TrackedWrite},
     format::FileMetaData,
@@ -14,16 +21,7 @@ use parquet::{
 };
 use thrift::protocol::{TCompactOutputProtocol, TSerializable};
 
-use crate::{
-    error::Error,
-    spec::{
-        manifest::{AvroMap, Content, DataFile, FileFormat},
-        partition::{PartitionField, Transform},
-        schema::Schema,
-        types::Type,
-        values::{Struct, Value},
-    },
-};
+use crate::error::Error;
 
 /// Read datafile statistics from parquetfile
 pub fn parquet_to_datafile(

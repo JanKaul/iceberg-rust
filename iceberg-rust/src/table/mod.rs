@@ -7,17 +7,17 @@ use std::{collections::HashMap, io::Cursor, iter::repeat, sync::Arc, time::Syste
 use object_store::{path::Path, ObjectStore};
 
 use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
+use iceberg_rust_spec::spec::{
+    manifest::{Content, ManifestEntry, ManifestReader},
+    manifest_list::ManifestListEntry,
+    schema::Schema,
+    snapshot::{Operation, Reference, Retention, Snapshot, Summary},
+    table_metadata::{TableMetadata, MAIN_BRANCH},
+};
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     error::Error,
-    spec::{
-        manifest::{Content, ManifestEntry, ManifestReader},
-        manifest_list::ManifestListEntry,
-        schema::Schema,
-        snapshot::{Operation, Reference, Retention, Snapshot, Summary},
-        table_metadata::{TableMetadata, MAIN_BRANCH},
-    },
     table::transaction::TableTransaction,
     util::{self, strip_prefix},
 };
@@ -68,7 +68,7 @@ impl Table {
     #[inline]
     /// Get the schema of the table for a given branch. Defaults to main.
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
-        self.metadata.current_schema(branch)
+        self.metadata.current_schema(branch).map_err(Error::from)
     }
     #[inline]
     /// Get the metadata of the table
@@ -120,8 +120,11 @@ impl Table {
                         true
                     }
                 })
-                .collect(),
-            None => iter.collect(),
+                .collect::<Result<_, iceberg_rust_spec::error::Error>>()
+                .map_err(Error::from),
+            None => iter
+                .collect::<Result<_, iceberg_rust_spec::error::Error>>()
+                .map_err(Error::from),
         }
     }
     /// Get list of datafiles corresponding to the given manifest files
@@ -166,6 +169,7 @@ impl Table {
             .flat_map(|reader| reader.try_flatten_stream())
             .try_collect()
             .await
+            .map_err(Error::from)
     }
     /// Check if datafiles contain deletes
     pub async fn datafiles_contains_delete(
@@ -328,14 +332,14 @@ mod tests {
 
     use std::sync::Arc;
 
+    use iceberg_rust_spec::spec::{
+        schema::Schema,
+        types::{PrimitiveType, StructField, StructType, Type},
+    };
     use object_store::{memory::InMemory, ObjectStore};
 
     use crate::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
-        spec::{
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
-        },
         table::table_builder::TableBuilder,
     };
 

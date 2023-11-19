@@ -9,6 +9,7 @@ license = "Apache-2.0"
 
 [dependencies]
 apache-avro = "0.16.0"
+arrow-schema = { workspace = true }
 chrono = { workspace = true }
 itertools = { workspace = true }
 murmur3 = "0.5.2"

@@ -1,17 +1,11 @@
 /*!
  * Defines the [Transaction] type that performs multiple [Operation]s with ACID properties.
 */
-
-use crate::{
-    catalog::tabular::Tabular,
-    error::Error,
-    spec::{
-        manifest::DataFile, schema::Schema, snapshot::Reference,
-        table_metadata::new_metadata_location,
-    },
-    table::Table,
-    util::strip_prefix,
+use iceberg_rust_spec::spec::{
+    manifest::DataFile, schema::Schema, snapshot::Reference, table_metadata::new_metadata_location,
 };
+
+use crate::{catalog::tabular::Tabular, error::Error, table::Table, util::strip_prefix};
 
 use self::operation::Operation;
 

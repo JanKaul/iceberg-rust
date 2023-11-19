@@ -35,6 +35,7 @@ derive_builder = "0.12.0"
 sqlparser = { workspace = true }
 thrift = { version = "0.17.0", default-features = false }
 thiserror = { workspace = true }
+iceberg-rust-spec = { path = "../iceberg-rust-spec"}
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rusqlite = { version = "0.29", features = ["modern_sqlite"] }

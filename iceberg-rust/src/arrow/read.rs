@@ -12,11 +12,9 @@ use parquet::{
     errors::ParquetError,
 };
 
-use crate::{
-    error::Error,
-    spec::manifest::{FileFormat, ManifestEntry},
-    util,
-};
+use crate::{error::Error, util};
+
+use iceberg_rust_spec::spec::manifest::{FileFormat, ManifestEntry};
 
 /// Read a parquet file into a stream of arrow recordbatches. The record batches are read asynchronously and are unordered
 pub async fn read(

@@ -11,8 +11,10 @@ use uuid::Uuid;
 use crate::catalog::identifier::Identifier;
 use crate::catalog::tabular::Tabular;
 use crate::error::Error;
-use crate::spec::schema::Schema;
-use crate::spec::view_metadata::{VersionBuilder, ViewMetadataBuilder, ViewRepresentation};
+use iceberg_rust_spec::spec::schema::Schema;
+use iceberg_rust_spec::spec::view_metadata::{
+    VersionBuilder, ViewMetadataBuilder, ViewRepresentation,
+};
 
 use super::Catalog;
 use super::View;

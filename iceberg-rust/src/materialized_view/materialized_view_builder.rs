@@ -7,19 +7,19 @@ use std::{
     sync::Arc,
 };
 
+use iceberg_rust_spec::spec::{
+    materialized_view_metadata::{
+        FormatVersion, MaterializedViewMetadataBuilder, MaterializedViewRepresentation,
+    },
+    schema::Schema,
+    table_metadata::TableMetadataBuilder,
+    view_metadata::VersionBuilder,
+};
 use uuid::Uuid;
 
 use crate::{
     catalog::{identifier::Identifier, tabular::Tabular, Catalog},
     error::Error,
-    spec::{
-        materialized_view_metadata::{
-            FormatVersion, MaterializedViewMetadataBuilder, MaterializedViewRepresentation,
-        },
-        schema::Schema,
-        table_metadata::TableMetadataBuilder,
-        view_metadata::VersionBuilder,
-    },
 };
 
 use super::MaterializedView;

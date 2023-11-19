@@ -2,20 +2,18 @@
  * Defines the different [Operation]s on a [View].
 */
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::{
-    error::Error,
-    spec::{
-        schema::Schema,
-        table_metadata::MAIN_BRANCH,
-        types::StructType,
-        view_metadata::{
-            GeneralViewMetadata, Operation as SummaryOperation, Representation, Summary, Version,
-            REF_PREFIX,
-        },
+use iceberg_rust_spec::spec::{
+    schema::Schema,
+    table_metadata::MAIN_BRANCH,
+    types::StructType,
+    view_metadata::{
+        GeneralViewMetadata, Operation as SummaryOperation, Representation, Summary, Version,
+        REF_PREFIX,
     },
 };
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::error::Error;
 
 /// View operation
 pub enum Operation<T: Representation> {

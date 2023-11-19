@@ -16,14 +16,11 @@ use tokio::io::AsyncWrite;
 
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
+use iceberg_rust_spec::spec::{manifest::DataFile, partition::PartitionSpec, schema::Schema};
 use parquet::arrow::AsyncArrowWriter;
 use uuid::Uuid;
 
-use crate::{
-    error::Error,
-    file_format::parquet::parquet_to_datafile,
-    spec::{manifest::DataFile, partition::PartitionSpec, schema::Schema},
-};
+use crate::{error::Error, file_format::parquet::parquet_to_datafile};
 
 use super::partition::partition_record_batches;
 
@@ -38,7 +35,8 @@ pub async fn write_parquet_partitioned(
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let streams = partition_record_batches(batches, partition_spec, schema).await?;
-    let arrow_schema: Arc<ArrowSchema> = Arc::new((&schema.fields).try_into()?);
+    let arrow_schema: Arc<ArrowSchema> =
+        Arc::new((&schema.fields).try_into().map_err(Error::from)?);
     let (sender, reciever) = unbounded();
     stream::iter(streams.into_iter())
         .map(Ok::<_, ArrowError>)

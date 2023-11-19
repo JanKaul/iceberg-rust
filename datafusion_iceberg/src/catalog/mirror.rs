@@ -6,8 +6,8 @@ use std::{collections::HashSet, sync::Arc};
 use iceberg_rust::{
     catalog::{identifier::Identifier, namespace::Namespace, tabular::Tabular, Catalog},
     error::Error as IcebergError,
-    spec::view_metadata::REF_PREFIX,
 };
+use iceberg_rust_spec::spec::view_metadata::REF_PREFIX;
 
 use crate::{error::Error, DataFusionTable};
 

@@ -5,7 +5,8 @@ use datafusion::{
     physical_plan::{ColumnStatistics, Statistics},
     scalar::ScalarValue,
 };
-use iceberg_rust::{catalog::tabular::Tabular, spec::values::Value, table::Table};
+use iceberg_rust::{catalog::tabular::Tabular, table::Table};
+use iceberg_rust_spec::spec::values::Value;
 
 use crate::error::Error;
 
