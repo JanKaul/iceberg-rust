@@ -1,5 +1,5 @@
 [workspace]
-members = ["iceberg-rust", "datafusion_iceberg"]
+members = ["iceberg-rust-spec", "iceberg-rust", "datafusion_iceberg"]
 
 workspace.resolver = "2"
 

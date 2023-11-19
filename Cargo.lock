@@ -1496,6 +1496,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "iceberg-rust-spec"
+version = "0.1.0"
+dependencies = [
+ "apache-avro",
+ "chrono",
+ "derive_builder",
+ "itertools 0.10.5",
+ "murmur3",
+ "object_store",
+ "ordered-float 4.1.1",
+ "rust_decimal",
+ "serde",
+ "serde_bytes",
+ "serde_derive",
+ "serde_json",
+ "serde_repr",
+ "thiserror",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
