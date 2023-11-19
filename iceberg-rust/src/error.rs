@@ -51,9 +51,6 @@ pub enum Error {
     #[error("serde json error")]
     JSONSerde(#[from] serde_json::Error),
     /// Chrono parse
-    #[error("chrono parse error")]
-    Chrono(#[from] chrono::ParseError),
-    /// Chrono parse
     #[error("uuid error")]
     Uuid(#[from] uuid::Error),
     /// Io error
