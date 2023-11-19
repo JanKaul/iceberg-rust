@@ -6,12 +6,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::lock::Mutex;
+use iceberg_rust_spec::util::strip_prefix;
 use object_store::ObjectStore;
 use rusqlite::{Connection, Row};
 
-use crate::{
-    error::Error, materialized_view::MaterializedView, table::Table, util::strip_prefix, view::View,
-};
+use crate::{error::Error, materialized_view::MaterializedView, table::Table, view::View};
 
 use super::{
     identifier::Identifier,

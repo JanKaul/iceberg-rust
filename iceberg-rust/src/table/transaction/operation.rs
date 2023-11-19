@@ -18,8 +18,9 @@ use iceberg_rust_spec::spec::{
     types::StructField,
     values::{Struct, Value},
 };
+use iceberg_rust_spec::util::strip_prefix;
 
-use crate::{error::Error, table::Table, util::strip_prefix};
+use crate::{error::Error, table::Table};
 
 use super::TransactionContext;
 

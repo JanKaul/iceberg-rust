@@ -47,9 +47,10 @@ use crate::{
 
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned, catalog::tabular::Tabular,
-    materialized_view::MaterializedView, table::Table, util, view::View,
+    materialized_view::MaterializedView, table::Table, view::View,
 };
 use iceberg_rust_spec::spec::{types::StructField, view_metadata::ViewRepresentation};
+use iceberg_rust_spec::util;
 // mod value;
 
 #[derive(Debug, Clone)]

@@ -14,12 +14,12 @@ use iceberg_rust_spec::spec::{
     snapshot::{Operation, Reference, Retention, Snapshot, Summary},
     table_metadata::{TableMetadata, MAIN_BRANCH},
 };
+use iceberg_rust_spec::util::{self, strip_prefix};
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     error::Error,
     table::transaction::TableTransaction,
-    util::{self, strip_prefix},
 };
 
 pub mod table_builder;

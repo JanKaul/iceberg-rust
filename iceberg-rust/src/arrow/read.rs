@@ -6,13 +6,14 @@ use std::{convert, sync::Arc};
 
 use arrow::record_batch::RecordBatch;
 use futures::{stream, Stream, StreamExt};
+use iceberg_rust_spec::util;
 use object_store::ObjectStore;
 use parquet::{
     arrow::{async_reader::ParquetObjectReader, ParquetRecordBatchStreamBuilder},
     errors::ParquetError,
 };
 
-use crate::{error::Error, util};
+use crate::error::Error;
 
 use iceberg_rust_spec::spec::manifest::{FileFormat, ManifestEntry};
 

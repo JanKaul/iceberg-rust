@@ -5,7 +5,8 @@ use iceberg_rust_spec::spec::{
     manifest::DataFile, schema::Schema, snapshot::Reference, table_metadata::new_metadata_location,
 };
 
-use crate::{catalog::tabular::Tabular, error::Error, table::Table, util::strip_prefix};
+use crate::{catalog::tabular::Tabular, error::Error, table::Table};
+use iceberg_rust_spec::util::strip_prefix;
 
 use self::operation::Operation;
 
