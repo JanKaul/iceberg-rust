@@ -1,0 +1,19 @@
+[package]
+name = "iceberg-catalog-sql"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait.workspace = true
+futures.workspace = true
+iceberg-rust = { path = "../iceberg-rust" }
+object_store.workspace = true
+serde_json.workspace = true
+sqlx = { version = "0.7.2", features = ["runtime-tokio-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio = "1"

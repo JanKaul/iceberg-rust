@@ -1,5 +1,5 @@
 [workspace]
-members = ["iceberg-rust-spec", "iceberg-rust", "datafusion_iceberg"]
+members = ["iceberg-rust-spec", "iceberg-rust", "datafusion_iceberg", "iceberg-catalog-sql"]
 
 workspace.resolver = "2"
 
@@ -9,7 +9,7 @@ serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"
 futures = "0.3.28"
-async-trait = "0.1.68"
+async-trait = "0.1"
 chrono = { version = "0.4.23", default-features = false, features = ["serde"] }
 arrow = "48.0.1"
 arrow-schema = "48.0.1"
