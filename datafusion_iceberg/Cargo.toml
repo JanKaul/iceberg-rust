@@ -25,4 +25,5 @@ thiserror = { workspace = true }
 tokio = { version = "1.0", features = ["sync"] }
 
 [dev-dependencies]
-tokio = "1.21"
+tokio = "1"
+iceberg-catalog-sql = { path = "../iceberg-catalog-sql" }

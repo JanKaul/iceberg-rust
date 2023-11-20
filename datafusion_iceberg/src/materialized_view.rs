@@ -112,9 +112,9 @@ pub async fn refresh_materialized_view(
 mod tests {
 
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
+    use iceberg_catalog_sql::SqlCatalog;
     use iceberg_rust::{
-        catalog::{memory::MemoryCatalog, Catalog},
-        materialized_view::materialized_view_builder::MaterializedViewBuilder,
+        catalog::Catalog, materialized_view::materialized_view_builder::MaterializedViewBuilder,
         table::table_builder::TableBuilder,
     };
     use iceberg_rust_spec::spec::{
@@ -131,8 +131,11 @@ mod tests {
     pub async fn test_datafusion_refresh_materialized_view() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
-        let catalog: Arc<dyn Catalog> =
-            Arc::new(MemoryCatalog::new("iceberg", object_store.clone()).unwrap());
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "iceberg", object_store.clone())
+                .await
+                .unwrap(),
+        );
 
         let schema = Schema {
             schema_id: 1,

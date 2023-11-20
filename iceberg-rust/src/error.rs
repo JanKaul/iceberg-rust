@@ -44,9 +44,6 @@ pub enum Error {
     /// sql parser error
     #[error("sql parser error")]
     SQLParser(#[from] sqlparser::parser::ParserError),
-    /// rusqlite
-    #[error("rusqlite error")]
-    Rusqlite(#[from] rusqlite::Error),
     /// Serde json
     #[error("serde json error")]
     JSONSerde(#[from] serde_json::Error),

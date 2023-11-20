@@ -591,8 +591,9 @@ mod tests {
         },
         prelude::SessionContext,
     };
+    use iceberg_catalog_sql::SqlCatalog;
     use iceberg_rust::{
-        catalog::{identifier::Identifier, memory::MemoryCatalog, tabular::Tabular, Catalog},
+        catalog::{identifier::Identifier, tabular::Tabular, Catalog},
         table::table_builder::TableBuilder,
         view::view_builder::ViewBuilder,
     };
@@ -611,8 +612,11 @@ mod tests {
         let object_store: Arc<dyn ObjectStore> =
             Arc::new(LocalFileSystem::new_with_prefix("../iceberg-tests/nyc_taxis").unwrap());
 
-        let catalog: Arc<dyn Catalog> =
-            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "test", object_store.clone())
+                .await
+                .unwrap(),
+        );
         let identifier = Identifier::parse("test.table1").unwrap();
 
         catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
@@ -661,8 +665,11 @@ mod tests {
     pub async fn test_datafusion_table_insert() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
-        let catalog: Arc<dyn Catalog> =
-            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "test", object_store.clone())
+                .await
+                .unwrap(),
+        );
 
         let schema = Schema {
             schema_id: 1,
@@ -837,8 +844,11 @@ mod tests {
     pub async fn test_datafusion_table_branch_insert() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
-        let catalog: Arc<dyn Catalog> =
-            Arc::new(MemoryCatalog::new("iceberg", object_store.clone()).unwrap());
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "iceberg", object_store.clone())
+                .await
+                .unwrap(),
+        );
 
         let schema = Schema {
             schema_id: 1,
@@ -1020,8 +1030,11 @@ mod tests {
     pub async fn test_datafusion_view_scan() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
-        let catalog: Arc<dyn Catalog> =
-            Arc::new(MemoryCatalog::new("test", object_store.clone()).unwrap());
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "test", object_store.clone())
+                .await
+                .unwrap(),
+        );
 
         let schema = Schema {
             schema_id: 1,

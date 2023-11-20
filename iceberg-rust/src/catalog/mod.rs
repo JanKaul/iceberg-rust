@@ -19,9 +19,6 @@ use self::tabular::Tabular;
 
 pub mod tabular;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod memory;
-
 /// Trait to create, replace and drop tables in an iceberg catalog.
 #[async_trait::async_trait]
 pub trait Catalog: Send + Sync + Debug {
