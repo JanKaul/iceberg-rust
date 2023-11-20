@@ -234,11 +234,11 @@ pub mod tests {
         schema::Schema,
         types::{PrimitiveType, StructField, StructType, Type},
     };
+    use object_store::{memory::InMemory, ObjectStore};
     use std::sync::Arc;
 
     use crate::{
         catalog::{identifier::Identifier, memory::MemoryCatalog, Catalog},
-        object_store::{memory::InMemory, ObjectStore},
         table::table_builder::TableBuilder,
     };
 

@@ -11,4 +11,4 @@ pub mod sql;
 pub mod table;
 pub mod view;
 
-pub use object_store;
+pub use iceberg_rust_spec::*;
