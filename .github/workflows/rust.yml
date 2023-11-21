@@ -18,7 +18,9 @@ jobs:
     - uses: actions/checkout@v3
     - name: Build
       run: cargo build --verbose
+    - name: Run iceberg-rust-spec tests
+      run: cargo test -p iceberg-rust-spec --lib --verbose
     - name: Run iceberg-rust tests
-      run: cargo test -p iceberg-rust --lib --verbose -j 1
+      run: cargo test -p iceberg-rust --lib --verbose
     - name: Run datafusion-iceberg tests
       run: cargo test -p datafusion_iceberg --lib --verbose -j 1
