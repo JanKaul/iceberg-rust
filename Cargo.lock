@@ -954,6 +954,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "datafusion-iceberg-sql"
+version = "0.1.0"
+dependencies = [
+ "arrow-schema",
+ "datafusion-common",
+ "datafusion-expr",
+ "datafusion-sql",
+ "iceberg-rust",
+]
+
+[[package]]
 name = "datafusion-optimizer"
 version = "33.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

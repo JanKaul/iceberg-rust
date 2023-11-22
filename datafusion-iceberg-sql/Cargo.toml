@@ -1,0 +1,13 @@
+[package]
+name = "datafusion-iceberg-sql"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iceberg-rust = { path = "../iceberg-rust", version = "0.1.3" }
+datafusion-sql.workspace = true
+datafusion-expr.workspace = true
+datafusion-common.workspace = true
+arrow-schema.workspace = true

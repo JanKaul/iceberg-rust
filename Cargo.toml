@@ -1,5 +1,5 @@
 [workspace]
-members = ["iceberg-rust-spec", "iceberg-rust", "datafusion_iceberg", "iceberg-catalog-sql"]
+members = ["iceberg-rust-spec", "iceberg-rust", "datafusion_iceberg", "datafusion-iceberg-sql", "iceberg-catalog-sql"]
 
 workspace.resolver = "2"
 
@@ -14,6 +14,9 @@ chrono = { version = "0.4.23", default-features = false, features = ["serde"] }
 arrow = "48.0.1"
 arrow-schema = "48.0.1"
 datafusion = "33.0.0"
+datafusion-sql = "33.0.0"
+datafusion-expr = "33.0.0"
+datafusion-common = "33.0.0"
 parquet = { version = "48.0.1", features = ["async","object_store"] }
 sqlparser = { version = "0.39.0", features = ["visitor"] }
 thiserror = "1.0"
