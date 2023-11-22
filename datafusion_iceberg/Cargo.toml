@@ -1,5 +1,5 @@
 [package]
-name = "datafusion_iceberg"
+name = "datafusion-iceberg"
 version = "0.1.2"
 edition = "2021"
 

@@ -954,6 +954,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "datafusion-iceberg"
+version = "0.1.2"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "dashmap",
+ "datafusion",
+ "futures",
+ "iceberg-catalog-sql",
+ "iceberg-rust",
+ "iceberg-rust-spec",
+ "itertools 0.10.5",
+ "object_store",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "datafusion-optimizer"
 version = "33.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1049,26 +1069,6 @@ dependencies = [
  "datafusion-expr",
  "log",
  "sqlparser",
-]
-
-[[package]]
-name = "datafusion_iceberg"
-version = "0.1.2"
-dependencies = [
- "async-trait",
- "chrono",
- "dashmap",
- "datafusion",
- "futures",
- "iceberg-catalog-sql",
- "iceberg-rust",
- "iceberg-rust-spec",
- "itertools 0.10.5",
- "object_store",
- "serde_json",
- "thiserror",
- "tokio",
- "url",
 ]
 
 [[package]]
