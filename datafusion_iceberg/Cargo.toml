@@ -17,8 +17,8 @@ async-trait = { workspace = true }
 datafusion = { workspace = true }
 chrono = { workspace = true }
 object_store = { workspace = true }
-iceberg-rust = { path = "../iceberg-rust" }
-iceberg-rust-spec = { path = "../iceberg-rust-spec"}
+iceberg-rust = { path = "../iceberg-rust", version = "0.1.3" }
+iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.1.0" }
 itertools = { workspace = true }
 dashmap = "5.4.0"
 thiserror = { workspace = true }
