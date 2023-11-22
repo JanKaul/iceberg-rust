@@ -5,6 +5,7 @@ use datafusion_expr::TableSource;
 use iceberg_rust::catalog::tabular::Tabular;
 
 pub mod context;
+pub mod schema;
 
 pub struct IcebergTableSource {
     tabular: Tabular,

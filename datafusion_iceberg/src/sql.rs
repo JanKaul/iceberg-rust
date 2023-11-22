@@ -1,45 +1,13 @@
-use std::{ops::ControlFlow, sync::Arc};
+use std::ops::ControlFlow;
 
-use datafusion::{
-    arrow::datatypes::{FieldRef, Schema as ArrowSchema},
-    sql::{
-        planner::SqlToRel,
-        sqlparser::{
-            ast::{visit_relations_mut, Ident},
-            dialect::GenericDialect,
-            parser::Parser,
-        },
-    },
+use datafusion::sql::sqlparser::{
+    ast::{visit_relations_mut, Ident},
+    dialect::GenericDialect,
+    parser::Parser,
 };
-use iceberg_rust::catalog::Catalog;
-use iceberg_rust_spec::spec::types::StructType;
 use itertools::Itertools;
 
-use crate::{catalog::context::IcebergContext, error::Error};
-
-pub async fn get_schema(
-    sql: &str,
-    relations: Vec<String>,
-    catalog: Arc<dyn Catalog>,
-) -> Result<StructType, Error> {
-    let context = IcebergContext::new(relations, catalog).await?;
-    let statement = Parser::parse_sql(&GenericDialect, sql)?
-        .pop()
-        .ok_or(Error::InvalidFormat("sql statement".to_string()))?;
-
-    let planner = SqlToRel::new(&context);
-
-    let logical_plan = planner.sql_statement_to_plan(statement)?;
-    let fields: Vec<FieldRef> = logical_plan
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| field.field())
-        .cloned()
-        .collect();
-    let struct_type = StructType::try_from(&ArrowSchema::new(fields))?;
-    Ok(struct_type)
-}
+use crate::error::Error;
 
 pub(crate) fn transform_name(input: &str) -> String {
     input.replace('.', "__")

@@ -15,14 +15,14 @@ pub struct IcebergContext {
 
 impl IcebergContext {
     pub async fn new(
-        tables: Vec<(String, Identifier)>,
+        tables: &[(String, Identifier)],
         catalogs: &HashMap<String, Arc<dyn Catalog>>,
         branch: Option<&str>,
     ) -> Result<IcebergContext, DataFusionError> {
         let mut sources = HashMap::new();
         for (catalog_name, identifier) in tables {
             let catalog = catalogs
-                .get(&catalog_name)
+                .get(catalog_name)
                 .ok_or(DataFusionError::Internal(format!(
                     "Catalog {} was not provided",
                     &catalog_name
@@ -34,7 +34,11 @@ impl IcebergContext {
                 .map_err(|err| DataFusionError::Internal(err.to_string()))?;
             let table_source = IcebergTableSource::new(tabular, branch);
             sources.insert(
-                catalog_name + "." + &identifier.namespace().to_string() + "." + &identifier.name(),
+                catalog_name.to_owned()
+                    + "."
+                    + &identifier.namespace().to_string()
+                    + "."
+                    + &identifier.name(),
                 Arc::new(table_source) as Arc<dyn TableSource>,
             );
         }
