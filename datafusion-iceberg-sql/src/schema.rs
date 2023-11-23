@@ -6,16 +6,13 @@ use datafusion_sql::{
     planner::SqlToRel,
     sqlparser::{dialect::GenericDialect, parser::Parser},
 };
-use iceberg_rust::{
-    catalog::{identifier::Identifier, Catalog},
-    spec::types::StructType,
-};
+use iceberg_rust::{catalog::Catalog, spec::types::StructType};
 
 use crate::context::IcebergContext;
 
 pub async fn get_schema(
     sql: &str,
-    relations: &[(String, Identifier)],
+    relations: &[(String, String, String)],
     catalogs: &HashMap<String, Arc<dyn Catalog>>,
     branch: Option<&str>,
 ) -> Result<StructType, DataFusionError> {

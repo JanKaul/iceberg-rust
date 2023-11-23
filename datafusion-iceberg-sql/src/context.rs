@@ -15,12 +15,12 @@ pub struct IcebergContext {
 
 impl IcebergContext {
     pub async fn new(
-        tables: &[(String, Identifier)],
+        tables: &[(String, String, String)],
         catalogs: &HashMap<String, Arc<dyn Catalog>>,
         branch: Option<&str>,
     ) -> Result<IcebergContext, DataFusionError> {
         let mut sources = HashMap::new();
-        for (catalog_name, identifier) in tables {
+        for (catalog_name, namespace, name) in tables {
             let catalog = catalogs
                 .get(catalog_name)
                 .ok_or(DataFusionError::Internal(format!(
@@ -29,16 +29,15 @@ impl IcebergContext {
                 )))?;
             let tabular = catalog
                 .clone()
-                .load_table(&identifier)
+                .load_table(
+                    &Identifier::try_new(&[namespace.to_owned(), name.to_owned()])
+                        .map_err(|err| DataFusionError::Internal(err.to_string()))?,
+                )
                 .await
                 .map_err(|err| DataFusionError::Internal(err.to_string()))?;
             let table_source = IcebergTableSource::new(tabular, branch);
             sources.insert(
-                catalog_name.to_owned()
-                    + "."
-                    + &identifier.namespace().to_string()
-                    + "."
-                    + &identifier.name(),
+                catalog_name.to_owned() + "." + &namespace + "." + &name,
                 Arc::new(table_source) as Arc<dyn TableSource>,
             );
         }
