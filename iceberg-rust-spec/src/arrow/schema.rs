@@ -35,15 +35,14 @@ impl TryFrom<&ArrowSchema> for StructType {
     type Error = Error;
 
     fn try_from(value: &ArrowSchema) -> Result<Self, Self::Error> {
+        let mut last_id = 0;
         let fields = value
             .fields
             .iter()
             .map(|field| {
+                last_id = field.dict_id().unwrap_or(last_id + 1);
                 Ok(StructField {
-                    id: field
-                        .dict_id()
-                        .ok_or_else(|| Error::InvalidFormat("Schema field id".to_string()))?
-                        as i32,
+                    id: last_id as i32,
                     name: field.name().to_owned(),
                     required: !field.is_nullable(),
                     field_type: field.data_type().try_into()?,
