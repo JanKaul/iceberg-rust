@@ -259,7 +259,6 @@ impl Catalog for SqlCatalog {
     }
 }
 
-#[cfg(test)]
 impl SqlCatalog {
     pub fn duplicate(&self, name: &str) -> Self {
         Self { name: name.to_owned(), connection: self.connection.clone(), object_store: self.object_store.clone() }
