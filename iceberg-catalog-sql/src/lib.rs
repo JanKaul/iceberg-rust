@@ -7,7 +7,7 @@ use iceberg_rust::{
         identifier::Identifier,
         namespace::Namespace,
         tabular::{Tabular, TabularMetadata},
-        Catalog,
+        Catalog, CatalogList,
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
@@ -262,6 +262,64 @@ impl Catalog for SqlCatalog {
 impl SqlCatalog {
     pub fn duplicate(&self, name: &str) -> Self {
         Self { name: name.to_owned(), connection: self.connection.clone(), object_store: self.object_store.clone() }
+    }
+}
+
+#[derive(Debug)]
+pub struct SqlCatalogList {
+    connection: Arc<Mutex<AnyConnection>>,
+    object_store: Arc<dyn ObjectStore>,
+}
+
+impl SqlCatalogList {
+    pub async fn new(
+        url: &str,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<Self, Error> {
+        install_default_drivers();
+        let mut connection =
+            AnyConnectOptions::connect(&AnyConnectOptions::from_url(&url.try_into()?)?).await?;
+        connection
+            .transaction(|txn| {
+                Box::pin(async move {
+                    sqlx::query(
+                        "create table if not exists iceberg_tables (
+                                catalog_name varchar(255) not null,
+                                table_namespace varchar(255) not null,
+                                table_name varchar(255) not null,
+                                metadata_location varchar(255) not null,
+                                previous_metadata_location varchar(255),
+                                primary key (catalog_name, table_namespace, table_name)
+                            );",
+                    )
+                    .execute(&mut **txn)
+                    .await
+                })
+            })
+            .await?;
+        Ok(SqlCatalogList {
+            connection: Arc::new(Mutex::new(connection)),
+            object_store,
+        })
+    }
+}
+
+#[async_trait]
+impl CatalogList for SqlCatalogList {
+    async fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>>{
+        Some(Arc::new(SqlCatalog {name: name.to_owned(),connection: self.connection.clone(), object_store: self.object_store.clone()}))
+    }
+    async fn list_catalogs(&self) -> Vec<String>{
+        let mut connection = self.connection.lock().await;
+        let rows = connection.transaction(|txn|{
+            Box::pin(async move {
+            sqlx::query("select distinct catalog_name from iceberg_tables;").fetch_all(&mut **txn).await
+        })}).await.map_err(Error::from).unwrap_or_default();
+        let iter = rows.iter().map(|row| row.try_get::<String, _>(0));
+
+        iter
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(Error::from).unwrap_or_default()
     }
 }
 
