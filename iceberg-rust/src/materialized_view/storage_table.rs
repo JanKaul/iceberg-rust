@@ -25,7 +25,6 @@ static BASE_TABLES_KEY: &str = "base-tables";
 pub struct StorageTable {
     pub table: Table,
     pub sql: String,
-    pub catalog_list: Arc<dyn CatalogList>,
 }
 
 impl Deref for StorageTable {
@@ -63,6 +62,7 @@ impl StorageTable {
     /// Return base tables and the optional snapshot ids of the last refresh. If the the optional value is None, the table is fresh. If the optional value is Some(None) the table requires a full refresh.
     pub async fn base_tables(
         &self,
+        catalog_list: Arc<dyn CatalogList>,
         branch: Option<String>,
     ) -> Result<Vec<(String, Table, StorageTableState)>, Error> {
         let base_tables = match self
@@ -82,7 +82,7 @@ impl StorageTable {
 
         stream::iter(base_tables.iter())
             .then(|(base_table, snapshot_id)| {
-                let catalog_list = self.catalog_list.clone();
+                let catalog_list = catalog_list.clone();
                 let branch = branch.clone();
                 async move {
                     let mut parts = base_table.split(".");
@@ -188,14 +188,7 @@ impl StorageTable {
             ])
             .commit()
             .await?;
-        let old = std::mem::replace(
-            self,
-            StorageTable {
-                table,
-                sql,
-                catalog_list: self.catalog_list.clone(),
-            },
-        );
+        let old = std::mem::replace(self, StorageTable { table, sql });
 
         old.table.drop().await?;
         Ok(())

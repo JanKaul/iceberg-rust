@@ -201,10 +201,9 @@ impl Catalog for SqlCatalog {
             TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
                 MaterializedView::new(
                     identifier.clone(),
+                    self.clone(),
                     metadata,
                     &path.to_string(),
-                    &self.name,
-                    self.catalog_list()
                 )
                 .await?,
             )),

@@ -6,7 +6,10 @@ use datafusion::{
     prelude::SessionContext,
 };
 use futures::TryStreamExt;
-use iceberg_rust::{arrow::write::write_parquet_partitioned, materialized_view::MaterializedView};
+use iceberg_rust::{
+    arrow::write::write_parquet_partitioned, catalog::CatalogList,
+    materialized_view::MaterializedView,
+};
 use iceberg_rust_spec::spec::materialized_view_metadata::{
     BaseTable, MaterializedViewRepresentation,
 };
@@ -20,6 +23,7 @@ use crate::{
 
 pub async fn refresh_materialized_view(
     matview: &MaterializedView,
+    catalog_list: Arc<dyn CatalogList>,
     branch: Option<&str>,
 ) -> Result<(), Error> {
     let metadata = matview.metadata();
@@ -42,9 +46,13 @@ pub async fn refresh_materialized_view(
     let branch = branch.map(ToString::to_string);
 
     let base_tables = if storage_table.version_id(branch.clone())? == Some(version_id) {
-        storage_table.base_tables(branch.clone()).await?
+        storage_table
+            .base_tables(catalog_list, branch.clone())
+            .await?
     } else {
-        storage_table.base_tables(branch.clone()).await?
+        storage_table
+            .base_tables(catalog_list, branch.clone())
+            .await?
     };
 
     // Full refresh
@@ -113,9 +121,10 @@ pub async fn refresh_materialized_view(
 mod tests {
 
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
-    use iceberg_catalog_sql::SqlCatalog;
+    use iceberg_catalog_sql::SqlCatalogList;
     use iceberg_rust::{
-        catalog::Catalog, materialized_view::materialized_view_builder::MaterializedViewBuilder,
+        catalog::CatalogList,
+        materialized_view::materialized_view_builder::MaterializedViewBuilder,
         table::table_builder::TableBuilder,
     };
     use iceberg_rust_spec::spec::{
@@ -132,11 +141,13 @@ mod tests {
     pub async fn test_datafusion_refresh_materialized_view() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
-        let catalog: Arc<dyn Catalog> = Arc::new(
-            SqlCatalog::new("sqlite://", "iceberg", object_store.clone())
+        let catalog_list = Arc::new(
+            SqlCatalogList::new("sqlite://", object_store.clone())
                 .await
                 .unwrap(),
         );
+
+        let catalog = catalog_list.catalog("iceberg").await.unwrap();
 
         let schema = Schema {
             schema_id: 1,
@@ -264,7 +275,7 @@ mod tests {
         .await
         .expect("Failed to insert values into table");
 
-        refresh_materialized_view(&matview, None)
+        refresh_materialized_view(&matview, catalog_list.clone(), None)
             .await
             .expect("Failed to refresh materialized view");
 
@@ -316,7 +327,7 @@ mod tests {
         .await
         .expect("Failed to insert values into table");
 
-        refresh_materialized_view(&matview, None)
+        refresh_materialized_view(&matview, catalog_list.clone(), None)
             .await
             .expect("Failed to refresh materialized view");
 
