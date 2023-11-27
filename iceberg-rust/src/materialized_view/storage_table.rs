@@ -18,18 +18,24 @@ use crate::{
     table::Table,
 };
 
-pub struct StorageTable(pub Table);
+static VERSION_KEY: &str = "version-id";
+static BASE_TABLES_KEY: &str = "base-tables";
+
+pub struct StorageTable {
+    pub table: Table,
+    pub sql: String,
+}
 
 impl Deref for StorageTable {
     type Target = Table;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.table
     }
 }
 
 impl DerefMut for StorageTable {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.table
     }
 }
 
@@ -37,17 +43,17 @@ impl DerefMut for StorageTable {
 pub enum StorageTableState {
     Fresh,
     Outdated(i64),
-    Empty,
+    Invalid,
 }
 
 impl StorageTable {
     #[inline]
     /// Returns the version id of the last refresh.
     pub fn version_id(&self, branch: Option<String>) -> Result<Option<i64>, Error> {
-        self.0
+        self.table
             .metadata()
             .current_snapshot(branch.as_deref())?
-            .and_then(|snapshot| snapshot.summary.other.get("version-id"))
+            .and_then(|snapshot| snapshot.summary.other.get(VERSION_KEY))
             .map(|json| Ok(serde_json::from_str::<VersionId>(json)?))
             .transpose()
     }
@@ -55,31 +61,24 @@ impl StorageTable {
     /// Return base tables and the optional snapshot ids of the last refresh. If the the optional value is None, the table is fresh. If the optional value is Some(None) the table requires a full refresh.
     pub async fn base_tables(
         &self,
-        sql: Option<&str>,
         branch: Option<String>,
     ) -> Result<Vec<(Table, StorageTableState)>, Error> {
-        let base_tables = if let Some(sql) = sql {
-            find_relations(sql)?
+        let base_tables = match self
+            .metadata()
+            .current_snapshot(branch.as_deref())?
+            .and_then(|snapshot| snapshot.summary.other.get(BASE_TABLES_KEY))
+        {
+            Some(json) => serde_json::from_str::<Vec<BaseTable>>(json)?
+                .into_iter()
+                .map(|x| (x.identifier, Some(x.snapshot_id)))
+                .collect(),
+            None => find_relations(&self.sql)?
                 .into_iter()
                 .map(|ident| {
                     Itertools::intersperse(ident.split('.').skip(1), ".").collect::<String>()
                 })
                 .zip(repeat(None))
-                .collect::<Vec<_>>()
-        } else {
-            self.metadata()
-                .current_snapshot(branch.as_deref())?
-                .and_then(|snapshot| snapshot.summary.other.get("base-tables"))
-                .ok_or(Error::NotFound(
-                    "Snapshot summary field".to_string(),
-                    "base-tables".to_string(),
-                ))
-                .and_then(|json| {
-                    Ok(serde_json::from_str::<Vec<BaseTable>>(json)?
-                        .into_iter()
-                        .map(|x| (x.identifier, Some(x.snapshot_id)))
-                        .collect())
-                })?
+                .collect::<Vec<_>>(),
         };
 
         let catalog = self.catalog().clone();
@@ -100,7 +99,7 @@ impl StorageTable {
                     {
                         Tabular::Table(table) => table,
                         Tabular::MaterializedView(mv) => {
-                            mv.storage_table(branch.as_deref()).await?.0
+                            mv.storage_table(branch.as_deref()).await?.table
                         }
                         _ => return Err(Error::InvalidFormat("storage table".to_string())),
                     };
@@ -115,12 +114,12 @@ impl StorageTable {
                         {
                             StorageTableState::Fresh
                         } else if *snapshot_id == -1 {
-                            StorageTableState::Empty
+                            StorageTableState::Invalid
                         } else {
                             StorageTableState::Outdated(*snapshot_id)
                         }
                     } else {
-                        StorageTableState::Empty
+                        StorageTableState::Invalid
                     };
                     Ok((base_table, snapshot_id))
                 }
@@ -141,6 +140,7 @@ impl StorageTable {
         let table_identifier = self.identifier().clone();
         let table_catalog = self.catalog().clone();
         let table_metadata_location = self.metadata_location();
+        let sql = self.sql.clone();
         let table_metadata = self.metadata();
         let table_metadata = TableMetadataBuilder::default()
             .format_version(table_metadata.format_version.clone())
@@ -176,20 +176,17 @@ impl StorageTable {
             .new_transaction(branch.as_deref())
             .append(files)
             .update_snapshot_summary(vec![
+                (VERSION_KEY.to_string(), serde_json::to_string(&version_id)?),
                 (
-                    "version-id".to_string(),
-                    serde_json::to_string(&version_id)?,
-                ),
-                (
-                    "base-tables".to_string(),
+                    BASE_TABLES_KEY.to_string(),
                     serde_json::to_string(&base_tables)?,
                 ),
             ])
             .commit()
             .await?;
-        let old = std::mem::replace(self, StorageTable(table));
+        let old = std::mem::replace(self, StorageTable { table, sql });
 
-        old.0.drop().await?;
+        old.table.drop().await?;
         Ok(())
     }
 }

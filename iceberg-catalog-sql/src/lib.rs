@@ -65,6 +65,9 @@ impl SqlCatalog {
             object_store,
         })
     }
+    pub fn catalog_list(&self) -> Arc<SqlCatalogList> {
+    Arc::new(SqlCatalogList { connection: self.connection.clone(), object_store: self.object_store.clone() })
+}
 }
 
 #[derive(Debug)]
@@ -176,12 +179,11 @@ impl Catalog for SqlCatalog {
             .bytes()
             .await?;
         let metadata: TabularMetadata = serde_json::from_str(std::str::from_utf8(bytes)?)?;
-        let catalog: Arc<dyn Catalog> = self;
         match metadata {
             TabularMetadata::Table(metadata) => Ok(Tabular::Table(
                 Table::new(
                     identifier.clone(),
-                    Arc::clone(&catalog),
+                    self.clone(),
                     metadata,
                     &path.to_string(),
                 )
@@ -190,7 +192,7 @@ impl Catalog for SqlCatalog {
             TabularMetadata::View(metadata) => Ok(Tabular::View(
                 View::new(
                     identifier.clone(),
-                    Arc::clone(&catalog),
+                    self.clone(),
                     metadata,
                     &path.to_string(),
                 )
@@ -199,9 +201,10 @@ impl Catalog for SqlCatalog {
             TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
                 MaterializedView::new(
                     identifier.clone(),
-                    catalog.clone(),
                     metadata,
                     &path.to_string(),
+                    &self.name,
+                    self.catalog_list()
                 )
                 .await?,
             )),

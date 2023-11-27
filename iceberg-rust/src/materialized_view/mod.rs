@@ -11,7 +11,7 @@ use iceberg_rust_spec::spec::{
 use object_store::ObjectStore;
 
 use crate::{
-    catalog::{identifier::Identifier, tabular::Tabular, Catalog},
+    catalog::{identifier::Identifier, tabular::Tabular, Catalog, CatalogList},
     error::Error,
 };
 
@@ -32,6 +32,8 @@ pub struct MaterializedView {
     metadata_location: String,
     /// Catalog of the table
     catalog: Arc<dyn Catalog>,
+    /// List of catalogs that may be referenced by the query definition
+    catalog_list: Arc<dyn CatalogList>,
 }
 
 /// Public interface of the table.
@@ -39,15 +41,24 @@ impl MaterializedView {
     /// Create a new metastore view
     pub async fn new(
         identifier: Identifier,
-        catalog: Arc<dyn Catalog>,
         metadata: MaterializedViewMetadata,
         metadata_location: &str,
+        catalog_name: &str,
+        catalog_list: Arc<dyn CatalogList>,
     ) -> Result<Self, Error> {
+        let catalog = catalog_list
+            .catalog(catalog_name)
+            .await
+            .ok_or(Error::NotFound(
+                "Catalog".to_owned(),
+                catalog_name.to_owned(),
+            ))?;
         Ok(MaterializedView {
             identifier,
             metadata,
             metadata_location: metadata_location.to_string(),
             catalog,
+            catalog_list,
         })
     }
     /// Get the table identifier in the catalog. Returns None of it is a filesystem view.
@@ -80,14 +91,15 @@ impl MaterializedView {
     }
     /// Get the storage table of the materialized view
     pub async fn storage_table(&self, branch: Option<&str>) -> Result<StorageTable, Error> {
-        let storage_table_name = match &self.metadata.current_version(branch)?.representations[0] {
-            MaterializedViewRepresentation::SqlMaterialized {
-                sql: _sql,
-                dialect: _dialect,
-                format_version: _format_version,
-                storage_table,
-            } => storage_table,
-        };
+        let (storage_table_name, sql) =
+            match &self.metadata.current_version(branch)?.representations[0] {
+                MaterializedViewRepresentation::SqlMaterialized {
+                    sql,
+                    dialect: _dialect,
+                    format_version: _format_version,
+                    storage_table,
+                } => (storage_table, sql),
+            };
         if let Tabular::Table(table) = self
             .catalog
             .clone()
@@ -96,7 +108,10 @@ impl MaterializedView {
             )?)
             .await?
         {
-            Ok(StorageTable(table))
+            Ok(StorageTable {
+                table,
+                sql: sql.to_owned(),
+            })
         } else {
             Err(Error::InvalidFormat("storage table".to_string()))
         }

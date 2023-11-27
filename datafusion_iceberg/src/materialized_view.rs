@@ -42,9 +42,9 @@ pub async fn refresh_materialized_view(
     let branch = branch.map(ToString::to_string);
 
     let base_tables = if storage_table.version_id(branch.clone())? == Some(version_id) {
-        storage_table.base_tables(None, branch.clone()).await?
+        storage_table.base_tables(branch.clone()).await?
     } else {
-        storage_table.base_tables(Some(sql), branch.clone()).await?
+        storage_table.base_tables(branch.clone()).await?
     };
 
     // Full refresh
