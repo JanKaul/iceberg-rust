@@ -111,6 +111,7 @@ impl MaterializedView {
             Ok(StorageTable {
                 table,
                 sql: sql.to_owned(),
+                catalog_list: self.catalog_list.clone(),
             })
         } else {
             Err(Error::InvalidFormat("storage table".to_string()))

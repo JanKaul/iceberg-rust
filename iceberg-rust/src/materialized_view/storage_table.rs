@@ -1,6 +1,7 @@
 use std::{
     iter::repeat,
     ops::{Deref, DerefMut},
+    sync::Arc,
 };
 
 use futures::{stream, StreamExt, TryStreamExt};
@@ -9,10 +10,10 @@ use iceberg_rust_spec::spec::{
     materialized_view_metadata::{BaseTable, VersionId},
     table_metadata::{new_metadata_location, TableMetadataBuilder},
 };
-use itertools::Itertools;
+use itertools::intersperse;
 
 use crate::{
-    catalog::{identifier::Identifier, tabular::Tabular},
+    catalog::{identifier::Identifier, tabular::Tabular, CatalogList},
     error::Error,
     sql::find_relations,
     table::Table,
@@ -24,6 +25,7 @@ static BASE_TABLES_KEY: &str = "base-tables";
 pub struct StorageTable {
     pub table: Table,
     pub sql: String,
+    pub catalog_list: Arc<dyn CatalogList>,
 }
 
 impl Deref for StorageTable {
@@ -62,7 +64,7 @@ impl StorageTable {
     pub async fn base_tables(
         &self,
         branch: Option<String>,
-    ) -> Result<Vec<(Table, StorageTableState)>, Error> {
+    ) -> Result<Vec<(String, Table, StorageTableState)>, Error> {
         let base_tables = match self
             .metadata()
             .current_snapshot(branch.as_deref())?
@@ -74,35 +76,37 @@ impl StorageTable {
                 .collect(),
             None => find_relations(&self.sql)?
                 .into_iter()
-                .map(|ident| {
-                    Itertools::intersperse(ident.split('.').skip(1), ".").collect::<String>()
-                })
                 .zip(repeat(None))
                 .collect::<Vec<_>>(),
         };
 
-        let catalog = self.catalog().clone();
-
         stream::iter(base_tables.iter())
-            .then(|(pointer, snapshot_id)| {
-                let catalog = catalog.clone();
+            .then(|(base_table, snapshot_id)| {
+                let catalog_list = self.catalog_list.clone();
                 let branch = branch.clone();
                 async move {
-                    // if !pointer.starts_with("identifier:") {
-                    //     return Err(anyhow!("Only identifiers supported as base table pointers"));
-                    // }
-                    let base_table = match catalog
-                        .load_table(&Identifier::parse(
-                            pointer.trim_start_matches("identifier:"),
-                        )?)
-                        .await?
-                    {
-                        Tabular::Table(table) => table,
-                        Tabular::MaterializedView(mv) => {
-                            mv.storage_table(branch.as_deref()).await?.table
-                        }
-                        _ => return Err(Error::InvalidFormat("storage table".to_string())),
-                    };
+                    let mut parts = base_table.split(".");
+                    let catalog_name = parts
+                        .next()
+                        .ok_or(Error::NotFound("".to_owned(), "Catalog".to_owned()))?;
+                    let identifier: String = intersperse(parts, ".").collect();
+                    let catalog =
+                        catalog_list
+                            .catalog(&catalog_name)
+                            .await
+                            .ok_or(Error::NotFound(
+                                "Catalog".to_owned(),
+                                catalog_name.to_owned(),
+                            ))?;
+
+                    let base_table =
+                        match catalog.load_table(&Identifier::parse(&identifier)?).await? {
+                            Tabular::Table(table) => table,
+                            Tabular::MaterializedView(mv) => {
+                                mv.storage_table(branch.as_deref()).await?.table
+                            }
+                            _ => return Err(Error::InvalidFormat("storage table".to_string())),
+                        };
 
                     let snapshot_id = if let Some(snapshot_id) = snapshot_id {
                         if base_table
@@ -121,7 +125,7 @@ impl StorageTable {
                     } else {
                         StorageTableState::Invalid
                     };
-                    Ok((base_table, snapshot_id))
+                    Ok((catalog_name.to_owned(), base_table, snapshot_id))
                 }
             })
             .try_collect()
@@ -184,7 +188,14 @@ impl StorageTable {
             ])
             .commit()
             .await?;
-        let old = std::mem::replace(self, StorageTable { table, sql });
+        let old = std::mem::replace(
+            self,
+            StorageTable {
+                table,
+                sql,
+                catalog_list: self.catalog_list.clone(),
+            },
+        );
 
         old.table.drop().await?;
         Ok(())

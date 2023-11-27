@@ -51,7 +51,7 @@ pub async fn refresh_materialized_view(
 
     let new_tables = base_tables
         .into_iter()
-        .flat_map(|(base_table, _)| {
+        .flat_map(|(catalog_name, base_table, _)| {
             let identifier = base_table.identifier().to_string();
             let snapshot_id = base_table.metadata().current_snapshot_id.unwrap_or(-1);
             let table = Arc::new(DataFusionTable::new_table(
@@ -62,17 +62,18 @@ pub async fn refresh_materialized_view(
             )) as Arc<dyn TableProvider>;
             let schema = table.schema().clone();
             vec![
-                (identifier.clone(), snapshot_id, table),
+                (catalog_name.clone(), identifier.clone(), snapshot_id, table),
                 (
+                    catalog_name,
                     identifier + "__delta__",
                     snapshot_id,
                     Arc::new(EmptyTable::new(schema)) as Arc<dyn TableProvider>,
                 ),
             ]
         })
-        .map(|(identifier, snapshot_id, table)| {
+        .map(|(catalog_name, identifier, snapshot_id, table)| {
             ctx.register_table(&transform_name(&identifier), table)?;
-            Ok::<_, Error>((identifier, snapshot_id))
+            Ok::<_, Error>((catalog_name.clone() + "." + &identifier, snapshot_id))
         })
         .filter_ok(|(identifier, _)| !identifier.ends_with("__delta__"))
         .map_ok(|(identifier, snapshot_id)| BaseTable {
