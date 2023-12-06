@@ -63,7 +63,7 @@ impl Table {
     #[inline]
     /// Get the object_store associated to the table
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        self.catalog.object_store()
+        self.catalog.object_store(&self.metadata.bucket().unwrap())
     }
     #[inline]
     /// Get the schema of the table for a given branch. Defaults to main.

@@ -99,6 +99,7 @@ impl<T: Representation> GeneralViewMetadata<T> {
         self.schemas.insert(schema.schema_id, schema);
     }
     /// Get bucket of location
+    #[inline]
     pub fn bucket(&self) -> Result<String, Error> {
         strip_prefix(&self.location)
             .split("/")

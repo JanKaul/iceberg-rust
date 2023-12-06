@@ -71,8 +71,9 @@ impl ViewBuilder {
     }
     /// Building a table writes the metadata file and commits the table to either the metastore or the filesystem
     pub async fn build(self) -> Result<View, Error> {
-        let object_store = self.catalog.object_store();
         let metadata = self.metadata.build()?;
+        let bucket = metadata.bucket()?;
+        let object_store = self.catalog.object_store(&bucket);
         let location = &metadata.location;
         let uuid = Uuid::new_v4();
         let version = &metadata.current_version_id;

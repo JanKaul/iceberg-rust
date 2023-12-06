@@ -56,7 +56,7 @@ impl View {
     }
     /// Get the object_store associated to the view
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        self.catalog.object_store()
+        self.catalog.object_store(&self.metadata.bucket().unwrap())
     }
     /// Get the schema of the view
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {

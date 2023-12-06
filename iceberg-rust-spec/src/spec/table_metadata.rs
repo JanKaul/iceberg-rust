@@ -197,6 +197,7 @@ impl TableMetadata {
         }
     }
     /// Get bucket of location
+    #[inline]
     pub fn bucket(&self) -> Result<String, Error> {
         strip_prefix(&self.location)
             .split("/")

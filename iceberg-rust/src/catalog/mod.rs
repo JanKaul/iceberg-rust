@@ -54,8 +54,8 @@ pub trait Catalog: Send + Sync + Debug {
     /// complete catalog initialization with properties passed into the engine.
     async fn initialize(self: Arc<Self>, properties: &HashMap<String, String>)
         -> Result<(), Error>;
-    /// Return the associated object store to the catalog
-    fn object_store(&self) -> Arc<dyn ObjectStore>;
+    /// Return the associated object store for a bucket
+    fn object_store(&self, bucket: &str) -> Arc<dyn ObjectStore>;
 }
 
 /// Trait to obtain a catalog by name

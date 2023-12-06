@@ -79,6 +79,7 @@ impl MaterializedViewBuilder {
     /// Building a materialized view writes the metadata file to the object store and commits the table to the metastore
     pub async fn build(self) -> Result<MaterializedView, Error> {
         let metadata = self.metadata.build()?;
+        let bucket = metadata.bucket()?;
         let table_identifier =
             Identifier::parse(match &metadata.current_version(None)?.representations[0] {
                 MaterializedViewRepresentation::SqlMaterialized {
@@ -101,7 +102,7 @@ impl MaterializedViewBuilder {
             ))
             .current_schema_id(*schema_id)
             .build()?;
-        let object_store = self.catalog.object_store();
+        let object_store = self.catalog.object_store(&bucket);
         let location = &metadata.location;
         let metadata_json = serde_json::to_string(&metadata)?;
         let path = (location.to_string()

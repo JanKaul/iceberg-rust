@@ -256,7 +256,7 @@ impl Catalog for SqlCatalog {
     ) -> Result<(), IcebergError> {
         unimplemented!()
     }
-    fn object_store(&self) -> Arc<dyn object_store::ObjectStore> {
+    fn object_store(&self, _: &str) -> Arc<dyn object_store::ObjectStore> {
         self.object_store.clone()
     }
 }

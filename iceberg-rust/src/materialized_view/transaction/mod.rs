@@ -54,7 +54,6 @@ impl<'view> Transaction<'view> {
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.materialized_view.catalog();
-        let object_store = catalog.object_store();
         let identifier = self.materialized_view.identifier().clone();
         // Execute the table operations
         let materialized_view = futures::stream::iter(self.operations)
@@ -67,7 +66,8 @@ impl<'view> Transaction<'view> {
                 },
             )
             .await?;
-
+        let bucket = materialized_view.metadata().bucket()?;
+        let object_store = catalog.object_store(&bucket);
         let location = &&materialized_view.metadata().location;
         let transaction_uuid = Uuid::new_v4();
         let version = &&materialized_view.metadata().current_version_id;
