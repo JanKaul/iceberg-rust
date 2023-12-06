@@ -11,6 +11,7 @@ use std::{
 use crate::{
     error::Error,
     spec::{partition::PartitionSpec, snapshot::Reference, sort},
+    util::strip_prefix,
 };
 
 use serde::{Deserialize, Serialize};
@@ -194,6 +195,14 @@ impl TableMetadata {
                 }
             }
         }
+    }
+    /// Get bucket of location
+    pub fn bucket(&self) -> Result<String, Error> {
+        strip_prefix(&self.location)
+            .split("/")
+            .next()
+            .map(ToOwned::to_owned)
+            .ok_or(Error::NotFound(format!("Table"), format!("location")))
     }
 }
 
