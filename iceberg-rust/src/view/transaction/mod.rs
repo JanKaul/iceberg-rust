@@ -9,7 +9,10 @@ use uuid::Uuid;
 pub mod operation;
 use iceberg_rust_spec::spec::{types::StructType, view_metadata::ViewRepresentation};
 
-use crate::{catalog::tabular::Tabular, error::Error};
+use crate::{
+    catalog::{bucket::parse_bucket, tabular::Tabular},
+    error::Error,
+};
 
 use self::operation::Operation as ViewOperation;
 
@@ -63,8 +66,8 @@ impl<'view> Transaction<'view> {
                 Ok(view)
             })
             .await?;
-        let bucket = view.metadata().bucket()?;
-        let object_store = catalog.object_store(&bucket);
+        let bucket = parse_bucket(&view.metadata.location)?;
+        let object_store = catalog.object_store(bucket);
         let location = &&view.metadata().location;
         let transaction_uuid = Uuid::new_v4();
         let version = &&view.metadata().current_version_id;

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use crate::{error::Error, util::strip_prefix};
+use crate::error::Error;
 
 use super::schema::Schema;
 
@@ -97,15 +97,6 @@ impl<T: Representation> GeneralViewMetadata<T> {
     #[inline]
     pub fn add_schema(&mut self, schema: Schema) {
         self.schemas.insert(schema.schema_id, schema);
-    }
-    /// Get bucket of location
-    #[inline]
-    pub fn bucket(&self) -> Result<String, Error> {
-        strip_prefix(&self.location)
-            .split("/")
-            .next()
-            .map(ToOwned::to_owned)
-            .ok_or(Error::NotFound(format!("Table"), format!("location")))
     }
 }
 

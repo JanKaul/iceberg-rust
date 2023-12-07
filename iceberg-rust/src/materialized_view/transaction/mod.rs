@@ -10,7 +10,8 @@ use object_store::path::Path;
 use uuid::Uuid;
 
 use crate::{
-    catalog::tabular::Tabular, error::Error,
+    catalog::{bucket::parse_bucket, tabular::Tabular},
+    error::Error,
     view::transaction::operation::Operation as ViewOperation,
 };
 
@@ -66,8 +67,8 @@ impl<'view> Transaction<'view> {
                 },
             )
             .await?;
-        let bucket = materialized_view.metadata().bucket()?;
-        let object_store = catalog.object_store(&bucket);
+        let bucket = parse_bucket(&materialized_view.metadata.location)?;
+        let object_store = catalog.object_store(bucket);
         let location = &&materialized_view.metadata().location;
         let transaction_uuid = Uuid::new_v4();
         let version = &&materialized_view.metadata().current_version_id;

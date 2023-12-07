@@ -14,9 +14,11 @@ use object_store::ObjectStore;
 
 use crate::error::Error;
 
+use self::bucket::Bucket;
 use self::namespace::Namespace;
 use self::tabular::Tabular;
 
+pub mod bucket;
 pub mod tabular;
 
 /// Trait to create, replace and drop tables in an iceberg catalog.
@@ -55,7 +57,7 @@ pub trait Catalog: Send + Sync + Debug {
     async fn initialize(self: Arc<Self>, properties: &HashMap<String, String>)
         -> Result<(), Error>;
     /// Return the associated object store for a bucket
-    fn object_store(&self, bucket: &str) -> Arc<dyn ObjectStore>;
+    fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }
 
 /// Trait to obtain a catalog by name

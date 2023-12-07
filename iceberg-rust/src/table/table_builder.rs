@@ -10,7 +10,7 @@ use std::{
 use object_store::path::Path;
 use uuid::Uuid;
 
-use crate::catalog::tabular::Tabular;
+use crate::catalog::{bucket::parse_bucket, tabular::Tabular};
 use crate::table::Table;
 use crate::{catalog::identifier::Identifier, error::Error};
 use iceberg_rust_spec::spec::table_metadata::TableMetadataBuilder;
@@ -49,8 +49,8 @@ impl TableBuilder {
     /// Building a table writes the metadata file and commits the table to either the metastore or the filesystem
     pub async fn build(&mut self) -> Result<Table, Error> {
         let metadata = self.metadata.build()?;
-        let bucket = metadata.bucket()?;
-        let object_store = self.catalog.object_store(&bucket);
+        let bucket = parse_bucket(&metadata.location)?;
+        let object_store = self.catalog.object_store(bucket);
 
         let location = &metadata.location;
         let uuid = Uuid::new_v4();

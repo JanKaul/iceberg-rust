@@ -7,7 +7,7 @@ use iceberg_rust::{
         identifier::Identifier,
         namespace::Namespace,
         tabular::{Tabular, TabularMetadata},
-        Catalog, CatalogList,
+        Catalog, CatalogList, bucket::Bucket,
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
@@ -256,7 +256,7 @@ impl Catalog for SqlCatalog {
     ) -> Result<(), IcebergError> {
         unimplemented!()
     }
-    fn object_store(&self, _: &str) -> Arc<dyn object_store::ObjectStore> {
+    fn object_store(&self, _: Bucket) -> Arc<dyn object_store::ObjectStore> {
         self.object_store.clone()
     }
 }

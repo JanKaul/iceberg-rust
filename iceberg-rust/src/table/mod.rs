@@ -17,7 +17,7 @@ use iceberg_rust_spec::spec::{
 use iceberg_rust_spec::util::{self, strip_prefix};
 
 use crate::{
-    catalog::{identifier::Identifier, Catalog},
+    catalog::{bucket::parse_bucket, identifier::Identifier, Catalog},
     error::Error,
     table::transaction::TableTransaction,
 };
@@ -63,7 +63,8 @@ impl Table {
     #[inline]
     /// Get the object_store associated to the table
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        self.catalog.object_store(&self.metadata.bucket().unwrap())
+        self.catalog
+            .object_store(parse_bucket(&self.metadata.location).unwrap())
     }
     #[inline]
     /// Get the schema of the table for a given branch. Defaults to main.

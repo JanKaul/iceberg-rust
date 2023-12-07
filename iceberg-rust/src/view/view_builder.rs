@@ -8,6 +8,7 @@ use std::sync::Arc;
 use object_store::path::Path;
 use uuid::Uuid;
 
+use crate::catalog::bucket::parse_bucket;
 use crate::catalog::identifier::Identifier;
 use crate::catalog::tabular::Tabular;
 use crate::error::Error;
@@ -72,8 +73,8 @@ impl ViewBuilder {
     /// Building a table writes the metadata file and commits the table to either the metastore or the filesystem
     pub async fn build(self) -> Result<View, Error> {
         let metadata = self.metadata.build()?;
-        let bucket = metadata.bucket()?;
-        let object_store = self.catalog.object_store(&bucket);
+        let bucket = parse_bucket(&metadata.location)?;
+        let object_store = self.catalog.object_store(bucket);
         let location = &metadata.location;
         let uuid = Uuid::new_v4();
         let version = &metadata.current_version_id;
