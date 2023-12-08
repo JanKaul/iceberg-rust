@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use arrow_schema::{FieldRef, Schema};
 use datafusion_common::DataFusionError;
@@ -6,14 +6,14 @@ use datafusion_sql::{
     planner::SqlToRel,
     sqlparser::{dialect::GenericDialect, parser::Parser},
 };
-use iceberg_rust::{catalog::Catalog, spec::types::StructType};
+use iceberg_rust::{catalog::CatalogList, spec::types::StructType};
 
 use crate::context::IcebergContext;
 
 pub async fn get_schema(
     sql: &str,
     relations: &[(String, String, String)],
-    catalogs: &HashMap<String, Arc<dyn Catalog>>,
+    catalogs: Arc<dyn CatalogList>,
     branch: Option<&str>,
 ) -> Result<StructType, DataFusionError> {
     let context = IcebergContext::new(relations, catalogs, branch).await?;

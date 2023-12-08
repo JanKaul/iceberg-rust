@@ -4,7 +4,7 @@ use arrow_schema::DataType;
 use datafusion_common::{config::ConfigOptions, DataFusionError, TableReference};
 use datafusion_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use datafusion_sql::planner::ContextProvider;
-use iceberg_rust::catalog::{identifier::Identifier, Catalog};
+use iceberg_rust::catalog::{identifier::Identifier, CatalogList};
 
 use crate::IcebergTableSource;
 
@@ -16,13 +16,14 @@ pub struct IcebergContext {
 impl IcebergContext {
     pub async fn new(
         tables: &[(String, String, String)],
-        catalogs: &HashMap<String, Arc<dyn Catalog>>,
+        catalogs: Arc<dyn CatalogList>,
         branch: Option<&str>,
     ) -> Result<IcebergContext, DataFusionError> {
         let mut sources = HashMap::new();
         for (catalog_name, namespace, name) in tables {
             let catalog = catalogs
-                .get(catalog_name)
+                .catalog(catalog_name)
+                .await
                 .ok_or(DataFusionError::Internal(format!(
                     "Catalog {} was not provided",
                     &catalog_name
