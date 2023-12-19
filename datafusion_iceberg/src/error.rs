@@ -27,49 +27,49 @@ pub enum Error {
     #[error("{0} {1} not found.")]
     NotFound(String, String),
     /// Datafusion error
-    #[error("datafusion error")]
+    #[error(transparent)]
     Datafusion(#[from] datafusion::error::DataFusionError),
     /// Arrow error
-    #[error("arrowerror")]
+    #[error(transparent)]
     Arrow(#[from] datafusion::arrow::error::ArrowError),
     /// sql parser error
-    #[error("sql parser error")]
+    #[error(transparent)]
     SQLParser(#[from] datafusion::sql::sqlparser::parser::ParserError),
     /// Iceberg error
-    #[error("iceberg error")]
+    #[error(transparent)]
     Iceberg(#[from] iceberg_rust::error::Error),
     /// Iceberg error
-    #[error("iceberg error")]
+    #[error(transparent)]
     IcebergSpec(#[from] iceberg_rust_spec::error::Error),
     /// Serde json
-    #[error("serde json error")]
+    #[error(transparent)]
     JSONSerde(#[from] serde_json::Error),
     /// Chrono parse
-    #[error("chrono parse error")]
+    #[error(transparent)]
     Chrono(#[from] chrono::ParseError),
     /// Io error
-    #[error("io error")]
+    #[error(transparent)]
     IO(#[from] std::io::Error),
     /// Channel error
-    #[error("channel error")]
+    #[error(transparent)]
     FuturesChannel(#[from] futures::channel::mpsc::SendError),
     /// Objectstore error
-    #[error("object store error")]
+    #[error(transparent)]
     ObjectStore(#[from] object_store::Error),
     /// Try from slice error
-    #[error("try from slice error")]
+    #[error(transparent)]
     TryFromSlice(#[from] std::array::TryFromSliceError),
     /// Try from int error
-    #[error("try from int error")]
+    #[error(transparent)]
     TryFromInt(#[from] std::num::TryFromIntError),
     /// Utf8 error
-    #[error("utf8 error")]
+    #[error(transparent)]
     UTF8(#[from] std::str::Utf8Error),
     /// from utf8 error
-    #[error("from utf8 error")]
+    #[error(transparent)]
     FromUTF8(#[from] std::string::FromUtf8Error),
     /// parse int error
-    #[error("parse int error")]
+    #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
 }
 

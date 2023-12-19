@@ -3,9 +3,9 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("parse error")]
+    #[error(transparent)]
     ParseError(#[from] url::ParseError),
-    #[error("sql error")]
+    #[error(transparent)]
     SqlError(#[from] sqlx::Error),
 }
 

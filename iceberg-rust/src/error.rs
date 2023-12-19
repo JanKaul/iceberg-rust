@@ -27,65 +27,65 @@ pub enum Error {
     #[error("Feature {0} is not supported.")]
     NotSupported(String),
     /// Iceberg spec error
-    #[error("iceberg error")]
+    #[error(transparent)]
     Iceberg(#[from] iceberg_rust_spec::error::Error),
     /// Arrow error
-    #[error("arrow error")]
+    #[error(transparent)]
     Arrow(#[from] arrow::error::ArrowError),
     /// Parquet error
-    #[error("parquet error")]
+    #[error(transparent)]
     Parquet(#[from] parquet::errors::ParquetError),
     /// Avro error
-    #[error("avro error")]
+    #[error(transparent)]
     Avro(#[from] apache_avro::Error),
     /// Thrift error
-    #[error("thrift error")]
+    #[error(transparent)]
     Thrift(#[from] thrift::Error),
     /// sql parser error
-    #[error("sql parser error")]
+    #[error(transparent)]
     SQLParser(#[from] sqlparser::parser::ParserError),
     /// Serde json
-    #[error("serde json error")]
+    #[error(transparent)]
     JSONSerde(#[from] serde_json::Error),
     /// Chrono parse
-    #[error("uuid error")]
+    #[error(transparent)]
     Uuid(#[from] uuid::Error),
     /// Io error
-    #[error("io error")]
+    #[error(transparent)]
     IO(#[from] std::io::Error),
     /// Channel error
-    #[error("channel error")]
+    #[error(transparent)]
     FuturesChannel(#[from] futures::channel::mpsc::SendError),
     /// Objectstore error
-    #[error("object store error")]
+    #[error(transparent)]
     ObjectStore(#[from] object_store::Error),
     /// Try from slice error
-    #[error("try from slice error")]
+    #[error(transparent)]
     TryFromSlice(#[from] std::array::TryFromSliceError),
     /// Try from int error
-    #[error("try from int error")]
+    #[error(transparent)]
     TryFromInt(#[from] std::num::TryFromIntError),
     /// Utf8 error
-    #[error("utf8 error")]
+    #[error(transparent)]
     UTF8(#[from] std::str::Utf8Error),
     /// from utf8 error
-    #[error("from utf8 error")]
+    #[error(transparent)]
     FromUTF8(#[from] std::string::FromUtf8Error),
     /// parse int error
-    #[error("parse int error")]
+    #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
     /// table metadata builder
-    #[error("table metadata builder")]
+    #[error(transparent)]
     TableMetadataBuilder(
         #[from] iceberg_rust_spec::spec::table_metadata::TableMetadataBuilderError,
     ),
     /// view metadata builder
-    #[error("view metadata builder")]
+    #[error(transparent)]
     ViewMetadataBuilder(
         #[from] iceberg_rust_spec::spec::view_metadata::GeneralViewMetadataBuilderError,
     ),
     /// version builder
-    #[error("version builder")]
+    #[error(transparent)]
     VersionBuilder(#[from] iceberg_rust_spec::spec::view_metadata::VersionBuilderError),
 }
 
