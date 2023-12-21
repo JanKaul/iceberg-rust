@@ -39,15 +39,17 @@ impl SqlCatalog {
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<Self, Error> {
         install_default_drivers();
+
         let mut connection =
             AnyConnectOptions::connect(&AnyConnectOptions::from_url(&url.try_into()?)?).await?;
+
         connection
             .transaction(|txn| {
                 Box::pin(async move {
                     sqlx::query(
                         "create table if not exists iceberg_tables (
                                 catalog_name text not null,
-                                table_namespace textl not null,
+                                table_namespace text not null,
                                 table_name text not null,
                                 metadata_location text not null,
                                 previous_metadata_location text,
@@ -59,12 +61,14 @@ impl SqlCatalog {
                 })
             })
             .await?;
+
         Ok(SqlCatalog {
             name: name.to_owned(),
             connection: Arc::new(Mutex::new(connection)),
             object_store,
         })
     }
+
     pub fn catalog_list(&self) -> Arc<SqlCatalogList> {
     Arc::new(SqlCatalogList { connection: self.connection.clone(), object_store: self.object_store.clone() })
 }
@@ -279,8 +283,10 @@ impl SqlCatalogList {
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<Self, Error> {
         install_default_drivers();
+
         let mut connection =
             AnyConnectOptions::connect(&AnyConnectOptions::from_url(&url.try_into()?)?).await?;
+
         connection
             .transaction(|txn| {
                 Box::pin(async move {
@@ -299,6 +305,7 @@ impl SqlCatalogList {
                 })
             })
             .await?;
+        
         Ok(SqlCatalogList {
             connection: Arc::new(Mutex::new(connection)),
             object_store,
