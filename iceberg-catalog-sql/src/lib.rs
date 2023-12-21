@@ -46,11 +46,11 @@ impl SqlCatalog {
                 Box::pin(async move {
                     sqlx::query(
                         "create table if not exists iceberg_tables (
-                                catalog_name varchar(255) not null,
-                                table_namespace varchar(255) not null,
-                                table_name varchar(255) not null,
-                                metadata_location varchar(255) not null,
-                                previous_metadata_location varchar(255),
+                                catalog_name text not null,
+                                table_namespace textl not null,
+                                table_name text not null,
+                                metadata_location text not null,
+                                previous_metadata_location text,
                                 primary key (catalog_name, table_namespace, table_name)
                             );",
                     )
