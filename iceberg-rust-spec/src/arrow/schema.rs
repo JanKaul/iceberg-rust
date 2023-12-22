@@ -2,7 +2,11 @@
  * Convert between datafusion and iceberg schema
 */
 
-use std::{collections::HashMap, convert::TryInto, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryInto,
+    sync::Arc,
+};
 
 use crate::spec::types::{PrimitiveType, StructField, StructType, Type};
 use arrow_schema::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
@@ -35,14 +39,26 @@ impl TryFrom<&ArrowSchema> for StructType {
     type Error = Error;
 
     fn try_from(value: &ArrowSchema) -> Result<Self, Self::Error> {
-        let mut last_id = 0;
+        let mut ids = HashSet::new();
         let fields = value
             .fields
             .iter()
             .map(|field| {
-                last_id = field.dict_id().unwrap_or(last_id + 1);
+                let id = match field.dict_id() {
+                    Some(id) => {
+                        if !ids.contains(&id) {
+                            id
+                        } else if id as usize != ids.len() {
+                            ids.len() as i64
+                        } else {
+                            0
+                        }
+                    }
+                    None => ids.len() as i64,
+                };
+                ids.insert(id);
                 Ok(StructField {
-                    id: last_id as i32,
+                    id: id as i32,
                     name: field.name().to_owned(),
                     required: !field.is_nullable(),
                     field_type: field.data_type().try_into()?,
