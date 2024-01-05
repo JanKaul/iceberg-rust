@@ -7,13 +7,16 @@ use std::{
     sync::Arc,
 };
 
-use iceberg_rust_spec::spec::{
-    materialized_view_metadata::{
-        FormatVersion, MaterializedViewMetadataBuilder, MaterializedViewRepresentation,
+use iceberg_rust_spec::{
+    spec::{
+        materialized_view_metadata::{
+            FormatVersion, MaterializedViewMetadataBuilder, MaterializedViewRepresentation,
+        },
+        schema::Schema,
+        table_metadata::TableMetadataBuilder,
+        view_metadata::VersionBuilder,
     },
-    schema::Schema,
-    table_metadata::TableMetadataBuilder,
-    view_metadata::VersionBuilder,
+    util::strip_prefix,
 };
 use uuid::Uuid;
 
@@ -105,24 +108,27 @@ impl MaterializedViewBuilder {
         let object_store = self.catalog.object_store(bucket);
         let location = &metadata.location;
         let metadata_json = serde_json::to_string(&metadata)?;
-        let path = (location.to_string()
+        let path = location.to_string()
             + "/metadata/"
             + &metadata.current_version_id.to_string()
             + "-"
             + &Uuid::new_v4().to_string()
-            + ".metadata.json")
-            .into();
-        object_store.put(&path, metadata_json.into()).await?;
+            + ".metadata.json";
+        object_store
+            .put(&strip_prefix(&path).into(), metadata_json.into())
+            .await?;
         let table_metadata_json = serde_json::to_string(&table_metadata)?;
-        let table_path = (location.to_string()
+        let table_path = location.to_string()
             + "/metadata/"
             + &table_metadata.last_sequence_number.to_string()
             + "-"
             + &Uuid::new_v4().to_string()
-            + ".metadata.json")
-            .into();
+            + ".metadata.json";
         object_store
-            .put(&table_path, table_metadata_json.into())
+            .put(
+                &strip_prefix(&table_path).into(),
+                table_metadata_json.into(),
+            )
             .await?;
         if let Tabular::Table(_) = self
             .catalog

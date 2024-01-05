@@ -7,13 +7,12 @@ use std::{
     sync::Arc,
 };
 
-use object_store::path::Path;
 use uuid::Uuid;
 
 use crate::catalog::{bucket::parse_bucket, tabular::Tabular};
 use crate::table::Table;
 use crate::{catalog::identifier::Identifier, error::Error};
-use iceberg_rust_spec::spec::table_metadata::TableMetadataBuilder;
+use iceberg_rust_spec::{spec::table_metadata::TableMetadataBuilder, util::strip_prefix};
 
 use super::Catalog;
 
@@ -56,14 +55,15 @@ impl TableBuilder {
         let uuid = Uuid::new_v4();
         let version = &metadata.last_sequence_number;
         let metadata_json = serde_json::to_string(&metadata)?;
-        let path: Path = (location.to_string()
+        let path = location.to_string()
             + "/metadata/"
             + &version.to_string()
             + "-"
             + &uuid.to_string()
-            + ".metadata.json")
-            .into();
-        object_store.put(&path, metadata_json.into()).await?;
+            + ".metadata.json";
+        object_store
+            .put(&strip_prefix(&path).into(), metadata_json.into())
+            .await?;
         if let Tabular::Table(table) = self
             .catalog
             .clone()
