@@ -401,7 +401,11 @@ impl Operation {
                 Ok(())
             }
             Operation::SetRef((key, value)) => {
+                if key == "main" {
+                    table.metadata.current_snapshot_id = Some(value.snapshot_id);
+                }
                 table.metadata.refs.insert(key, value);
+
                 Ok(())
             }
             _ => Ok(()),
