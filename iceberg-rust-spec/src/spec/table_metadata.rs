@@ -152,7 +152,11 @@ impl TableMetadata {
     #[inline]
     pub fn current_snapshot(&self, snapshot_ref: Option<&str>) -> Result<Option<&Snapshot>, Error> {
         let snapshot_id = match snapshot_ref {
-            None => self.current_snapshot_id,
+            None => self
+                .refs
+                .get("main")
+                .map(|x| x.snapshot_id)
+                .or(self.current_snapshot_id),
             Some(reference) => self.refs.get(reference).map(|x| x.snapshot_id),
         };
         match snapshot_id {
