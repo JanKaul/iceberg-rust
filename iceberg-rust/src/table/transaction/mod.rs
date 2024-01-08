@@ -98,17 +98,14 @@ impl<'table> TableTransaction<'table> {
             op.execute(self.table, &mut context).await?
         }
 
-        if let Some(snapshot) = &self.table.metadata.current_snapshot(branch.as_deref())? {
+        if let (Some(snapshot), Some(manifest_list_bytes)) = (
+            self.table.metadata.current_snapshot(branch.as_deref())?,
+            context.manifest_list_bytes,
+        ) {
             object_store
                 .put(
                     &strip_prefix(&snapshot.manifest_list).into(),
-                    context
-                        .manifest_list_bytes
-                        .ok_or(Error::NotFound(
-                            "Manifest list".to_string(),
-                            "bytes".to_string(),
-                        ))?
-                        .into(),
+                    manifest_list_bytes.into(),
                 )
                 .await?;
         }
