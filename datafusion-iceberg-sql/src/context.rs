@@ -20,6 +20,7 @@ impl IcebergContext {
         branch: Option<&str>,
     ) -> Result<IcebergContext, DataFusionError> {
         let mut sources = HashMap::new();
+
         for (catalog_name, namespace, name) in tables {
             let catalog = catalogs
                 .catalog(catalog_name)
@@ -28,6 +29,7 @@ impl IcebergContext {
                     "Catalog {} was not provided",
                     &catalog_name
                 )))?;
+
             let tabular = catalog
                 .clone()
                 .load_table(
@@ -36,13 +38,17 @@ impl IcebergContext {
                 )
                 .await
                 .map_err(|err| DataFusionError::Internal(err.to_string()))?;
+
             let table_source = IcebergTableSource::new(tabular, branch);
+
             sources.insert(
                 catalog_name.to_owned() + "." + &namespace + "." + &name,
                 Arc::new(table_source) as Arc<dyn TableSource>,
             );
         }
+
         let config_options = ConfigOptions::default();
+
         Ok(IcebergContext {
             sources,
             config_options,

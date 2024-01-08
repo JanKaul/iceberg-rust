@@ -28,15 +28,24 @@ impl TableSource for IcebergTableSource {
     fn schema(&self) -> SchemaRef {
         match &self.tabular {
             Tabular::Table(table) => {
-                let schema = table.current_schema(self.branch.as_deref()).unwrap();
+                let schema = table
+                    .current_schema(self.branch.as_deref())
+                    .or(table.current_schema(None))
+                    .unwrap();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
             Tabular::View(view) => {
-                let schema = view.current_schema(self.branch.as_deref()).unwrap();
+                let schema = view
+                    .current_schema(self.branch.as_deref())
+                    .or(view.current_schema(None))
+                    .unwrap();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
             Tabular::MaterializedView(matview) => {
-                let schema = matview.current_schema(self.branch.as_deref()).unwrap();
+                let schema = matview
+                    .current_schema(self.branch.as_deref())
+                    .or(matview.current_schema(None))
+                    .unwrap();
                 Arc::new((&schema.fields).try_into().unwrap())
             }
         }
