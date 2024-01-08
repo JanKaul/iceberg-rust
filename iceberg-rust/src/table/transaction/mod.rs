@@ -77,7 +77,7 @@ impl<'table> TableTransaction<'table> {
         }
 
         // Before executing the transactions operations, update the metadata for a new snapshot
-        self.table.increment_sequence_number();
+
         let manifest_list_bytes = if self.operations.iter().any(|op| match op {
             Operation::NewAppend {
                 branch: _,
@@ -85,6 +85,7 @@ impl<'table> TableTransaction<'table> {
             } => true,
             _ => false,
         }) {
+            self.table.increment_sequence_number();
             self.table.new_snapshot(branch.clone()).await?
         } else {
             None
