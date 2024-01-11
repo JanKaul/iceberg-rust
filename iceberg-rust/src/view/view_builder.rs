@@ -2,6 +2,7 @@
 Defining the [ViewBuilder] struct for creating catalog views and starting create/replace transactions
 */
 
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
@@ -14,7 +15,7 @@ use crate::catalog::tabular::Tabular;
 use crate::error::Error;
 use iceberg_rust_spec::spec::schema::Schema;
 use iceberg_rust_spec::spec::view_metadata::{
-    VersionBuilder, ViewMetadataBuilder, ViewRepresentation,
+    VersionBuilder, ViewMetadataBuilder, ViewRepresentation, REF_PREFIX,
 };
 
 use super::Catalog;
@@ -63,7 +64,11 @@ impl ViewBuilder {
                     .schema_id(1)
                     .build()?,
             ))
-            .current_version_id(1);
+            .current_version_id(1)
+            .properties(HashMap::from_iter(vec![(
+                REF_PREFIX.to_string() + "main",
+                1.to_string(),
+            )]));
         Ok(ViewBuilder {
             metadata: builder,
             identifier,

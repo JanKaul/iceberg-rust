@@ -3,6 +3,7 @@ Defining the [MaterializedViewBuilder] struct for creating catalog views and sta
 */
 
 use std::{
+    collections::HashMap,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -14,7 +15,7 @@ use iceberg_rust_spec::{
         },
         schema::Schema,
         table_metadata::TableMetadataBuilder,
-        view_metadata::VersionBuilder,
+        view_metadata::{VersionBuilder, REF_PREFIX},
     },
     util::strip_prefix,
 };
@@ -71,7 +72,11 @@ impl MaterializedViewBuilder {
                     .schema_id(1)
                     .build()?,
             ))
-            .current_version_id(1);
+            .current_version_id(1)
+            .properties(HashMap::from_iter(vec![(
+                REF_PREFIX.to_string() + "main",
+                1.to_string(),
+            )]));
         Ok(Self {
             identifier: Identifier::parse(&identifier.to_string())?,
             catalog,
