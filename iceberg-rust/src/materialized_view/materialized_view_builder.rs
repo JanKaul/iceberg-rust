@@ -26,7 +26,7 @@ use crate::{
     error::Error,
 };
 
-use super::{storage_table::STORAGE_POSTFIX, MaterializedView};
+use super::{MaterializedView, STORAGE_POSTFIX};
 
 ///Builder pattern to create a view
 pub struct MaterializedViewBuilder {

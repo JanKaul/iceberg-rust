@@ -21,7 +21,6 @@ use crate::{
 
 static VERSION_KEY: &str = "version-id";
 static BASE_TABLES_KEY: &str = "base-tables";
-pub static STORAGE_POSTFIX: &str = "__storage";
 
 pub struct StorageTable {
     pub table: Table,
