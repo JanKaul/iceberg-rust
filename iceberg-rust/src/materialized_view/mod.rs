@@ -21,6 +21,9 @@ pub mod materialized_view_builder;
 mod storage_table;
 pub mod transaction;
 
+/// Postfix that is used to denote a storage table to the materialized view in the catalog
+pub static STORAGE_POSTFIX: &str = "__storage";
+
 #[derive(Debug)]
 /// An iceberg materialized view
 pub struct MaterializedView {

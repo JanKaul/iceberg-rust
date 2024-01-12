@@ -26,7 +26,7 @@ use crate::{
     error::Error,
 };
 
-use super::MaterializedView;
+use super::{storage_table::STORAGE_POSTFIX, MaterializedView};
 
 ///Builder pattern to create a view
 pub struct MaterializedViewBuilder {
@@ -67,7 +67,7 @@ impl MaterializedViewBuilder {
                         sql: sql.to_string(),
                         dialect: "ANSI".to_string(),
                         format_version: FormatVersion::V1,
-                        storage_table: identifier.to_string() + "_storage",
+                        storage_table: identifier.to_string() + STORAGE_POSTFIX,
                     })
                     .schema_id(1)
                     .build()?,

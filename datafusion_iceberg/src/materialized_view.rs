@@ -7,8 +7,9 @@ use datafusion::{
 };
 use futures::TryStreamExt;
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned, catalog::CatalogList,
-    materialized_view::MaterializedView,
+    arrow::write::write_parquet_partitioned,
+    catalog::CatalogList,
+    materialized_view::{MaterializedView, STORAGE_POSTFIX},
 };
 use iceberg_rust_spec::spec::materialized_view_metadata::{
     BaseTable, MaterializedViewRepresentation,
@@ -60,8 +61,14 @@ pub async fn refresh_materialized_view(
     let new_tables = base_tables
         .into_iter()
         .flat_map(|(catalog_name, base_table, _)| {
-            let identifier = base_table.identifier().to_string();
+            let identifier = base_table
+                .identifier()
+                .to_string()
+                .trim_end_matches(STORAGE_POSTFIX)
+                .to_owned();
+
             let snapshot_id = base_table.metadata().current_snapshot_id.unwrap_or(-1);
+
             let table = Arc::new(DataFusionTable::new_table(
                 base_table,
                 None,
@@ -69,6 +76,7 @@ pub async fn refresh_materialized_view(
                 branch.as_deref(),
             )) as Arc<dyn TableProvider>;
             let schema = table.schema().clone();
+
             vec![
                 (catalog_name.clone(), identifier.clone(), snapshot_id, table),
                 (
@@ -248,6 +256,41 @@ mod tests {
             .await
             .expect("Failed to create filesystem view");
 
+        let total_matview_schema = Schema {
+            schema_id: 1,
+            identifier_field_ids: None,
+            fields: StructTypeBuilder::default()
+                .with_struct_field(StructField {
+                    id: 1,
+                    name: "product_id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 2,
+                    name: "amount".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Long),
+                    doc: None,
+                })
+                .build()
+                .unwrap(),
+        };
+
+        let mut total_builder = MaterializedViewBuilder::new(
+            "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
+            "test.total_orders",
+            total_matview_schema,
+            catalog.clone(),
+        )
+        .expect("Failed to create filesystem view builder.");
+        total_builder.location("test/total_orders");
+        let total_matview = total_builder
+            .build()
+            .await
+            .expect("Failed to create filesystem view");
+
         // Datafusion
 
         let datafusion_catalog = Arc::new(
@@ -335,6 +378,44 @@ mod tests {
             .sql(
                 "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
             )
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (order_ids, amounts) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (order_id, amount) in order_ids.iter().zip(amounts) {
+                    if order_id.unwrap() == 1 {
+                        assert_eq!(amount.unwrap(), 9)
+                    } else if order_id.unwrap() == 2 {
+                        assert_eq!(amount.unwrap(), 2)
+                    } else {
+                        panic!("Unexpected order id")
+                    }
+                }
+            }
+        }
+
+        refresh_materialized_view(&total_matview, catalog_list.clone(), None)
+            .await
+            .expect("Failed to refresh materialized view");
+
+        let batches = ctx
+            .sql("select product_id, amount from iceberg.test.total_orders;")
             .await
             .expect("Failed to create plan for select")
             .collect()
