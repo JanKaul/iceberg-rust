@@ -234,6 +234,8 @@ impl TableProvider for DataFusionTable {
             .collect())
     }
 }
+
+#[allow(clippy::too_many_arguments)]
 async fn table_scan(
     table: &Table,
     snapshot_range: &(Option<i64>, Option<i64>),

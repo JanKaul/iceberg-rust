@@ -229,7 +229,7 @@ impl Catalog for SqlCatalog {
                 let name = identifier.name().to_string();
                 let metadata_file_location = metadata_file_location.to_string();
                 Box::pin(async move {
-            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace.to_string(),name.to_string(), metadata_file_location)).execute(&mut **txn).await
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_file_location)).execute(&mut **txn).await
         })}).await.map_err(Error::from)?;
         }
         self.load_table(&identifier).await

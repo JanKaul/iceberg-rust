@@ -1451,6 +1451,7 @@ impl DataFileV2 {
     }
 }
 
+#[allow(clippy::type_complexity)]
 // Convert avro value to ManifestEntry based on the format version of the table.
 fn avro_value_to_manifest_entry(
     value: (
