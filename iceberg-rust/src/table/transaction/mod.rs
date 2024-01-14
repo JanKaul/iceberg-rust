@@ -78,12 +78,14 @@ impl<'table> TableTransaction<'table> {
 
         // Before executing the transactions operations, update the metadata for a new snapshot
 
-        let manifest_list_bytes = if self.operations.iter().any(|op| match op {
-            Operation::NewAppend {
-                branch: _,
-                files: _,
-            } => true,
-            _ => false,
+        let manifest_list_bytes = if self.operations.iter().any(|op| {
+            matches!(
+                op,
+                Operation::NewAppend {
+                    branch: _,
+                    files: _,
+                }
+            )
         }) {
             self.table.increment_sequence_number();
             self.table.new_snapshot(branch.clone()).await?

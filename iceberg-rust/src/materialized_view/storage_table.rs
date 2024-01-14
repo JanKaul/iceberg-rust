@@ -85,14 +85,14 @@ impl StorageTable {
                 let catalog_list = catalog_list.clone();
                 let branch = branch.clone();
                 async move {
-                    let mut parts = base_table.split(".");
+                    let mut parts = base_table.split('.');
                     let catalog_name = parts
                         .next()
                         .ok_or(Error::NotFound("".to_owned(), "Catalog".to_owned()))?;
                     let identifier: String = intersperse(parts, ".").collect();
                     let catalog =
                         catalog_list
-                            .catalog(&catalog_name)
+                            .catalog(catalog_name)
                             .await
                             .ok_or(Error::NotFound(
                                 "Catalog".to_owned(),

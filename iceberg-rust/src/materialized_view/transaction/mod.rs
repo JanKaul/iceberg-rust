@@ -2,7 +2,7 @@
  * Defines the [Transaction] type for materialized views to perform multiple [Operation]s with ACID guarantees.
 */
 
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use iceberg_rust_spec::spec::{
     materialized_view_metadata::MaterializedViewRepresentation, types::StructType,
 };
@@ -58,14 +58,11 @@ impl<'view> Transaction<'view> {
         let identifier = self.materialized_view.identifier().clone();
         // Execute the table operations
         let materialized_view = futures::stream::iter(self.operations)
-            .fold(
-                Ok::<&mut MaterializedView, Error>(self.materialized_view),
-                |view, op| async move {
-                    let view = view?;
-                    op.execute(&mut view.metadata).await?;
-                    Ok(view)
-                },
-            )
+            .map(Ok::<_, Error>)
+            .try_fold(self.materialized_view, |view, op| async move {
+                op.execute(&mut view.metadata).await?;
+                Ok(view)
+            })
             .await?;
         let bucket = parse_bucket(&materialized_view.metadata.location)?;
         let object_store = catalog.object_store(bucket);

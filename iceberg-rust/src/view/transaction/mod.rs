@@ -2,7 +2,7 @@
  * Defines the [Transaction] type for views to perform multiple view [Operation]s with ACID guarantees.
 */
 
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use object_store::path::Path;
 use uuid::Uuid;
 
@@ -60,8 +60,8 @@ impl<'view> Transaction<'view> {
         let identifier = self.view.identifier().clone();
         // Execute the table operations
         let view = futures::stream::iter(self.operations)
-            .fold(Ok::<&mut View, Error>(self.view), |view, op| async move {
-                let view = view?;
+            .map(Ok::<_, Error>)
+            .try_fold(self.view, |view, op| async move {
                 op.execute(&mut view.metadata).await?;
                 Ok(view)
             })

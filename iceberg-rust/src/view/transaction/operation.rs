@@ -68,7 +68,7 @@ impl<T: Representation> Operation<T> {
                 metadata.versions.insert(version_id, version);
 
                 let branch_name = branch.unwrap_or("main".to_string());
-                if &branch_name == MAIN_BRANCH {
+                if branch_name == MAIN_BRANCH {
                     metadata.current_version_id = version_id;
                 }
                 metadata.properties.insert(

@@ -291,7 +291,7 @@ impl Table {
         let branch_name = branch.unwrap_or("main".to_string());
 
         metadata.snapshots.insert(snapshot_id, snapshot);
-        if &branch_name == MAIN_BRANCH {
+        if branch_name == MAIN_BRANCH {
             metadata.current_snapshot_id = Some(snapshot_id);
         }
         metadata

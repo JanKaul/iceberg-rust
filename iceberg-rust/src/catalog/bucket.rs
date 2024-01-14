@@ -25,16 +25,16 @@ pub enum Bucket<'s> {
 pub fn parse_bucket(path: &str) -> Result<Bucket, Error> {
     if path.starts_with("s3://") {
         path.trim_start_matches("s3://")
-            .split("/")
+            .split('/')
             .next()
             .map(Bucket::S3)
-            .ok_or(Error::NotFound(format!("Table"), format!("location")))
+            .ok_or(Error::NotFound("Table".to_string(), "location".to_string()))
     } else if path.starts_with("gcs://") {
         path.trim_start_matches("gcs://")
-            .split("/")
+            .split('/')
             .next()
             .map(Bucket::GCS)
-            .ok_or(Error::NotFound(format!("Table"), format!("location")))
+            .ok_or(Error::NotFound("Table".to_string(), "location".to_string()))
     } else {
         Ok(Bucket::Local)
     }

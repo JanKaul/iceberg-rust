@@ -18,6 +18,7 @@ use crate::view::View;
 use super::Catalog;
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 /// Enum for different types that can be queried like a table, for example view
 pub enum Tabular {
     /// An iceberg table

@@ -69,6 +69,8 @@ pub async fn write_parquet_partitioned(
 }
 
 type SendableAsyncArrowWriter = AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>;
+type ArrowSender = Sender<(String, SendableAsyncArrowWriter)>;
+type ArrowReciever = Receiver<(String, SendableAsyncArrowWriter)>;
 
 /// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
 async fn write_parquet_files(
@@ -83,10 +85,7 @@ async fn write_parquet_files(
         create_arrow_writer(location, arrow_schema, object_store.clone()).await?,
     ));
 
-    let (mut writer_sender, writer_reciever): (
-        Sender<(String, SendableAsyncArrowWriter)>,
-        Receiver<(String, SendableAsyncArrowWriter)>,
-    ) = channel(32);
+    let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(32);
 
     let num_bytes = Arc::new(AtomicUsize::new(0));
 
