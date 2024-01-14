@@ -29,17 +29,20 @@ use super::{
     values::{Struct, Value},
 };
 
+type ReaderZip<'a, R> = Zip<AvroReader<'a, R>, Repeat<Arc<(Schema, PartitionSpec, FormatVersion)>>>;
+type ReaderMap<'a, R> = Map<
+    ReaderZip<'a, R>,
+    fn(
+        (
+            Result<AvroValue, apache_avro::Error>,
+            Arc<(Schema, PartitionSpec, FormatVersion)>,
+        ),
+    ) -> Result<ManifestEntry, Error>,
+>;
+
 /// Iterator of ManifestFileEntries
 pub struct ManifestReader<'a, R: Read> {
-    reader: Map<
-        Zip<AvroReader<'a, R>, Repeat<Arc<(Schema, PartitionSpec, FormatVersion)>>>,
-        fn(
-            (
-                Result<AvroValue, apache_avro::Error>,
-                Arc<(Schema, PartitionSpec, FormatVersion)>,
-            ),
-        ) -> Result<ManifestEntry, Error>,
-    >,
+    reader: ReaderMap<'a, R>,
 }
 
 impl<'a, R: Read> Iterator for ManifestReader<'a, R> {

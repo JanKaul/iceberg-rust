@@ -85,7 +85,7 @@ impl<T: Representation> GeneralViewMetadata<T> {
             None => self.current_version_id,
             Some(reference) => self
                 .properties
-                .get(&(REF_PREFIX.to_string() + &reference))
+                .get(&(REF_PREFIX.to_string() + reference))
                 .and_then(|x| x.parse().ok())
                 .unwrap_or(self.current_version_id),
         };

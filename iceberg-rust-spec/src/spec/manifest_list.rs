@@ -22,14 +22,15 @@ use super::{
     values::Value,
 };
 
+type ReaderZip<'a, 'metadata, R> = Zip<AvroReader<'a, R>, Repeat<&'metadata TableMetadata>>;
+type ReaderMap<'a, 'metadata, R> = Map<
+    ReaderZip<'a, 'metadata, R>,
+    fn((Result<AvroValue, apache_avro::Error>, &TableMetadata)) -> Result<ManifestListEntry, Error>,
+>;
+
 /// Iterator of ManifestFileEntries
 pub struct ManifestListReader<'a, 'metadata, R: Read> {
-    reader: Map<
-        Zip<AvroReader<'a, R>, Repeat<&'metadata TableMetadata>>,
-        fn(
-            (Result<AvroValue, apache_avro::Error>, &TableMetadata),
-        ) -> Result<ManifestListEntry, Error>,
-    >,
+    reader: ReaderMap<'a, 'metadata, R>,
 }
 
 impl<'a, 'metadata, R: Read> Iterator for ManifestListReader<'a, 'metadata, R> {
