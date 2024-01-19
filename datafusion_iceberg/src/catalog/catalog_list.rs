@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use datafusion::catalog::{CatalogList as DFCatalogList, CatalogProvider};
