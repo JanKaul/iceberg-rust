@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use dashmap::DashMap;
 use datafusion::catalog::{CatalogList as DFCatalogList, CatalogProvider};
 use futures::{stream, StreamExt};
 use iceberg_rust::catalog::CatalogList;
@@ -8,7 +9,7 @@ use crate::error::Error;
 
 use super::catalog::IcebergCatalog;
 
-pub struct IcebergCatalogList(HashMap<String, Arc<dyn CatalogProvider>>);
+pub struct IcebergCatalogList(DashMap<String, Arc<dyn CatalogProvider>>);
 
 impl IcebergCatalogList {
     pub async fn new(catalog_list: Arc<dyn CatalogList>) -> Result<Self, Error> {
@@ -27,7 +28,7 @@ impl IcebergCatalogList {
                 }
             })
             .filter_map(|x| async move { x })
-            .collect::<HashMap<_, _>>()
+            .collect::<DashMap<_, _>>()
             .await;
 
         Ok(IcebergCatalogList(map))
@@ -40,18 +41,18 @@ impl DFCatalogList for IcebergCatalogList {
     }
 
     fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
-        self.0.get(name).cloned()
+        self.0.get(name).as_deref().cloned()
     }
 
     fn catalog_names(&self) -> Vec<String> {
-        self.0.keys().map(ToOwned::to_owned).collect()
+        self.0.iter().map(|c| c.key().clone()).collect()
     }
 
     fn register_catalog(
         &self,
-        _name: String,
-        _catalog: Arc<dyn CatalogProvider>,
+        name: String,
+        catalog: Arc<dyn CatalogProvider>,
     ) -> Option<Arc<dyn CatalogProvider>> {
-        unimplemented!()
+        self.0.insert(name, catalog)
     }
 }
