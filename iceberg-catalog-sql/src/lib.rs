@@ -62,6 +62,24 @@ impl SqlCatalog {
             })
             .await?;
 
+        connection
+            .transaction(|txn| {
+                Box::pin(async move {
+                    sqlx::query(
+                        "create table if not exists iceberg_namespace_properties (
+                                catalog_name text not null,
+                                namespace text not null,
+                                property_key text,
+                                property_value text,
+                                primary key (catalog_name, namespace, property_key)
+                            );",
+                    )
+                    .execute(&mut **txn)
+                    .await
+                })
+            })
+            .await?;
+
         Ok(SqlCatalog {
             name: name.to_owned(),
             connection: Arc::new(Mutex::new(connection)),
