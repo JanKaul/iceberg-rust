@@ -531,26 +531,9 @@ impl DataSink for IcebergDataSink {
         }
         .map_err(Into::<Error>::into)?;
 
-        let object_store = table.object_store();
-        let schema = self
-            .0
-            .snapshot_range
-            .1
-            .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
-            .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
-        let location = &table.metadata().location;
-        let partition_spec = table
-            .metadata()
-            .default_partition_spec()
-            .map_err(Into::<Error>::into)?;
-        let metadata_files = write_parquet_partitioned(
-            location,
-            &schema,
-            partition_spec,
-            data.map_err(Into::into),
-            object_store,
-        )
-        .await?;
+        let metadata_files =
+            write_parquet_partitioned(table, data.map_err(Into::into), self.0.branch.as_deref())
+                .await?;
 
         table
             .new_transaction(self.0.branch.as_deref())

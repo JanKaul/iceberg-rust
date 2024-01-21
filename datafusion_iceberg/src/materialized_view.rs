@@ -27,8 +27,6 @@ pub async fn refresh_materialized_view(
     catalog_list: Arc<dyn CatalogList>,
     branch: Option<&str>,
 ) -> Result<(), Error> {
-    let metadata = matview.metadata();
-
     let ctx = SessionContext::new();
 
     let sql = match &matview.metadata().current_version(branch)?.representations[0] {
@@ -109,14 +107,7 @@ pub async fn refresh_materialized_view(
         .await?
         .map_err(ArrowError::from);
 
-    let files = write_parquet_partitioned(
-        &metadata.location,
-        metadata.current_schema(branch.as_deref())?,
-        storage_table.metadata().default_partition_spec()?,
-        batches,
-        matview.object_store(),
-    )
-    .await?;
+    let files = write_parquet_partitioned(&storage_table, batches, branch.as_deref()).await?;
 
     storage_table
         .full_refresh(files, version_id, new_tables, branch)
