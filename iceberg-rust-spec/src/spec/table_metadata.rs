@@ -542,7 +542,15 @@ mod _serde {
                 schemas,
 
                 properties: value.properties,
-                current_snapshot_id: value.current_snapshot_id,
+                current_snapshot_id: if let &Some(id) = &value.current_snapshot_id {
+                    if id == -1 {
+                        None
+                    } else {
+                        Some(id)
+                    }
+                } else {
+                    value.current_snapshot_id
+                },
                 snapshots: value
                     .snapshots
                     .map(|snapshots| {
@@ -1200,6 +1208,88 @@ mod tests {
             snapshot_log: vec![],
             metadata_log: Vec::new(),
             refs: HashMap::new(),
+        };
+
+        check_table_metadata_serde(&metadata, expected);
+    }
+
+    #[test]
+    fn test_table_metadata_v1_file_valid() {
+        let metadata =
+            fs::read_to_string("testdata/table_metadata/TableMetadataV1Valid.json").unwrap();
+
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_fields(
+                StructTypeBuilder::default()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "x".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "y".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: Some("comment".to_owned()),
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "z".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
+        let partition_spec = PartitionSpecBuilder::default()
+            .with_spec_id(0)
+            .with_partition_field(PartitionField {
+                name: "x".to_string(),
+                transform: Transform::Identity,
+                source_id: 1,
+                field_id: 1000,
+            })
+            .build()
+            .unwrap();
+
+        let expected = TableMetadata {
+            format_version: FormatVersion::V1,
+            table_uuid: Uuid::parse_str("d20125c8-7284-442c-9aea-15fee620737c").unwrap(),
+            location: "s3://bucket/test/location".to_string(),
+            last_updated_ms: 1602638573874,
+            last_column_id: 3,
+            schemas: HashMap::from_iter(vec![(0, schema)]),
+            current_schema_id: 0,
+            partition_specs: HashMap::from_iter(vec![(0, partition_spec)]),
+            default_spec_id: 0,
+            last_partition_id: 0,
+            default_sort_order_id: 0,
+            sort_orders: HashMap::new(),
+            snapshots: HashMap::new(),
+            current_snapshot_id: None,
+            last_sequence_number: 0,
+            properties: HashMap::new(),
+            snapshot_log: vec![],
+            metadata_log: Vec::new(),
+            refs: HashMap::from_iter(vec![(
+                "main".to_string(),
+                SnapshotReference {
+                    snapshot_id: -1,
+                    retention: SnapshotRetention::Branch {
+                        min_snapshots_to_keep: None,
+                        max_snapshot_age_ms: None,
+                        max_ref_age_ms: None,
+                    },
+                },
+            )]),
         };
 
         check_table_metadata_serde(&metadata, expected);
