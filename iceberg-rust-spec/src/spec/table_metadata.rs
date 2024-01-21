@@ -10,7 +10,7 @@ use std::{
 
 use crate::{
     error::Error,
-    spec::{partition::PartitionSpec, snapshot::Reference, sort},
+    spec::{partition::PartitionSpec, sort},
 };
 
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,10 @@ use uuid::Uuid;
 
 use derive_builder::Builder;
 
-use super::{schema::Schema, snapshot::Snapshot};
+use super::{
+    schema::Schema,
+    snapshot::{Snapshot, SnapshotReference},
+};
 
 pub static MAIN_BRANCH: &str = "main";
 static DEFAULT_SORT_ORDER_ID: i64 = 0;
@@ -113,7 +116,7 @@ pub struct TableMetadata {
     /// There is always a main branch reference pointing to the current-snapshot-id
     /// even if the refs map is null.
     #[builder(default)]
-    pub refs: HashMap<String, Reference>,
+    pub refs: HashMap<String, SnapshotReference>,
 }
 
 impl TableMetadata {
@@ -229,7 +232,7 @@ mod _serde {
             partition::{PartitionField, PartitionSpec},
             schema,
             snapshot::{
-                Reference, Retention,
+                SnapshotReference, SnapshotRetention,
                 _serde::{SnapshotV1, SnapshotV2},
             },
             sort,
@@ -321,7 +324,7 @@ mod _serde {
         /// There is always a main branch reference pointing to the current-snapshot-id
         /// even if the refs map is null.
         #[serde(skip_serializing_if = "HashMap::is_empty", default)]
-        pub refs: HashMap<String, Reference>,
+        pub refs: HashMap<String, SnapshotReference>,
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -436,10 +439,11 @@ mod _serde {
             );
             let mut refs = value.refs;
             if let Some(snapshot_id) = current_snapshot_id {
-                refs.entry(MAIN_BRANCH.to_string()).or_insert(Reference {
-                    snapshot_id,
-                    retention: Retention::default(),
-                });
+                refs.entry(MAIN_BRANCH.to_string())
+                    .or_insert(SnapshotReference {
+                        snapshot_id,
+                        retention: SnapshotRetention::default(),
+                    });
             }
             Ok(TableMetadata {
                 format_version: FormatVersion::V2,
@@ -538,7 +542,15 @@ mod _serde {
                 schemas,
 
                 properties: value.properties,
-                current_snapshot_id: value.current_snapshot_id,
+                current_snapshot_id: if let &Some(id) = &value.current_snapshot_id {
+                    if id == -1 {
+                        None
+                    } else {
+                        Some(id)
+                    }
+                } else {
+                    value.current_snapshot_id
+                },
                 snapshots: value
                     .snapshots
                     .map(|snapshots| {
@@ -562,9 +574,9 @@ mod _serde {
                 default_sort_order_id: value.default_sort_order_id.unwrap_or(DEFAULT_SORT_ORDER_ID),
                 refs: HashMap::from_iter(vec![(
                     MAIN_BRANCH.to_string(),
-                    Reference {
+                    SnapshotReference {
                         snapshot_id: value.current_snapshot_id.unwrap_or_default(),
-                        retention: Retention::Branch {
+                        retention: SnapshotRetention::Branch {
                             min_snapshots_to_keep: None,
                             max_snapshot_age_ms: None,
                             max_ref_age_ms: None,
@@ -719,7 +731,33 @@ impl From<FormatVersion> for u8 {
 #[cfg(test)]
 mod tests {
 
-    use crate::{error::Error, spec::table_metadata::TableMetadata};
+    use std::{collections::HashMap, fs};
+
+    use uuid::Uuid;
+
+    use crate::{
+        error::Error,
+        spec::{
+            partition::{PartitionField, PartitionSpecBuilder, Transform},
+            schema::SchemaBuilder,
+            snapshot::{Operation, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary},
+            sort::{NullOrder, SortDirection, SortField, SortOrderBuilder},
+            table_metadata::TableMetadata,
+            types::{PrimitiveType, StructField, StructTypeBuilder, Type},
+        },
+    };
+
+    use super::{FormatVersion, SnapshotLog};
+
+    fn check_table_metadata_serde(json: &str, expected_type: TableMetadata) {
+        let desered_type: TableMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(desered_type, expected_type);
+
+        let sered_json = serde_json::to_string(&expected_type).unwrap();
+        let parsed_json_value = serde_json::from_str::<TableMetadata>(&sered_json).unwrap();
+
+        assert_eq!(parsed_json_value, desered_type);
+    }
 
     #[test]
     fn test_deserialize_table_data_v2() -> Result<(), Error> {
@@ -929,5 +967,345 @@ mod tests {
         assert_eq!(metadata, metadata_two);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_table_metadata_v2_file_valid() {
+        let metadata =
+            fs::read_to_string("testdata/table_metadata/TableMetadataV2Valid.json").unwrap();
+
+        let schema1 = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_fields(
+                StructTypeBuilder::default()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "x".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
+        let schema2 = SchemaBuilder::default()
+            .with_schema_id(1)
+            .with_fields(
+                StructTypeBuilder::default()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "x".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "y".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: Some("comment".to_owned()),
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "z".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .with_identifier_field_ids(vec![1, 2])
+            .build()
+            .unwrap();
+
+        let partition_spec = PartitionSpecBuilder::default()
+            .with_spec_id(0)
+            .with_partition_field(PartitionField {
+                name: "x".to_string(),
+                transform: Transform::Identity,
+                source_id: 1,
+                field_id: 1000,
+            })
+            .build()
+            .unwrap();
+
+        let sort_order = SortOrderBuilder::default()
+            .with_order_id(3)
+            .with_sort_field(SortField {
+                source_id: 2,
+                transform: Transform::Identity,
+                direction: SortDirection::Ascending,
+                null_order: NullOrder::First,
+            })
+            .with_sort_field(SortField {
+                source_id: 3,
+                transform: Transform::Bucket(4),
+                direction: SortDirection::Descending,
+                null_order: NullOrder::Last,
+            })
+            .build()
+            .unwrap();
+
+        let snapshot1 = SnapshotBuilder::default()
+            .with_snapshot_id(3051729675574597004)
+            .with_timestamp_ms(1515100955770)
+            .with_sequence_number(0)
+            .with_manifest_list("s3://a/b/1.avro".to_string())
+            .with_summary(Summary {
+                operation: Operation::Append,
+                other: HashMap::new(),
+            })
+            .build()
+            .expect("Failed to create snapshot");
+
+        let snapshot2 = SnapshotBuilder::default()
+            .with_snapshot_id(3055729675574597004)
+            .with_parent_snapshot_id(3051729675574597004)
+            .with_timestamp_ms(1555100955770)
+            .with_sequence_number(1)
+            .with_schema_id(1)
+            .with_manifest_list("s3://a/b/2.avro".to_string())
+            .with_summary(Summary {
+                operation: Operation::Append,
+                other: HashMap::new(),
+            })
+            .build()
+            .expect("Failed to create snapshot");
+
+        let expected = TableMetadata {
+            format_version: FormatVersion::V2,
+            table_uuid: Uuid::parse_str("9c12d441-03fe-4693-9a96-a0705ddf69c1").unwrap(),
+            location: "s3://bucket/test/location".to_string(),
+            last_updated_ms: 1602638573590,
+            last_column_id: 3,
+            schemas: HashMap::from_iter(vec![(0, schema1), (1, schema2)]),
+            current_schema_id: 1,
+            partition_specs: HashMap::from_iter(vec![(0, partition_spec)]),
+            default_spec_id: 0,
+            last_partition_id: 1000,
+            default_sort_order_id: 3,
+            sort_orders: HashMap::from_iter(vec![(3, sort_order)]),
+            snapshots: HashMap::from_iter(vec![
+                (3051729675574597004, snapshot1),
+                (3055729675574597004, snapshot2),
+            ]),
+            current_snapshot_id: Some(3055729675574597004),
+            last_sequence_number: 34,
+            properties: HashMap::new(),
+            snapshot_log: vec![
+                SnapshotLog {
+                    snapshot_id: 3051729675574597004,
+                    timestamp_ms: 1515100955770,
+                },
+                SnapshotLog {
+                    snapshot_id: 3055729675574597004,
+                    timestamp_ms: 1555100955770,
+                },
+            ],
+            metadata_log: Vec::new(),
+            refs: HashMap::from_iter(vec![(
+                "main".to_string(),
+                SnapshotReference {
+                    snapshot_id: 3055729675574597004,
+                    retention: SnapshotRetention::Branch {
+                        min_snapshots_to_keep: None,
+                        max_snapshot_age_ms: None,
+                        max_ref_age_ms: None,
+                    },
+                },
+            )]),
+        };
+
+        check_table_metadata_serde(&metadata, expected);
+    }
+
+    #[test]
+    fn test_table_metadata_v2_file_valid_minimal() {
+        let metadata =
+            fs::read_to_string("testdata/table_metadata/TableMetadataV2ValidMinimal.json").unwrap();
+
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_fields(
+                StructTypeBuilder::default()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "x".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "y".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: Some("comment".to_owned()),
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "z".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
+        let partition_spec = PartitionSpecBuilder::default()
+            .with_spec_id(0)
+            .with_partition_field(PartitionField {
+                name: "x".to_string(),
+                transform: Transform::Identity,
+                source_id: 1,
+                field_id: 1000,
+            })
+            .build()
+            .unwrap();
+
+        let sort_order = SortOrderBuilder::default()
+            .with_order_id(3)
+            .with_sort_field(SortField {
+                source_id: 2,
+                transform: Transform::Identity,
+                direction: SortDirection::Ascending,
+                null_order: NullOrder::First,
+            })
+            .with_sort_field(SortField {
+                source_id: 3,
+                transform: Transform::Bucket(4),
+                direction: SortDirection::Descending,
+                null_order: NullOrder::Last,
+            })
+            .build()
+            .unwrap();
+
+        let expected = TableMetadata {
+            format_version: FormatVersion::V2,
+            table_uuid: Uuid::parse_str("9c12d441-03fe-4693-9a96-a0705ddf69c1").unwrap(),
+            location: "s3://bucket/test/location".to_string(),
+            last_updated_ms: 1602638573590,
+            last_column_id: 3,
+            schemas: HashMap::from_iter(vec![(0, schema)]),
+            current_schema_id: 0,
+            partition_specs: HashMap::from_iter(vec![(0, partition_spec)]),
+            default_spec_id: 0,
+            last_partition_id: 1000,
+            default_sort_order_id: 3,
+            sort_orders: HashMap::from_iter(vec![(3, sort_order)]),
+            snapshots: HashMap::default(),
+            current_snapshot_id: None,
+            last_sequence_number: 34,
+            properties: HashMap::new(),
+            snapshot_log: vec![],
+            metadata_log: Vec::new(),
+            refs: HashMap::new(),
+        };
+
+        check_table_metadata_serde(&metadata, expected);
+    }
+
+    #[test]
+    fn test_table_metadata_v1_file_valid() {
+        let metadata =
+            fs::read_to_string("testdata/table_metadata/TableMetadataV1Valid.json").unwrap();
+
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_fields(
+                StructTypeBuilder::default()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "x".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "y".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: Some("comment".to_owned()),
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "z".to_owned(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
+        let partition_spec = PartitionSpecBuilder::default()
+            .with_spec_id(0)
+            .with_partition_field(PartitionField {
+                name: "x".to_string(),
+                transform: Transform::Identity,
+                source_id: 1,
+                field_id: 1000,
+            })
+            .build()
+            .unwrap();
+
+        let expected = TableMetadata {
+            format_version: FormatVersion::V1,
+            table_uuid: Uuid::parse_str("d20125c8-7284-442c-9aea-15fee620737c").unwrap(),
+            location: "s3://bucket/test/location".to_string(),
+            last_updated_ms: 1602638573874,
+            last_column_id: 3,
+            schemas: HashMap::from_iter(vec![(0, schema)]),
+            current_schema_id: 0,
+            partition_specs: HashMap::from_iter(vec![(0, partition_spec)]),
+            default_spec_id: 0,
+            last_partition_id: 0,
+            default_sort_order_id: 0,
+            sort_orders: HashMap::new(),
+            snapshots: HashMap::new(),
+            current_snapshot_id: None,
+            last_sequence_number: 0,
+            properties: HashMap::new(),
+            snapshot_log: vec![],
+            metadata_log: Vec::new(),
+            refs: HashMap::from_iter(vec![(
+                "main".to_string(),
+                SnapshotReference {
+                    snapshot_id: -1,
+                    retention: SnapshotRetention::Branch {
+                        min_snapshots_to_keep: None,
+                        max_snapshot_age_ms: None,
+                        max_ref_age_ms: None,
+                    },
+                },
+            )]),
+        };
+
+        check_table_metadata_serde(&metadata, expected);
+    }
+
+    #[test]
+    fn test_table_metadata_v2_missing_sort_order() {
+        let metadata =
+            fs::read_to_string("testdata/table_metadata/TableMetadataV2MissingSortOrder.json")
+                .unwrap();
+
+        let desered: Result<TableMetadata, serde_json::Error> = serde_json::from_str(&metadata);
+
+        assert_eq!(
+            desered.unwrap_err().to_string(),
+            "data did not match any variant of untagged enum TableMetadataEnum"
+        )
     }
 }

@@ -14,7 +14,7 @@ use iceberg_rust_spec::spec::{
     manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
     partition::PartitionField,
     schema::Schema,
-    snapshot::Reference,
+    snapshot::SnapshotReference,
     types::StructField,
     values::{Struct, Value},
 };
@@ -39,7 +39,7 @@ pub enum Operation {
         entries: Vec<(String, String)>,
     },
     /// Set Ref
-    SetRef((String, Reference)),
+    SetRef((String, SnapshotReference)),
     /// Replace the sort order
     // ReplaceSortOrder,
     // /// Update the table location

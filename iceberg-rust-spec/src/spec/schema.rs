@@ -1,20 +1,23 @@
 /*!
  * Schemas
 */
+use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 
 use super::types::StructType;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder)]
 #[serde(rename_all = "kebab-case")]
+#[builder(setter(prefix = "with"))]
 /// Names and types of fields in a table.
 pub struct Schema {
     /// Identifier of the schema
     pub schema_id: i32,
     /// Set of primitive fields that identify rows in a table.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[builder(setter(into, strip_option), default)]
     pub identifier_field_ids: Option<Vec<i32>>,
 
     #[serde(flatten)]

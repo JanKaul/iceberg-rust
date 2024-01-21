@@ -20,10 +20,8 @@ pub enum Transform {
     /// Source value, unmodified
     Identity,
     /// Hash of value, mod N
-    #[serde(serialize_with = "serialize_bucket")]
     Bucket(u32),
     /// Value truncated to width
-    #[serde(serialize_with = "serialize_truncate")]
     Truncate(u32),
     /// Extract a date or timestamp year as years from 1970
     Year,
@@ -58,7 +56,11 @@ impl Serialize for Transform {
     where
         S: serde::Serializer,
     {
-        Transform::serialize(self, serializer)
+        match self {
+            Transform::Bucket(bucket) => serialize_bucket(bucket, serializer),
+            Transform::Truncate(truncate) => serialize_truncate(truncate, serializer),
+            x => Transform::serialize(x, serializer),
+        }
     }
 }
 
@@ -123,6 +125,7 @@ pub struct PartitionField {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
 #[serde(rename_all = "kebab-case")]
+#[builder(setter(prefix = "with"))]
 ///  Partition spec that defines how to produce a tuple of partition values from a record.
 pub struct PartitionSpec {
     /// Identifier for PartitionSpec

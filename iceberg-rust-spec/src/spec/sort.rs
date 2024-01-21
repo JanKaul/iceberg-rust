@@ -1,6 +1,7 @@
 /*!
  * Sorting
 */
+use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 
 use super::partition::Transform;
@@ -41,13 +42,15 @@ pub struct SortField {
     pub null_order: NullOrder,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder)]
 #[serde(rename_all = "kebab-case")]
+#[builder(setter(prefix = "with"))]
 /// A sort order is defined by a sort order id and a list of sort fields.
 /// The order of the sort fields within the list defines the order in which the sort is applied to the data.
 pub struct SortOrder {
     /// Identifier for SortOrder, order_id `0` is no sort order.
     pub order_id: i32,
+    #[builder(setter(each(name = "with_sort_field")))]
     /// Details of the sort
     pub fields: Vec<SortField>,
 }
