@@ -682,7 +682,7 @@ mod tests {
                 .unwrap(),
         };
         let partition_spec = PartitionSpecBuilder::default()
-            .spec_id(1)
+            .with_spec_id(1)
             .with_partition_field(PartitionField {
                 source_id: 4,
                 field_id: 1000,
@@ -861,7 +861,7 @@ mod tests {
                 .unwrap(),
         };
         let partition_spec = PartitionSpecBuilder::default()
-            .spec_id(1)
+            .with_spec_id(1)
             .with_partition_field(PartitionField {
                 source_id: 4,
                 field_id: 1000,
@@ -1047,7 +1047,7 @@ mod tests {
                 .unwrap(),
         };
         let partition_spec = PartitionSpecBuilder::default()
-            .spec_id(1)
+            .with_spec_id(1)
             .with_partition_field(PartitionField {
                 source_id: 4,
                 field_id: 1000,

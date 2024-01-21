@@ -2,7 +2,8 @@
  * Defines the [Transaction] type that performs multiple [Operation]s with ACID properties.
 */
 use iceberg_rust_spec::spec::{
-    manifest::DataFile, schema::Schema, snapshot::Reference, table_metadata::new_metadata_location,
+    manifest::DataFile, schema::Schema, snapshot::SnapshotReference,
+    table_metadata::new_metadata_location,
 };
 
 use crate::{catalog::tabular::Tabular, error::Error, table::Table};
@@ -60,7 +61,7 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Set snapshot reference
-    pub fn set_ref(mut self, entry: (String, Reference)) -> Self {
+    pub fn set_ref(mut self, entry: (String, SnapshotReference)) -> Self {
         self.operations.push(Operation::SetRef(entry));
         self
     }

@@ -728,7 +728,7 @@ mod tests {
             .partition_specs(HashMap::from_iter(vec![(
                 1,
                 PartitionSpecBuilder::default()
-                    .spec_id(1)
+                    .with_spec_id(1)
                     .with_partition_field(PartitionField {
                         source_id: 0,
                         field_id: 1000,
@@ -812,7 +812,7 @@ mod tests {
             .partition_specs(HashMap::from_iter(vec![(
                 1,
                 PartitionSpecBuilder::default()
-                    .spec_id(1)
+                    .with_spec_id(1)
                     .with_partition_field(PartitionField {
                         source_id: 0,
                         field_id: 1000,

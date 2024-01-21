@@ -11,7 +11,7 @@ use iceberg_rust_spec::spec::{
     manifest::{Content, ManifestEntry, ManifestReader},
     manifest_list::ManifestListEntry,
     schema::Schema,
-    snapshot::{Operation, Reference, Retention, Snapshot, Summary},
+    snapshot::{Operation, Snapshot, SnapshotReference, SnapshotRetention, Summary},
     table_metadata::{TableMetadata, MAIN_BRANCH},
 };
 use iceberg_rust_spec::util::{self, strip_prefix};
@@ -298,9 +298,9 @@ impl Table {
             .refs
             .entry(branch_name)
             .and_modify(|x| x.snapshot_id = snapshot_id)
-            .or_insert(Reference {
+            .or_insert(SnapshotReference {
                 snapshot_id,
-                retention: Retention::default(),
+                retention: SnapshotRetention::default(),
             });
         match old_manifest_list_location {
             Some(old_manifest_list_location) => Ok(Some(

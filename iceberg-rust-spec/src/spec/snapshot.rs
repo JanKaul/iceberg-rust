@@ -3,6 +3,7 @@
 */
 use std::{collections::HashMap, io::Cursor, sync::Arc};
 
+use derive_builder::Builder;
 use object_store::ObjectStore;
 use serde::{Deserialize, Serialize};
 
@@ -13,13 +14,15 @@ use super::{
     table_metadata::TableMetadata,
 };
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Builder)]
+#[builder(setter(prefix = "with"))]
 /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
 pub struct Snapshot {
     /// A unique long ID
     pub snapshot_id: i64,
     /// The snapshot ID of the snapshot’s parent.
     /// Omitted for any snapshot with no parent
+    #[builder(setter(strip_option), default)]
     pub parent_snapshot_id: Option<i64>,
     /// A monotonically increasing long that tracks the order of
     /// changes to a table.
@@ -33,6 +36,7 @@ pub struct Snapshot {
     /// A string map that summarizes the snapshot changes, including operation.
     pub summary: Summary,
     /// ID of the table’s current schema when the snapshot was created.
+    #[builder(setter(strip_option), default)]
     pub schema_id: Option<i32>,
 }
 
@@ -153,7 +157,7 @@ pub(crate) mod _serde {
             Snapshot {
                 snapshot_id: value.snapshot_id,
                 parent_snapshot_id: value.parent_snapshot_id,
-                sequence_number: 0,
+                sequence_number: value.sequence_number,
                 timestamp_ms: value.timestamp_ms,
                 manifest_list: value.manifest_list,
                 summary: value.summary,
@@ -167,7 +171,7 @@ pub(crate) mod _serde {
             SnapshotV2 {
                 snapshot_id: value.snapshot_id,
                 parent_snapshot_id: value.parent_snapshot_id,
-                sequence_number: 0,
+                sequence_number: value.sequence_number,
                 timestamp_ms: value.timestamp_ms,
                 manifest_list: value.manifest_list,
                 summary: value.summary,
@@ -211,18 +215,18 @@ impl Default for Operation {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Iceberg tables keep track of branches and tags using snapshot references.
-pub struct Reference {
+pub struct SnapshotReference {
     /// A reference’s snapshot ID. The tagged snapshot or latest snapshot of a branch.
     pub snapshot_id: i64,
     #[serde(flatten)]
     /// Snapshot retention policy
-    pub retention: Retention,
+    pub retention: SnapshotRetention,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "lowercase", tag = "type")]
 /// The snapshot expiration procedure removes snapshots from table metadata and applies the table’s retention policy.
-pub enum Retention {
+pub enum SnapshotRetention {
     #[serde(rename_all = "kebab-case")]
     /// Branches are mutable named references that can be updated by committing a new snapshot as
     /// the branch’s referenced snapshot using the Commit Conflict Resolution and Retry procedures.
@@ -249,9 +253,9 @@ pub enum Retention {
     },
 }
 
-impl Default for Retention {
+impl Default for SnapshotRetention {
     fn default() -> Self {
-        Retention::Branch {
+        SnapshotRetention::Branch {
             max_ref_age_ms: None,
             max_snapshot_age_ms: None,
             min_snapshots_to_keep: None,
