@@ -16,7 +16,10 @@ use tokio::io::AsyncWrite;
 
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
-use iceberg_rust_spec::spec::{manifest::DataFile, partition::PartitionSpec, schema::Schema};
+use iceberg_rust_spec::{
+    spec::{manifest::DataFile, partition::PartitionSpec, schema::Schema},
+    util::strip_prefix,
+};
 use parquet::arrow::AsyncArrowWriter;
 use uuid::Uuid;
 
@@ -173,7 +176,7 @@ async fn create_arrow_writer(
         .unwrap();
 
     let parquet_path =
-        location.to_string() + "/data/" + &Uuid::now_v1(&rand).to_string() + ".parquet";
+        strip_prefix(location) + "/data/" + &Uuid::now_v1(&rand).to_string() + ".parquet";
 
     let (_, writer) = object_store
         .put_multipart(&parquet_path.clone().into())
