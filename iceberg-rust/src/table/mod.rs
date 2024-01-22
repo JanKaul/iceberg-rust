@@ -12,7 +12,7 @@ use iceberg_rust_spec::spec::{
     manifest_list::ManifestListEntry,
     schema::Schema,
     snapshot::{Operation, Snapshot, SnapshotReference, SnapshotRetention, Summary},
-    table_metadata::{TableMetadata, MAIN_BRANCH},
+    table_metadata::{SnapshotLog, TableMetadata, MAIN_BRANCH},
 };
 use iceberg_rust_spec::util::{self, strip_prefix};
 
@@ -272,14 +272,15 @@ impl Table {
             + &snapshot_id.to_string()
             + &uuid::Uuid::new_v4().to_string()
             + ".avro";
+        let timestamp_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
         let snapshot = Snapshot {
             snapshot_id,
             parent_snapshot_id,
             sequence_number: metadata.last_sequence_number + 1,
-            timestamp_ms: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as i64,
+            timestamp_ms,
             manifest_list: new_manifest_list_location,
             summary: Summary {
                 operation: Operation::Append,
@@ -294,6 +295,10 @@ impl Table {
         if branch_name == MAIN_BRANCH {
             metadata.current_snapshot_id = Some(snapshot_id);
         }
+        metadata.snapshot_log.push(SnapshotLog {
+            snapshot_id,
+            timestamp_ms,
+        });
         metadata
             .refs
             .entry(branch_name)
