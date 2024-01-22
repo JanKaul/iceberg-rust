@@ -256,7 +256,7 @@ impl Table {
     ) -> Result<Option<Vec<u8>>, Error> {
         let mut bytes: [u8; 8] = [0u8; 8];
         getrandom::getrandom(&mut bytes).unwrap();
-        let snapshot_id = i64::from_le_bytes(bytes);
+        let snapshot_id = u64::from_le_bytes(bytes) as i64;
         let object_store = self.object_store();
         let parent_snapshot_id = branch
             .as_deref()
