@@ -10,7 +10,10 @@ use std::{
 
 use crate::{
     error::Error,
-    spec::{partition::PartitionSpec, sort},
+    spec::{
+        partition::PartitionSpec,
+        sort::{self, SortOrder},
+    },
 };
 
 use serde::{Deserialize, Serialize};
@@ -103,7 +106,10 @@ pub struct TableMetadata {
     /// keep a fixed-size log of the most recent entries after a commit.
     #[builder(default)]
     pub metadata_log: Vec<MetadataLog>,
-    #[builder(setter(each(name = "with_sort_order")), default)]
+    #[builder(
+        setter(each(name = "with_sort_order")),
+        default = "HashMap::from_iter(vec![(0, SortOrder::default())])"
+    )]
     /// A list of sort orders, stored as full sort order objects.
     pub sort_orders: HashMap<i64, sort::SortOrder>,
     #[builder(default)]
