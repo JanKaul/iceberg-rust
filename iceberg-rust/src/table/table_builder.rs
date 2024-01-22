@@ -47,7 +47,23 @@ impl TableBuilder {
     }
     /// Building a table writes the metadata file and commits the table to either the metastore or the filesystem
     pub async fn build(&mut self) -> Result<Table, Error> {
-        let metadata = self.metadata.build()?;
+        let mut metadata = self.metadata.build()?;
+        let last_column_id = metadata
+            .schemas
+            .values()
+            .flat_map(|x| x.fields.fields.iter())
+            .map(|x| x.id)
+            .max()
+            .unwrap_or(0);
+        metadata.last_column_id = last_column_id;
+        let last_column_id = metadata
+            .partition_specs
+            .values()
+            .flat_map(|x| x.fields.iter())
+            .map(|x| x.field_id)
+            .max()
+            .unwrap_or(0);
+        metadata.last_partition_id = last_column_id;
         let bucket = parse_bucket(&metadata.location)?;
         let object_store = self.catalog.object_store(bucket);
 
