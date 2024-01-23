@@ -2,7 +2,7 @@
 Defining the [Bucket] struct for specifying buckets for the ObjectStore.
 */
 
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
 use object_store::{
     aws::AmazonS3Builder, gcp::GoogleCloudStorageBuilder, local::LocalFileSystem, memory::InMemory,
@@ -19,6 +19,16 @@ pub enum Bucket<'s> {
     GCS(&'s str),
     /// No bucket
     Local,
+}
+
+impl<'s> Display for Bucket<'s> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Bucket::S3(s) => write!(f, "s3://{}", s),
+            Bucket::GCS(s) => write!(f, "gcs://{}", s),
+            Bucket::Local => write!(f, ""),
+        }
+    }
 }
 
 /// Get the bucket and coud provider from the location string

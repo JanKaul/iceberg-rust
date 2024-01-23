@@ -23,7 +23,10 @@ use iceberg_rust_spec::{
 use parquet::arrow::AsyncArrowWriter;
 use uuid::Uuid;
 
-use crate::{error::Error, file_format::parquet::parquet_to_datafile, table::Table};
+use crate::{
+    catalog::bucket::parse_bucket, error::Error, file_format::parquet::parquet_to_datafile,
+    table::Table,
+};
 
 use super::partition::partition_record_batches;
 
@@ -93,6 +96,7 @@ async fn write_parquet_files(
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<Vec<DataFile>, ArrowError> {
+    let bucket = parse_bucket(location)?;
     let current_writer = Arc::new(Mutex::new(
         create_arrow_writer(location, arrow_schema, object_store.clone()).await?,
     ));
@@ -145,6 +149,7 @@ async fn write_parquet_files(
     writer_reciever
         .then(|writer| {
             let object_store = object_store.clone();
+            let bucket = bucket.to_string();
             async move {
                 let metadata = writer.1.close().await?;
                 let size = object_store
@@ -153,7 +158,7 @@ async fn write_parquet_files(
                     .map_err(|err| ArrowError::from_external_error(err.into()))?
                     .size;
                 Ok(parquet_to_datafile(
-                    &writer.0,
+                    &(bucket + &writer.0),
                     size,
                     &metadata,
                     schema,
