@@ -401,7 +401,7 @@ impl ManifestListEntry {
             FormatVersion::V1 => r#"
         {
             "type": "record",
-            "name": "manifest_list",
+            "name": "manifest_file",
             "fields": [
                 {
                     "name": "manifest_path",
@@ -485,7 +485,7 @@ impl ManifestListEntry {
                             "type": "array",
                             "items": {
                                 "type": "record",
-                                "name": "field_summary",
+                                "name": "r508",
                                 "fields": [
                                     {
                                         "name": "contains_null",
@@ -518,7 +518,7 @@ impl ManifestListEntry {
                                     }
                                 ]
                             },
-                            "element-id": 112
+                            "element-id": 508
                         }
                     ],
                     "default": null,
@@ -539,7 +539,7 @@ impl ManifestListEntry {
             &FormatVersion::V2 => r#"
         {
             "type": "record",
-            "name": "manifest_list",
+            "name": "manifest_file",
             "fields": [
                 {
                     "name": "manifest_path",
@@ -614,7 +614,7 @@ impl ManifestListEntry {
                             "type": "array",
                             "items": {
                                 "type": "record",
-                                "name": "field_summary",
+                                "name": "r508",
                                 "fields": [
                                     {
                                         "name": "contains_null",
@@ -647,7 +647,7 @@ impl ManifestListEntry {
                                     }
                                 ]
                             },
-                            "element-id": 112
+                            "element-id": 508
                         }
                     ],
                     "default": null,

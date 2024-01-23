@@ -494,6 +494,9 @@ pub fn partition_value_schema(
                     "type":  ["null",""#
                     + &format!("{}", &data_type)
                     + r#""],
+                    "field_id": "#
+                    + &field.field_id.to_string()
+                    + r#",
                     "default": null
                 },"#,
             )
