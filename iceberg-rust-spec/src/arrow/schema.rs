@@ -13,6 +13,8 @@ use arrow_schema::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
 
 use crate::error::Error;
 
+pub const PARQUET_FIELD_ID_META_KEY: &str = "PARQUET:field_id";
+
 impl TryInto<ArrowSchema> for &StructType {
     type Error = Error;
 
@@ -21,13 +23,15 @@ impl TryInto<ArrowSchema> for &StructType {
             .fields
             .iter()
             .map(|field| {
-                Ok(Field::new_dict(
+                Ok(Field::new(
                     &field.name,
                     (&field.field_type).try_into()?,
                     !field.required,
-                    field.id as i64,
-                    false,
-                ))
+                )
+                .with_metadata(HashMap::from_iter(vec![(
+                    PARQUET_FIELD_ID_META_KEY.to_string(),
+                    field.id.to_string(),
+                )])))
             })
             .collect::<Result<_, Error>>()?;
         let metadata = HashMap::new();

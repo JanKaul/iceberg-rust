@@ -53,6 +53,8 @@ pub async fn write_parquet_partitioned(
     let arrow_schema: Arc<ArrowSchema> =
         Arc::new((&schema.fields).try_into().map_err(Error::from)?);
 
+    dbg!(&arrow_schema);
+
     let (sender, reciever) = unbounded();
 
     stream::iter(streams.into_iter())
