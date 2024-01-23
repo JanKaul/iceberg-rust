@@ -279,7 +279,7 @@ impl Table {
         let snapshot = Snapshot {
             snapshot_id,
             parent_snapshot_id,
-            sequence_number: metadata.last_sequence_number + 1,
+            sequence_number: metadata.last_sequence_number,
             timestamp_ms,
             manifest_list: new_manifest_list_location,
             summary: Summary {
