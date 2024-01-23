@@ -20,7 +20,11 @@ use iceberg_rust_spec::{
     spec::{manifest::DataFile, partition::PartitionSpec, schema::Schema},
     util::strip_prefix,
 };
-use parquet::arrow::AsyncArrowWriter;
+use parquet::{
+    arrow::AsyncArrowWriter,
+    basic::{Compression, ZstdLevel},
+    file::properties::WriterProperties,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -190,7 +194,16 @@ async fn create_arrow_writer(
 
     Ok((
         parquet_path,
-        AsyncArrowWriter::try_new(writer, Arc::new(schema.clone()), 0, None)?,
+        AsyncArrowWriter::try_new(
+            writer,
+            Arc::new(schema.clone()),
+            1024,
+            Some(
+                WriterProperties::builder()
+                    .set_compression(Compression::ZSTD(ZstdLevel::try_new(1)?))
+                    .build(),
+            ),
+        )?,
     ))
 }
 
