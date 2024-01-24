@@ -1787,8 +1787,6 @@ mod tests {
         let raw_schema =
             partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();
 
-        dbg!(&raw_schema);
-
         let schema = apache_avro::Schema::parse_str(&raw_schema).unwrap();
 
         let mut writer = apache_avro::Writer::new(&schema, Vec::new());

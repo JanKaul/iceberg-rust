@@ -388,7 +388,6 @@ mod tests {
             &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),
         )
         .expect("Failed to serialize json");
-        dbg!(&metadata, &metadata_two);
         assert_eq!(metadata, metadata_two);
 
         Ok(())
