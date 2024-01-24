@@ -3,10 +3,10 @@
 */
 
 use futures::{StreamExt, TryStreamExt};
-use iceberg_rust_spec::spec::{
-    materialized_view_metadata::MaterializedViewRepresentation, types::StructType,
+use iceberg_rust_spec::{
+    spec::{materialized_view_metadata::MaterializedViewRepresentation, types::StructType},
+    util::strip_prefix,
 };
-use object_store::path::Path;
 use uuid::Uuid;
 
 use crate::{
@@ -70,15 +70,17 @@ impl<'view> Transaction<'view> {
         let transaction_uuid = Uuid::new_v4();
         let version = &&materialized_view.metadata().current_version_id;
         let metadata_json = serde_json::to_string(&materialized_view.metadata())?;
-        let metadata_file_location: Path = (location.to_string()
+        let metadata_file_location = location.to_string()
             + "/metadata/"
             + &version.to_string()
             + "-"
             + &transaction_uuid.to_string()
-            + ".metadata.json")
-            .into();
+            + ".metadata.json";
         object_store
-            .put(&metadata_file_location, metadata_json.into())
+            .put(
+                &strip_prefix(&metadata_file_location).into(),
+                metadata_json.into(),
+            )
             .await?;
         let previous_metadata_file_location = materialized_view.metadata_location();
         if let Tabular::MaterializedView(new_mv) = catalog

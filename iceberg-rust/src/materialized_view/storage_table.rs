@@ -5,10 +5,13 @@ use std::{
 };
 
 use futures::{stream, StreamExt, TryStreamExt};
-use iceberg_rust_spec::spec::{
-    manifest::DataFile,
-    materialized_view_metadata::{BaseTable, VersionId},
-    table_metadata::{new_metadata_location, TableMetadataBuilder},
+use iceberg_rust_spec::{
+    spec::{
+        manifest::DataFile,
+        materialized_view_metadata::{BaseTable, VersionId},
+        table_metadata::{new_metadata_location, TableMetadataBuilder},
+    },
+    util::strip_prefix,
 };
 use itertools::intersperse;
 
@@ -159,7 +162,10 @@ impl StorageTable {
         let bytes = serde_json::to_vec(&table_metadata)?;
 
         object_store
-            .put(&metadata_location.clone().into(), bytes.into())
+            .put(
+                &strip_prefix(&metadata_location.clone()).into(),
+                bytes.into(),
+            )
             .await?;
         let mut table = if let Tabular::Table(table) = table_catalog
             .update_table(

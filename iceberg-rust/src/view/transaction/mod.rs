@@ -3,11 +3,13 @@
 */
 
 use futures::{StreamExt, TryStreamExt};
-use object_store::path::Path;
 use uuid::Uuid;
 
 pub mod operation;
-use iceberg_rust_spec::spec::{types::StructType, view_metadata::ViewRepresentation};
+use iceberg_rust_spec::{
+    spec::{types::StructType, view_metadata::ViewRepresentation},
+    util::strip_prefix,
+};
 
 use crate::{
     catalog::{bucket::parse_bucket, tabular::Tabular},
@@ -72,15 +74,17 @@ impl<'view> Transaction<'view> {
         let transaction_uuid = Uuid::new_v4();
         let version = &&view.metadata().current_version_id;
         let metadata_json = serde_json::to_string(&view.metadata())?;
-        let metadata_file_location: Path = (location.to_string()
+        let metadata_file_location = location.to_string()
             + "/metadata/"
             + &version.to_string()
             + "-"
             + &transaction_uuid.to_string()
-            + ".metadata.json")
-            .into();
+            + ".metadata.json";
         object_store
-            .put(&metadata_file_location, metadata_json.into())
+            .put(
+                &strip_prefix(&metadata_file_location).into(),
+                metadata_json.into(),
+            )
             .await?;
         let previous_metadata_file_location = view.metadata_location();
         if let Tabular::View(new_view) = catalog
