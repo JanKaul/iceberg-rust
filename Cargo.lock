@@ -1104,6 +1104,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-getters"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a2c35ab6e03642397cdda1dd58abbc05d418aef8e36297f336d5aba060fe8df"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "derive_builder"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1676,6 +1687,7 @@ dependencies = [
  "apache-avro",
  "arrow-schema",
  "chrono",
+ "derive-getters",
  "derive_builder",
  "itertools 0.10.5",
  "murmur3",
