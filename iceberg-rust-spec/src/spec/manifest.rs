@@ -12,6 +12,8 @@ use std::{
 use apache_avro::{
     types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
 };
+use derive_builder::Builder;
+use derive_getters::Getters;
 use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -170,20 +172,27 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
 }
 
 /// Entry in manifest with the iceberg spec version 2.
-#[derive(Debug, Serialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, PartialEq, Clone, Getters, Builder)]
 #[serde(into = "ManifestEntryEnum")]
+#[builder(setter(prefix = "with"))]
 pub struct ManifestEntry {
     /// Table format version
-    pub format_version: FormatVersion,
+    format_version: FormatVersion,
     /// Used to track additions and deletions
-    pub status: Status,
+    status: Status,
     /// Snapshot id where the file was added, or deleted if status is 2.
     /// Inherited when null.
-    pub snapshot_id: Option<i64>,
+    snapshot_id: Option<i64>,
     /// Sequence number when the file was added. Inherited when null.
-    pub sequence_number: Option<i64>,
+    sequence_number: Option<i64>,
     /// File path, partition tuple, metrics, …
-    pub data_file: DataFile,
+    data_file: DataFile,
+}
+
+impl ManifestEntry {
+    pub fn builder() -> ManifestEntryBuilder {
+        ManifestEntryBuilder::default()
+    }
 }
 
 impl ManifestEntry {
@@ -613,43 +622,54 @@ impl From<HashMap<i32, Value>> for AvroMap<ByteBuf> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Getters, Builder)]
+#[builder(setter(prefix = "with"))]
 /// DataFile found in Manifest.
 pub struct DataFile {
     ///Type of content in data file.
-    pub content: Content,
+    content: Content,
     /// Full URI for the file with a FS scheme.
-    pub file_path: String,
+    file_path: String,
     /// String file format name, avro, orc or parquet
-    pub file_format: FileFormat,
+    file_format: FileFormat,
     /// Partition data tuple, schema based on the partition spec output using partition field ids for the struct field ids
-    pub partition: Struct,
+    partition: Struct,
     /// Number of records in this file
-    pub record_count: i64,
+    record_count: i64,
     /// Total file size in bytes
-    pub file_size_in_bytes: i64,
+    file_size_in_bytes: i64,
     /// Map from column id to total size on disk
-    pub column_sizes: Option<AvroMap<i64>>,
+    column_sizes: Option<AvroMap<i64>>,
     /// Map from column id to number of values in the column (including null and NaN values)
-    pub value_counts: Option<AvroMap<i64>>,
+    value_counts: Option<AvroMap<i64>>,
     /// Map from column id to number of null values
-    pub null_value_counts: Option<AvroMap<i64>>,
+    null_value_counts: Option<AvroMap<i64>>,
     /// Map from column id to number of NaN values
-    pub nan_value_counts: Option<AvroMap<i64>>,
+    nan_value_counts: Option<AvroMap<i64>>,
     /// Map from column id to number of distinct values in the column.
-    pub distinct_counts: Option<AvroMap<i64>>,
+    distinct_counts: Option<AvroMap<i64>>,
     /// Map from column id to lower bound in the column
-    pub lower_bounds: Option<HashMap<i32, Value>>,
+    lower_bounds: Option<HashMap<i32, Value>>,
     /// Map from column id to upper bound in the column
-    pub upper_bounds: Option<HashMap<i32, Value>>,
+    upper_bounds: Option<HashMap<i32, Value>>,
     /// Implementation specific key metadata for encryption
-    pub key_metadata: Option<ByteBuf>,
+    #[builder(default)]
+    key_metadata: Option<ByteBuf>,
     /// Split offsets for the data file.
-    pub split_offsets: Option<Vec<i64>>,
+    #[builder(default)]
+    split_offsets: Option<Vec<i64>>,
     /// Field ids used to determine row equality in equality delete files.
-    pub equality_ids: Option<Vec<i32>>,
+    #[builder(default)]
+    equality_ids: Option<Vec<i32>>,
     /// ID representing sort order for this file
-    pub sort_order_id: Option<i32>,
+    #[builder(default)]
+    sort_order_id: Option<i32>,
+}
+
+impl DataFile {
+    pub fn builder() -> DataFileBuilder {
+        DataFileBuilder::default()
+    }
 }
 
 impl DataFile {

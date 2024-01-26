@@ -182,7 +182,7 @@ impl Table {
         let datafiles = self.datafiles(&manifests, None).await?;
         Ok(datafiles
             .iter()
-            .any(|entry| !matches!(entry.data_file.content, Content::Data)))
+            .any(|entry| !matches!(entry.data_file().content(), Content::Data)))
     }
     /// Create a new transaction for this table
     pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction {
@@ -202,7 +202,7 @@ impl Table {
                 let object_store = object_store.clone();
                 async move {
                     object_store
-                        .delete(&datafile.data_file.file_path.into())
+                        .delete(&datafile.data_file().file_path().as_str().into())
                         .await?;
                     Ok(())
                 }

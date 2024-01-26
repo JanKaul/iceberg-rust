@@ -58,15 +58,15 @@ pub(crate) async fn table_statistics(
                     .map(|x| x.id)
                     .map(|id| ColumnStatistics {
                         null_count: manifest
-                            .data_file
-                            .null_value_counts
+                            .data_file()
+                            .null_value_counts()
                             .as_ref()
                             .and_then(|x| x.get(&id))
                             .map(|x| Precision::Exact(*x as usize))
                             .unwrap_or(Precision::Absent),
                         max_value: manifest
-                            .data_file
-                            .upper_bounds
+                            .data_file()
+                            .upper_bounds()
                             .as_ref()
                             .and_then(|x| x.get(&id))
                             .and_then(|x| {
@@ -76,8 +76,8 @@ pub(crate) async fn table_statistics(
                             })
                             .unwrap_or(Precision::Absent),
                         min_value: manifest
-                            .data_file
-                            .lower_bounds
+                            .data_file()
+                            .lower_bounds()
                             .as_ref()
                             .and_then(|x| x.get(&id))
                             .and_then(|x| {
@@ -87,19 +87,19 @@ pub(crate) async fn table_statistics(
                             })
                             .unwrap_or(Precision::Absent),
                         distinct_count: manifest
-                            .data_file
-                            .distinct_counts
+                            .data_file()
+                            .distinct_counts()
                             .as_ref()
                             .and_then(|x| x.get(&id))
                             .map(|x| Precision::Exact(*x as usize))
                             .unwrap_or(Precision::Absent),
                     });
             Statistics {
-                num_rows: acc
-                    .num_rows
-                    .add(&Precision::Exact(manifest.data_file.record_count as usize)),
+                num_rows: acc.num_rows.add(&Precision::Exact(
+                    *manifest.data_file().record_count() as usize
+                )),
                 total_byte_size: acc.total_byte_size.add(&Precision::Exact(
-                    manifest.data_file.file_size_in_bytes as usize,
+                    *manifest.data_file().file_size_in_bytes() as usize,
                 )),
                 column_statistics: acc
                     .column_statistics

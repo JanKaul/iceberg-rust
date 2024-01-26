@@ -67,4 +67,10 @@ pub enum Error {
     /// version builder
     #[error(transparent)]
     VersionBuilder(#[from] crate::spec::view_metadata::VersionBuilderError),
+    /// manifest builder
+    #[error(transparent)]
+    ManifestEntryBuilder(#[from] crate::spec::manifest::ManifestEntryBuilderError),
+    /// datafile builder
+    #[error(transparent)]
+    DatafileBuilder(#[from] crate::spec::manifest::DataFileBuilderError),
 }

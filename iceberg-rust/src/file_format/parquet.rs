@@ -220,25 +220,22 @@ pub fn parquet_to_datafile(
             }
         }
     }
-    let content = DataFile {
-        content: Content::Data,
-        file_path: location.to_string(),
-        file_format: FileFormat::Parquet,
-        partition,
-        record_count: file_metadata.num_rows,
-        file_size_in_bytes: file_size as i64,
-        column_sizes: Some(column_sizes),
-        value_counts: Some(value_counts),
-        null_value_counts: Some(null_value_counts),
-        nan_value_counts: None,
-        distinct_counts: Some(distinct_counts),
-        lower_bounds: Some(lower_bounds),
-        upper_bounds: Some(upper_bounds),
-        key_metadata: None,
-        split_offsets: None,
-        equality_ids: None,
-        sort_order_id: None,
-    };
+    let content = DataFile::builder()
+        .with_content(Content::Data)
+        .with_file_path(location.to_string())
+        .with_file_format(FileFormat::Parquet)
+        .with_partition(partition)
+        .with_record_count(file_metadata.num_rows)
+        .with_file_size_in_bytes(file_size as i64)
+        .with_column_sizes(Some(column_sizes))
+        .with_value_counts(Some(value_counts))
+        .with_null_value_counts(Some(null_value_counts))
+        .with_nan_value_counts(None)
+        .with_distinct_counts(Some(distinct_counts))
+        .with_lower_bounds(Some(lower_bounds))
+        .with_upper_bounds(Some(upper_bounds))
+        .build()
+        .map_err(iceberg_rust_spec::error::Error::from)?;
     Ok(content)
 }
 

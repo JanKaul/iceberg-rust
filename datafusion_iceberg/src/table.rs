@@ -349,8 +349,8 @@ async fn table_scan(
             .for_each(|(manifest, prune_file)| {
                 if prune_file {
                     let partition_values = manifest
-                        .data_file
-                        .partition
+                        .data_file()
+                        .partition()
                         .iter()
                         .map(|value| match value {
                             Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
@@ -358,8 +358,8 @@ async fn table_scan(
                         })
                         .collect::<Vec<ScalarValue>>();
                     let object_meta = ObjectMeta {
-                        location: util::strip_prefix(&manifest.data_file.file_path).into(),
-                        size: manifest.data_file.file_size_in_bytes as usize,
+                        location: util::strip_prefix(manifest.data_file().file_path()).into(),
+                        size: *manifest.data_file().file_size_in_bytes() as usize,
                         last_modified: {
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let secs = last_updated_ms / 1000;
@@ -394,8 +394,8 @@ async fn table_scan(
             .map_err(Into::<Error>::into)?;
         data_files.into_iter().for_each(|manifest| {
             let partition_values = manifest
-                .data_file
-                .partition
+                .data_file()
+                .partition()
                 .iter()
                 .map(|value| match value {
                     Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
@@ -403,8 +403,8 @@ async fn table_scan(
                 })
                 .collect::<Vec<ScalarValue>>();
             let object_meta = ObjectMeta {
-                location: util::strip_prefix(&manifest.data_file.file_path).into(),
-                size: manifest.data_file.file_size_in_bytes as usize,
+                location: util::strip_prefix(manifest.data_file().file_path()).into(),
+                size: *manifest.data_file().file_size_in_bytes() as usize,
                 last_modified: {
                     let last_updated_ms = table.metadata().last_updated_ms;
                     let secs = last_updated_ms / 1000;

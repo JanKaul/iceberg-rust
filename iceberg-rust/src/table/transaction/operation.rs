@@ -9,6 +9,7 @@ use std::{
 
 use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
+use iceberg_rust_spec::error::Error as SpecError;
 use iceberg_rust_spec::spec::{
     manifest::{partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status},
     manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
@@ -91,7 +92,7 @@ impl Operation {
                         .try_fold(
                             HashMap::<Struct, Vec<DataFile>>::new(),
                             |mut acc, x| async move {
-                                let partition_value = x.partition.clone();
+                                let partition_value = x.partition().clone();
                                 acc.entry(partition_value).or_default().push(x);
                                 Ok(acc)
                             },
@@ -293,22 +294,25 @@ impl Operation {
                                     );
                                 }
 
-                                added_rows_count += datafile.record_count;
+                                added_rows_count += datafile.record_count();
                                 update_partitions(
                                     manifest.partitions.as_mut().unwrap(),
-                                    &datafile.partition,
+                                    &datafile.partition(),
                                     &partition_columns,
                                 )?;
 
-                                let manifest_entry = ManifestEntry {
-                                    format_version: table_metadata.format_version.clone(),
-                                    status: Status::Added,
-                                    snapshot_id: table_metadata.current_snapshot_id,
-                                    sequence_number: table_metadata
-                                        .current_snapshot(branch.as_deref())?
-                                        .map(|x| x.sequence_number),
-                                    data_file: datafile.clone(),
-                                };
+                                let manifest_entry = ManifestEntry::builder()
+                                    .with_format_version(table_metadata.format_version.clone())
+                                    .with_status(Status::Added)
+                                    .with_snapshot_id(table_metadata.current_snapshot_id)
+                                    .with_sequence_number(
+                                        table_metadata
+                                            .current_snapshot(branch.as_deref())?
+                                            .map(|x| x.sequence_number),
+                                    )
+                                    .with_data_file(datafile.clone())
+                                    .build()
+                                    .map_err(SpecError::from)?;
 
                                 manifest_writer.append_ser(manifest_entry)?;
 

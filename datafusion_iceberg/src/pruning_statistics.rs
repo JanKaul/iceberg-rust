@@ -129,15 +129,15 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
-        let min_values = self
-            .files
-            .iter()
-            .map(|manifest| match &manifest.data_file.lower_bounds {
-                Some(map) => map
-                    .get(&(column_id as i32))
-                    .map(|value| value.clone().into_any()),
-                None => None,
-            });
+        let min_values =
+            self.files
+                .iter()
+                .map(|manifest| match &manifest.data_file().lower_bounds() {
+                    Some(map) => map
+                        .get(&(column_id as i32))
+                        .map(|value| value.clone().into_any()),
+                    None => None,
+                });
         any_iter_to_array(min_values, datatype).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
@@ -146,15 +146,15 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             .ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
         let datatype = schema.field_with_name(&column.name).ok()?.data_type();
-        let max_values = self
-            .files
-            .iter()
-            .map(|manifest| match &manifest.data_file.upper_bounds {
-                Some(map) => map
-                    .get(&(column_id as i32))
-                    .map(|value| value.clone().into_any()),
-                None => None,
-            });
+        let max_values =
+            self.files
+                .iter()
+                .map(|manifest| match &manifest.data_file().upper_bounds() {
+                    Some(map) => map
+                        .get(&(column_id as i32))
+                        .map(|value| value.clone().into_any()),
+                    None => None,
+                });
         any_iter_to_array(max_values, datatype).ok()
     }
     fn num_containers(&self) -> usize {
@@ -168,7 +168,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         let null_counts =
             self.files
                 .iter()
-                .map(|manifest| match &manifest.data_file.null_value_counts {
+                .map(|manifest| match &manifest.data_file().null_value_counts() {
                     Some(map) => map.get(&(column_id as i32)).copied(),
                     None => None,
                 });
