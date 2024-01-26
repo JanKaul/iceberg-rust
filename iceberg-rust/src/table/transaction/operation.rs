@@ -224,7 +224,7 @@ impl Operation {
                     partition_spec
                         .fields
                         .iter()
-                        .map(|x| schema.fields.get(x.source_id as usize))
+                        .map(|x| schema.fields.get(*x.source_id() as usize))
                         .collect::<Option<Vec<_>>>()
                         .ok_or(Error::InvalidFormat(
                             "Partition column in schema".to_string(),
@@ -537,7 +537,7 @@ fn partition_values_in_bounds<'a>(
                 .map(|field| {
                     let name = &schema
                         .fields
-                        .get(field.source_id.try_into().unwrap())
+                        .get(*field.source_id() as usize)
                         .ok_or_else(|| {
                             Error::InvalidFormat("partition values in schema".to_string())
                         })

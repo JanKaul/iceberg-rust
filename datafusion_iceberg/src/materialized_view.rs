@@ -192,12 +192,7 @@ mod tests {
         };
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
-            .with_partition_field(PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "day".to_string(),
-                transform: Transform::Day,
-            })
+            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 

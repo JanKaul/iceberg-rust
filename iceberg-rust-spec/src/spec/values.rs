@@ -141,11 +141,11 @@ impl Struct {
             .iter()
             .map(|partition_field| {
                 let field = schema
-                    .get(partition_field.source_id as usize)
+                    .get(*partition_field.source_id() as usize)
                     .ok_or(Error::InvalidFormat("partition spec".to_string()))?;
                 Ok((
                     field.name.clone(),
-                    field.field_type.tranform(&partition_field.transform)?,
+                    field.field_type.tranform(&partition_field.transform())?,
                 ))
             })
             .collect::<Result<HashMap<_, _>, Error>>()?;

@@ -45,13 +45,13 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
         let (index, partition_field) = partition_spec
             .iter()
             .enumerate()
-            .find(|(_, partition_field)| partition_field.name == column.name)?;
+            .find(|(_, partition_field)| partition_field.name() == &column.name)?;
         let data_type = schema
             .fields
-            .get(partition_field.source_id as usize)
+            .get(*partition_field.source_id() as usize)
             .as_ref()?
             .field_type
-            .tranform(&partition_field.transform)
+            .tranform(partition_field.transform())
             .ok()?;
         let min_values = self.files.iter().filter_map(|manifest| {
             manifest.partitions.as_ref().and_then(|partitions| {
@@ -70,13 +70,13 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
             .fields
             .iter()
             .enumerate()
-            .find(|(_, partition_field)| partition_field.name == column.name)?;
+            .find(|(_, partition_field)| partition_field.name() == &column.name)?;
         let data_type = schema
             .fields
-            .get(partition_field.source_id as usize)
+            .get(*partition_field.source_id() as usize)
             .as_ref()?
             .field_type
-            .tranform(&partition_field.transform)
+            .tranform(partition_field.transform())
             .ok()?;
         let max_values = self.files.iter().filter_map(|manifest| {
             manifest.partitions.as_ref().and_then(|partitions| {
@@ -97,7 +97,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
             .fields
             .iter()
             .enumerate()
-            .find(|(_, partition_field)| partition_field.name == column.name)?;
+            .find(|(_, partition_field)| partition_field.name() == &column.name)?;
         let contains_null = self.files.iter().filter_map(|manifest| {
             manifest.partitions.as_ref().map(|partitions| {
                 if !partitions[index].contains_null {

@@ -61,7 +61,7 @@ impl TableBuilder {
             .partition_specs
             .values()
             .flat_map(|x| x.fields.iter())
-            .map(|x| x.field_id)
+            .map(|x| *x.field_id())
             .max()
             .unwrap_or(0);
         metadata.last_partition_id = last_column_id;

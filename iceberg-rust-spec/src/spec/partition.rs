@@ -2,6 +2,7 @@
  * Partitioning
 */
 
+use derive_getters::Getters;
 use serde::{
     de::{Error as SerdeError, IntoDeserializer},
     Deserialize, Deserializer, Serialize, Serializer,
@@ -108,19 +109,31 @@ where
     serializer.serialize_str(&format!("truncate[{value}]"))
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Getters)]
 #[serde(rename_all = "kebab-case")]
 /// Partition fields capture the transform from table data to partition values.
 pub struct PartitionField {
     /// A source column id from the table’s schema
-    pub source_id: i32,
+    source_id: i32,
     /// A partition field id that is used to identify a partition field and is unique within a partition spec.
     /// In v2 table metadata, it is unique across all partition specs.
-    pub field_id: i32,
+    field_id: i32,
     /// A partition name.
-    pub name: String,
+    name: String,
     /// A transform that is applied to the source column to produce a partition value.
-    pub transform: Transform,
+    transform: Transform,
+}
+
+impl PartitionField {
+    /// Create a new PartitionField
+    pub fn new(source_id: i32, field_id: i32, name: &str, transform: Transform) -> Self {
+        Self {
+            source_id,
+            field_id,
+            name: name.to_string(),
+            transform,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]

@@ -488,9 +488,9 @@ pub fn partition_value_schema(
         .map(|field| {
             let schema_field = table_schema
                 .fields
-                .get(field.source_id as usize)
+                .get(*field.source_id() as usize)
                 .ok_or_else(|| {
-                    Error::Schema(field.name.to_string(), format!("{:?}", &table_schema))
+                    Error::Schema(field.name().to_string(), format!("{:?}", &table_schema))
                 })?;
             let data_type = avro_schema_datatype(&schema_field.field_type);
             Ok::<_, Error>(
@@ -504,7 +504,7 @@ pub fn partition_value_schema(
                     + &format!("{}", &data_type)
                     + r#""],
                     "field_id": "#
-                    + &field.field_id.to_string()
+                    + &field.field_id().to_string()
                     + r#",
                     "default": null
                 },"#,
@@ -1503,7 +1503,7 @@ fn avro_value_to_manifest_entry(
 #[cfg(test)]
 mod tests {
     use crate::spec::{
-        partition::{PartitionField, PartitionSpec, PartitionSpecBuilder, Transform},
+        partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::SchemaV2,
         table_metadata::TableMetadataBuilder,
         types::{PrimitiveType, StructField, StructType, StructTypeBuilder, Type},
@@ -1540,12 +1540,7 @@ mod tests {
                 1,
                 PartitionSpecBuilder::default()
                     .with_spec_id(1)
-                    .with_partition_field(PartitionField {
-                        source_id: 0,
-                        field_id: 1000,
-                        name: "day".to_string(),
-                        transform: Transform::Day,
-                    })
+                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),
             )]))
@@ -1673,12 +1668,7 @@ mod tests {
                 1,
                 PartitionSpecBuilder::default()
                     .with_spec_id(1)
-                    .with_partition_field(PartitionField {
-                        source_id: 0,
-                        field_id: 1000,
-                        name: "day".to_string(),
-                        transform: Transform::Day,
-                    })
+                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),
             )]))
@@ -1794,15 +1784,11 @@ mod tests {
             }]),
         };
 
-        let spec = PartitionSpec {
-            spec_id: 0,
-            fields: vec![PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "ts_day".to_string(),
-                transform: Transform::Day,
-            }],
-        };
+        let spec = PartitionSpecBuilder::default()
+            .with_spec_id(0)
+            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
+            .build()
+            .unwrap();
 
         let raw_schema =
             partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();

@@ -729,12 +729,7 @@ mod tests {
                 1,
                 PartitionSpecBuilder::default()
                     .with_spec_id(1)
-                    .with_partition_field(PartitionField {
-                        source_id: 0,
-                        field_id: 1000,
-                        name: "day".to_string(),
-                        transform: Transform::Day,
-                    })
+                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),
             )]))
@@ -813,12 +808,7 @@ mod tests {
                 1,
                 PartitionSpecBuilder::default()
                     .with_spec_id(1)
-                    .with_partition_field(PartitionField {
-                        source_id: 0,
-                        field_id: 1000,
-                        name: "day".to_string(),
-                        transform: Transform::Day,
-                    })
+                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),
             )]))

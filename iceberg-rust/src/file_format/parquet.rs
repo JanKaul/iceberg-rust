@@ -36,7 +36,7 @@ pub fn parquet_to_datafile(
         .map(|x| {
             let field = schema
                 .fields
-                .get(x.source_id as usize)
+                .get(*x.source_id() as usize)
                 .ok_or_else(|| Error::InvalidFormat("partition column in schema".to_string()))?;
             Ok((field.name.clone(), None))
         })
@@ -46,9 +46,9 @@ pub fn parquet_to_datafile(
         .map(|x| {
             let field = schema
                 .fields
-                .get(x.source_id as usize)
+                .get(*x.source_id() as usize)
                 .ok_or_else(|| Error::InvalidFormat("partition column in schema".to_string()))?;
-            Ok((field.name.clone(), x.transform.clone()))
+            Ok((field.name.clone(), x.transform().clone()))
         })
         .collect::<Result<HashMap<String, Transform>, Error>>()?;
     let parquet_schema = Arc::new(SchemaDescriptor::new(from_thrift(&file_metadata.schema)?));

@@ -272,10 +272,10 @@ async fn table_scan(
         .map(|x| {
             Ok(schema
                 .fields
-                .get(x.source_id as usize)
+                .get(*x.source_id() as usize)
                 .ok_or(Error::NotFound(
                     "Field".to_string(),
-                    x.source_id.to_string(),
+                    x.source_id().to_string(),
                 ))?
                 .name
                 .clone())
@@ -437,12 +437,12 @@ async fn table_scan(
         .fields
         .iter()
         .map(|field| {
-            let struct_field = schema.fields.get(field.source_id as usize).unwrap();
+            let struct_field = schema.fields.get(*field.source_id() as usize).unwrap();
             Ok(Field::new(
-                field.name.clone(),
+                field.name().clone(),
                 (&struct_field
                     .field_type
-                    .tranform(&field.transform)
+                    .tranform(field.transform())
                     .map_err(Into::<Error>::into)?)
                     .try_into()
                     .map_err(Into::<Error>::into)?,
@@ -456,14 +456,14 @@ async fn table_scan(
     let mut file_schema = schema.clone();
     for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
         file_schema.fields.fields.push(StructField {
-            id: partition_field.field_id,
-            name: partition_field.name.clone(),
+            id: *partition_field.field_id(),
+            name: partition_field.name().clone(),
             field_type: file_schema
                 .fields
-                .get(partition_field.source_id as usize)
+                .get(*partition_field.source_id() as usize)
                 .unwrap()
                 .field_type
-                .tranform(&partition_field.transform)
+                .tranform(partition_field.transform())
                 .unwrap(),
             required: true,
             doc: None,
@@ -683,12 +683,7 @@ mod tests {
         };
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
-            .with_partition_field(PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "day".to_string(),
-                transform: Transform::Day,
-            })
+            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
@@ -862,12 +857,7 @@ mod tests {
         };
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
-            .with_partition_field(PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "day".to_string(),
-                transform: Transform::Day,
-            })
+            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
@@ -1048,12 +1038,7 @@ mod tests {
         };
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
-            .with_partition_field(PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "day".to_string(),
-                transform: Transform::Day,
-            })
+            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
