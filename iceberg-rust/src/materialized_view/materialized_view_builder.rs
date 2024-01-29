@@ -10,12 +10,10 @@ use std::{
 
 use iceberg_rust_spec::{
     spec::{
-        materialized_view_metadata::{
-            FormatVersion, MaterializedViewMetadataBuilder, MaterializedViewRepresentation,
-        },
+        materialized_view_metadata::MaterializedViewMetadataBuilder,
         schema::Schema,
         table_metadata::TableMetadataBuilder,
-        view_metadata::{VersionBuilder, REF_PREFIX},
+        view_metadata::{VersionBuilder, ViewRepresentation, REF_PREFIX},
     },
     util::strip_prefix,
 };
@@ -63,15 +61,14 @@ impl MaterializedViewBuilder {
                 1,
                 VersionBuilder::default()
                     .version_id(1)
-                    .with_representation(MaterializedViewRepresentation::SqlMaterialized {
+                    .with_representation(ViewRepresentation::Sql {
                         sql: sql.to_string(),
                         dialect: "ANSI".to_string(),
-                        format_version: FormatVersion::V1,
-                        storage_table: identifier.to_string() + STORAGE_POSTFIX,
                     })
                     .schema_id(1)
                     .build()?,
             ))
+            .materialization(identifier.to_string() + STORAGE_POSTFIX)
             .current_version_id(1)
             .properties(HashMap::from_iter(vec![(
                 REF_PREFIX.to_string() + "main",
@@ -88,15 +85,7 @@ impl MaterializedViewBuilder {
     pub async fn build(self) -> Result<MaterializedView, Error> {
         let metadata = self.metadata.build()?;
         let bucket = parse_bucket(&metadata.location)?;
-        let table_identifier =
-            Identifier::parse(match &metadata.current_version(None)?.representations[0] {
-                MaterializedViewRepresentation::SqlMaterialized {
-                    sql: _,
-                    dialect: _,
-                    format_version: _,
-                    storage_table,
-                } => storage_table,
-            })?;
+        let table_identifier = Identifier::parse(&metadata.materialization)?;
         let schema_id = &metadata.current_version(None)?.schema_id;
         let table_metadata = TableMetadataBuilder::default()
             .location(&metadata.location)

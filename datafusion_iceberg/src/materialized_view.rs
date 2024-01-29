@@ -11,8 +11,8 @@ use iceberg_rust::{
     catalog::CatalogList,
     materialized_view::{MaterializedView, STORAGE_POSTFIX},
 };
-use iceberg_rust_spec::spec::materialized_view_metadata::{
-    BaseTable, MaterializedViewRepresentation,
+use iceberg_rust_spec::spec::{
+    materialized_view_metadata::BaseTable, view_metadata::ViewRepresentation,
 };
 use itertools::Itertools;
 
@@ -30,12 +30,7 @@ pub async fn refresh_materialized_view(
     let ctx = SessionContext::new();
 
     let sql = match &matview.metadata().current_version(branch)?.representations[0] {
-        MaterializedViewRepresentation::SqlMaterialized {
-            sql,
-            dialect: _,
-            format_version: _,
-            storage_table: _,
-        } => sql,
+        ViewRepresentation::Sql { sql, dialect: _ } => sql,
     };
 
     let version_id = matview.metadata().current_version_id;

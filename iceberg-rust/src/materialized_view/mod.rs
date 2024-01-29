@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use iceberg_rust_spec::spec::{
-    materialized_view_metadata::{MaterializedViewMetadata, MaterializedViewRepresentation},
-    schema::Schema,
+    materialized_view_metadata::MaterializedViewMetadata, schema::Schema,
+    view_metadata::ViewRepresentation,
 };
 use object_store::ObjectStore;
 
@@ -84,15 +84,13 @@ impl MaterializedView {
     }
     /// Get the storage table of the materialized view
     pub async fn storage_table(&self, branch: Option<&str>) -> Result<StorageTable, Error> {
-        let (storage_table_name, sql) =
-            match &self.metadata.current_version(branch)?.representations[0] {
-                MaterializedViewRepresentation::SqlMaterialized {
-                    sql,
-                    dialect: _dialect,
-                    format_version: _format_version,
-                    storage_table,
-                } => (storage_table, sql),
-            };
+        let storage_table_name = &self.metadata.materialization;
+        let sql = match &self.metadata.current_version(branch)?.representations[0] {
+            ViewRepresentation::Sql {
+                sql,
+                dialect: _dialect,
+            } => sql,
+        };
         if let Tabular::Table(table) = self
             .catalog
             .clone()
