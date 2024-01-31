@@ -46,8 +46,11 @@ use crate::{
 };
 
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular,
-    materialized_view::MaterializedView, table::Table, view::View,
+    arrow::write::write_parquet_partitioned,
+    catalog::{identifier::Identifier, tabular::Tabular},
+    materialized_view::MaterializedView,
+    table::Table,
+    view::View,
 };
 use iceberg_rust_spec::spec::{types::StructField, view_metadata::ViewRepresentation};
 use iceberg_rust_spec::util;
@@ -186,7 +189,17 @@ impl TableProvider for DataFusionTable {
                 .await
             }
             Tabular::MaterializedView(mv) => {
-                let table = mv.storage_table(None).await.map_err(Error::from)?;
+                let table = Table::new(
+                    Identifier::try_new(&vec!["temp".to_owned()]).map_err(Error::from)?,
+                    mv.catalog(),
+                    mv.storage_table()
+                        .await
+                        .map_err(Error::from)?
+                        .table_metadata,
+                    &mv.metadata().materialization,
+                )
+                .await
+                .map_err(Error::from)?;
                 let schema = self.schema();
                 let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
                 table_scan(
@@ -531,9 +544,15 @@ impl DataSink for IcebergDataSink {
         }
         .map_err(Into::<Error>::into)?;
 
-        let metadata_files =
-            write_parquet_partitioned(table, data.map_err(Into::into), self.0.branch.as_deref())
-                .await?;
+        let object_store = table.object_store().clone();
+
+        let metadata_files = write_parquet_partitioned(
+            table.metadata(),
+            data.map_err(Into::into),
+            object_store,
+            self.0.branch.as_deref(),
+        )
+        .await?;
 
         table
             .new_transaction(self.0.branch.as_deref())

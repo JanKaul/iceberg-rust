@@ -77,6 +77,11 @@ impl Table {
         &self.metadata
     }
     #[inline]
+    /// Get the metadata of the table
+    pub fn into_metadata(self) -> TableMetadata {
+        self.metadata
+    }
+    #[inline]
     /// Get the location of the current metadata file
     pub fn metadata_location(&self) -> &str {
         &self.metadata_location
@@ -129,48 +134,13 @@ impl Table {
         }
     }
     /// Get list of datafiles corresponding to the given manifest files
+    #[inline]
     pub async fn datafiles(
         &self,
         manifests: &[ManifestListEntry],
         filter: Option<Vec<bool>>,
     ) -> Result<Vec<ManifestEntry>, Error> {
-        // filter manifest files according to filter vector
-        let iter = match filter {
-            Some(predicate) => {
-                manifests
-                    .iter()
-                    .zip(Box::new(predicate.into_iter())
-                        as Box<dyn Iterator<Item = bool> + Send + Sync>)
-                    .filter_map(
-                        filter_manifest
-                            as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
-                    )
-            }
-            None => manifests
-                .iter()
-                .zip(Box::new(repeat(true)) as Box<dyn Iterator<Item = bool> + Send + Sync>)
-                .filter_map(
-                    filter_manifest as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
-                ),
-        };
-        // Collect a vector of data files by creating a stream over the manifst files, fetch their content and return a flatten stream over their entries.
-        stream::iter(iter)
-            .map(|file| async move {
-                let object_store = Arc::clone(&self.object_store());
-                let path: Path = util::strip_prefix(&file.manifest_path).into();
-                let bytes = Cursor::new(Vec::from(
-                    object_store
-                        .get(&path)
-                        .and_then(|file| file.bytes())
-                        .await?,
-                ));
-                let reader = ManifestReader::new(bytes)?;
-                Ok(stream::iter(reader))
-            })
-            .flat_map(|reader| reader.try_flatten_stream())
-            .try_collect()
-            .await
-            .map_err(Error::from)
+        datafiles(self.object_store(), manifests, filter).await
     }
     /// Check if datafiles contain deletes
     pub async fn datafiles_contains_delete(
@@ -239,6 +209,103 @@ impl Table {
 
         Ok(())
     }
+}
+
+async fn datafiles(
+    object_store: Arc<dyn ObjectStore>,
+    manifests: &[ManifestListEntry],
+    filter: Option<Vec<bool>>,
+) -> Result<Vec<ManifestEntry>, Error> {
+    // filter manifest files according to filter vector
+    let iter = match filter {
+        Some(predicate) => manifests
+            .iter()
+            .zip(Box::new(predicate.into_iter()) as Box<dyn Iterator<Item = bool> + Send + Sync>)
+            .filter_map(
+                filter_manifest as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
+            ),
+        None => manifests
+            .iter()
+            .zip(Box::new(repeat(true)) as Box<dyn Iterator<Item = bool> + Send + Sync>)
+            .filter_map(
+                filter_manifest as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
+            ),
+    };
+    // Collect a vector of data files by creating a stream over the manifst files, fetch their content and return a flatten stream over their entries.
+    stream::iter(iter)
+        .map(|file| {
+            let object_store = object_store.clone();
+            async move {
+                let path: Path = util::strip_prefix(&file.manifest_path).into();
+                let bytes = Cursor::new(Vec::from(
+                    object_store
+                        .get(&path)
+                        .and_then(|file| file.bytes())
+                        .await?,
+                ));
+                let reader = ManifestReader::new(bytes)?;
+                Ok(stream::iter(reader))
+            }
+        })
+        .flat_map(|reader| reader.try_flatten_stream())
+        .try_collect()
+        .await
+        .map_err(Error::from)
+}
+
+/// delete all datafiles, manifests and metadata files, does not remove table from catalog
+pub(crate) async fn delete_files(
+    metadata: &TableMetadata,
+    object_store: Arc<dyn ObjectStore>,
+) -> Result<(), Error> {
+    let Some(snapshot) = metadata.current_snapshot(None)? else {
+        return Ok(());
+    };
+    let manifests = snapshot
+        .manifests(metadata, object_store.clone())
+        .await?
+        .collect::<Result<Vec<_>, iceberg_rust_spec::error::Error>>()?;
+    let datafiles = datafiles(object_store.clone(), &manifests, None).await?;
+    let snapshots = &metadata.snapshots;
+
+    stream::iter(datafiles.into_iter())
+        .map(Ok::<_, Error>)
+        .try_for_each_concurrent(None, |datafile| {
+            let object_store = object_store.clone();
+            async move {
+                object_store
+                    .delete(&datafile.data_file().file_path().as_str().into())
+                    .await?;
+                Ok(())
+            }
+        })
+        .await?;
+
+    stream::iter(manifests.into_iter())
+        .map(Ok::<_, Error>)
+        .try_for_each_concurrent(None, |manifest| {
+            let object_store = object_store.clone();
+            async move {
+                object_store.delete(&manifest.manifest_path.into()).await?;
+                Ok(())
+            }
+        })
+        .await?;
+
+    stream::iter(snapshots.values())
+        .map(Ok::<_, Error>)
+        .try_for_each_concurrent(None, |snapshot| {
+            let object_store = object_store.clone();
+            async move {
+                object_store
+                    .delete(&snapshot.manifest_list.as_str().into())
+                    .await?;
+                Ok(())
+            }
+        })
+        .await?;
+
+    Ok(())
 }
 
 /// Private interface of the table.

@@ -73,4 +73,7 @@ pub enum Error {
     /// datafile builder
     #[error(transparent)]
     DatafileBuilder(#[from] crate::spec::manifest::DataFileBuilderError),
+    /// snapshot builder
+    #[error(transparent)]
+    SnapshotBuilder(#[from] crate::spec::snapshot::SnapshotBuilderError),
 }

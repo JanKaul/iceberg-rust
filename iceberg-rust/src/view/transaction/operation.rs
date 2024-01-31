@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::Error;
 
 /// View operation
-pub enum Operation {
+pub enum Operation<T: Clone> {
     /// Update vresion
     UpdateRepresentation {
         /// Representation to add
@@ -28,14 +28,13 @@ pub enum Operation {
     },
     /// Update view properties
     UpdateProperties(Vec<(String, String)>),
+    /// Update materialization
+    UpdateMaterialization(T),
 }
 
-impl Operation {
+impl<T: Clone> Operation<T> {
     /// Execute operation
-    pub async fn execute<T: Clone>(
-        self,
-        metadata: &mut GeneralViewMetadata<T>,
-    ) -> Result<(), Error> {
+    pub async fn execute(self, metadata: &mut GeneralViewMetadata<T>) -> Result<(), Error> {
         match self {
             Operation::UpdateRepresentation {
                 representation,
@@ -86,6 +85,10 @@ impl Operation {
                 entries.into_iter().for_each(|(key, value)| {
                     properties.insert(key, value);
                 });
+                Ok(())
+            }
+            Operation::UpdateMaterialization(materialization) => {
+                metadata.materialization = materialization;
                 Ok(())
             }
         }

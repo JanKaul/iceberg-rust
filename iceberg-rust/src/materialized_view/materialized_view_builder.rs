@@ -24,7 +24,7 @@ use crate::{
     error::Error,
 };
 
-use super::{MaterializedView, STORAGE_POSTFIX};
+use super::MaterializedView;
 
 ///Builder pattern to create a view
 pub struct MaterializedViewBuilder {
@@ -68,7 +68,7 @@ impl MaterializedViewBuilder {
                     .schema_id(1)
                     .build()?,
             ))
-            .materialization(identifier.to_string() + STORAGE_POSTFIX)
+            .materialization("".to_owned())
             .current_version_id(1)
             .properties(HashMap::from_iter(vec![(
                 REF_PREFIX.to_string() + "main",
@@ -83,9 +83,8 @@ impl MaterializedViewBuilder {
 
     /// Building a materialized view writes the metadata file to the object store and commits the table to the metastore
     pub async fn build(self) -> Result<MaterializedView, Error> {
-        let metadata = self.metadata.build()?;
+        let mut metadata = self.metadata.build()?;
         let bucket = parse_bucket(&metadata.location)?;
-        let table_identifier = Identifier::parse(&metadata.materialization)?;
         let schema_id = &metadata.current_version(None)?.schema_id;
         let table_metadata = TableMetadataBuilder::default()
             .location(&metadata.location)
@@ -101,6 +100,13 @@ impl MaterializedViewBuilder {
             .build()?;
         let object_store = self.catalog.object_store(bucket);
         let location = &metadata.location;
+        let table_path = location.to_string()
+            + "/metadata/"
+            + &table_metadata.last_sequence_number.to_string()
+            + "-"
+            + &Uuid::new_v4().to_string()
+            + ".metadata.json";
+        metadata.materialization = table_path.clone();
         let metadata_json = serde_json::to_string(&metadata)?;
         let path = location.to_string()
             + "/metadata/"
@@ -112,30 +118,13 @@ impl MaterializedViewBuilder {
             .put(&strip_prefix(&path).into(), metadata_json.into())
             .await?;
         let table_metadata_json = serde_json::to_string(&table_metadata)?;
-        let table_path = location.to_string()
-            + "/metadata/"
-            + &table_metadata.last_sequence_number.to_string()
-            + "-"
-            + &Uuid::new_v4().to_string()
-            + ".metadata.json";
+
         object_store
             .put(
                 &strip_prefix(&table_path).into(),
                 table_metadata_json.into(),
             )
             .await?;
-        if let Tabular::Table(_) = self
-            .catalog
-            .clone()
-            .register_table(table_identifier, table_path.as_ref())
-            .await?
-        {
-            Ok(())
-        } else {
-            Err(Error::InvalidFormat(
-                "Entity returned from catalog".to_string(),
-            ))
-        }?;
         if let Tabular::MaterializedView(matview) = self
             .catalog
             .register_table(self.identifier, path.as_ref())

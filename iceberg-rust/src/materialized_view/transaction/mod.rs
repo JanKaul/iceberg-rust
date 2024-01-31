@@ -20,7 +20,7 @@ use super::MaterializedView;
 /// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
 pub struct Transaction<'view> {
     materialized_view: &'view mut MaterializedView,
-    operations: Vec<ViewOperation>,
+    operations: Vec<ViewOperation<String>>,
     branch: Option<String>,
 }
 
@@ -50,6 +50,13 @@ impl<'view> Transaction<'view> {
     pub fn update_properties(mut self, entries: Vec<(String, String)>) -> Self {
         self.operations
             .push(ViewOperation::UpdateProperties(entries));
+        self
+    }
+    /// Update materialization
+    pub fn update_materialization(mut self, materialization: &str) -> Self {
+        self.operations.push(ViewOperation::UpdateMaterialization(
+            materialization.to_owned(),
+        ));
         self
     }
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.

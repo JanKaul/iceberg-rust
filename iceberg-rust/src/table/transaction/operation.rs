@@ -9,7 +9,6 @@ use std::{
 
 use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
-use iceberg_rust_spec::error::Error as SpecError;
 use iceberg_rust_spec::spec::{
     manifest::{partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status},
     manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
@@ -20,6 +19,8 @@ use iceberg_rust_spec::spec::{
     values::{Struct, Value},
 };
 use iceberg_rust_spec::util::strip_prefix;
+use iceberg_rust_spec::{error::Error as SpecError, spec::table_metadata::TableMetadata};
+use object_store::ObjectStore;
 
 use crate::{error::Error, table::Table};
 
@@ -86,19 +87,15 @@ impl Operation {
                 let partition_spec = table_metadata.default_partition_spec()?;
                 let schema = table_metadata.current_schema(branch.as_deref())?;
 
-                let datafiles = Arc::new(
-                    stream::iter(files.into_iter())
-                        .map(Ok::<_, Error>)
-                        .try_fold(
-                            HashMap::<Struct, Vec<DataFile>>::new(),
-                            |mut acc, x| async move {
-                                let partition_value = x.partition().clone();
-                                acc.entry(partition_value).or_default().push(x);
-                                Ok(acc)
-                            },
-                        )
-                        .await?,
-                );
+                let datafiles = Arc::new(files.into_iter().map(Ok::<_, Error>).try_fold(
+                    HashMap::<Struct, Vec<DataFile>>::new(),
+                    |mut acc, x| {
+                        let x = x?;
+                        let partition_value = x.partition().clone();
+                        acc.entry(partition_value).or_default().push(x);
+                        Ok::<_, Error>(acc)
+                    },
+                )?);
 
                 let manifest_list_schema =
                     ManifestListEntry::schema(&table_metadata.format_version)?;
@@ -116,55 +113,48 @@ impl Operation {
                     .manifest_list;
 
                 // Check if file has content "null", if so manifest_list file is empty
-                let existing_manifest_iter = if let Some(manifest_list_bytes) =
-                    &context.manifest_list_bytes
-                {
-                    let manifest_list_reader =
-                        apache_avro::Reader::new(manifest_list_bytes.as_slice())?;
+                let existing_manifest_iter =
+                    if let Some(manifest_list_bytes) = &context.manifest_list_bytes {
+                        let manifest_list_reader =
+                            apache_avro::Reader::new(manifest_list_bytes.as_slice())?;
 
-                    Some(stream::iter(manifest_list_reader).filter_map(|manifest| {
-                        let datafiles = datafiles.clone();
-                        let existing_partitions = existing_partitions.clone();
-                        async move {
-                            let manifest = manifest
-                                .map_err(Into::into)
-                                .and_then(|value| {
-                                    ManifestListEntry::try_from_enum(
-                                        from_value::<ManifestListEntryEnum>(&value)?,
-                                        table_metadata,
-                                    )
-                                })
-                                .unwrap();
+                        Some(stream::iter(manifest_list_reader).filter_map(|manifest| {
+                            let datafiles = datafiles.clone();
+                            let existing_partitions = existing_partitions.clone();
+                            async move {
+                                let manifest = manifest
+                                    .map_err(Into::into)
+                                    .and_then(|value| {
+                                        ManifestListEntry::try_from_enum(
+                                            from_value::<ManifestListEntryEnum>(&value)?,
+                                            table_metadata,
+                                        )
+                                    })
+                                    .unwrap();
 
-                            if let Some(summary) = &manifest.partitions {
-                                let partition_values = partition_values_in_bounds(
-                                    summary,
-                                    datafiles.keys(),
-                                    &partition_spec.fields,
-                                    schema,
-                                );
-                                if !partition_values.is_empty() {
-                                    for file in &partition_values {
-                                        existing_partitions.lock().await.insert(file.clone());
+                                if let Some(summary) = &manifest.partitions {
+                                    let partition_values = partition_values_in_bounds(
+                                        summary,
+                                        datafiles.keys(),
+                                        &partition_spec.fields,
+                                        schema,
+                                    );
+                                    if !partition_values.is_empty() {
+                                        for file in &partition_values {
+                                            existing_partitions.lock().await.insert(file.clone());
+                                        }
+                                        Some((ManifestStatus::Existing(manifest), partition_values))
+                                    } else {
+                                        Some((ManifestStatus::Existing(manifest), vec![]))
                                     }
-                                    Some((
-                                        Ok::<ManifestListEntry, ManifestListEntry>(manifest),
-                                        partition_values,
-                                    ))
                                 } else {
-                                    Some((
-                                        Ok::<ManifestListEntry, ManifestListEntry>(manifest),
-                                        vec![],
-                                    ))
+                                    Some((ManifestStatus::Existing(manifest), vec![]))
                                 }
-                            } else {
-                                Some((Ok::<ManifestListEntry, ManifestListEntry>(manifest), vec![]))
                             }
-                        }
-                    }))
-                } else {
-                    None
-                };
+                        }))
+                    } else {
+                        None
+                    };
 
                 let manifest_count = if let Some(manifest_list_bytes) = &context.manifest_list_bytes
                 {
@@ -209,10 +199,7 @@ impl Operation {
                                     partitions: None,
                                     key_metadata: None,
                                 };
-                                Some((
-                                    Err::<ManifestListEntry, ManifestListEntry>(manifest),
-                                    vec![partition_value.clone()],
-                                ))
+                                Some((ManifestStatus::New(manifest), vec![partition_value.clone()]))
                             } else {
                                 None
                             }
@@ -231,126 +218,31 @@ impl Operation {
                         ))?,
                 );
 
-                let write_manifest_closure = |(manifest, files): (
-                    Result<ManifestListEntry, ManifestListEntry>,
-                    Vec<Struct>,
-                )| {
-                    let object_store = object_store.clone();
-                    let datafiles = datafiles.clone();
-                    let partition_columns = partition_columns.clone();
-                    let branch = branch.clone();
-                    async move {
-                        let manifest_schema = ManifestEntry::schema(
-                            &partition_value_schema(
-                                &table_metadata.default_partition_spec()?.fields,
-                                schema,
-                            )?,
-                            &table_metadata.format_version,
-                        )?;
-
-                        let mut manifest_writer = ManifestWriter::new(
-                            Vec::new(),
-                            &manifest_schema,
-                            table_metadata,
-                            branch.as_deref(),
-                        )?;
-
-                        let mut manifest = match manifest {
-                            Ok(manifest) => {
-                                let manifest_bytes: Vec<u8> = object_store
-                                    .get(&strip_prefix(&manifest.manifest_path).as_str().into())
-                                    .await?
-                                    .bytes()
-                                    .await?
-                                    .into();
-
-                                let manifest_reader = apache_avro::Reader::new(&*manifest_bytes)?;
-                                manifest_writer.extend(manifest_reader.filter_map(Result::ok))?;
-                                manifest
-                            }
-                            Err(manifest) => manifest,
-                        };
-                        let files_count =
-                            manifest.added_files_count.unwrap_or_default() + files.len() as i32;
-                        for path in files {
-                            for datafile in datafiles.get(&path).ok_or(Error::InvalidFormat(
-                                "Datafiles for partition value".to_string(),
-                            ))? {
-                                let mut added_rows_count = 0;
-
-                                if manifest.partitions.is_none() {
-                                    manifest.partitions = Some(
-                                        table_metadata
-                                            .default_partition_spec()?
-                                            .fields
-                                            .iter()
-                                            .map(|_| FieldSummary {
-                                                contains_null: false,
-                                                contains_nan: None,
-                                                lower_bound: None,
-                                                upper_bound: None,
-                                            })
-                                            .collect::<Vec<FieldSummary>>(),
-                                    );
-                                }
-
-                                added_rows_count += datafile.record_count();
-                                update_partitions(
-                                    manifest.partitions.as_mut().unwrap(),
-                                    &datafile.partition(),
-                                    &partition_columns,
-                                )?;
-
-                                let manifest_entry = ManifestEntry::builder()
-                                    .with_format_version(table_metadata.format_version.clone())
-                                    .with_status(Status::Added)
-                                    .with_snapshot_id(table_metadata.current_snapshot_id)
-                                    .with_sequence_number(
-                                        table_metadata
-                                            .current_snapshot(branch.as_deref())?
-                                            .map(|x| x.sequence_number),
-                                    )
-                                    .with_data_file(datafile.clone())
-                                    .build()
-                                    .map_err(SpecError::from)?;
-
-                                manifest_writer.append_ser(manifest_entry)?;
-
-                                manifest.added_files_count = match manifest.added_files_count {
-                                    Some(count) => Some(count + files_count),
-                                    None => Some(files_count),
-                                };
-                                manifest.added_rows_count = match manifest.added_rows_count {
-                                    Some(count) => Some(count + added_rows_count),
-                                    None => Some(added_rows_count),
-                                };
-                            }
-                        }
-
-                        let manifest_bytes = manifest_writer.into_inner()?;
-
-                        let manifest_length: i64 = manifest_bytes.len() as i64;
-
-                        manifest.manifest_length += manifest_length;
-
-                        object_store
-                            .put(
-                                &strip_prefix(&manifest.manifest_path).as_str().into(),
-                                manifest_bytes.into(),
-                            )
-                            .await?;
-
-                        Ok::<_, Error>(manifest)
-                    }
-                };
-
                 match existing_manifest_iter {
                     Some(existing_manifest_iter) => {
                         let manifest_iter =
                             Box::new(existing_manifest_iter.chain(new_manifest_iter));
 
                         manifest_iter
-                            .then(write_manifest_closure)
+                            .then(|(manifest, files): (ManifestStatus, Vec<Struct>)| {
+                                let object_store = object_store.clone();
+                                let datafiles = datafiles.clone();
+                                let partition_columns = partition_columns.clone();
+                                let branch = branch.clone();
+                                async move {
+                                    write_manifest(
+                                        table_metadata,
+                                        manifest,
+                                        files,
+                                        datafiles,
+                                        schema,
+                                        &partition_columns,
+                                        object_store,
+                                        branch,
+                                    )
+                                    .await
+                                }
+                            })
                             .try_for_each_concurrent(None, |manifest| {
                                 let manifest_list_writer = manifest_list_writer.clone();
                                 async move {
@@ -362,7 +254,25 @@ impl Operation {
                     }
                     None => {
                         new_manifest_iter
-                            .then(write_manifest_closure)
+                            .then(|(manifest, files): (ManifestStatus, Vec<Struct>)| {
+                                let object_store = object_store.clone();
+                                let datafiles = datafiles.clone();
+                                let partition_columns = partition_columns.clone();
+                                let branch = branch.clone();
+                                async move {
+                                    write_manifest(
+                                        table_metadata,
+                                        manifest,
+                                        files,
+                                        datafiles,
+                                        schema,
+                                        &partition_columns,
+                                        object_store,
+                                        branch,
+                                    )
+                                    .await
+                                }
+                            })
                             .try_for_each_concurrent(None, |manifest| {
                                 let manifest_list_writer = manifest_list_writer.clone();
                                 async move {
@@ -415,6 +325,120 @@ impl Operation {
             _ => Ok(()),
         }
     }
+}
+
+pub enum ManifestStatus {
+    New(ManifestListEntry),
+    Existing(ManifestListEntry),
+}
+
+pub(crate) async fn write_manifest(
+    table_metadata: &TableMetadata,
+    manifest: ManifestStatus,
+    files: Vec<Struct>,
+    datafiles: Arc<HashMap<Struct, Vec<DataFile>>>,
+    schema: &Schema,
+    partition_columns: &[&StructField],
+    object_store: Arc<dyn ObjectStore>,
+    branch: Option<String>,
+) -> Result<ManifestListEntry, Error> {
+    let manifest_schema = ManifestEntry::schema(
+        &partition_value_schema(&table_metadata.default_partition_spec()?.fields, schema)?,
+        &table_metadata.format_version,
+    )?;
+
+    let mut manifest_writer = ManifestWriter::new(
+        Vec::new(),
+        &manifest_schema,
+        table_metadata,
+        branch.as_deref(),
+    )?;
+
+    let mut manifest = match manifest {
+        ManifestStatus::Existing(manifest) => {
+            let manifest_bytes: Vec<u8> = object_store
+                .get(&strip_prefix(&manifest.manifest_path).as_str().into())
+                .await?
+                .bytes()
+                .await?
+                .into();
+
+            let manifest_reader = apache_avro::Reader::new(&*manifest_bytes)?;
+            manifest_writer.extend(manifest_reader.filter_map(Result::ok))?;
+            manifest
+        }
+        ManifestStatus::New(manifest) => manifest,
+    };
+    let files_count = manifest.added_files_count.unwrap_or_default() + files.len() as i32;
+    for path in files {
+        for datafile in datafiles.get(&path).ok_or(Error::InvalidFormat(
+            "Datafiles for partition value".to_string(),
+        ))? {
+            let mut added_rows_count = 0;
+
+            if manifest.partitions.is_none() {
+                manifest.partitions = Some(
+                    table_metadata
+                        .default_partition_spec()?
+                        .fields
+                        .iter()
+                        .map(|_| FieldSummary {
+                            contains_null: false,
+                            contains_nan: None,
+                            lower_bound: None,
+                            upper_bound: None,
+                        })
+                        .collect::<Vec<FieldSummary>>(),
+                );
+            }
+
+            added_rows_count += datafile.record_count();
+            update_partitions(
+                manifest.partitions.as_mut().unwrap(),
+                &datafile.partition(),
+                &partition_columns,
+            )?;
+
+            let manifest_entry = ManifestEntry::builder()
+                .with_format_version(table_metadata.format_version.clone())
+                .with_status(Status::Added)
+                .with_snapshot_id(table_metadata.current_snapshot_id)
+                .with_sequence_number(
+                    table_metadata
+                        .current_snapshot(branch.as_deref())?
+                        .map(|x| x.sequence_number),
+                )
+                .with_data_file(datafile.clone())
+                .build()
+                .map_err(SpecError::from)?;
+
+            manifest_writer.append_ser(manifest_entry)?;
+
+            manifest.added_files_count = match manifest.added_files_count {
+                Some(count) => Some(count + files_count),
+                None => Some(files_count),
+            };
+            manifest.added_rows_count = match manifest.added_rows_count {
+                Some(count) => Some(count + added_rows_count),
+                None => Some(added_rows_count),
+            };
+        }
+    }
+
+    let manifest_bytes = manifest_writer.into_inner()?;
+
+    let manifest_length: i64 = manifest_bytes.len() as i64;
+
+    manifest.manifest_length += manifest_length;
+
+    object_store
+        .put(
+            &strip_prefix(&manifest.manifest_path).as_str().into(),
+            manifest_bytes.into(),
+        )
+        .await?;
+
+    Ok::<_, Error>(manifest)
 }
 
 fn update_partitions(

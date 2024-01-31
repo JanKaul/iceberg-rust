@@ -17,7 +17,9 @@ use tokio::io::AsyncWrite;
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
 use iceberg_rust_spec::{
-    spec::{manifest::DataFile, partition::PartitionSpec, schema::Schema},
+    spec::{
+        manifest::DataFile, partition::PartitionSpec, schema::Schema, table_metadata::TableMetadata,
+    },
     util::strip_prefix,
 };
 use parquet::{
@@ -29,7 +31,6 @@ use uuid::Uuid;
 
 use crate::{
     catalog::bucket::parse_bucket, error::Error, file_format::parquet::parquet_to_datafile,
-    table::Table,
 };
 
 use super::partition::partition_record_batches;
@@ -38,15 +39,14 @@ const MAX_PARQUET_SIZE: usize = 512_000_000;
 
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
 pub async fn write_parquet_partitioned(
-    table: &Table,
+    metadata: &TableMetadata,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
+    object_store: Arc<dyn ObjectStore>,
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, ArrowError> {
-    let metadata = table.metadata();
     let location = &metadata.location;
     let schema = metadata.current_schema(branch).map_err(Error::from)?;
     let partition_spec = metadata.default_partition_spec().map_err(Error::from)?;
-    let object_store = table.object_store();
 
     let streams = partition_record_batches(batches, partition_spec, schema).await?;
 

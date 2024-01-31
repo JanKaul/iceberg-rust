@@ -1689,6 +1689,7 @@ dependencies = [
  "chrono",
  "derive-getters",
  "derive_builder",
+ "getrandom",
  "itertools 0.10.5",
  "murmur3",
  "object_store",
