@@ -46,8 +46,11 @@ use crate::{
 };
 
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular,
-    materialized_view::MaterializedView, table::Table, view::View,
+    arrow::write::write_parquet_partitioned,
+    catalog::{identifier::Identifier, tabular::Tabular},
+    materialized_view::MaterializedView,
+    table::Table,
+    view::View,
 };
 use iceberg_rust_spec::spec::{types::StructField, view_metadata::ViewRepresentation};
 use iceberg_rust_spec::util;
@@ -186,7 +189,17 @@ impl TableProvider for DataFusionTable {
                 .await
             }
             Tabular::MaterializedView(mv) => {
-                let table = mv.storage_table(None).await.map_err(Error::from)?;
+                let table = Table::new(
+                    Identifier::try_new(&vec!["temp".to_owned()]).map_err(Error::from)?,
+                    mv.catalog(),
+                    mv.storage_table()
+                        .await
+                        .map_err(Error::from)?
+                        .table_metadata,
+                    &mv.metadata().materialization,
+                )
+                .await
+                .map_err(Error::from)?;
                 let schema = self.schema();
                 let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
                 table_scan(
@@ -272,10 +285,10 @@ async fn table_scan(
         .map(|x| {
             Ok(schema
                 .fields
-                .get(x.source_id as usize)
+                .get(*x.source_id() as usize)
                 .ok_or(Error::NotFound(
                     "Field".to_string(),
-                    x.source_id.to_string(),
+                    x.source_id().to_string(),
                 ))?
                 .name
                 .clone())
@@ -349,8 +362,8 @@ async fn table_scan(
             .for_each(|(manifest, prune_file)| {
                 if prune_file {
                     let partition_values = manifest
-                        .data_file
-                        .partition
+                        .data_file()
+                        .partition()
                         .iter()
                         .map(|value| match value {
                             Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
@@ -358,8 +371,8 @@ async fn table_scan(
                         })
                         .collect::<Vec<ScalarValue>>();
                     let object_meta = ObjectMeta {
-                        location: util::strip_prefix(&manifest.data_file.file_path).into(),
-                        size: manifest.data_file.file_size_in_bytes as usize,
+                        location: util::strip_prefix(manifest.data_file().file_path()).into(),
+                        size: *manifest.data_file().file_size_in_bytes() as usize,
                         last_modified: {
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let secs = last_updated_ms / 1000;
@@ -394,8 +407,8 @@ async fn table_scan(
             .map_err(Into::<Error>::into)?;
         data_files.into_iter().for_each(|manifest| {
             let partition_values = manifest
-                .data_file
-                .partition
+                .data_file()
+                .partition()
                 .iter()
                 .map(|value| match value {
                     Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
@@ -403,8 +416,8 @@ async fn table_scan(
                 })
                 .collect::<Vec<ScalarValue>>();
             let object_meta = ObjectMeta {
-                location: util::strip_prefix(&manifest.data_file.file_path).into(),
-                size: manifest.data_file.file_size_in_bytes as usize,
+                location: util::strip_prefix(manifest.data_file().file_path()).into(),
+                size: *manifest.data_file().file_size_in_bytes() as usize,
                 last_modified: {
                     let last_updated_ms = table.metadata().last_updated_ms;
                     let secs = last_updated_ms / 1000;
@@ -437,12 +450,12 @@ async fn table_scan(
         .fields
         .iter()
         .map(|field| {
-            let struct_field = schema.fields.get(field.source_id as usize).unwrap();
+            let struct_field = schema.fields.get(*field.source_id() as usize).unwrap();
             Ok(Field::new(
-                field.name.clone(),
+                field.name().clone(),
                 (&struct_field
                     .field_type
-                    .tranform(&field.transform)
+                    .tranform(field.transform())
                     .map_err(Into::<Error>::into)?)
                     .try_into()
                     .map_err(Into::<Error>::into)?,
@@ -456,14 +469,14 @@ async fn table_scan(
     let mut file_schema = schema.clone();
     for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
         file_schema.fields.fields.push(StructField {
-            id: partition_field.field_id,
-            name: partition_field.name.clone(),
+            id: *partition_field.field_id(),
+            name: partition_field.name().clone(),
             field_type: file_schema
                 .fields
-                .get(partition_field.source_id as usize)
+                .get(*partition_field.source_id() as usize)
                 .unwrap()
                 .field_type
-                .tranform(&partition_field.transform)
+                .tranform(partition_field.transform())
                 .unwrap(),
             required: true,
             doc: None,
@@ -531,9 +544,15 @@ impl DataSink for IcebergDataSink {
         }
         .map_err(Into::<Error>::into)?;
 
-        let metadata_files =
-            write_parquet_partitioned(table, data.map_err(Into::into), self.0.branch.as_deref())
-                .await?;
+        let object_store = table.object_store().clone();
+
+        let metadata_files = write_parquet_partitioned(
+            table.metadata(),
+            data.map_err(Into::into),
+            object_store,
+            self.0.branch.as_deref(),
+        )
+        .await?;
 
         table
             .new_transaction(self.0.branch.as_deref())
@@ -683,12 +702,7 @@ mod tests {
         };
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
-            .with_partition_field(PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "day".to_string(),
-                transform: Transform::Day,
-            })
+            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
@@ -862,12 +876,7 @@ mod tests {
         };
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
-            .with_partition_field(PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "day".to_string(),
-                transform: Transform::Day,
-            })
+            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
@@ -1048,12 +1057,7 @@ mod tests {
         };
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
-            .with_partition_field(PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "day".to_string(),
-                transform: Transform::Day,
-            })
+            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 

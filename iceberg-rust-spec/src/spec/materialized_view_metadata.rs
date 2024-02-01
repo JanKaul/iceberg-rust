@@ -6,32 +6,13 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     table_metadata::VersionNumber,
-    view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder, Representation},
+    view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder},
 };
 
 /// Fields for the version 1 of the view metadata.
-pub type MaterializedViewMetadata = GeneralViewMetadata<MaterializedViewRepresentation>;
+pub type MaterializedViewMetadata = GeneralViewMetadata<String>;
 /// Builder for materialized view metadata
-pub type MaterializedViewMetadataBuilder =
-    GeneralViewMetadataBuilder<MaterializedViewRepresentation>;
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-#[serde(rename_all = "kebab-case", tag = "type")]
-/// Fields for the version 2 of the view metadata.
-pub enum MaterializedViewRepresentation {
-    #[serde(rename_all = "kebab-case")]
-    /// This type of representation stores the original view definition in SQL and its SQL dialect.
-    SqlMaterialized {
-        /// A string representing the original view definition in SQL
-        sql: String,
-        /// A string specifying the dialect of the ‘sql’ field. It can be used by the engines to detect the SQL dialect.
-        dialect: String,
-        /// An integer version number for the materialized view format. Currently, this must be 1. Implementations must throw an exception if the materialized view's version is higher than the supported version.
-        format_version: FormatVersion,
-        /// Pointer to the storage table
-        storage_table: String,
-    },
-}
+pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<String>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(from = "FormatVersionSerde", into = "FormatVersionSerde")]
@@ -64,8 +45,6 @@ impl From<FormatVersionSerde> for FormatVersion {
         }
     }
 }
-
-impl Representation for MaterializedViewRepresentation {}
 
 /// Version id of the materialized view when the refresh operation was performed.
 pub type VersionId = i64;
@@ -110,11 +89,9 @@ mod tests {
             "engineVersion" : "3.3.2"
             },
             "representations" : [ {
-            "type" : "sql-materialized",
+            "type" : "sql",
             "sql" : "SELECT\n    COUNT(1), CAST(event_ts AS DATE)\nFROM events\nGROUP BY 2",
-            "dialect" : "spark",
-            "format-version": 1,
-            "storage-table": "s3://bucket/warehouse/default.db/event_agg/computed"
+            "dialect" : "spark"
             } ]
         } ],
         "schemas": [ {
@@ -136,7 +113,8 @@ mod tests {
         "version-log" : [ {
             "timestamp-ms" : 1573518431292,
             "version-id" : 1
-        } ]
+        } ],
+        "materialization": "s3://bucket/path/to/metadata.json"
         }
         "#;
         let metadata = serde_json::from_str::<MaterializedViewMetadata>(data)

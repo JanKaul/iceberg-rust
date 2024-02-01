@@ -15,6 +15,7 @@ use crate::materialized_view::MaterializedView;
 use crate::table::Table;
 use crate::view::View;
 
+use super::identifier::Identifier;
 use super::Catalog;
 
 #[derive(Debug)]
@@ -30,6 +31,16 @@ pub enum Tabular {
 }
 
 impl Tabular {
+    #[inline]
+    /// Return metadata location for relation.
+    pub fn identifier(&self) -> &Identifier {
+        match self {
+            Tabular::Table(table) => table.identifier(),
+            Tabular::View(view) => view.identifier(),
+            Tabular::MaterializedView(mv) => mv.identifier(),
+        }
+    }
+
     #[inline]
     /// Return metadata location for relation.
     pub fn metadata_location(&self) -> &str {

@@ -22,14 +22,14 @@ use _serde::ViewMetadataEnum;
 pub static REF_PREFIX: &str = "ref-";
 
 /// Fields for the version 1 of the view metadata.
-pub type ViewMetadata = GeneralViewMetadata<ViewRepresentation>;
+pub type ViewMetadata = GeneralViewMetadata<Option<()>>;
 /// Builder for the view metadata
-pub type ViewMetadataBuilder = GeneralViewMetadataBuilder<ViewRepresentation>;
+pub type ViewMetadataBuilder = GeneralViewMetadataBuilder<Option<()>>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
 #[serde(try_from = "ViewMetadataEnum<T>", into = "ViewMetadataEnum<T>")]
 /// Fields for the version 1 of the view metadata.
-pub struct GeneralViewMetadata<T: Representation> {
+pub struct GeneralViewMetadata<T: Clone> {
     #[builder(default = "Uuid::new_v4()")]
     /// A UUID that identifies the view, generated when the view is created. Implementations must throw an exception if a view’s UUID does not match the expected UUID after refreshing metadata
     pub view_uuid: Uuid,
@@ -43,7 +43,7 @@ pub struct GeneralViewMetadata<T: Representation> {
     pub current_version_id: i64,
     #[builder(setter(each(name = "with_version")), default)]
     /// An array of structs describing the last known versions of the view. Controlled by the table property: “version.history.num-entries”. See section Versions.
-    pub versions: HashMap<i64, Version<T>>,
+    pub versions: HashMap<i64, Version>,
     #[builder(default)]
     /// A list of timestamp and version ID pairs that encodes changes to the current version for the view.
     /// Each time the current-version-id is changed, a new entry should be added with the last-updated-ms and the new current-version-id.
@@ -55,9 +55,10 @@ pub struct GeneralViewMetadata<T: Representation> {
     /// A string to string map of view properties. This is used for metadata such as “comment” and for settings that affect view maintenance.
     /// This is not intended to be used for arbitrary metadata.
     pub properties: HashMap<String, String>,
+    pub materialization: T,
 }
 
-impl<T: Representation> GeneralViewMetadata<T> {
+impl<T: Clone> GeneralViewMetadata<T> {
     /// Get current schema
     #[inline]
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
@@ -80,7 +81,7 @@ impl<T: Representation> GeneralViewMetadata<T> {
     }
     /// Get current version
     #[inline]
-    pub fn current_version(&self, snapshot_ref: Option<&str>) -> Result<&Version<T>, Error> {
+    pub fn current_version(&self, snapshot_ref: Option<&str>) -> Result<&Version, Error> {
         let version_id: i64 = match snapshot_ref {
             None => self.current_version_id,
             Some(reference) => self
@@ -111,7 +112,7 @@ mod _serde {
         spec::{schema::SchemaV2, table_metadata::VersionNumber},
     };
 
-    use super::{FormatVersion, GeneralViewMetadata, Representation, Version, VersionLogStruct};
+    use super::{FormatVersion, GeneralViewMetadata, Version, VersionLogStruct};
 
     /// Metadata of an iceberg view
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -134,7 +135,7 @@ mod _serde {
         /// Current version of the view. Set to ‘1’ when the view is first created.
         pub current_version_id: i64,
         /// An array of structs describing the last known versions of the view. Controlled by the table property: “version.history.num-entries”. See section Versions.
-        pub versions: Vec<Version<T>>,
+        pub versions: Vec<Version>,
         /// A list of timestamp and version ID pairs that encodes changes to the current version for the view.
         /// Each time the current-version-id is changed, a new entry should be added with the last-updated-ms and the new current-version-id.
         pub version_log: Vec<VersionLogStruct>,
@@ -143,9 +144,10 @@ mod _serde {
         /// A string to string map of view properties. This is used for metadata such as “comment” and for settings that affect view maintenance.
         /// This is not intended to be used for arbitrary metadata.
         pub properties: Option<HashMap<String, String>>,
+        pub materialization: T,
     }
 
-    impl<T: Representation> TryFrom<ViewMetadataEnum<T>> for GeneralViewMetadata<T> {
+    impl<T: Clone> TryFrom<ViewMetadataEnum<T>> for GeneralViewMetadata<T> {
         type Error = Error;
         fn try_from(value: ViewMetadataEnum<T>) -> Result<Self, Self::Error> {
             match value {
@@ -154,7 +156,7 @@ mod _serde {
         }
     }
 
-    impl<T: Representation> From<GeneralViewMetadata<T>> for ViewMetadataEnum<T> {
+    impl<T: Clone> From<GeneralViewMetadata<T>> for ViewMetadataEnum<T> {
         fn from(value: GeneralViewMetadata<T>) -> Self {
             match value.format_version {
                 FormatVersion::V1 => ViewMetadataEnum::V1(value.into()),
@@ -162,7 +164,7 @@ mod _serde {
         }
     }
 
-    impl<T: Representation> TryFrom<ViewMetadataV1<T>> for GeneralViewMetadata<T> {
+    impl<T: Clone> TryFrom<ViewMetadataV1<T>> for GeneralViewMetadata<T> {
         type Error = Error;
         fn try_from(value: ViewMetadataV1<T>) -> Result<Self, Self::Error> {
             Ok(GeneralViewMetadata {
@@ -173,6 +175,7 @@ mod _serde {
                 versions: HashMap::from_iter(value.versions.into_iter().map(|x| (x.version_id, x))),
                 version_log: value.version_log,
                 properties: value.properties.unwrap_or_default(),
+                materialization: value.materialization,
                 schemas: HashMap::from_iter(
                     value
                         .schemas
@@ -184,7 +187,7 @@ mod _serde {
         }
     }
 
-    impl<T: Representation> From<GeneralViewMetadata<T>> for ViewMetadataV1<T> {
+    impl<T: Clone> From<GeneralViewMetadata<T>> for ViewMetadataV1<T> {
         fn from(value: GeneralViewMetadata<T>) -> Self {
             ViewMetadataV1 {
                 view_uuid: value.view_uuid,
@@ -198,6 +201,7 @@ mod _serde {
                 } else {
                     Some(value.properties)
                 },
+                materialization: value.materialization,
                 schemas: value.schemas.into_values().map(Into::into).collect(),
             }
         }
@@ -216,7 +220,7 @@ pub enum FormatVersion {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the view metadata.
-pub struct Version<T> {
+pub struct Version {
     /// Monotonically increasing id indicating the version of the view. Starts with 1.
     pub version_id: i64,
     /// ID of the schema for the view version
@@ -231,7 +235,7 @@ pub struct Version<T> {
     pub summary: Summary,
     #[builder(setter(each(name = "with_representation")), default)]
     /// A list of “representations” as described in Representations.
-    pub representations: Vec<T>,
+    pub representations: Vec<ViewRepresentation>,
     #[builder(default)]
     /// A string specifying the catalog to use when the table or view references in the view definition do not contain an explicit catalog.
     pub default_catalog: Option<String>,

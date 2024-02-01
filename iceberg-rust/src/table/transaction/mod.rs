@@ -11,7 +11,7 @@ use iceberg_rust_spec::util::strip_prefix;
 
 use self::operation::Operation;
 
-mod operation;
+pub(crate) mod operation;
 
 /// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
 pub struct TableTransaction<'table> {

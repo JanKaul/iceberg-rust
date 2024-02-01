@@ -23,7 +23,7 @@ use super::View;
 /// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
 pub struct Transaction<'view> {
     view: &'view mut View,
-    operations: Vec<ViewOperation<ViewRepresentation>>,
+    operations: Vec<ViewOperation<Option<()>>>,
     branch: Option<String>,
 }
 

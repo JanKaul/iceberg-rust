@@ -12,6 +12,8 @@ use std::{
 use apache_avro::{
     types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
 };
+use derive_builder::Builder;
+use derive_getters::Getters;
 use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -170,20 +172,27 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
 }
 
 /// Entry in manifest with the iceberg spec version 2.
-#[derive(Debug, Serialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, PartialEq, Clone, Getters, Builder)]
 #[serde(into = "ManifestEntryEnum")]
+#[builder(setter(prefix = "with"))]
 pub struct ManifestEntry {
     /// Table format version
-    pub format_version: FormatVersion,
+    format_version: FormatVersion,
     /// Used to track additions and deletions
-    pub status: Status,
+    status: Status,
     /// Snapshot id where the file was added, or deleted if status is 2.
     /// Inherited when null.
-    pub snapshot_id: Option<i64>,
+    snapshot_id: Option<i64>,
     /// Sequence number when the file was added. Inherited when null.
-    pub sequence_number: Option<i64>,
+    sequence_number: Option<i64>,
     /// File path, partition tuple, metrics, …
-    pub data_file: DataFile,
+    data_file: DataFile,
+}
+
+impl ManifestEntry {
+    pub fn builder() -> ManifestEntryBuilder {
+        ManifestEntryBuilder::default()
+    }
 }
 
 impl ManifestEntry {
@@ -479,9 +488,9 @@ pub fn partition_value_schema(
         .map(|field| {
             let schema_field = table_schema
                 .fields
-                .get(field.source_id as usize)
+                .get(*field.source_id() as usize)
                 .ok_or_else(|| {
-                    Error::Schema(field.name.to_string(), format!("{:?}", &table_schema))
+                    Error::Schema(field.name().to_string(), format!("{:?}", &table_schema))
                 })?;
             let data_type = avro_schema_datatype(&schema_field.field_type);
             Ok::<_, Error>(
@@ -495,7 +504,7 @@ pub fn partition_value_schema(
                     + &format!("{}", &data_type)
                     + r#""],
                     "field_id": "#
-                    + &field.field_id.to_string()
+                    + &field.field_id().to_string()
                     + r#",
                     "default": null
                 },"#,
@@ -613,43 +622,54 @@ impl From<HashMap<i32, Value>> for AvroMap<ByteBuf> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Getters, Builder)]
+#[builder(setter(prefix = "with"))]
 /// DataFile found in Manifest.
 pub struct DataFile {
     ///Type of content in data file.
-    pub content: Content,
+    content: Content,
     /// Full URI for the file with a FS scheme.
-    pub file_path: String,
+    file_path: String,
     /// String file format name, avro, orc or parquet
-    pub file_format: FileFormat,
+    file_format: FileFormat,
     /// Partition data tuple, schema based on the partition spec output using partition field ids for the struct field ids
-    pub partition: Struct,
+    partition: Struct,
     /// Number of records in this file
-    pub record_count: i64,
+    record_count: i64,
     /// Total file size in bytes
-    pub file_size_in_bytes: i64,
+    file_size_in_bytes: i64,
     /// Map from column id to total size on disk
-    pub column_sizes: Option<AvroMap<i64>>,
+    column_sizes: Option<AvroMap<i64>>,
     /// Map from column id to number of values in the column (including null and NaN values)
-    pub value_counts: Option<AvroMap<i64>>,
+    value_counts: Option<AvroMap<i64>>,
     /// Map from column id to number of null values
-    pub null_value_counts: Option<AvroMap<i64>>,
+    null_value_counts: Option<AvroMap<i64>>,
     /// Map from column id to number of NaN values
-    pub nan_value_counts: Option<AvroMap<i64>>,
+    nan_value_counts: Option<AvroMap<i64>>,
     /// Map from column id to number of distinct values in the column.
-    pub distinct_counts: Option<AvroMap<i64>>,
+    distinct_counts: Option<AvroMap<i64>>,
     /// Map from column id to lower bound in the column
-    pub lower_bounds: Option<HashMap<i32, Value>>,
+    lower_bounds: Option<HashMap<i32, Value>>,
     /// Map from column id to upper bound in the column
-    pub upper_bounds: Option<HashMap<i32, Value>>,
+    upper_bounds: Option<HashMap<i32, Value>>,
     /// Implementation specific key metadata for encryption
-    pub key_metadata: Option<ByteBuf>,
+    #[builder(default)]
+    key_metadata: Option<ByteBuf>,
     /// Split offsets for the data file.
-    pub split_offsets: Option<Vec<i64>>,
+    #[builder(default)]
+    split_offsets: Option<Vec<i64>>,
     /// Field ids used to determine row equality in equality delete files.
-    pub equality_ids: Option<Vec<i32>>,
+    #[builder(default)]
+    equality_ids: Option<Vec<i32>>,
     /// ID representing sort order for this file
-    pub sort_order_id: Option<i32>,
+    #[builder(default)]
+    sort_order_id: Option<i32>,
+}
+
+impl DataFile {
+    pub fn builder() -> DataFileBuilder {
+        DataFileBuilder::default()
+    }
 }
 
 impl DataFile {
@@ -1483,7 +1503,7 @@ fn avro_value_to_manifest_entry(
 #[cfg(test)]
 mod tests {
     use crate::spec::{
-        partition::{PartitionField, PartitionSpec, PartitionSpecBuilder, Transform},
+        partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::SchemaV2,
         table_metadata::TableMetadataBuilder,
         types::{PrimitiveType, StructField, StructType, StructTypeBuilder, Type},
@@ -1520,12 +1540,7 @@ mod tests {
                 1,
                 PartitionSpecBuilder::default()
                     .with_spec_id(1)
-                    .with_partition_field(PartitionField {
-                        source_id: 0,
-                        field_id: 1000,
-                        name: "day".to_string(),
-                        transform: Transform::Day,
-                    })
+                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),
             )]))
@@ -1653,12 +1668,7 @@ mod tests {
                 1,
                 PartitionSpecBuilder::default()
                     .with_spec_id(1)
-                    .with_partition_field(PartitionField {
-                        source_id: 0,
-                        field_id: 1000,
-                        name: "day".to_string(),
-                        transform: Transform::Day,
-                    })
+                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),
             )]))
@@ -1774,15 +1784,11 @@ mod tests {
             }]),
         };
 
-        let spec = PartitionSpec {
-            spec_id: 0,
-            fields: vec![PartitionField {
-                source_id: 4,
-                field_id: 1000,
-                name: "ts_day".to_string(),
-                transform: Transform::Day,
-            }],
-        };
+        let spec = PartitionSpecBuilder::default()
+            .with_spec_id(0)
+            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
+            .build()
+            .unwrap();
 
         let raw_schema =
             partition_value_schema(&spec.fields, &table_schema.try_into().unwrap()).unwrap();

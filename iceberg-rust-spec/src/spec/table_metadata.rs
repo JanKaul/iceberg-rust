@@ -1030,12 +1030,7 @@ mod tests {
 
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(0)
-            .with_partition_field(PartitionField {
-                name: "x".to_string(),
-                transform: Transform::Identity,
-                source_id: 1,
-                field_id: 1000,
-            })
+            .with_partition_field(PartitionField::new(1, 1000, "x", Transform::Identity))
             .build()
             .unwrap();
 
@@ -1167,12 +1162,7 @@ mod tests {
 
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(0)
-            .with_partition_field(PartitionField {
-                name: "x".to_string(),
-                transform: Transform::Identity,
-                source_id: 1,
-                field_id: 1000,
-            })
+            .with_partition_field(PartitionField::new(1, 1000, "x", Transform::Identity))
             .build()
             .unwrap();
 
@@ -1256,12 +1246,7 @@ mod tests {
 
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(0)
-            .with_partition_field(PartitionField {
-                name: "x".to_string(),
-                transform: Transform::Identity,
-                source_id: 1,
-                field_id: 1000,
-            })
+            .with_partition_field(PartitionField::new(1, 1000, "x", Transform::Identity))
             .build()
             .unwrap();
 

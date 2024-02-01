@@ -7,7 +7,7 @@ use iceberg_rust_spec::spec::{
     table_metadata::MAIN_BRANCH,
     types::StructType,
     view_metadata::{
-        GeneralViewMetadata, Operation as SummaryOperation, Representation, Summary, Version,
+        GeneralViewMetadata, Operation as SummaryOperation, Summary, Version, ViewRepresentation,
         REF_PREFIX,
     },
 };
@@ -16,11 +16,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::Error;
 
 /// View operation
-pub enum Operation<T: Representation> {
+pub enum Operation<T: Clone> {
     /// Update vresion
     UpdateRepresentation {
         /// Representation to add
-        representation: T,
+        representation: ViewRepresentation,
         /// Schema of the representation
         schema: StructType,
         /// Branch where to add the representation
@@ -28,9 +28,11 @@ pub enum Operation<T: Representation> {
     },
     /// Update view properties
     UpdateProperties(Vec<(String, String)>),
+    /// Update materialization
+    UpdateMaterialization(T),
 }
 
-impl<T: Representation> Operation<T> {
+impl<T: Clone> Operation<T> {
     /// Execute operation
     pub async fn execute(self, metadata: &mut GeneralViewMetadata<T>) -> Result<(), Error> {
         match self {
@@ -83,6 +85,10 @@ impl<T: Representation> Operation<T> {
                 entries.into_iter().for_each(|(key, value)| {
                     properties.insert(key, value);
                 });
+                Ok(())
+            }
+            Operation::UpdateMaterialization(materialization) => {
+                metadata.materialization = materialization;
                 Ok(())
             }
         }

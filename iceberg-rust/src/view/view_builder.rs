@@ -64,6 +64,7 @@ impl ViewBuilder {
                     .schema_id(1)
                     .build()?,
             ))
+            .materialization(None)
             .current_version_id(1)
             .properties(HashMap::from_iter(vec![(
                 REF_PREFIX.to_string() + "main",

@@ -1,7 +1,12 @@
 /*!
  * Snapshots
 */
-use std::{collections::HashMap, io::Cursor, sync::Arc};
+use std::{
+    collections::HashMap,
+    io::Cursor,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use derive_builder::Builder;
 use object_store::ObjectStore;
@@ -19,6 +24,7 @@ use super::{
 /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
 pub struct Snapshot {
     /// A unique long ID
+    #[builder(default = "generate_snapshot_id()")]
     pub snapshot_id: i64,
     /// The snapshot ID of the snapshot’s parent.
     /// Omitted for any snapshot with no parent
@@ -29,6 +35,9 @@ pub struct Snapshot {
     pub sequence_number: i64,
     /// A timestamp when the snapshot was created, used for garbage
     /// collection and table inspection
+    #[builder(
+        default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64"
+    )]
     pub timestamp_ms: i64,
     /// The location of a manifest list for this snapshot that
     /// tracks manifest files with additional metadata.
@@ -58,6 +67,12 @@ impl Snapshot {
         );
         ManifestListReader::new(bytes, table_metadata).map_err(Into::into)
     }
+}
+
+pub fn generate_snapshot_id() -> i64 {
+    let mut bytes: [u8; 8] = [0u8; 8];
+    getrandom::getrandom(&mut bytes).unwrap();
+    u64::from_le_bytes(bytes) as i64
 }
 
 pub(crate) mod _serde {

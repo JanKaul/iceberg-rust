@@ -59,13 +59,13 @@ pub async fn partition_record_batches(
                     .map(|field| {
                         let column_name = &schema
                             .fields
-                            .get(field.source_id as usize)
+                            .get(*field.source_id() as usize)
                             .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?
                             .name;
                         let array = record_batch
                             .column_by_name(column_name)
                             .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?;
-                        transform_arrow(array.clone(), &field.transform)
+                        transform_arrow(array.clone(), field.transform())
                     })
                     .collect::<Result<_, ArrowError>>()?;
                 let distinct_values: Vec<DistinctValues> = partition_columns
@@ -222,7 +222,7 @@ mod tests {
     };
 
     use iceberg_rust_spec::spec::{
-        partition::{PartitionField, PartitionSpec, Transform},
+        partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::Schema,
         types::{PrimitiveType, StructField, StructType, Type},
     };
@@ -291,15 +291,11 @@ mod tests {
                 },
             ]),
         };
-        let partition_spec = PartitionSpec {
-            spec_id: 0,
-            fields: vec![PartitionField {
-                source_id: 1,
-                field_id: 1001,
-                name: "x".to_string(),
-                transform: Transform::Identity,
-            }],
-        };
+        let partition_spec = PartitionSpecBuilder::default()
+            .with_spec_id(0)
+            .with_partition_field(PartitionField::new(1, 1001, "x", Transform::Identity))
+            .build()
+            .unwrap();
         let streams = partition_record_batches(record_batches, &partition_spec, &schema)
             .await
             .unwrap();

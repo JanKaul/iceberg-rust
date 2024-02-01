@@ -5,7 +5,10 @@ use datafusion::{
     physical_plan::{ColumnStatistics, Statistics},
     scalar::ScalarValue,
 };
-use iceberg_rust::{catalog::tabular::Tabular, table::Table};
+use iceberg_rust::{
+    catalog::{identifier::Identifier, tabular::Tabular},
+    table::Table,
+};
 use iceberg_rust_spec::spec::values::Value;
 
 use crate::error::Error;
@@ -18,7 +21,17 @@ impl DataFusionTable {
             Tabular::Table(table) => table_statistics(table, &self.snapshot_range).await,
             Tabular::View(_) => Err(Error::NotSupported("Statistics for views".to_string())),
             Tabular::MaterializedView(mv) => {
-                let table = mv.storage_table(None).await.map_err(Error::from)?;
+                let table = Table::new(
+                    Identifier::try_new(&vec!["temp".to_owned()]).map_err(Error::from)?,
+                    mv.catalog(),
+                    mv.storage_table()
+                        .await
+                        .map_err(Error::from)?
+                        .table_metadata,
+                    &mv.metadata().materialization,
+                )
+                .await
+                .map_err(Error::from)?;
                 table_statistics(&table, &self.snapshot_range).await
             }
         }
@@ -58,15 +71,15 @@ pub(crate) async fn table_statistics(
                     .map(|x| x.id)
                     .map(|id| ColumnStatistics {
                         null_count: manifest
-                            .data_file
-                            .null_value_counts
+                            .data_file()
+                            .null_value_counts()
                             .as_ref()
                             .and_then(|x| x.get(&id))
                             .map(|x| Precision::Exact(*x as usize))
                             .unwrap_or(Precision::Absent),
                         max_value: manifest
-                            .data_file
-                            .upper_bounds
+                            .data_file()
+                            .upper_bounds()
                             .as_ref()
                             .and_then(|x| x.get(&id))
                             .and_then(|x| {
@@ -76,8 +89,8 @@ pub(crate) async fn table_statistics(
                             })
                             .unwrap_or(Precision::Absent),
                         min_value: manifest
-                            .data_file
-                            .lower_bounds
+                            .data_file()
+                            .lower_bounds()
                             .as_ref()
                             .and_then(|x| x.get(&id))
                             .and_then(|x| {
@@ -87,19 +100,19 @@ pub(crate) async fn table_statistics(
                             })
                             .unwrap_or(Precision::Absent),
                         distinct_count: manifest
-                            .data_file
-                            .distinct_counts
+                            .data_file()
+                            .distinct_counts()
                             .as_ref()
                             .and_then(|x| x.get(&id))
                             .map(|x| Precision::Exact(*x as usize))
                             .unwrap_or(Precision::Absent),
                     });
             Statistics {
-                num_rows: acc
-                    .num_rows
-                    .add(&Precision::Exact(manifest.data_file.record_count as usize)),
+                num_rows: acc.num_rows.add(&Precision::Exact(
+                    *manifest.data_file().record_count() as usize
+                )),
                 total_byte_size: acc.total_byte_size.add(&Precision::Exact(
-                    manifest.data_file.file_size_in_bytes as usize,
+                    *manifest.data_file().file_size_in_bytes() as usize,
                 )),
                 column_statistics: acc
                     .column_statistics
