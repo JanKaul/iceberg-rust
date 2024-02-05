@@ -4,6 +4,8 @@ Defining the [Identifier] struct for identifying tables in an iceberg catalog.
 
 use core::fmt::{self, Display};
 
+use serde_derive::{Deserialize, Serialize};
+
 use crate::error::Error;
 
 use super::namespace::Namespace;
@@ -12,8 +14,9 @@ use super::namespace::Namespace;
 pub static SEPARATOR: &str = ".";
 
 ///Identifies a table in an iceberg catalog.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Identifier {
+    #[serde(flatten)]
     namespace: Namespace,
     name: String,
 }

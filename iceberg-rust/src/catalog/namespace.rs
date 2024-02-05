@@ -4,11 +4,12 @@ Defining the [Namespace] struct for handling namespaces in the catalog.
 
 use core::fmt::{self, Display};
 use itertools::Itertools;
+use serde_derive::{Deserialize, Serialize};
 
 use crate::{catalog::identifier::SEPARATOR, error::Error};
 
 /// Namespace struct for iceberg catalogs
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Namespace {
     levels: Vec<String>,
 }

@@ -19,7 +19,10 @@ use super::{
     table_metadata::TableMetadata,
 };
 
-#[derive(Debug, PartialEq, Eq, Clone, Builder)]
+use _serde::SnapshotEnum;
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Builder)]
+#[serde(from = "SnapshotEnum", into = "SnapshotEnum")]
 #[builder(setter(prefix = "with"))]
 /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
 pub struct Snapshot {
@@ -82,6 +85,13 @@ pub(crate) mod _serde {
 
     use super::{Operation, Snapshot, Summary};
 
+    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+    #[serde(untagged)]
+    pub(super) enum SnapshotEnum {
+        V2(SnapshotV2),
+        V1(SnapshotV1),
+    }
+
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
     #[serde(rename_all = "kebab-case")]
     /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
@@ -134,6 +144,20 @@ pub(crate) mod _serde {
         /// ID of the table’s current schema when the snapshot was created.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub schema_id: Option<i32>,
+    }
+    impl From<SnapshotEnum> for Snapshot {
+        fn from(value: SnapshotEnum) -> Self {
+            match value {
+                SnapshotEnum::V2(value) => value.into(),
+                SnapshotEnum::V1(value) => value.into(),
+            }
+        }
+    }
+
+    impl From<Snapshot> for SnapshotEnum {
+        fn from(value: Snapshot) -> Self {
+            SnapshotEnum::V2(value.into())
+        }
     }
 
     impl From<SnapshotV1> for Snapshot {

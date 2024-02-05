@@ -1,23 +1,27 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dashmap::DashMap;
 use futures::lock::Mutex;
 use iceberg_rust::{
     catalog::{
+        bucket::Bucket,
         identifier::Identifier,
         namespace::Namespace,
         tabular::{Tabular, TabularMetadata},
-        Catalog, CatalogList, bucket::Bucket,
+        updates::apply_table_updates,
+        Catalog, CatalogList, CommitTable, TableRequirement,
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
+    spec::table_metadata::new_metadata_location,
     table::Table,
     util::strip_prefix,
     view::View,
 };
 use object_store::ObjectStore;
 use sqlx::{
-    any::{AnyConnectOptions, AnyRow, install_default_drivers},
+    any::{install_default_drivers, AnyConnectOptions, AnyRow},
     AnyConnection, ConnectOptions, Connection, Row,
 };
 
@@ -28,6 +32,7 @@ pub struct SqlCatalog {
     name: String,
     connection: Arc<Mutex<AnyConnection>>,
     object_store: Arc<dyn ObjectStore>,
+    cache: DashMap<Identifier, (String, TabularMetadata)>,
 }
 
 pub mod error;
@@ -84,12 +89,16 @@ impl SqlCatalog {
             name: name.to_owned(),
             connection: Arc::new(Mutex::new(connection)),
             object_store,
+            cache: DashMap::new(),
         })
     }
 
     pub fn catalog_list(&self) -> Arc<SqlCatalogList> {
-    Arc::new(SqlCatalogList { connection: self.connection.clone(), object_store: self.object_store.clone() })
-}
+        Arc::new(SqlCatalogList {
+            connection: self.connection.clone(),
+            object_store: self.object_store.clone(),
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -105,7 +114,17 @@ fn query_map(row: &AnyRow) -> Result<TableRef, sqlx::Error> {
         table_namespace: row.try_get(0)?,
         table_name: row.try_get(1)?,
         metadata_location: row.try_get(2)?,
-        _previous_metadata_location: row.try_get::<String,_>(3).map(Some).or_else(|err|if let sqlx::Error::ColumnDecode { index: _, source: _ } = err {Ok(None)} else {Err(err)})?,
+        _previous_metadata_location: row.try_get::<String, _>(3).map(Some).or_else(|err| {
+            if let sqlx::Error::ColumnDecode {
+                index: _,
+                source: _,
+            } = err
+            {
+                Ok(None)
+            } else {
+                Err(err)
+            }
+        })?,
     })
 }
 
@@ -113,7 +132,7 @@ fn query_map(row: &AnyRow) -> Result<TableRef, sqlx::Error> {
 impl Catalog for SqlCatalog {
     async fn list_tables(&self, namespace: &Namespace) -> Result<Vec<Identifier>, IcebergError> {
         let mut connection = self.connection.lock().await;
-        let rows = connection.transaction(|txn|{ 
+        let rows = connection.transaction(|txn|{
             let name = self.name.clone();
             let namespace = namespace.to_string();
             Box::pin(async move {
@@ -201,6 +220,8 @@ impl Catalog for SqlCatalog {
             .bytes()
             .await?;
         let metadata: TabularMetadata = serde_json::from_str(std::str::from_utf8(bytes)?)?;
+        self.cache
+            .insert(identifier.clone(), (path.clone(), metadata.clone()));
         match metadata {
             TabularMetadata::Table(metadata) => Ok(Tabular::Table(
                 Table::new(
@@ -231,9 +252,7 @@ impl Catalog for SqlCatalog {
             )),
         }
     }
-    async fn invalidate_table(&self, _identifier: &Identifier) -> Result<(), IcebergError> {
-        unimplemented!()
-    }
+
     async fn register_table(
         self: Arc<Self>,
         identifier: Identifier,
@@ -272,12 +291,6 @@ impl Catalog for SqlCatalog {
         }
         self.load_table(&identifier).await
     }
-    async fn initialize(
-        self: Arc<Self>,
-        _properties: &std::collections::HashMap<String, String>,
-    ) -> Result<(), IcebergError> {
-        unimplemented!()
-    }
     fn object_store(&self, _: Bucket) -> Arc<dyn object_store::ObjectStore> {
         self.object_store.clone()
     }
@@ -285,7 +298,65 @@ impl Catalog for SqlCatalog {
 
 impl SqlCatalog {
     pub fn duplicate(&self, name: &str) -> Self {
-        Self { name: name.to_owned(), connection: self.connection.clone(), object_store: self.object_store.clone() }
+        Self {
+            name: name.to_owned(),
+            connection: self.connection.clone(),
+            object_store: self.object_store.clone(),
+            cache: DashMap::new(),
+        }
+    }
+}
+
+impl SqlCatalog {
+    pub async fn update_table2(
+        self: Arc<Self>,
+        commit: CommitTable,
+    ) -> Result<Table, IcebergError> {
+        let identifier = commit.identifier;
+        match self.cache.get(&identifier) {
+            None => {
+                if !matches!(commit.requirements[0], TableRequirement::AssertCreate) {
+                    Err(IcebergError::InvalidFormat(
+                        "Create table assertion".to_owned(),
+                    ))
+                } else {
+                    Err(IcebergError::InvalidFormat(
+                        "Create table assertion".to_owned(),
+                    ))
+                }
+            }
+            Some(r) => {
+                {
+                    let (previous_metadata_location, metadata) = r.value();
+                    let TabularMetadata::Table(mut metadata) = metadata.clone() else {
+                        return Err(IcebergError::InvalidFormat(
+                            "Table update on entity that is not a table".to_owned(),
+                        ));
+                    };
+                    apply_table_updates(&mut metadata, commit.updates)?;
+                    let metadata_location = new_metadata_location(&metadata)?;
+                    let mut connection = self.connection.lock().await;
+                    connection.transaction(|txn|{
+                let catalog_name = self.name.clone();
+                let namespace = identifier.namespace().to_string();
+                let name = identifier.name().to_string();
+                let metadata_file_location = metadata_location.to_string();
+                let previous_metadata_file_location = previous_metadata_location.to_string();
+                Box::pin(async move {
+            sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&mut **txn).await
+        })}).await.map_err(Error::from)?;
+                }
+                self.clone()
+                    .load_table(&identifier)
+                    .await
+                    .and_then(|x| match x {
+                        Tabular::Table(table) => Ok(table),
+                        _ => Err(IcebergError::InvalidFormat(
+                            "Table update on an entity that is nor a table".to_owned(),
+                        )),
+                    })
+            }
+        }
     }
 }
 
@@ -296,10 +367,7 @@ pub struct SqlCatalogList {
 }
 
 impl SqlCatalogList {
-    pub async fn new(
-        url: &str,
-        object_store: Arc<dyn ObjectStore>,
-    ) -> Result<Self, Error> {
+    pub async fn new(url: &str, object_store: Arc<dyn ObjectStore>) -> Result<Self, Error> {
         install_default_drivers();
 
         let mut connection =
@@ -323,7 +391,7 @@ impl SqlCatalogList {
                 })
             })
             .await?;
-        
+
         Ok(SqlCatalogList {
             connection: Arc::new(Mutex::new(connection)),
             object_store,
@@ -333,29 +401,45 @@ impl SqlCatalogList {
 
 #[async_trait]
 impl CatalogList for SqlCatalogList {
-    async fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>>{
-        Some(Arc::new(SqlCatalog {name: name.to_owned(),connection: self.connection.clone(), object_store: self.object_store.clone()}))
+    async fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
+        Some(Arc::new(SqlCatalog {
+            name: name.to_owned(),
+            connection: self.connection.clone(),
+            object_store: self.object_store.clone(),
+            cache: DashMap::new(),
+        }))
     }
-    async fn list_catalogs(&self) -> Vec<String>{
+    async fn list_catalogs(&self) -> Vec<String> {
         let mut connection = self.connection.lock().await;
-        let rows = connection.transaction(|txn|{
-            Box::pin(async move {
-            sqlx::query("select distinct catalog_name from iceberg_tables;").fetch_all(&mut **txn).await
-        })}).await.map_err(Error::from).unwrap_or_default();
+        let rows = connection
+            .transaction(|txn| {
+                Box::pin(async move {
+                    sqlx::query("select distinct catalog_name from iceberg_tables;")
+                        .fetch_all(&mut **txn)
+                        .await
+                })
+            })
+            .await
+            .map_err(Error::from)
+            .unwrap_or_default();
         let iter = rows.iter().map(|row| row.try_get::<String, _>(0));
 
-        iter
-            .collect::<Result<_, sqlx::Error>>()
-            .map_err(Error::from).unwrap_or_default()
+        iter.collect::<Result<_, sqlx::Error>>()
+            .map_err(Error::from)
+            .unwrap_or_default()
     }
 }
 
 #[cfg(test)]
 pub mod tests {
-    use iceberg_rust::{spec::{
-        schema::Schema,
-        types::{PrimitiveType, StructField, StructType, Type},
-    }, catalog::{Catalog, identifier::Identifier}, table::table_builder::TableBuilder};
+    use iceberg_rust::{
+        catalog::{identifier::Identifier, Catalog},
+        spec::{
+            schema::Schema,
+            types::{PrimitiveType, StructField, StructType, Type},
+        },
+        table::table_builder::TableBuilder,
+    };
     use object_store::{memory::InMemory, ObjectStore};
     use std::sync::Arc;
 
@@ -364,7 +448,11 @@ pub mod tests {
     #[tokio::test]
     async fn test_create_update_drop_table() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        let catalog: Arc<dyn Catalog> = Arc::new(SqlCatalog::new("sqlite://","test", object_store).await.unwrap());
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "test", object_store)
+                .await
+                .unwrap(),
+        );
         let identifier = Identifier::parse("load_table.table3").unwrap();
         let schema = Schema {
             schema_id: 1,

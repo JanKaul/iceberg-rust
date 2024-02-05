@@ -106,7 +106,7 @@ impl Tabular {
 }
 
 /// Metadata of an iceberg relation
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 #[allow(clippy::large_enum_variant)]
 pub enum TabularMetadata {

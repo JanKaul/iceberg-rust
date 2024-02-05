@@ -28,7 +28,7 @@ use super::{
 };
 
 pub static MAIN_BRANCH: &str = "main";
-static DEFAULT_SORT_ORDER_ID: i64 = 0;
+static DEFAULT_SORT_ORDER_ID: i32 = 0;
 static DEFAULT_SPEC_ID: i32 = 0;
 
 use _serde::TableMetadataEnum;
@@ -111,12 +111,12 @@ pub struct TableMetadata {
         default = "HashMap::from_iter(vec![(0, SortOrder::default())])"
     )]
     /// A list of sort orders, stored as full sort order objects.
-    pub sort_orders: HashMap<i64, sort::SortOrder>,
+    pub sort_orders: HashMap<i32, sort::SortOrder>,
     #[builder(default)]
     /// Default sort order id of the table. Note that this could be used by
     /// writers, but is not used when reading because reads use the specs
     /// stored in manifest files.
-    pub default_sort_order_id: i64,
+    pub default_sort_order_id: i32,
     ///A map of snapshot references. The map keys are the unique snapshot reference
     /// names in the table, and the map values are snapshot reference objects.
     /// There is always a main branch reference pointing to the current-snapshot-id
@@ -324,7 +324,7 @@ mod _serde {
         /// Default sort order id of the table. Note that this could be used by
         /// writers, but is not used when reading because reads use the specs
         /// stored in manifest files.
-        pub default_sort_order_id: i64,
+        pub default_sort_order_id: i32,
         ///A map of snapshot references. The map keys are the unique snapshot reference
         /// names in the table, and the map values are snapshot reference objects.
         /// There is always a main branch reference pointing to the current-snapshot-id
@@ -406,7 +406,7 @@ mod _serde {
         /// Default sort order id of the table. Note that this could be used by
         /// writers, but is not used when reading because reads use the specs
         /// stored in manifest files.
-        pub default_sort_order_id: Option<i64>,
+        pub default_sort_order_id: Option<i32>,
     }
 
     impl TryFrom<TableMetadataEnum> for TableMetadata {
@@ -480,10 +480,7 @@ mod _serde {
                 snapshot_log: value.snapshot_log,
                 metadata_log: value.metadata_log,
                 sort_orders: HashMap::from_iter(
-                    value
-                        .sort_orders
-                        .into_iter()
-                        .map(|x| (x.order_id as i64, x)),
+                    value.sort_orders.into_iter().map(|x| (x.order_id, x)),
                 ),
                 default_sort_order_id: value.default_sort_order_id,
                 refs,
@@ -573,7 +570,7 @@ mod _serde {
                 metadata_log: value.metadata_log,
                 sort_orders: match value.sort_orders {
                     Some(sort_orders) => {
-                        HashMap::from_iter(sort_orders.into_iter().map(|x| (x.order_id as i64, x)))
+                        HashMap::from_iter(sort_orders.into_iter().map(|x| (x.order_id, x)))
                     }
                     None => HashMap::new(),
                 },
