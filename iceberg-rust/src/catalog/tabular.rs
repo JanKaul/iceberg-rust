@@ -118,6 +118,43 @@ pub enum TabularMetadata {
     MaterializedView(MaterializedViewMetadata),
 }
 
+impl TabularMetadata {
+    /// Get location for tabular
+    pub fn location(&self) -> &str {
+        match self {
+            TabularMetadata::Table(table) => &table.location,
+            TabularMetadata::View(view) => &view.location,
+            TabularMetadata::MaterializedView(matview) => &matview.location,
+        }
+    }
+    /// Get sequence number for tabular
+    pub fn sequence_number(&self) -> i64 {
+        match self {
+            TabularMetadata::Table(table) => table.last_sequence_number,
+            TabularMetadata::View(view) => view.current_version_id,
+            TabularMetadata::MaterializedView(matview) => matview.current_version_id,
+        }
+    }
+}
+
+impl From<TableMetadata> for TabularMetadata {
+    fn from(value: TableMetadata) -> Self {
+        TabularMetadata::Table(value)
+    }
+}
+
+impl From<ViewMetadata> for TabularMetadata {
+    fn from(value: ViewMetadata) -> Self {
+        TabularMetadata::View(value)
+    }
+}
+
+impl From<MaterializedViewMetadata> for TabularMetadata {
+    fn from(value: MaterializedViewMetadata) -> Self {
+        TabularMetadata::MaterializedView(value)
+    }
+}
+
 /// Fetch metadata of a tabular(table, view, materialized view) structure from an object_store
 pub async fn get_tabular_metadata(
     metadata_location: &str,
