@@ -52,6 +52,18 @@ impl Tabular {
     }
 
     #[inline]
+    /// Return metadata location for relation.
+    pub fn metadata(&self) -> TabularMetadata {
+        match self {
+            Tabular::Table(table) => TabularMetadata::Table(table.metadata().clone()),
+            Tabular::View(view) => TabularMetadata::View(view.metadata().clone()),
+            Tabular::MaterializedView(mv) => {
+                TabularMetadata::MaterializedView(mv.metadata().clone())
+            }
+        }
+    }
+
+    #[inline]
     /// Return catalog for relation.
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         match self {

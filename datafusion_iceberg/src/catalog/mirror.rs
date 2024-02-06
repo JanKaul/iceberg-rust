@@ -181,7 +181,7 @@ impl Mirror {
             .spawn_local({
                 let table = table.clone();
                 async move {
-                    let metadata_location = table
+                    let metadata = table
                         .clone()
                         .as_any()
                         .downcast_ref::<DataFusionTable>()
@@ -192,10 +192,10 @@ impl Mirror {
                         .tabular
                         .read()
                         .await
-                        .metadata_location()
+                        .metadata()
                         .to_owned();
                     cloned_catalog
-                        .register_table(identifier, &metadata_location)
+                        .register_tabular(identifier, metadata)
                         .await
                         .unwrap();
                 }

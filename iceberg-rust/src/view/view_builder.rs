@@ -6,10 +6,6 @@ use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-use iceberg_rust_spec::util::strip_prefix;
-use uuid::Uuid;
-
-use crate::catalog::bucket::parse_bucket;
 use crate::catalog::identifier::Identifier;
 use crate::catalog::tabular::Tabular;
 use crate::error::Error;
@@ -79,24 +75,9 @@ impl ViewBuilder {
     /// Building a table writes the metadata file and commits the table to either the metastore or the filesystem
     pub async fn build(self) -> Result<View, Error> {
         let metadata = self.metadata.build()?;
-        let bucket = parse_bucket(&metadata.location)?;
-        let object_store = self.catalog.object_store(bucket);
-        let location = &metadata.location;
-        let uuid = Uuid::new_v4();
-        let version = &metadata.current_version_id;
-        let metadata_json = serde_json::to_string(&metadata)?;
-        let path = location.to_string()
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &uuid.to_string()
-            + ".metadata.json";
-        object_store
-            .put(&strip_prefix(&path).into(), metadata_json.into())
-            .await?;
         if let Tabular::View(view) = self
             .catalog
-            .register_table(self.identifier, path.as_ref())
+            .register_tabular(self.identifier, metadata.into())
             .await?
         {
             Ok(view)

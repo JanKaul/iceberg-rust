@@ -580,7 +580,11 @@ mod tests {
     };
     use iceberg_catalog_sql::SqlCatalog;
     use iceberg_rust::{
-        catalog::{identifier::Identifier, tabular::Tabular, Catalog},
+        catalog::{
+            identifier::Identifier,
+            tabular::{Tabular, TabularMetadata},
+            Catalog,
+        },
         table::table_builder::TableBuilder,
         view::view_builder::ViewBuilder,
     };
@@ -606,7 +610,13 @@ mod tests {
         );
         let identifier = Identifier::parse("test.table1").unwrap();
 
-        catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
+        let metadata: TabularMetadata = serde_json::from_slice(&object_store.get(&"/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json".into()).await.unwrap().bytes().await.unwrap()).unwrap();
+
+        catalog
+            .clone()
+            .register_tabular(identifier.clone(), metadata)
+            .await
+            .expect("Failed to register table.");
 
         let table = if let Tabular::Table(table) = catalog
             .load_table(&identifier)

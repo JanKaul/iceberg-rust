@@ -107,18 +107,7 @@ impl MaterializedViewBuilder {
             + &Uuid::new_v4().to_string()
             + ".metadata.json";
         metadata.materialization = table_path.clone();
-        let metadata_json = serde_json::to_string(&metadata)?;
-        let path = location.to_string()
-            + "/metadata/"
-            + &metadata.current_version_id.to_string()
-            + "-"
-            + &Uuid::new_v4().to_string()
-            + ".metadata.json";
-        object_store
-            .put(&strip_prefix(&path).into(), metadata_json.into())
-            .await?;
         let table_metadata_json = serde_json::to_string(&table_metadata)?;
-
         object_store
             .put(
                 &strip_prefix(&table_path).into(),
@@ -127,7 +116,7 @@ impl MaterializedViewBuilder {
             .await?;
         if let Tabular::MaterializedView(matview) = self
             .catalog
-            .register_table(self.identifier, path.as_ref())
+            .register_tabular(self.identifier, metadata.into())
             .await?
         {
             Ok(matview)

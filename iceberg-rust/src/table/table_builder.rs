@@ -7,12 +7,10 @@ use std::{
     sync::Arc,
 };
 
-use uuid::Uuid;
-
-use crate::catalog::{bucket::parse_bucket, tabular::Tabular};
+use crate::catalog::tabular::Tabular;
 use crate::table::Table;
 use crate::{catalog::identifier::Identifier, error::Error};
-use iceberg_rust_spec::{spec::table_metadata::TableMetadataBuilder, util::strip_prefix};
+use iceberg_rust_spec::spec::table_metadata::TableMetadataBuilder;
 
 use super::Catalog;
 
@@ -73,29 +71,11 @@ impl TableBuilder {
             .properties
             .insert("write.parquet.compression-level".to_owned(), 1.to_string());
 
-        // Write metadata to object_store
-        let bucket = parse_bucket(&metadata.location)?;
-        let object_store = self.catalog.object_store(bucket);
-
-        let location = &metadata.location;
-        let uuid = Uuid::new_v4();
-        let version = &metadata.last_sequence_number;
-        let metadata_json = serde_json::to_string(&metadata)?;
-        let path = location.to_string()
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &uuid.to_string()
-            + ".metadata.json";
-        object_store
-            .put(&strip_prefix(&path).into(), metadata_json.into())
-            .await?;
-
         // Register table in catalog
         if let Tabular::Table(table) = self
             .catalog
             .clone()
-            .register_table(self.identifier.clone(), path.as_ref())
+            .register_tabular(self.identifier.clone(), metadata.into())
             .await?
         {
             Ok(table)

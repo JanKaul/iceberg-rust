@@ -257,20 +257,42 @@ impl Catalog for SqlCatalog {
         }
     }
 
-    async fn register_table(
+    async fn register_tabular(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata_file_location: &str,
+        metadata: TabularMetadata,
     ) -> Result<Tabular, IcebergError> {
+        // Create metadata
+
+        // Write metadata to object_store
+        let bucket = parse_bucket(&metadata.location())?;
+        let object_store = self.object_store(bucket);
+
+        let location = &metadata.location();
+        let uuid = Uuid::new_v4();
+        let version = &metadata.sequence_number();
+        let metadata_json = serde_json::to_string(&metadata)?;
+        let metadata_location = location.to_string()
+            + "/metadata/"
+            + &version.to_string()
+            + "-"
+            + &uuid.to_string()
+            + ".metadata.json";
+        object_store
+            .put(
+                &strip_prefix(&metadata_location).into(),
+                metadata_json.into(),
+            )
+            .await?;
         {
             let mut connection = self.connection.lock().await;
             connection.transaction(|txn|{
                 let catalog_name = self.name.clone();
                 let namespace = identifier.namespace().to_string();
                 let name = identifier.name().to_string();
-                let metadata_file_location = metadata_file_location.to_string();
+                let metadata_location = metadata_location.to_string();
                 Box::pin(async move {
-            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_file_location)).execute(&mut **txn).await
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut **txn).await
         })}).await.map_err(Error::from)?;
         }
         self.load_table(&identifier).await
@@ -454,47 +476,6 @@ impl SqlCatalog {
                     })
             }
         }
-    }
-
-    pub async fn register_entity(
-        self: Arc<Self>,
-        identifier: Identifier,
-        metadata: TabularMetadata,
-    ) -> Result<Tabular, IcebergError> {
-        // Create metadata
-
-        // Write metadata to object_store
-        let bucket = parse_bucket(&metadata.location())?;
-        let object_store = self.object_store(bucket);
-
-        let location = &metadata.location();
-        let uuid = Uuid::new_v4();
-        let version = &metadata.sequence_number();
-        let metadata_json = serde_json::to_string(&metadata)?;
-        let metadata_location = location.to_string()
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &uuid.to_string()
-            + ".metadata.json";
-        object_store
-            .put(
-                &strip_prefix(&metadata_location).into(),
-                metadata_json.into(),
-            )
-            .await?;
-        {
-            let mut connection = self.connection.lock().await;
-            connection.transaction(|txn|{
-                let catalog_name = self.name.clone();
-                let namespace = identifier.namespace().to_string();
-                let name = identifier.name().to_string();
-                let metadata_location = metadata_location.to_string();
-                Box::pin(async move {
-            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut **txn).await
-        })}).await.map_err(Error::from)?;
-        }
-        self.load_table(&identifier).await
     }
 }
 

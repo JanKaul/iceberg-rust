@@ -15,7 +15,7 @@ use crate::error::Error;
 
 use self::bucket::Bucket;
 use self::namespace::Namespace;
-use self::tabular::Tabular;
+use self::tabular::{Tabular, TabularMetadata};
 
 pub mod bucket;
 pub mod commit;
@@ -36,10 +36,10 @@ pub trait Catalog: Send + Sync + Debug {
     /// Load a table.
     async fn load_table(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
     /// Register a table with the catalog if it doesn't exist.
-    async fn register_table(
+    async fn register_tabular(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata_file_location: &str,
+        metadata: TabularMetadata,
     ) -> Result<Tabular, Error>;
     /// Update a table by atomically changing the pointer to the metadata file
     async fn update_table(
