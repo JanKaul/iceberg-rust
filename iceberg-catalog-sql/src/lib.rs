@@ -344,6 +344,12 @@ impl SqlCatalog {
                     }
                     apply_table_updates(&mut metadata, commit.updates)?;
                     let metadata_location = new_metadata_location(&metadata)?;
+                    self.object_store
+                        .put(
+                            &strip_prefix(&metadata_location).into(),
+                            serde_json::to_string(&metadata)?.into(),
+                        )
+                        .await?;
                     let mut connection = self.connection.lock().await;
                     connection.transaction(|txn|{
                 let catalog_name = self.name.clone();
@@ -386,12 +392,19 @@ impl SqlCatalog {
                                 ));
                             }
                             apply_view_updates(metadata, commit.updates)?;
-                            Ok(metadata.location.to_string()
+                            let metadata_location = metadata.location.to_string()
                                 + "/metadata/"
                                 + &metadata.current_version_id.to_string()
                                 + "-"
                                 + &Uuid::new_v4().to_string()
-                                + ".metadata.json")
+                                + ".metadata.json";
+                            self.object_store
+                                .put(
+                                    &strip_prefix(&metadata_location).into(),
+                                    serde_json::to_string(&metadata)?.into(),
+                                )
+                                .await?;
+                            Ok(metadata_location)
                         }
                         TabularMetadata::MaterializedView(metadata) => {
                             if !check_view_requirements(&commit.requirements, &metadata) {
@@ -400,12 +413,19 @@ impl SqlCatalog {
                                 ));
                             }
                             apply_view_updates(metadata, commit.updates)?;
-                            Ok(metadata.location.to_string()
+                            let metadata_location = metadata.location.to_string()
                                 + "/metadata/"
                                 + &metadata.current_version_id.to_string()
                                 + "-"
                                 + &Uuid::new_v4().to_string()
-                                + ".metadata.json")
+                                + ".metadata.json";
+                            self.object_store
+                                .put(
+                                    &strip_prefix(&metadata_location).into(),
+                                    serde_json::to_string(&metadata)?.into(),
+                                )
+                                .await?;
+                            Ok(metadata_location)
                         }
                         _ => Err(IcebergError::InvalidFormat(
                             "Table update on entity that is not a table".to_owned(),
