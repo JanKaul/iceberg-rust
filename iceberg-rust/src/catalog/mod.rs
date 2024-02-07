@@ -12,8 +12,11 @@ use identifier::Identifier;
 use object_store::ObjectStore;
 
 use crate::error::Error;
+use crate::table::Table;
+use crate::view::View;
 
 use self::bucket::Bucket;
+use self::commit::{CommitTable, CommitView};
 use self::namespace::Namespace;
 use self::tabular::{Tabular, TabularMetadata};
 
@@ -41,13 +44,10 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         metadata: TabularMetadata,
     ) -> Result<Tabular, Error>;
-    /// Update a table by atomically changing the pointer to the metadata file
-    async fn update_table(
-        self: Arc<Self>,
-        identifier: Identifier,
-        metadata_file_location: &str,
-        previous_metadata_file_location: &str,
-    ) -> Result<Tabular, Error>;
+    /// perform commit table operation
+    async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;
+    /// perform commit view operation
+    async fn update_view(self: Arc<Self>, commit: CommitView) -> Result<View, Error>;
     /// Return the associated object store for a bucket
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }

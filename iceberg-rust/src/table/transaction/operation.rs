@@ -14,7 +14,9 @@ use iceberg_rust_spec::spec::{
     manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
     partition::PartitionField,
     schema::Schema,
-    snapshot::SnapshotReference,
+    snapshot::{
+        generate_snapshot_id, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary,
+    },
     types::StructField,
     values::{Struct, Value},
 };
@@ -22,17 +24,19 @@ use iceberg_rust_spec::util::strip_prefix;
 use iceberg_rust_spec::{error::Error as SpecError, spec::table_metadata::TableMetadata};
 use object_store::ObjectStore;
 
-use crate::{error::Error, table::Table};
-
-use super::TransactionContext;
+use crate::{
+    catalog::commit::{TableRequirement, TableUpdate},
+    error::Error,
+    table::Table,
+};
 
 #[derive(Debug)]
 ///Table operations
 pub enum Operation {
     /// Update schema
-    UpdateSchema(Schema),
+    AddSchema(Schema),
     /// Update spec
-    UpdateSpec(i32),
+    SetDefaultSpec(i32),
     /// Update table properties
     UpdateProperties(Vec<(String, String)>),
     /// Update snapshot summary
@@ -41,7 +45,7 @@ pub enum Operation {
         entries: Vec<(String, String)>,
     },
     /// Set Ref
-    SetRef((String, SnapshotReference)),
+    SetSnapshotRef((String, SnapshotReference)),
     /// Replace the sort order
     // ReplaceSortOrder,
     // /// Update the table location
@@ -77,15 +81,15 @@ pub enum Operation {
 impl Operation {
     pub async fn execute(
         self,
-        table: &mut Table,
-        context: &mut TransactionContext,
-    ) -> Result<(), Error> {
+        table: &Table,
+    ) -> Result<(Option<TableRequirement>, Vec<TableUpdate>), Error> {
         match self {
             Operation::NewAppend { branch, files } => {
                 let object_store = table.object_store();
                 let table_metadata = table.metadata();
                 let partition_spec = table_metadata.default_partition_spec()?;
                 let schema = table_metadata.current_schema(branch.as_deref())?;
+                let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
 
                 let datafiles = Arc::new(files.into_iter().map(Ok::<_, Error>).try_fold(
                     HashMap::<Struct, Vec<DataFile>>::new(),
@@ -107,69 +111,83 @@ impl Operation {
 
                 let existing_partitions = Arc::new(Mutex::new(HashSet::new()));
 
-                let manifest_list_location = &table_metadata
-                    .current_snapshot(branch.as_deref())?
-                    .ok_or_else(|| Error::InvalidFormat("manifest list in metadata".to_string()))?
-                    .manifest_list;
+                let old_manifest_list_location = old_snapshot.map(|x| &x.manifest_list).cloned();
 
+                let manifest_list_bytes = match old_manifest_list_location {
+                    Some(old_manifest_list_location) => Some(
+                        object_store
+                            .get(&strip_prefix(&old_manifest_list_location).as_str().into())
+                            .await?
+                            .bytes()
+                            .await?,
+                    ),
+                    None => None,
+                };
                 // Check if file has content "null", if so manifest_list file is empty
-                let existing_manifest_iter =
-                    if let Some(manifest_list_bytes) = &context.manifest_list_bytes {
-                        let manifest_list_reader =
-                            apache_avro::Reader::new(manifest_list_bytes.as_slice())?;
+                let existing_manifest_iter = if let Some(manifest_list_bytes) = &manifest_list_bytes
+                {
+                    let manifest_list_reader =
+                        apache_avro::Reader::new(manifest_list_bytes.as_ref())?;
 
-                        Some(stream::iter(manifest_list_reader).filter_map(|manifest| {
-                            let datafiles = datafiles.clone();
-                            let existing_partitions = existing_partitions.clone();
-                            async move {
-                                let manifest = manifest
-                                    .map_err(Into::into)
-                                    .and_then(|value| {
-                                        ManifestListEntry::try_from_enum(
-                                            from_value::<ManifestListEntryEnum>(&value)?,
-                                            table_metadata,
-                                        )
-                                    })
-                                    .unwrap();
+                    Some(stream::iter(manifest_list_reader).filter_map(|manifest| {
+                        let datafiles = datafiles.clone();
+                        let existing_partitions = existing_partitions.clone();
+                        async move {
+                            let manifest = manifest
+                                .map_err(Into::into)
+                                .and_then(|value| {
+                                    ManifestListEntry::try_from_enum(
+                                        from_value::<ManifestListEntryEnum>(&value)?,
+                                        table_metadata,
+                                    )
+                                })
+                                .unwrap();
 
-                                if let Some(summary) = &manifest.partitions {
-                                    let partition_values = partition_values_in_bounds(
-                                        summary,
-                                        datafiles.keys(),
-                                        &partition_spec.fields,
-                                        schema,
-                                    );
-                                    if !partition_values.is_empty() {
-                                        for file in &partition_values {
-                                            existing_partitions.lock().await.insert(file.clone());
-                                        }
-                                        Some((ManifestStatus::Existing(manifest), partition_values))
-                                    } else {
-                                        Some((ManifestStatus::Existing(manifest), vec![]))
+                            if let Some(summary) = &manifest.partitions {
+                                let partition_values = partition_values_in_bounds(
+                                    summary,
+                                    datafiles.keys(),
+                                    &partition_spec.fields,
+                                    schema,
+                                );
+                                if !partition_values.is_empty() {
+                                    for file in &partition_values {
+                                        existing_partitions.lock().await.insert(file.clone());
                                     }
+                                    Some((ManifestStatus::Existing(manifest), partition_values))
                                 } else {
                                     Some((ManifestStatus::Existing(manifest), vec![]))
                                 }
+                            } else {
+                                Some((ManifestStatus::Existing(manifest), vec![]))
                             }
-                        }))
-                    } else {
-                        None
-                    };
+                        }
+                    }))
+                } else {
+                    None
+                };
 
-                let manifest_count = if let Some(manifest_list_bytes) = &context.manifest_list_bytes
-                {
-                    apache_avro::Reader::new(manifest_list_bytes.as_slice())?.count()
+                let manifest_count = if let Some(manifest_list_bytes) = &manifest_list_bytes {
+                    apache_avro::Reader::new(manifest_list_bytes.as_ref())?.count()
                 } else {
                     0
                 };
+
+                let snapshot_id = generate_snapshot_id();
+                let new_manifest_list_location = table_metadata.location.to_string()
+                    + "/metadata/snap-"
+                    + &snapshot_id.to_string()
+                    + &uuid::Uuid::new_v4().to_string()
+                    + ".avro";
 
                 let new_manifest_iter = stream::iter(datafiles.iter().enumerate()).filter_map(
                     |(i, (partition_value, _))| {
                         let existing_partitions = existing_partitions.clone();
                         let branch = branch.clone();
+                        let new_manifest_list_location = new_manifest_list_location.clone();
                         async move {
                             if !existing_partitions.lock().await.contains(partition_value) {
-                                let manifest_location = manifest_list_location
+                                let manifest_location = new_manifest_list_location
                                     .to_string()
                                     .trim_end_matches(".avro")
                                     .to_owned()
@@ -289,40 +307,112 @@ impl Operation {
                     .into_inner()
                     .into_inner()?;
 
-                context.manifest_list_bytes = Some(manifest_list_bytes);
+                object_store
+                    .put(
+                        &strip_prefix(&new_manifest_list_location).into(),
+                        manifest_list_bytes.into(),
+                    )
+                    .await?;
 
-                Ok(())
+                let snapshot = SnapshotBuilder::default()
+                    .with_snapshot_id(snapshot_id)
+                    .with_manifest_list(new_manifest_list_location)
+                    .with_sequence_number(
+                        old_snapshot
+                            .map(|x| x.sequence_number + 1)
+                            .unwrap_or_default(),
+                    )
+                    .with_schema_id(schema.schema_id)
+                    .build()
+                    .map_err(iceberg_rust_spec::error::Error::from)?;
+
+                Ok((
+                    Some(TableRequirement::AssertRefSnapshotId {
+                        r#ref: branch.clone().unwrap_or("main".to_owned()),
+                        snapshot_id,
+                    }),
+                    vec![
+                        TableUpdate::AddSnapshot { snapshot },
+                        TableUpdate::SetSnapshotRef {
+                            ref_name: branch.unwrap_or("main".to_owned()),
+                            snapshot_reference: SnapshotReference {
+                                snapshot_id,
+                                retention: SnapshotRetention::default(),
+                            },
+                        },
+                    ],
+                ))
             }
-            Operation::UpdateProperties(entries) => {
-                let properties = &mut table.metadata.properties;
-                entries.into_iter().for_each(|(key, value)| {
-                    properties.insert(key, value);
-                });
-                Ok(())
-            }
+            Operation::UpdateProperties(entries) => Ok((
+                None,
+                vec![TableUpdate::SetProperties {
+                    updates: HashMap::from_iter(entries),
+                }],
+            )),
             Operation::UpdateSnapshotSummary { branch, entries } => {
-                let snapshot =
+                let old_snapshot =
                     table
                         .metadata
-                        .current_snapshot_mut(branch)?
+                        .current_snapshot(branch.as_deref())?
                         .ok_or(Error::NotFound(
                             "Current".to_string(),
                             "snapshot".to_string(),
                         ))?;
-                for (key, value) in entries {
-                    snapshot.summary.other.insert(key, value);
-                }
-                Ok(())
-            }
-            Operation::SetRef((key, value)) => {
-                if key == "main" {
-                    table.metadata.current_snapshot_id = Some(value.snapshot_id);
-                }
-                table.metadata.refs.insert(key, value);
 
-                Ok(())
+                let snapshot_id = generate_snapshot_id();
+                let new_manifest_list_location = table.metadata.location.to_string()
+                    + "/metadata/snap-"
+                    + &snapshot_id.to_string()
+                    + &uuid::Uuid::new_v4().to_string()
+                    + ".avro";
+                let mut builder = SnapshotBuilder::default();
+                builder
+                    .with_snapshot_id(snapshot_id)
+                    .with_manifest_list(new_manifest_list_location)
+                    .with_sequence_number(old_snapshot.sequence_number + 1)
+                    .with_summary(Summary {
+                        operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
+                        other: HashMap::from_iter(entries),
+                    });
+                if let Some(schema_id) = old_snapshot.schema_id {
+                    builder.with_schema_id(schema_id);
+                }
+                let snapshot = builder
+                    .build()
+                    .map_err(iceberg_rust_spec::error::Error::from)?;
+
+                Ok((
+                    Some(TableRequirement::AssertRefSnapshotId {
+                        r#ref: branch.clone().unwrap_or("main".to_owned()),
+                        snapshot_id,
+                    }),
+                    vec![
+                        TableUpdate::AddSnapshot { snapshot },
+                        TableUpdate::SetSnapshotRef {
+                            ref_name: branch.unwrap_or("main".to_owned()),
+                            snapshot_reference: SnapshotReference {
+                                snapshot_id,
+                                retention: SnapshotRetention::default(),
+                            },
+                        },
+                    ],
+                ))
             }
-            _ => Ok(()),
+            Operation::SetSnapshotRef((key, value)) => {
+                Ok((
+                    table.metadata().refs.get(&key).map(|x| {
+                        TableRequirement::AssertRefSnapshotId {
+                            r#ref: key.clone(),
+                            snapshot_id: x.snapshot_id,
+                        }
+                    }),
+                    vec![TableUpdate::SetSnapshotRef {
+                        ref_name: key,
+                        snapshot_reference: value,
+                    }],
+                ))
+            }
+            _ => Ok((None, vec![])),
         }
     }
 }
