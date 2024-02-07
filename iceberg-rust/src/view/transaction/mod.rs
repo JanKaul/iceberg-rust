@@ -2,17 +2,11 @@
  * Defines the [Transaction] type for views to perform multiple view [Operation]s with ACID guarantees.
 */
 
-use futures::{StreamExt, TryStreamExt};
-use uuid::Uuid;
-
 pub mod operation;
-use iceberg_rust_spec::{
-    spec::{types::StructType, view_metadata::ViewRepresentation},
-    util::strip_prefix,
-};
+use iceberg_rust_spec::spec::{types::StructType, view_metadata::ViewRepresentation};
 
 use crate::{
-    catalog::{bucket::parse_bucket, tabular::Tabular},
+    catalog::{commit::CommitView, tabular::Tabular},
     error::Error,
 };
 
@@ -61,42 +55,26 @@ impl<'view> Transaction<'view> {
 
         let identifier = self.view.identifier().clone();
         // Execute the table operations
-        let view = futures::stream::iter(self.operations)
-            .map(Ok::<_, Error>)
-            .try_fold(self.view, |view, op| async move {
-                op.execute(&mut view.metadata).await?;
-                Ok(view)
-            })
-            .await?;
-        let bucket = parse_bucket(&view.metadata.location)?;
-        let object_store = catalog.object_store(bucket);
-        let location = &&view.metadata().location;
-        let transaction_uuid = Uuid::new_v4();
-        let version = &&view.metadata().current_version_id;
-        let metadata_json = serde_json::to_string(&view.metadata())?;
-        let metadata_file_location = location.to_string()
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &transaction_uuid.to_string()
-            + ".metadata.json";
-        object_store
-            .put(
-                &strip_prefix(&metadata_file_location).into(),
-                metadata_json.into(),
-            )
-            .await?;
-        let previous_metadata_file_location = view.metadata_location();
+        let (mut requirements, mut updates) = (Vec::new(), Vec::new());
+        for operation in self.operations {
+            let (requirement, update) = operation.execute(&self.view.metadata).await?;
+
+            if let Some(requirement) = requirement {
+                requirements.push(requirement);
+            }
+            updates.extend(update);
+        }
+
         if let Tabular::View(new_view) = catalog
             .clone()
-            .update_table(
+            .update_view(CommitView {
                 identifier,
-                metadata_file_location.as_ref(),
-                previous_metadata_file_location,
-            )
+                requirements,
+                updates,
+            })
             .await?
         {
-            *view = new_view;
+            *self.view = new_view;
             Ok(())
         } else {
             Err(Error::InvalidFormat(

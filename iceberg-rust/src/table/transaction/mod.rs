@@ -13,7 +13,7 @@ pub(crate) mod operation;
 
 static APPEND_KEY: &str = "append";
 static ADD_SCHEMA_KEY: &str = "add-schema";
-static SET_CURRENT_SCHEMA_KEY: &str = "set-current-schema";
+static _SET_CURRENT_SCHEMA_KEY: &str = "set-current-schema";
 static SET_DEFAULT_SPEC_KEY: &str = "set-default-spec";
 static UPDATE_PROPERTIES_KEY: &str = "update-properties";
 static UPDATE_SNAPSHOT_SUMMAY: &str = "update-snapshot-summary";
@@ -112,21 +112,10 @@ impl<'table> TableTransaction<'table> {
         let catalog = self.table.catalog();
         let identifier = self.table.identifier.clone();
 
-        // Perform the SetRef first in case a new branch is created or a branch is merged
-        if let Some(Operation::SetSnapshotRef((key, value))) =
-            &self.operations.get(SET_SNAPSHOT_REF_KEY)
-        {
-            self.table.metadata.refs.insert(key.clone(), value.clone());
-        }
-
         // Before executing the transactions operations, update the metadata for a new snapshot
 
-        let number_operations = self.operations.len();
         // Execute the table operations
-        let (mut requirements, mut updates) = (
-            Vec::with_capacity(number_operations),
-            Vec::with_capacity(number_operations),
-        );
+        let (mut requirements, mut updates) = (Vec::new(), Vec::new());
         for operation in self.operations.into_values() {
             let (requirement, update) = operation.execute(&self.table).await?;
 
@@ -147,10 +136,4 @@ impl<'table> TableTransaction<'table> {
         *self.table = new_table;
         Ok(())
     }
-}
-
-/// Contexxt for Transactions
-#[derive(Debug)]
-pub struct TransactionContext {
-    manifest_list_bytes: Option<Vec<u8>>,
 }

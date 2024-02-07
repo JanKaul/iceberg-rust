@@ -76,4 +76,7 @@ pub enum Error {
     /// snapshot builder
     #[error(transparent)]
     SnapshotBuilder(#[from] crate::spec::snapshot::SnapshotBuilderError),
+    /// schema builder
+    #[error(transparent)]
+    SchemaBuilder(#[from] crate::spec::schema::SchemaBuilderError),
 }

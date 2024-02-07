@@ -3,17 +3,20 @@
 */
 
 use iceberg_rust_spec::spec::{
-    schema::Schema,
-    table_metadata::MAIN_BRANCH,
+    schema::SchemaBuilder,
     types::StructType,
-    view_metadata::{
-        GeneralViewMetadata, Operation as SummaryOperation, Summary, Version, ViewRepresentation,
-        REF_PREFIX,
-    },
+    view_metadata::{GeneralViewMetadata, Summary, Version, ViewRepresentation, REF_PREFIX},
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    any::Any,
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use crate::error::Error;
+use crate::{
+    catalog::commit::{ViewRequirement, ViewUpdate},
+    error::Error,
+};
 
 /// View operation
 pub enum Operation<T: Clone> {
@@ -32,9 +35,12 @@ pub enum Operation<T: Clone> {
     UpdateMaterialization(T),
 }
 
-impl<T: Clone> Operation<T> {
+impl<T: Clone + 'static> Operation<T> {
     /// Execute operation
-    pub async fn execute(self, metadata: &mut GeneralViewMetadata<T>) -> Result<(), Error> {
+    pub async fn execute(
+        self,
+        metadata: &GeneralViewMetadata<T>,
+    ) -> Result<(Option<ViewRequirement>, Vec<ViewUpdate>), Error> {
         match self {
             Operation::UpdateRepresentation {
                 representation,
@@ -43,19 +49,12 @@ impl<T: Clone> Operation<T> {
             } => {
                 let version_id = metadata.versions.keys().max().unwrap_or(&0) + 1;
                 let schema_id = metadata.schemas.keys().max().unwrap_or(&0) + 1;
-                metadata.schemas.insert(
-                    schema_id,
-                    Schema {
-                        schema_id,
-                        identifier_field_ids: None,
-                        fields: schema,
-                    },
-                );
+                let last_column_id = schema.fields.iter().map(|x| x.id).max().unwrap_or(0);
                 let version = Version {
                     version_id,
                     schema_id,
                     summary: Summary {
-                        operation: SummaryOperation::Replace,
+                        operation: iceberg_rust_spec::spec::view_metadata::Operation::Replace,
                         engine_name: None,
                         engine_version: None,
                     },
@@ -67,29 +66,59 @@ impl<T: Clone> Operation<T> {
                         .unwrap()
                         .as_micros() as i64,
                 };
-                metadata.versions.insert(version_id, version);
 
                 let branch_name = branch.unwrap_or("main".to_string());
-                if branch_name == MAIN_BRANCH {
-                    metadata.current_version_id = version_id;
-                }
-                metadata.properties.insert(
-                    REF_PREFIX.to_string() + &branch_name,
-                    version_id.to_string(),
-                );
 
-                Ok(())
+                Ok((
+                    Some(ViewRequirement::AssertViewUuid {
+                        uuid: metadata.view_uuid,
+                    }),
+                    vec![
+                        ViewUpdate::AddViewVersion {
+                            view_version: version,
+                        },
+                        ViewUpdate::SetCurrentViewVersion {
+                            view_version_id: version_id,
+                        },
+                        ViewUpdate::AddSchema {
+                            schema: SchemaBuilder::default()
+                                .with_schema_id(schema_id)
+                                .with_fields(schema)
+                                .build()
+                                .map_err(iceberg_rust_spec::error::Error::from)?,
+                            last_column_id: Some(last_column_id),
+                        },
+                        ViewUpdate::SetProperties {
+                            updates: HashMap::from_iter(vec![(
+                                REF_PREFIX.to_string() + &branch_name,
+                                version_id.to_string(),
+                            )]),
+                        },
+                    ],
+                ))
             }
-            Operation::UpdateProperties(entries) => {
-                let properties = &mut metadata.properties;
-                entries.into_iter().for_each(|(key, value)| {
-                    properties.insert(key, value);
-                });
-                Ok(())
-            }
+            Operation::UpdateProperties(entries) => Ok((
+                None,
+                vec![ViewUpdate::SetProperties {
+                    updates: HashMap::from_iter(entries),
+                }],
+            )),
             Operation::UpdateMaterialization(materialization) => {
-                metadata.materialization = materialization;
-                Ok(())
+                let previous_materialization =
+                    (&metadata.materialization as &dyn Any).downcast_ref::<String>();
+                let materialization = (&materialization as &dyn Any)
+                    .downcast_ref::<String>()
+                    .ok_or(Error::InvalidFormat(
+                        "Materialization is not a string.".to_owned(),
+                    ))?;
+                Ok((
+                    previous_materialization.map(|x| ViewRequirement::AssertMaterialization {
+                        materialization: x.clone(),
+                    }),
+                    vec![ViewUpdate::SetMaterialization {
+                        materialization: materialization.clone(),
+                    }],
+                ))
             }
         }
     }

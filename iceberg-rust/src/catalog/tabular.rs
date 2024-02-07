@@ -43,16 +43,6 @@ impl Tabular {
 
     #[inline]
     /// Return metadata location for relation.
-    pub fn metadata_location(&self) -> &str {
-        match self {
-            Tabular::Table(table) => table.metadata_location(),
-            Tabular::View(view) => view.metadata_location(),
-            Tabular::MaterializedView(mv) => mv.metadata_location(),
-        }
-    }
-
-    #[inline]
-    /// Return metadata location for relation.
     pub fn metadata(&self) -> TabularMetadata {
         match self {
             Tabular::Table(table) => TabularMetadata::Table(table.metadata().clone()),

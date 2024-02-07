@@ -44,8 +44,6 @@ pub struct MaterializedView {
     identifier: Identifier,
     /// Metadata for the iceberg view according to the iceberg view spec
     metadata: MaterializedViewMetadata,
-    /// Path to the current metadata location
-    metadata_location: String,
     /// Catalog of the table
     catalog: Arc<dyn Catalog>,
 }
@@ -68,12 +66,10 @@ impl MaterializedView {
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
         metadata: MaterializedViewMetadata,
-        metadata_location: &str,
     ) -> Result<Self, Error> {
         Ok(MaterializedView {
             identifier,
             metadata,
-            metadata_location: metadata_location.to_string(),
             catalog,
         })
     }
@@ -97,10 +93,6 @@ impl MaterializedView {
     /// Get the metadata of the view
     pub fn metadata(&self) -> &MaterializedViewMetadata {
         &self.metadata
-    }
-    /// Get the location of the current metadata file
-    pub fn metadata_location(&self) -> &str {
-        &self.metadata_location
     }
     /// Create a new transaction for this view
     pub fn new_transaction(&mut self, branch: Option<&str>) -> MaterializedViewTransaction {

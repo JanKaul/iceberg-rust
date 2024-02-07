@@ -2,15 +2,10 @@
  * Defines the [Transaction] type for materialized views to perform multiple [Operation]s with ACID guarantees.
 */
 
-use futures::{StreamExt, TryStreamExt};
-use iceberg_rust_spec::{
-    spec::{types::StructType, view_metadata::ViewRepresentation},
-    util::strip_prefix,
-};
-use uuid::Uuid;
+use iceberg_rust_spec::spec::{types::StructType, view_metadata::ViewRepresentation};
 
 use crate::{
-    catalog::{bucket::parse_bucket, tabular::Tabular},
+    catalog::{commit::CommitView, tabular::Tabular},
     error::Error,
     view::transaction::operation::Operation as ViewOperation,
 };
@@ -62,44 +57,29 @@ impl<'view> Transaction<'view> {
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.materialized_view.catalog();
+
         let identifier = self.materialized_view.identifier().clone();
         // Execute the table operations
-        let materialized_view = futures::stream::iter(self.operations)
-            .map(Ok::<_, Error>)
-            .try_fold(self.materialized_view, |view, op| async move {
-                op.execute(&mut view.metadata).await?;
-                Ok(view)
-            })
-            .await?;
-        let bucket = parse_bucket(&materialized_view.metadata.location)?;
-        let object_store = catalog.object_store(bucket);
-        let location = &&materialized_view.metadata().location;
-        let transaction_uuid = Uuid::new_v4();
-        let version = &&materialized_view.metadata().current_version_id;
-        let metadata_json = serde_json::to_string(&materialized_view.metadata())?;
-        let metadata_file_location = location.to_string()
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &transaction_uuid.to_string()
-            + ".metadata.json";
-        object_store
-            .put(
-                &strip_prefix(&metadata_file_location).into(),
-                metadata_json.into(),
-            )
-            .await?;
-        let previous_metadata_file_location = materialized_view.metadata_location();
+        let (mut requirements, mut updates) = (Vec::new(), Vec::new());
+        for operation in self.operations {
+            let (requirement, update) = operation.execute(&self.materialized_view.metadata).await?;
+
+            if let Some(requirement) = requirement {
+                requirements.push(requirement);
+            }
+            updates.extend(update);
+        }
+
         if let Tabular::MaterializedView(new_mv) = catalog
             .clone()
-            .update_table(
+            .update_view(CommitView {
                 identifier,
-                metadata_file_location.as_ref(),
-                previous_metadata_file_location,
-            )
+                requirements,
+                updates,
+            })
             .await?
         {
-            *materialized_view = new_mv;
+            *self.materialized_view = new_mv;
             Ok(())
         } else {
             Err(Error::InvalidFormat(

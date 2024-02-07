@@ -28,7 +28,6 @@ impl DataFusionTable {
                         .await
                         .map_err(Error::from)?
                         .table_metadata,
-                    &mv.metadata().materialization,
                 )
                 .await
                 .map_err(Error::from)?;

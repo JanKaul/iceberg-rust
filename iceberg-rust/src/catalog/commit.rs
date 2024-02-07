@@ -19,7 +19,7 @@ use crate::error::Error;
 use super::identifier::Identifier;
 
 /// Update metadata of a table
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CommitTable {
     /// Table identifier
     pub identifier: Identifier,
@@ -30,7 +30,7 @@ pub struct CommitTable {
 }
 
 /// Update metadata of a table
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CommitView {
     /// Table identifier
     pub identifier: Identifier,
@@ -41,7 +41,7 @@ pub struct CommitView {
 }
 
 /// Update the metadata of a table in the catalog
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(
     tag = "action",
     rename_all = "kebab-case",
@@ -130,7 +130,7 @@ pub enum TableUpdate {
 }
 
 /// Requirements on the table metadata to perform the updates
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "kebab-case",
@@ -180,7 +180,7 @@ pub enum TableRequirement {
 }
 
 /// Update the metadata of a view in the catalog
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(
     tag = "action",
     rename_all = "kebab-case",
@@ -237,7 +237,7 @@ pub enum ViewUpdate {
 }
 
 /// Requirements on the table metadata to perform the updates
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "kebab-case",

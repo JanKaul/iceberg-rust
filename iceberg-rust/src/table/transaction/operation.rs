@@ -183,7 +183,6 @@ impl Operation {
                 let new_manifest_iter = stream::iter(datafiles.iter().enumerate()).filter_map(
                     |(i, (partition_value, _))| {
                         let existing_partitions = existing_partitions.clone();
-                        let branch = branch.clone();
                         let new_manifest_list_location = new_manifest_list_location.clone();
                         async move {
                             if !existing_partitions.lock().await.contains(partition_value) {
@@ -202,12 +201,7 @@ impl Operation {
                                     content: Content::Data,
                                     sequence_number: table_metadata.last_sequence_number,
                                     min_sequence_number: 0,
-                                    added_snapshot_id: table_metadata
-                                        .refs
-                                        .get(branch.as_deref().unwrap_or("main"))
-                                        .map(|x| x.snapshot_id)
-                                        .or(table_metadata.current_snapshot_id)
-                                        .unwrap(),
+                                    added_snapshot_id: snapshot_id,
                                     added_files_count: Some(0),
                                     existing_files_count: Some(0),
                                     deleted_files_count: Some(0),
@@ -322,14 +316,18 @@ impl Operation {
                             .map(|x| x.sequence_number + 1)
                             .unwrap_or_default(),
                     )
+                    .with_summary(Summary {
+                        operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
+                        other: HashMap::new(),
+                    })
                     .with_schema_id(schema.schema_id)
                     .build()
                     .map_err(iceberg_rust_spec::error::Error::from)?;
 
                 Ok((
-                    Some(TableRequirement::AssertRefSnapshotId {
+                    old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
                         r#ref: branch.clone().unwrap_or("main".to_owned()),
-                        snapshot_id,
+                        snapshot_id: x.snapshot_id,
                     }),
                     vec![
                         TableUpdate::AddSnapshot { snapshot },
@@ -384,7 +382,7 @@ impl Operation {
                 Ok((
                     Some(TableRequirement::AssertRefSnapshotId {
                         r#ref: branch.clone().unwrap_or("main".to_owned()),
-                        snapshot_id,
+                        snapshot_id: old_snapshot.snapshot_id,
                     }),
                     vec![
                         TableUpdate::AddSnapshot { snapshot },
