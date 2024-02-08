@@ -15,6 +15,7 @@ url = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 datafusion = { workspace = true }
+datafusion-expr = { workspace = true }
 chrono = { workspace = true }
 object_store = { workspace = true }
 iceberg-rust = { path = "../iceberg-rust", version = "0.1.3" }

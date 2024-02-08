@@ -4,6 +4,7 @@
 
 use async_trait::async_trait;
 use chrono::{naive::NaiveDateTime, DateTime, Utc};
+use datafusion_expr::utils::conjunction;
 use futures::TryStreamExt;
 use object_store::ObjectMeta;
 use std::{
@@ -27,7 +28,6 @@ use datafusion::{
     },
     execution::{context::SessionState, TaskContext},
     logical_expr::{TableProviderFilterPushDown, TableType},
-    optimizer::utils::conjunction,
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
     physical_plan::{
@@ -303,7 +303,6 @@ async fn table_scan(
         Some(create_physical_expr(
             &predicate,
             &arrow_schema.as_ref().clone().try_into()?,
-            &arrow_schema,
             session.execution_props(),
         )?)
     } else {
@@ -335,7 +334,6 @@ async fn table_scan(
             let physical_partition_predicate = create_physical_expr(
                 &predicate,
                 &arrow_schema.as_ref().clone().try_into()?,
-                &arrow_schema,
                 session.execution_props(),
             )?;
             let pruning_predicate =
@@ -386,6 +384,7 @@ async fn table_scan(
                             )
                         },
                         e_tag: None,
+                        version: None,
                     };
                     let file = PartitionedFile {
                         object_meta,
@@ -431,6 +430,7 @@ async fn table_scan(
                     )
                 },
                 e_tag: None,
+                version: None,
             };
             let file = PartitionedFile {
                 object_meta,
@@ -511,7 +511,6 @@ async fn table_scan(
         limit,
         table_partition_cols,
         output_ordering: vec![],
-        infinite_source: false,
     };
 
     ParquetFormat::default()

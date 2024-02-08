@@ -114,6 +114,13 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
         });
         ScalarValue::iter_to_array(contains_null.map(ScalarValue::Int32)).ok()
     }
+    fn contained(
+        &self,
+        _column: &Column,
+        _values: &std::collections::HashSet<ScalarValue>,
+    ) -> Option<datafusion::arrow::array::BooleanArray> {
+        None
+    }
 }
 
 pub(crate) struct PruneDataFiles<'table, 'manifests> {
@@ -178,6 +185,13 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
                     None => None,
                 });
         ScalarValue::iter_to_array(null_counts.map(ScalarValue::Int64)).ok()
+    }
+    fn contained(
+        &self,
+        _column: &Column,
+        _values: &std::collections::HashSet<ScalarValue>,
+    ) -> Option<datafusion::arrow::array::BooleanArray> {
+        None
     }
 }
 
