@@ -47,7 +47,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
             .enumerate()
             .find(|(_, partition_field)| partition_field.name() == &column.name)?;
         let data_type = schema
-            .fields
+            .fields()
             .get(*partition_field.source_id() as usize)
             .as_ref()?
             .field_type
@@ -72,7 +72,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
             .enumerate()
             .find(|(_, partition_field)| partition_field.name() == &column.name)?;
         let data_type = schema
-            .fields
+            .fields()
             .get(*partition_field.source_id() as usize)
             .as_ref()?
             .field_type
@@ -124,7 +124,7 @@ impl<'table, 'manifests> PruneDataFiles<'table, 'manifests> {
 
 impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = (&self.table.current_schema(None).ok()?.fields)
+        let schema: Schema = (self.table.current_schema(None).ok()?.fields())
             .try_into()
             .ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
@@ -141,7 +141,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         any_iter_to_array(min_values, datatype).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = (&self.table.current_schema(None).ok()?.fields)
+        let schema: Schema = (self.table.current_schema(None).ok()?.fields())
             .try_into()
             .ok()?;
         let column_id = schema.index_of(&column.name).ok()?;
@@ -161,7 +161,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         self.files.len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = (&self.table.current_schema(None).ok()?.fields)
+        let schema: Schema = (self.table.current_schema(None).ok()?.fields())
             .try_into()
             .ok()?;
         let column_id = schema.index_of(&column.name).ok()?;

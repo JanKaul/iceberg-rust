@@ -35,7 +35,7 @@ pub fn parquet_to_datafile(
         .iter()
         .map(|x| {
             let field = schema
-                .fields
+                .fields()
                 .get(*x.source_id() as usize)
                 .ok_or_else(|| Error::InvalidFormat("partition column in schema".to_string()))?;
             Ok((field.name.clone(), None))
@@ -45,7 +45,7 @@ pub fn parquet_to_datafile(
         .iter()
         .map(|x| {
             let field = schema
-                .fields
+                .fields()
                 .get(*x.source_id() as usize)
                 .ok_or_else(|| Error::InvalidFormat("partition column in schema".to_string()))?;
             Ok((field.name.clone(), x.transform().clone()))
@@ -66,7 +66,6 @@ pub fn parquet_to_datafile(
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
             let id = schema
-                .fields
                 .get_name(column_name)
                 .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
                 .id;
@@ -91,7 +90,7 @@ pub fn parquet_to_datafile(
                         .or_insert(distinct_count as i64);
                 }
                 let data_type = &schema
-                    .fields
+                    .fields()
                     .get(id as usize)
                     .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
                     .field_type;

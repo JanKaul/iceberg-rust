@@ -293,7 +293,7 @@ impl ManifestListEntry {
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
         let partition_types = table_metadata.default_partition_spec()?.data_types(
-            &table_metadata
+            table_metadata
                 .current_schema(None)
                 .or(table_metadata
                     .refs
@@ -302,7 +302,7 @@ impl ManifestListEntry {
                     .ok_or(Error::NotFound("Current".to_string(), "schema".to_string()))
                     .and_then(|x| table_metadata.schema(x.snapshot_id)))
                 .unwrap()
-                .fields,
+                .fields(),
         )?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V2,
@@ -337,7 +337,7 @@ impl ManifestListEntry {
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
         let partition_types = table_metadata.default_partition_spec()?.data_types(
-            &table_metadata
+            table_metadata
                 .current_schema(None)
                 .or(table_metadata
                     .refs
@@ -346,7 +346,7 @@ impl ManifestListEntry {
                     .ok_or(Error::NotFound("Current".to_string(), "schema".to_string()))
                     .and_then(|x| table_metadata.schema(x.snapshot_id)))
                 .unwrap()
-                .fields,
+                .fields(),
         )?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V1,
@@ -699,7 +699,7 @@ mod tests {
         partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::Schema,
         table_metadata::TableMetadataBuilder,
-        types::{PrimitiveType, StructField, StructTypeBuilder},
+        types::{PrimitiveType, StructField, StructType},
     };
 
     #[test]
@@ -709,20 +709,22 @@ mod tests {
             .current_schema_id(1)
             .schemas(HashMap::from_iter(vec![(
                 1,
-                Schema {
-                    schema_id: 1,
-                    identifier_field_ids: None,
-                    fields: StructTypeBuilder::default()
-                        .with_struct_field(StructField {
-                            id: 0,
-                            name: "date".to_string(),
-                            required: true,
-                            field_type: Type::Primitive(PrimitiveType::Date),
-                            doc: None,
-                        })
-                        .build()
-                        .unwrap(),
-                },
+                Schema::builder()
+                    .with_schema_id(1)
+                    .with_fields(
+                        StructType::builder()
+                            .with_struct_field(StructField {
+                                id: 0,
+                                name: "date".to_string(),
+                                required: true,
+                                field_type: Type::Primitive(PrimitiveType::Date),
+                                doc: None,
+                            })
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
             )]))
             .default_spec_id(1)
             .partition_specs(HashMap::from_iter(vec![(
@@ -788,20 +790,22 @@ mod tests {
             .current_schema_id(1)
             .schemas(HashMap::from_iter(vec![(
                 1,
-                Schema {
-                    schema_id: 1,
-                    identifier_field_ids: None,
-                    fields: StructTypeBuilder::default()
-                        .with_struct_field(StructField {
-                            id: 0,
-                            name: "date".to_string(),
-                            required: true,
-                            field_type: Type::Primitive(PrimitiveType::Date),
-                            doc: None,
-                        })
-                        .build()
-                        .unwrap(),
-                },
+                Schema::builder()
+                    .with_schema_id(1)
+                    .with_fields(
+                        StructType::builder()
+                            .with_struct_field(StructField {
+                                id: 0,
+                                name: "date".to_string(),
+                                required: true,
+                                field_type: Type::Primitive(PrimitiveType::Date),
+                                doc: None,
+                            })
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
             )]))
             .default_spec_id(1)
             .partition_specs(HashMap::from_iter(vec![(

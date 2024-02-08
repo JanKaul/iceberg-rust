@@ -7,7 +7,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     fmt,
     io::Cursor,
-    ops::Deref,
+    slice::Iter,
 };
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
@@ -114,14 +114,6 @@ pub struct Struct {
     pub lookup: BTreeMap<String, usize>,
 }
 
-impl Deref for Struct {
-    type Target = [Option<Value>];
-
-    fn deref(&self) -> &Self::Target {
-        &self.fields
-    }
-}
-
 impl Struct {
     /// Get reference to partition value
     pub fn get(&self, name: &str) -> Option<&Option<Value>> {
@@ -130,6 +122,10 @@ impl Struct {
     /// Get mutable reference to partition value
     pub fn get_mut(&mut self, name: &str) -> Option<&mut Option<Value>> {
         self.fields.get_mut(*self.lookup.get(name)?)
+    }
+
+    pub fn iter(&self) -> Iter<'_, Option<Value>> {
+        self.fields.iter()
     }
 
     pub(crate) fn cast(
@@ -481,8 +477,8 @@ impl Value {
             },
             Type::Struct(schema) => {
                 if let JsonValue::Object(mut object) = value {
-                    Ok(Some(Value::Struct(Struct::from_iter(
-                        schema.fields.iter().map(|field| {
+                    Ok(Some(Value::Struct(Struct::from_iter(schema.iter().map(
+                        |field| {
                             (
                                 field.name.clone(),
                                 object.remove(&field.id.to_string()).and_then(|value| {
@@ -495,8 +491,8 @@ impl Value {
                                         .ok()
                                 }),
                             )
-                        }),
-                    ))))
+                        },
+                    )))))
                 } else {
                     Err(Error::Type(
                         "json for a struct".to_string(),

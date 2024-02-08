@@ -184,7 +184,7 @@ impl MaterializedView {
                 .default_partition_spec()?
                 .fields
                 .iter()
-                .map(|x| schema.fields.get(*x.source_id() as usize))
+                .map(|x| schema.fields().get(*x.source_id() as usize))
                 .collect::<Option<Vec<_>>>()
                 .ok_or(Error::InvalidFormat(
                     "Partition column in schema".to_string(),
@@ -245,7 +245,7 @@ impl MaterializedView {
         let snapshot = SnapshotBuilder::default()
             .with_snapshot_id(snapshot_id)
             .with_sequence_number(0)
-            .with_schema_id(*&schema.schema_id)
+            .with_schema_id(*schema.schema_id())
             .with_manifest_list(manifest_list_location)
             .with_lineage(Lineage::new(version_id, base_tables))
             .build()

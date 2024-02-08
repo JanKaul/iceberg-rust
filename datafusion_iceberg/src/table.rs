@@ -52,7 +52,11 @@ use iceberg_rust::{
     table::Table,
     view::View,
 };
-use iceberg_rust_spec::spec::{types::StructField, view_metadata::ViewRepresentation};
+use iceberg_rust_spec::spec::{
+    schema::Schema,
+    types::{StructField, StructType},
+    view_metadata::ViewRepresentation,
+};
 use iceberg_rust_spec::util;
 // mod value;
 
@@ -101,19 +105,19 @@ impl DataFusionTable {
                 let schema = end
                     .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
                     .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
-                Arc::new((&schema.fields).try_into().unwrap())
+                Arc::new((schema.fields()).try_into().unwrap())
             }
             Tabular::View(view) => {
                 let schema = end
                     .and_then(|version_id| view.metadata().schema(version_id).ok().cloned())
                     .unwrap_or_else(|| view.current_schema(None).unwrap().clone());
-                Arc::new((&schema.fields).try_into().unwrap())
+                Arc::new((schema.fields()).try_into().unwrap())
             }
             Tabular::MaterializedView(matview) => {
                 let schema = end
                     .and_then(|version_id| matview.metadata().schema(version_id).ok().cloned())
                     .unwrap_or_else(|| matview.current_schema(None).unwrap().clone());
-                Arc::new((&schema.fields).try_into().unwrap())
+                Arc::new((schema.fields()).try_into().unwrap())
             }
         };
         DataFusionTable {
@@ -283,7 +287,7 @@ async fn table_scan(
         .iter()
         .map(|x| {
             Ok(schema
-                .fields
+                .fields()
                 .get(*x.source_id() as usize)
                 .ok_or(Error::NotFound(
                     "Field".to_string(),
@@ -449,7 +453,7 @@ async fn table_scan(
         .fields
         .iter()
         .map(|field| {
-            let struct_field = schema.fields.get(*field.source_id() as usize).unwrap();
+            let struct_field = schema.fields().get(*field.source_id() as usize).unwrap();
             Ok(Field::new(
                 field.name().clone(),
                 (&struct_field
@@ -465,13 +469,16 @@ async fn table_scan(
         .map_err(Into::<Error>::into)?;
 
     // Add the partition columns to the table schema
-    let mut file_schema = schema.clone();
+    let mut schema_builder = StructType::builder();
+    for field in schema.fields().iter() {
+        schema_builder.with_struct_field(field.clone());
+    }
     for partition_field in &table.metadata().default_partition_spec().unwrap().fields {
-        file_schema.fields.fields.push(StructField {
+        schema_builder.with_struct_field(StructField {
             id: *partition_field.field_id(),
             name: partition_field.name().clone(),
-            field_type: file_schema
-                .fields
+            field_type: schema
+                .fields()
                 .get(*partition_field.source_id() as usize)
                 .unwrap()
                 .field_type
@@ -479,9 +486,21 @@ async fn table_scan(
                 .unwrap(),
             required: true,
             doc: None,
-        })
+        });
     }
-    let file_schema: SchemaRef = Arc::new((&file_schema.fields).try_into().unwrap());
+    let file_schema = Schema::builder()
+        .with_schema_id(*schema.schema_id())
+        .with_fields(
+            schema_builder
+                .build()
+                .map_err(iceberg_rust_spec::error::Error::from)
+                .map_err(Error::from)?,
+        )
+        .build()
+        .map_err(iceberg_rust_spec::error::Error::from)
+        .map_err(Error::from)?;
+
+    let file_schema: SchemaRef = Arc::new((file_schema.fields()).try_into().unwrap());
 
     let file_scan_config = FileScanConfig {
         object_store_url,
@@ -590,7 +609,7 @@ mod tests {
     use iceberg_rust_spec::spec::{
         partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::Schema,
-        types::{PrimitiveType, StructField, StructTypeBuilder, Type},
+        types::{PrimitiveType, StructField, StructType, Type},
     };
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
     use std::sync::Arc;
@@ -667,48 +686,51 @@ mod tests {
                 .unwrap(),
         );
 
-        let schema = Schema {
-            schema_id: 1,
-            identifier_field_ids: None,
-            fields: StructTypeBuilder::default()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "customer_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 3,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 4,
-                    name: "date".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Date),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 5,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        };
+        let schema = Schema::builder()
+            .with_schema_id(1)
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "customer_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "product_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 4,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 5,
+                        name: "amount".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Int),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
@@ -841,48 +863,51 @@ mod tests {
                 .unwrap(),
         );
 
-        let schema = Schema {
-            schema_id: 1,
-            identifier_field_ids: None,
-            fields: StructTypeBuilder::default()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "customer_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 3,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 4,
-                    name: "date".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Date),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 5,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        };
+        let schema = Schema::builder()
+            .with_schema_id(1)
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "customer_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "product_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 4,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 5,
+                        name: "amount".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Int),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
@@ -1022,48 +1047,50 @@ mod tests {
                 .unwrap(),
         );
 
-        let schema = Schema {
-            schema_id: 1,
-            identifier_field_ids: None,
-            fields: StructTypeBuilder::default()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "customer_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 3,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 4,
-                    name: "date".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Date),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 5,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        };
+        let schema = Schema::builder()
+            .with_schema_id(1)
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "customer_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "product_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 4,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 5,
+                        name: "amount".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Int),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
@@ -1104,27 +1131,29 @@ mod tests {
         .await
         .expect("Failed to insert values into table");
 
-        let view_schema = Schema {
-            schema_id: 1,
-            identifier_field_ids: None,
-            fields: StructTypeBuilder::default()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        };
+        let view_schema = Schema::builder()
+            .with_schema_id(1)
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "product_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "amount".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Int),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
 
         let mut builder = ViewBuilder::new(
             "select product_id, amount from orders where product_id < 3;",

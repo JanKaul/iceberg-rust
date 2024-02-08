@@ -58,7 +58,7 @@ pub async fn partition_record_batches(
                     .iter()
                     .map(|field| {
                         let column_name = &schema
-                            .fields
+                            .fields()
                             .get(*field.source_id() as usize)
                             .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?
                             .name;
@@ -264,33 +264,38 @@ mod tests {
         let record_batches = stream::iter(
             vec![Ok::<_, ArrowError>(batch1), Ok::<_, ArrowError>(batch2)].into_iter(),
         );
-        let schema = Schema {
-            schema_id: 0,
-            identifier_field_ids: None,
-            fields: StructType::new(vec![
-                StructField {
-                    id: 1,
-                    name: "x".to_string(),
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    required: true,
-                    doc: None,
-                },
-                StructField {
-                    id: 2,
-                    name: "y".to_string(),
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    required: true,
-                    doc: None,
-                },
-                StructField {
-                    id: 3,
-                    name: "z".to_string(),
-                    field_type: Type::Primitive(PrimitiveType::String),
-                    required: true,
-                    doc: None,
-                },
-            ]),
-        };
+
+        let schema = Schema::builder()
+            .with_schema_id(0)
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "x".to_string(),
+                        field_type: Type::Primitive(PrimitiveType::Int),
+                        required: true,
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "y".to_string(),
+                        field_type: Type::Primitive(PrimitiveType::Int),
+                        required: true,
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "z".to_string(),
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        required: true,
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(0)
             .with_partition_field(PartitionField::new(1, 1001, "x", Transform::Identity))

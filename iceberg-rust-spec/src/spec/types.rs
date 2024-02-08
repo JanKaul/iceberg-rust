@@ -1,7 +1,7 @@
 /*!
  * Data Types
 */
-use std::{collections::HashMap, fmt, ops::Index};
+use std::{collections::HashMap, fmt, ops::Index, slice::Iter};
 
 use derive_builder::Builder;
 
@@ -185,7 +185,7 @@ impl fmt::Display for PrimitiveType {
 pub struct StructType {
     /// Struct fields
     #[builder(setter(each(name = "with_struct_field")))]
-    pub fields: Vec<StructField>,
+    fields: Vec<StructField>,
     /// Lookup for index by field id
     #[serde(skip_serializing)]
     #[builder(
@@ -254,6 +254,10 @@ impl StructType {
         StructType { fields, lookup }
     }
 
+    pub fn builder() -> StructTypeBuilder {
+        StructTypeBuilder::default()
+    }
+
     /// Get structfield with certain id
     pub fn get(&self, index: usize) -> Option<&StructField> {
         self.lookup
@@ -263,6 +267,14 @@ impl StructType {
     /// Get structfield with certain name
     pub fn get_name(&self, name: &str) -> Option<&StructField> {
         self.fields.iter().find(|field| field.name == name)
+    }
+
+    pub fn len(&self) -> usize {
+        self.fields.len()
+    }
+
+    pub fn iter(&self) -> Iter<'_, StructField> {
+        self.fields.iter()
     }
 }
 

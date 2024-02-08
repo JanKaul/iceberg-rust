@@ -79,4 +79,7 @@ pub enum Error {
     /// schema builder
     #[error(transparent)]
     SchemaBuilder(#[from] crate::spec::schema::SchemaBuilderError),
+    /// structype builder
+    #[error(transparent)]
+    StructTypeBuilder(#[from] crate::spec::types::StructTypeBuilderError),
 }

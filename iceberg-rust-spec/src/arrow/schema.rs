@@ -20,13 +20,14 @@ impl TryInto<ArrowSchema> for &StructType {
 
     fn try_into(self) -> Result<ArrowSchema, Self::Error> {
         let fields = self
-            .fields
             .iter()
             .map(|field| {
-                Ok(Field::new(
+                Ok(Field::new_dict(
                     &field.name,
                     (&field.field_type).try_into()?,
                     !field.required,
+                    field.id as i64,
+                    false,
                 )
                 .with_metadata(HashMap::from_iter(vec![(
                     PARQUET_FIELD_ID_META_KEY.to_string(),
@@ -109,7 +110,6 @@ impl TryFrom<&Type> for DataType {
             )))),
             Type::Struct(struc) => Ok(DataType::Struct(
                 struc
-                    .fields
                     .iter()
                     .map(|field| {
                         Ok(Field::new_dict(

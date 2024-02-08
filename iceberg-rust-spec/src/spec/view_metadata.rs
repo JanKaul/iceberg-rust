@@ -97,7 +97,7 @@ impl<T: Clone> GeneralViewMetadata<T> {
     /// Add schema to view metadata
     #[inline]
     pub fn add_schema(&mut self, schema: Schema) {
-        self.schemas.insert(schema.schema_id, schema);
+        self.schemas.insert(*schema.schema_id(), schema);
     }
 }
 

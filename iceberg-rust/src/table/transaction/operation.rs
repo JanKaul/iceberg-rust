@@ -218,7 +218,7 @@ impl Operation {
                     partition_spec
                         .fields
                         .iter()
-                        .map(|x| schema.fields.get(*x.source_id() as usize))
+                        .map(|x| schema.fields().get(*x.source_id() as usize))
                         .collect::<Option<Vec<_>>>()
                         .ok_or(Error::InvalidFormat(
                             "Partition column in schema".to_string(),
@@ -315,7 +315,7 @@ impl Operation {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
                         other: HashMap::new(),
                     })
-                    .with_schema_id(schema.schema_id)
+                    .with_schema_id(*schema.schema_id())
                     .build()
                     .map_err(iceberg_rust_spec::error::Error::from)?;
 
@@ -594,7 +594,7 @@ fn partition_values_in_bounds<'a>(
                 .iter()
                 .map(|field| {
                     let name = &schema
-                        .fields
+                        .fields()
                         .get(*field.source_id() as usize)
                         .ok_or_else(|| {
                             Error::InvalidFormat("partition values in schema".to_string())

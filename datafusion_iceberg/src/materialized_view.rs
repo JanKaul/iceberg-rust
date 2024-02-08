@@ -204,7 +204,7 @@ mod tests {
     use iceberg_rust_spec::spec::{
         partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::Schema,
-        types::{PrimitiveType, StructField, StructTypeBuilder, Type},
+        types::{PrimitiveType, StructField, StructType, Type},
     };
     use object_store::{memory::InMemory, ObjectStore};
     use std::sync::Arc;
@@ -223,48 +223,51 @@ mod tests {
 
         let catalog = catalog_list.catalog("iceberg").await.unwrap();
 
-        let schema = Schema {
-            schema_id: 1,
-            identifier_field_ids: None,
-            fields: StructTypeBuilder::default()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "customer_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 3,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 4,
-                    name: "date".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Date),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 5,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        };
+        let schema = Schema::builder()
+            .with_schema_id(1)
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "customer_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "product_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 4,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 5,
+                        name: "amount".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Int),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
         let partition_spec = PartitionSpecBuilder::default()
             .with_spec_id(1)
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
@@ -282,27 +285,29 @@ mod tests {
 
         builder.build().await.expect("Failed to create table.");
 
-        let matview_schema = Schema {
-            schema_id: 1,
-            identifier_field_ids: None,
-            fields: StructTypeBuilder::default()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        };
+        let matview_schema = Schema::builder()
+            .with_schema_id(1)
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "product_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "amount".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Int),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
 
         let mut builder = MaterializedViewBuilder::new(
             "select product_id, amount from iceberg.test.orders where product_id < 3;",
@@ -316,28 +321,29 @@ mod tests {
             .build()
             .await
             .expect("Failed to create filesystem view");
-
-        let total_matview_schema = Schema {
-            schema_id: 1,
-            identifier_field_ids: None,
-            fields: StructTypeBuilder::default()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        };
+        let total_matview_schema = Schema::builder()
+            .with_schema_id(1)
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "product_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "amount".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
 
         let mut total_builder = MaterializedViewBuilder::new(
             "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",

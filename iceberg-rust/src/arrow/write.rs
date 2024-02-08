@@ -51,7 +51,7 @@ pub async fn write_parquet_partitioned(
     let streams = partition_record_batches(batches, partition_spec, schema).await?;
 
     let arrow_schema: Arc<ArrowSchema> =
-        Arc::new((&schema.fields).try_into().map_err(Error::from)?);
+        Arc::new((schema.fields()).try_into().map_err(Error::from)?);
 
     let (sender, reciever) = unbounded();
 
@@ -211,7 +211,7 @@ async fn create_arrow_writer(
 fn record_batch_size(batch: &RecordBatch) -> usize {
     batch
         .schema()
-        .fields
+        .fields()
         .iter()
         .fold(0, |acc, x| acc + x.size())
         * batch.num_rows()

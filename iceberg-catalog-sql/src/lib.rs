@@ -522,26 +522,31 @@ pub mod tests {
                 .unwrap(),
         );
         let identifier = Identifier::parse("load_table.table3").unwrap();
-        let schema = Schema {
-            schema_id: 1,
-            identifier_field_ids: Some(vec![1, 2]),
-            fields: StructType::new(vec![
-                StructField {
-                    id: 1,
-                    name: "one".to_string(),
-                    required: false,
-                    field_type: Type::Primitive(PrimitiveType::String),
-                    doc: None,
-                },
-                StructField {
-                    id: 2,
-                    name: "two".to_string(),
-                    required: false,
-                    field_type: Type::Primitive(PrimitiveType::String),
-                    doc: None,
-                },
-            ]),
-        };
+        let schema = Schema::builder()
+            .with_schema_id(1)
+            .with_identifier_field_ids(vec![1, 2])
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "one".to_string(),
+                        required: false,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "two".to_string(),
+                        required: false,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
         let mut builder = TableBuilder::new(&identifier, catalog.clone())
             .expect("Failed to create table builder.");
         builder

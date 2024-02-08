@@ -49,7 +49,7 @@ impl<T: Clone + 'static> Operation<T> {
             } => {
                 let version_id = metadata.versions.keys().max().unwrap_or(&0) + 1;
                 let schema_id = metadata.schemas.keys().max().unwrap_or(&0) + 1;
-                let last_column_id = schema.fields.iter().map(|x| x.id).max().unwrap_or(0);
+                let last_column_id = schema.iter().map(|x| x.id).max().unwrap_or(0);
                 let version = Version {
                     version_id,
                     schema_id,

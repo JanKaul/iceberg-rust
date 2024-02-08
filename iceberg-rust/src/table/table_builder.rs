@@ -50,7 +50,7 @@ impl TableBuilder {
         let last_column_id = metadata
             .schemas
             .values()
-            .flat_map(|x| x.fields.fields.iter())
+            .flat_map(|x| x.fields().iter())
             .map(|x| x.id)
             .max()
             .unwrap_or(0);

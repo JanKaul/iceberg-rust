@@ -1,28 +1,44 @@
 /*!
  * Schemas
 */
+use std::ops::Deref;
+
 use derive_builder::Builder;
+use derive_getters::Getters;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 
 use super::types::StructType;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder, Getters)]
 #[serde(rename_all = "kebab-case")]
 #[builder(setter(prefix = "with"))]
 /// Names and types of fields in a table.
 pub struct Schema {
     /// Identifier of the schema
-    pub schema_id: i32,
+    schema_id: i32,
     /// Set of primitive fields that identify rows in a table.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(into, strip_option), default)]
-    pub identifier_field_ids: Option<Vec<i32>>,
+    identifier_field_ids: Option<Vec<i32>>,
 
     #[serde(flatten)]
     /// The struct fields
-    pub fields: StructType,
+    fields: StructType,
+}
+
+impl Deref for Schema {
+    type Target = StructType;
+    fn deref(&self) -> &Self::Target {
+        &self.fields
+    }
+}
+
+impl Schema {
+    pub fn builder() -> SchemaBuilder {
+        SchemaBuilder::default()
+    }
 }
 
 impl TryFrom<SchemaV2> for Schema {

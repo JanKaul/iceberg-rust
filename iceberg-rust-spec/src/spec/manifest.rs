@@ -487,7 +487,7 @@ pub fn partition_value_schema(
         .iter()
         .map(|field| {
             let schema_field = table_schema
-                .fields
+                .fields()
                 .get(*field.source_id() as usize)
                 .ok_or_else(|| {
                     Error::Schema(field.name().to_string(), format!("{:?}", &table_schema))
@@ -684,7 +684,7 @@ impl DataFile {
             file_format: value.file_format,
             partition: value
                 .partition
-                .cast(&schema.fields, &partition_spec.fields)?,
+                .cast(schema.fields(), &partition_spec.fields)?,
             record_count: value.record_count,
             file_size_in_bytes: value.file_size_in_bytes,
             column_sizes: value.column_sizes,
@@ -694,11 +694,11 @@ impl DataFile {
             distinct_counts: value.distinct_counts,
             lower_bounds: value
                 .lower_bounds
-                .map(|map| map.into_value_map(&schema.fields))
+                .map(|map| map.into_value_map(schema.fields()))
                 .transpose()?,
             upper_bounds: value
                 .upper_bounds
-                .map(|map| map.into_value_map(&schema.fields))
+                .map(|map| map.into_value_map(schema.fields()))
                 .transpose()?,
             key_metadata: value.key_metadata,
             split_offsets: value.split_offsets,
@@ -718,7 +718,7 @@ impl DataFile {
             file_format: value.file_format,
             partition: value
                 .partition
-                .cast(&schema.fields, &partition_spec.fields)?,
+                .cast(schema.fields(), &partition_spec.fields)?,
             record_count: value.record_count,
             file_size_in_bytes: value.file_size_in_bytes,
             column_sizes: value.column_sizes,
@@ -728,11 +728,11 @@ impl DataFile {
             distinct_counts: value.distinct_counts,
             lower_bounds: value
                 .lower_bounds
-                .map(|map| map.into_value_map(&schema.fields))
+                .map(|map| map.into_value_map(schema.fields()))
                 .transpose()?,
             upper_bounds: value
                 .upper_bounds
-                .map(|map| map.into_value_map(&schema.fields))
+                .map(|map| map.into_value_map(schema.fields()))
                 .transpose()?,
             key_metadata: value.key_metadata,
             split_offsets: value.split_offsets,
@@ -1506,7 +1506,7 @@ mod tests {
         partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::SchemaV2,
         table_metadata::TableMetadataBuilder,
-        types::{PrimitiveType, StructField, StructType, StructTypeBuilder, Type},
+        types::{PrimitiveType, StructField, StructType, Type},
         values::Value,
     };
 
@@ -1520,20 +1520,22 @@ mod tests {
             .current_schema_id(1)
             .schemas(HashMap::from_iter(vec![(
                 1,
-                Schema {
-                    schema_id: 1,
-                    identifier_field_ids: None,
-                    fields: StructTypeBuilder::default()
-                        .with_struct_field(StructField {
-                            id: 0,
-                            name: "date".to_string(),
-                            required: true,
-                            field_type: Type::Primitive(PrimitiveType::Date),
-                            doc: None,
-                        })
-                        .build()
-                        .unwrap(),
-                },
+                Schema::builder()
+                    .with_schema_id(1)
+                    .with_fields(
+                        StructType::builder()
+                            .with_struct_field(StructField {
+                                id: 0,
+                                name: "date".to_string(),
+                                required: true,
+                                field_type: Type::Primitive(PrimitiveType::Date),
+                                doc: None,
+                            })
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
             )]))
             .default_spec_id(1)
             .partition_specs(HashMap::from_iter(vec![(
@@ -1648,20 +1650,22 @@ mod tests {
             .current_schema_id(1)
             .schemas(HashMap::from_iter(vec![(
                 1,
-                Schema {
-                    schema_id: 1,
-                    identifier_field_ids: None,
-                    fields: StructTypeBuilder::default()
-                        .with_struct_field(StructField {
-                            id: 0,
-                            name: "date".to_string(),
-                            required: true,
-                            field_type: Type::Primitive(PrimitiveType::Date),
-                            doc: None,
-                        })
-                        .build()
-                        .unwrap(),
-                },
+                Schema::builder()
+                    .with_schema_id(1)
+                    .with_fields(
+                        StructType::builder()
+                            .with_struct_field(StructField {
+                                id: 0,
+                                name: "date".to_string(),
+                                required: true,
+                                field_type: Type::Primitive(PrimitiveType::Date),
+                                doc: None,
+                            })
+                            .build()
+                            .unwrap(),
+                    )
+                    .build()
+                    .unwrap(),
             )]))
             .default_spec_id(1)
             .partition_specs(HashMap::from_iter(vec![(

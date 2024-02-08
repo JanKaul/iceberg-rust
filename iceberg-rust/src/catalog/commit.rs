@@ -316,7 +316,7 @@ pub fn apply_table_updates(
                 schema,
                 last_column_id,
             } => {
-                metadata.schemas.insert(schema.schema_id, schema);
+                metadata.schemas.insert(*schema.schema_id(), schema);
                 if let Some(last_column_id) = last_column_id {
                     metadata.last_column_id = last_column_id;
                 }
@@ -386,7 +386,7 @@ pub fn apply_view_updates<T: Clone + 'static>(
                 schema,
                 last_column_id: _,
             } => {
-                metadata.schemas.insert(schema.schema_id, schema);
+                metadata.schemas.insert(*schema.schema_id(), schema);
             }
             ViewUpdate::SetLocation { location } => {
                 metadata.location = location;

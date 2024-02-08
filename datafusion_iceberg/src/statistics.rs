@@ -58,14 +58,13 @@ pub(crate) async fn table_statistics(
                     min_value: Precision::Absent,
                     distinct_count: Precision::Absent
                 };
-                schema.fields.fields.len()
+                schema.fields().len()
             ],
         },
         |acc, manifest| {
             let column_statistics =
                 schema
-                    .fields
-                    .fields
+                    .fields()
                     .iter()
                     .map(|x| x.id)
                     .map(|id| ColumnStatistics {
