@@ -182,7 +182,7 @@ impl MaterializedView {
         let partition_columns = Arc::new(
             old_storage_table_metadata
                 .default_partition_spec()?
-                .fields
+                .fields()
                 .iter()
                 .map(|x| schema.fields().get(*x.source_id() as usize))
                 .collect::<Option<Vec<_>>>()

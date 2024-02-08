@@ -82,4 +82,7 @@ pub enum Error {
     /// structype builder
     #[error(transparent)]
     StructTypeBuilder(#[from] crate::spec::types::StructTypeBuilderError),
+    /// partition spec builder
+    #[error(transparent)]
+    PartitionSpec(#[from] crate::spec::partition::PartitionSpecBuilderError),
 }

@@ -136,19 +136,23 @@ impl PartitionField {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder, Getters)]
 #[serde(rename_all = "kebab-case")]
 #[builder(setter(prefix = "with"))]
 ///  Partition spec that defines how to produce a tuple of partition values from a record.
 pub struct PartitionSpec {
     /// Identifier for PartitionSpec
-    pub spec_id: i32,
+    spec_id: i32,
     /// Details of the partition spec
     #[builder(setter(each(name = "with_partition_field")))]
-    pub fields: Vec<PartitionField>,
+    fields: Vec<PartitionField>,
 }
 
 impl PartitionSpec {
+    /// Create partition spec builder
+    pub fn builder() -> PartitionSpecBuilder {
+        PartitionSpecBuilder::default()
+    }
     /// Get datatypes of partition fields
     pub fn data_types(&self, schema: &StructType) -> Result<Vec<Type>, Error> {
         self.fields

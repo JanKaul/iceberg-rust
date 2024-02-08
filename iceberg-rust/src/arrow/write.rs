@@ -166,7 +166,7 @@ async fn write_parquet_files(
                     size,
                     &metadata,
                     schema,
-                    &partition_spec.fields,
+                    &partition_spec.fields(),
                 )?)
             }
         })

@@ -40,7 +40,12 @@ impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
 
 impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = &self.table.metadata().default_partition_spec().ok()?.fields;
+        let partition_spec = &self
+            .table
+            .metadata()
+            .default_partition_spec()
+            .ok()?
+            .fields();
         let schema = self.table.current_schema(None).ok()?;
         let (index, partition_field) = partition_spec
             .iter()
@@ -67,7 +72,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
         let partition_spec = self.table.metadata().default_partition_spec().ok()?;
         let schema = self.table.current_schema(None).ok()?;
         let (index, partition_field) = partition_spec
-            .fields
+            .fields()
             .iter()
             .enumerate()
             .find(|(_, partition_field)| partition_field.name() == &column.name)?;
@@ -94,7 +99,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
         let partition_spec = self.table.metadata().default_partition_spec().ok()?;
         let (index, _) = partition_spec
-            .fields
+            .fields()
             .iter()
             .enumerate()
             .find(|(_, partition_field)| partition_field.name() == &column.name)?;

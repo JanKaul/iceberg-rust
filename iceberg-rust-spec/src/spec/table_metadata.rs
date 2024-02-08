@@ -465,7 +465,7 @@ mod _serde {
                 }?,
                 schemas,
                 partition_specs: HashMap::from_iter(
-                    value.partition_specs.into_iter().map(|x| (x.spec_id, x)),
+                    value.partition_specs.into_iter().map(|x| (*x.spec_id(), x)),
                 ),
                 default_spec_id: value.default_spec_id,
                 last_partition_id: value.last_partition_id,
@@ -517,13 +517,14 @@ mod _serde {
                 value
                     .partition_specs
                     .unwrap_or_else(|| {
-                        vec![PartitionSpec {
-                            spec_id: DEFAULT_SPEC_ID,
-                            fields: value.partition_spec,
-                        }]
+                        vec![PartitionSpec::builder()
+                            .with_spec_id(DEFAULT_SPEC_ID)
+                            .with_fields(value.partition_spec)
+                            .build()
+                            .unwrap()]
                     })
                     .into_iter()
-                    .map(|x| (x.spec_id, x)),
+                    .map(|x| (*x.spec_id(), x)),
             );
             Ok(TableMetadata {
                 format_version: FormatVersion::V1,
@@ -630,7 +631,7 @@ mod _serde {
                 partition_spec: v
                     .partition_specs
                     .get(&v.default_spec_id)
-                    .map(|x| x.fields.clone())
+                    .map(|x| x.fields().clone())
                     .unwrap_or_default(),
                 partition_specs: Some(v.partition_specs.into_values().collect()),
                 default_spec_id: Some(v.default_spec_id),

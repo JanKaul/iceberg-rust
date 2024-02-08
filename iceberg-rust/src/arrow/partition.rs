@@ -54,7 +54,7 @@ pub async fn partition_record_batches(
             let partition_sender = partition_sender.clone();
             async move {
                 let partition_columns: Vec<ArrayRef> = partition_spec
-                    .fields
+                    .fields()
                     .iter()
                     .map(|field| {
                         let column_name = &schema

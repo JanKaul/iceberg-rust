@@ -325,7 +325,7 @@ pub fn apply_table_updates(
                 metadata.current_schema_id = schema_id;
             }
             TableUpdate::AddPartitionSpec { spec } => {
-                metadata.partition_specs.insert(spec.spec_id, spec);
+                metadata.partition_specs.insert(*spec.spec_id(), spec);
             }
             TableUpdate::SetDefaultSpec { spec_id } => {
                 metadata.default_spec_id = spec_id;

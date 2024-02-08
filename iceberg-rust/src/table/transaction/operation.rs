@@ -142,7 +142,7 @@ impl Operation {
                                 let partition_values = partition_values_in_bounds(
                                     summary,
                                     datafiles.keys(),
-                                    &partition_spec.fields,
+                                    &partition_spec.fields(),
                                     schema,
                                 );
                                 if !partition_values.is_empty() {
@@ -216,7 +216,7 @@ impl Operation {
 
                 let partition_columns = Arc::new(
                     partition_spec
-                        .fields
+                        .fields()
                         .iter()
                         .map(|x| schema.fields().get(*x.source_id() as usize))
                         .collect::<Option<Vec<_>>>()
@@ -377,7 +377,7 @@ pub(crate) async fn write_manifest(
     branch: Option<String>,
 ) -> Result<ManifestListEntry, Error> {
     let manifest_schema = ManifestEntry::schema(
-        &partition_value_schema(&table_metadata.default_partition_spec()?.fields, schema)?,
+        &partition_value_schema(&table_metadata.default_partition_spec()?.fields(), schema)?,
         &table_metadata.format_version,
     )?;
 
@@ -414,7 +414,7 @@ pub(crate) async fn write_manifest(
                 manifest.partitions = Some(
                     table_metadata
                         .default_partition_spec()?
-                        .fields
+                        .fields()
                         .iter()
                         .map(|_| FieldSummary {
                             contains_null: false,
