@@ -352,7 +352,7 @@ impl SourceTable {
 pub struct FullIdentifier {
     catalog: String,
     namespace: String,
-    name: String,
+    table_name: String,
 }
 
 impl FullIdentifier {
@@ -360,7 +360,7 @@ impl FullIdentifier {
         Self {
             catalog,
             namespace,
-            name,
+            table_name: name,
         }
     }
 

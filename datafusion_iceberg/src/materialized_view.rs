@@ -78,7 +78,7 @@ pub async fn refresh_materialized_view(
                 let tabular = match catalog
                     .load_table(&Identifier::try_new(&vec![
                         identifier.namespace().clone(),
-                        identifier.name().clone(),
+                        identifier.table_name().clone(),
                     ])?)
                     .await?
                 {
