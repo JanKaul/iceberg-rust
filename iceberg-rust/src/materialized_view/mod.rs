@@ -9,9 +9,9 @@ use iceberg_rust_spec::{
     spec::{
         manifest::{Content, DataFile},
         manifest_list::ManifestListEntry,
-        materialized_view_metadata::{BaseTable, MaterializedViewMetadata, VersionId},
+        materialized_view_metadata::{MaterializedViewMetadata, VersionId},
         schema::Schema,
-        snapshot::{generate_snapshot_id, Operation, SnapshotBuilder, Summary},
+        snapshot::{generate_snapshot_id, Lineage, SnapshotBuilder, SourceTable},
         table_metadata::{new_metadata_location, TableMetadataBuilder},
         values::Struct,
     },
@@ -28,10 +28,7 @@ use crate::{
     },
 };
 
-use self::{
-    storage_table::{StorageTable, BASE_TABLES_KEY, VERSION_KEY},
-    transaction::Transaction as MaterializedViewTransaction,
-};
+use self::{storage_table::StorageTable, transaction::Transaction as MaterializedViewTransaction};
 
 pub mod materialized_view_builder;
 mod storage_table;
@@ -124,7 +121,7 @@ impl MaterializedView {
         &mut self,
         files: Vec<DataFile>,
         version_id: VersionId,
-        base_tables: Vec<BaseTable>,
+        base_tables: Vec<SourceTable>,
         branch: Option<String>,
     ) -> Result<(), Error> {
         let object_store = self.object_store();
@@ -249,17 +246,8 @@ impl MaterializedView {
             .with_snapshot_id(snapshot_id)
             .with_sequence_number(0)
             .with_schema_id(*&schema.schema_id)
-            .with_summary(Summary {
-                operation: Operation::Append,
-                other: HashMap::from_iter(vec![
-                    (VERSION_KEY.to_string(), serde_json::to_string(&version_id)?),
-                    (
-                        BASE_TABLES_KEY.to_string(),
-                        serde_json::to_string(&base_tables)?,
-                    ),
-                ]),
-            })
             .with_manifest_list(manifest_list_location)
+            .with_lineage(Lineage::new(version_id, base_tables))
             .build()
             .map_err(iceberg_rust_spec::error::Error::from)?;
 

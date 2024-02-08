@@ -13,10 +13,8 @@ pub(crate) mod operation;
 
 static APPEND_KEY: &str = "append";
 static ADD_SCHEMA_KEY: &str = "add-schema";
-static _SET_CURRENT_SCHEMA_KEY: &str = "set-current-schema";
 static SET_DEFAULT_SPEC_KEY: &str = "set-default-spec";
 static UPDATE_PROPERTIES_KEY: &str = "update-properties";
-static UPDATE_SNAPSHOT_SUMMAY: &str = "update-snapshot-summary";
 static SET_SNAPSHOT_REF_KEY: &str = "set-ref";
 
 /// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
@@ -78,25 +76,6 @@ impl<'table> TableTransaction<'table> {
                 }
             })
             .or_insert(Operation::UpdateProperties(entries));
-        self
-    }
-    /// Update the snapshot summary of the table
-    pub fn update_snapshot_summary(mut self, entries: Vec<(String, String)>) -> Self {
-        self.operations
-            .entry(UPDATE_SNAPSHOT_SUMMAY.to_owned())
-            .and_modify(|mut x| {
-                if let Operation::UpdateSnapshotSummary {
-                    branch: _,
-                    entries: old,
-                } = &mut x
-                {
-                    old.extend_from_slice(&entries)
-                }
-            })
-            .or_insert(Operation::UpdateSnapshotSummary {
-                branch: self.branch.clone(),
-                entries,
-            });
         self
     }
     /// Set snapshot reference

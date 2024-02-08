@@ -9,6 +9,7 @@ use iceberg_rust_spec::spec::table_metadata::TableMetadata;
 use iceberg_rust_spec::spec::view_metadata::ViewMetadata;
 use object_store::ObjectStore;
 use serde::{self, Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::error::Error;
 use crate::materialized_view::MaterializedView;
@@ -121,6 +122,14 @@ pub enum TabularMetadata {
 }
 
 impl TabularMetadata {
+    /// Get uuid of tabular
+    pub fn uuid(&self) -> &Uuid {
+        match self {
+            TabularMetadata::Table(table) => &table.table_uuid,
+            TabularMetadata::View(view) => &view.view_uuid,
+            TabularMetadata::MaterializedView(matview) => &matview.view_uuid,
+        }
+    }
     /// Get location for tabular
     pub fn location(&self) -> &str {
         match self {

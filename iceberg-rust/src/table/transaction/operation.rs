@@ -39,11 +39,6 @@ pub enum Operation {
     SetDefaultSpec(i32),
     /// Update table properties
     UpdateProperties(Vec<(String, String)>),
-    /// Update snapshot summary
-    UpdateSnapshotSummary {
-        branch: Option<String>,
-        entries: Vec<(String, String)>,
-    },
     /// Set Ref
     SetSnapshotRef((String, SnapshotReference)),
     /// Replace the sort order
@@ -347,55 +342,6 @@ impl Operation {
                     updates: HashMap::from_iter(entries),
                 }],
             )),
-            Operation::UpdateSnapshotSummary { branch, entries } => {
-                let old_snapshot =
-                    table
-                        .metadata
-                        .current_snapshot(branch.as_deref())?
-                        .ok_or(Error::NotFound(
-                            "Current".to_string(),
-                            "snapshot".to_string(),
-                        ))?;
-
-                let snapshot_id = generate_snapshot_id();
-                let new_manifest_list_location = table.metadata.location.to_string()
-                    + "/metadata/snap-"
-                    + &snapshot_id.to_string()
-                    + &uuid::Uuid::new_v4().to_string()
-                    + ".avro";
-                let mut builder = SnapshotBuilder::default();
-                builder
-                    .with_snapshot_id(snapshot_id)
-                    .with_manifest_list(new_manifest_list_location)
-                    .with_sequence_number(old_snapshot.sequence_number + 1)
-                    .with_summary(Summary {
-                        operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
-                        other: HashMap::from_iter(entries),
-                    });
-                if let Some(schema_id) = old_snapshot.schema_id {
-                    builder.with_schema_id(schema_id);
-                }
-                let snapshot = builder
-                    .build()
-                    .map_err(iceberg_rust_spec::error::Error::from)?;
-
-                Ok((
-                    Some(TableRequirement::AssertRefSnapshotId {
-                        r#ref: branch.clone().unwrap_or("main".to_owned()),
-                        snapshot_id: old_snapshot.snapshot_id,
-                    }),
-                    vec![
-                        TableUpdate::AddSnapshot { snapshot },
-                        TableUpdate::SetSnapshotRef {
-                            ref_name: branch.unwrap_or("main".to_owned()),
-                            snapshot_reference: SnapshotReference {
-                                snapshot_id,
-                                retention: SnapshotRetention::default(),
-                            },
-                        },
-                    ],
-                ))
-            }
             Operation::SetSnapshotRef((key, value)) => {
                 Ok((
                     table.metadata().refs.get(&key).map(|x| {

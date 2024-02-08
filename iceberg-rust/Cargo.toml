@@ -22,7 +22,7 @@ serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
 url = { workspace = true }
-uuid = { version = "1.3.2", features = ["serde", "v4","v1"] }
+uuid = { workspace = true }
 tokio = { version = "1.0", features = ["sync"] }
 derive_builder = "0.12.0"
 sqlparser = { workspace = true }

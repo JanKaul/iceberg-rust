@@ -9,8 +9,10 @@ use std::{
 };
 
 use derive_builder::Builder;
+use derive_getters::Getters;
 use object_store::ObjectStore;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::{error::Error, util};
 
@@ -46,10 +48,14 @@ pub struct Snapshot {
     /// tracks manifest files with additional metadata.
     pub manifest_list: String,
     /// A string map that summarizes the snapshot changes, including operation.
+    #[builder(default)]
     pub summary: Summary,
     /// ID of the table’s current schema when the snapshot was created.
     #[builder(setter(strip_option), default)]
     pub schema_id: Option<i32>,
+    /// Lineage for the table
+    #[builder(setter(strip_option), default)]
+    pub lineage: Option<Lineage>,
 }
 
 impl Snapshot {
@@ -83,7 +89,7 @@ pub(crate) mod _serde {
 
     use serde::{Deserialize, Serialize};
 
-    use super::{Operation, Snapshot, Summary};
+    use super::{Lineage, Operation, Snapshot, Summary};
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
     #[serde(untagged)]
@@ -116,6 +122,8 @@ pub(crate) mod _serde {
         /// ID of the table’s current schema when the snapshot was created.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub schema_id: Option<i32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub lineage: Option<Lineage>,
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -173,6 +181,7 @@ pub(crate) mod _serde {
                     other: HashMap::new(),
                 }),
                 schema_id: v1.schema_id,
+                lineage: None,
             }
         }
     }
@@ -201,6 +210,7 @@ pub(crate) mod _serde {
                 manifest_list: value.manifest_list,
                 summary: value.summary,
                 schema_id: value.schema_id,
+                lineage: value.lineage,
             }
         }
     }
@@ -215,6 +225,7 @@ pub(crate) mod _serde {
                 manifest_list: value.manifest_list,
                 summary: value.summary,
                 schema_id: value.schema_id,
+                lineage: value.lineage,
             }
         }
     }
@@ -235,7 +246,13 @@ pub enum Operation {
     Delete,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+impl Default for Operation {
+    fn default() -> Self {
+        Operation::Append
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 /// Summarises the changes in the snapshot.
 pub struct Summary {
     /// The type of operation in the snapshot
@@ -243,12 +260,6 @@ pub struct Summary {
     /// Other summary data.
     #[serde(flatten)]
     pub other: HashMap<String, String>,
-}
-
-impl Default for Operation {
-    fn default() -> Operation {
-        Self::Append
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -299,5 +310,84 @@ impl Default for SnapshotRetention {
             max_snapshot_age_ms: None,
             min_snapshots_to_keep: None,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Getters)]
+#[serde(rename_all = "kebab-case")]
+pub struct Lineage {
+    refresh_version_id: i64,
+    source_tables: Vec<SourceTable>,
+}
+
+impl Lineage {
+    pub fn new(refresh_version_id: i64, source_tables: Vec<SourceTable>) -> Self {
+        Self {
+            refresh_version_id,
+            source_tables,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Getters)]
+#[serde(rename_all = "kebab-case")]
+pub struct SourceTable {
+    identifier: FullIdentifier,
+    uuid: Uuid,
+    snapshot_id: i64,
+}
+
+impl SourceTable {
+    pub fn new(identifier: FullIdentifier, uuid: Uuid, snapshot_id: i64) -> Self {
+        Self {
+            identifier,
+            uuid,
+            snapshot_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Getters)]
+#[serde(rename_all = "kebab-case")]
+pub struct FullIdentifier {
+    catalog: String,
+    namespace: String,
+    name: String,
+}
+
+impl FullIdentifier {
+    pub fn new(catalog: String, namespace: String, name: String) -> Self {
+        Self {
+            catalog,
+            namespace,
+            name,
+        }
+    }
+
+    pub fn parse(input: &str) -> Result<Self, Error> {
+        let mut parts = input.split(".");
+        let catalog_name = parts
+            .next()
+            .ok_or(Error::InvalidFormat("Input is empty".to_string()))?
+            .to_owned();
+        let namespace_name = parts
+            .next()
+            .ok_or(Error::InvalidFormat(format!(
+                "Identifier {} has only one part",
+                input
+            )))?
+            .to_owned();
+        let table_name = parts
+            .next()
+            .ok_or(Error::InvalidFormat(format!(
+                "Identifier {} has only two parts",
+                input
+            )))?
+            .to_owned();
+        Ok(FullIdentifier::new(
+            catalog_name,
+            namespace_name,
+            table_name,
+        ))
     }
 }

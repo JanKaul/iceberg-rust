@@ -13,9 +13,11 @@ use iceberg_rust::{
     sql::find_relations,
 };
 use iceberg_rust_spec::spec::{
-    materialized_view_metadata::BaseTable, view_metadata::ViewRepresentation,
+    snapshot::{FullIdentifier, SourceTable},
+    view_metadata::ViewRepresentation,
 };
-use itertools::{intersperse, Itertools};
+use itertools::Itertools;
+use uuid::Uuid;
 
 use crate::{
     error::Error,
@@ -40,32 +42,31 @@ pub async fn refresh_materialized_view(
 
     let branch = branch.map(ToString::to_string);
 
-    let base_tables = match if storage_table.version_id(branch.clone())? == Some(version_id) {
-        storage_table.base_tables(branch.clone()).await?
+    let source_tables = match if storage_table.version_id(branch.clone())? == Some(version_id) {
+        storage_table.source_tables(branch.clone()).await?
     } else {
-        storage_table.base_tables(branch.clone()).await?
+        storage_table.source_tables(branch.clone()).await?
     } {
-        Some(x) => x,
+        Some(x) => x.clone(),
         None => find_relations(&sql)?
             .into_iter()
-            .map(|x| BaseTable {
-                identifier: x,
-                snapshot_id: -1,
+            .map(|x| {
+                Ok(SourceTable::new(
+                    FullIdentifier::parse(&x)?,
+                    Uuid::new_v4(),
+                    -1,
+                ))
             })
-            .collect::<Vec<_>>(),
+            .collect::<Result<Vec<_>, Error>>()?,
     };
 
-    let base_tables = stream::iter(base_tables.iter())
+    let source_tables = stream::iter(source_tables.iter())
         .then(|base_table| {
             let catalog_list = catalog_list.clone();
             let branch = branch.clone();
             async move {
-                let mut parts = base_table.identifier.split('.');
-                let catalog_name = parts
-                    .next()
-                    .ok_or(Error::NotFound("".to_owned(), "Catalog".to_owned()))?
-                    .to_owned();
-                let identifier: String = intersperse(parts, ".").collect();
+                let identifier = base_table.identifier();
+                let catalog_name = identifier.catalog();
                 let catalog = catalog_list
                     .catalog(&catalog_name)
                     .await
@@ -74,7 +75,13 @@ pub async fn refresh_materialized_view(
                         catalog_name.to_owned(),
                     ))?;
 
-                let tabular = match catalog.load_table(&Identifier::parse(&identifier)?).await? {
+                let tabular = match catalog
+                    .load_table(&Identifier::try_new(&vec![
+                        identifier.namespace().clone(),
+                        identifier.name().clone(),
+                    ])?)
+                    .await?
+                {
                     Tabular::View(_) => {
                         return Err(Error::InvalidFormat("storage table".to_string()))
                     }
@@ -96,12 +103,12 @@ pub async fn refresh_materialized_view(
                     _ => Err(Error::InvalidFormat("storage table".to_string())),
                 }?;
 
-                let table_state = if current_snapshot_id == base_table.snapshot_id {
+                let table_state = if current_snapshot_id == *base_table.snapshot_id() {
                     StorageTableState::Fresh
-                } else if base_table.snapshot_id == -1 {
+                } else if *base_table.snapshot_id() == -1 {
                     StorageTableState::Invalid
                 } else {
-                    StorageTableState::Outdated(base_table.snapshot_id)
+                    StorageTableState::Outdated(*base_table.snapshot_id())
                 };
 
                 Ok((catalog_name, tabular, table_state, current_snapshot_id))
@@ -112,10 +119,11 @@ pub async fn refresh_materialized_view(
 
     // Full refresh
 
-    let new_tables = base_tables
+    let new_tables = source_tables
         .into_iter()
         .flat_map(|(catalog_name, base_table, _, last_snapshot_id)| {
             let identifier = base_table.identifier().to_string().to_owned();
+            let uuid = base_table.metadata().uuid().clone();
 
             let table = Arc::new(DataFusionTable::new(
                 base_table,
@@ -129,27 +137,33 @@ pub async fn refresh_materialized_view(
                 (
                     catalog_name.clone(),
                     identifier.clone(),
+                    uuid,
                     last_snapshot_id,
                     table,
                 ),
                 (
-                    catalog_name,
+                    catalog_name.clone(),
                     identifier + "__delta__",
+                    Uuid::new_v4(),
                     last_snapshot_id,
                     Arc::new(EmptyTable::new(schema)) as Arc<dyn TableProvider>,
                 ),
             ]
         })
-        .map(|(catalog_name, identifier, snapshot_id, table)| {
+        .map(|(catalog_name, identifier, uuid, snapshot_id, table)| {
             ctx.register_table(&transform_name(&identifier), table)?;
-            Ok::<_, Error>((catalog_name.clone() + "." + &identifier, snapshot_id))
+            Ok::<_, Error>((catalog_name.clone() + "." + &identifier, uuid, snapshot_id))
         })
-        .filter_ok(|(identifier, _)| !identifier.ends_with("__delta__"))
-        .map_ok(|(identifier, snapshot_id)| BaseTable {
-            identifier,
-            snapshot_id,
+        .filter_ok(|(identifier, _, _)| !identifier.ends_with("__delta__"))
+        .map(|x| {
+            let (identifier, uuid, snapshot_id) = x?;
+            Ok(SourceTable::new(
+                FullIdentifier::parse(&identifier)?,
+                uuid,
+                snapshot_id,
+            ))
         })
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<_, Error>>()?;
 
     let sql_statements = transform_relations(sql)?;
 
