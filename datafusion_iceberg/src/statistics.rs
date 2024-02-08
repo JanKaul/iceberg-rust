@@ -22,7 +22,7 @@ impl DataFusionTable {
             Tabular::View(_) => Err(Error::NotSupported("Statistics for views".to_string())),
             Tabular::MaterializedView(mv) => {
                 let table = Table::new(
-                    Identifier::try_new(&vec!["temp".to_owned()]).map_err(Error::from)?,
+                    Identifier::try_new(&["temp".to_owned()]).map_err(Error::from)?,
                     mv.catalog(),
                     mv.storage_table()
                         .await

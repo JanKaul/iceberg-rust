@@ -684,7 +684,7 @@ impl DataFile {
             file_format: value.file_format,
             partition: value
                 .partition
-                .cast(schema.fields(), &partition_spec.fields())?,
+                .cast(schema.fields(), partition_spec.fields())?,
             record_count: value.record_count,
             file_size_in_bytes: value.file_size_in_bytes,
             column_sizes: value.column_sizes,
@@ -718,7 +718,7 @@ impl DataFile {
             file_format: value.file_format,
             partition: value
                 .partition
-                .cast(schema.fields(), &partition_spec.fields())?,
+                .cast(schema.fields(), partition_spec.fields())?,
             record_count: value.record_count,
             file_size_in_bytes: value.file_size_in_bytes,
             column_sizes: value.column_sizes,
@@ -1576,7 +1576,7 @@ mod tests {
         };
 
         let partition_schema = partition_value_schema(
-            &table_metadata.default_partition_spec().unwrap().fields(),
+            table_metadata.default_partition_spec().unwrap().fields(),
             table_metadata.current_schema(None).unwrap(),
         )
         .unwrap();
@@ -1706,7 +1706,7 @@ mod tests {
         };
 
         let partition_schema = partition_value_schema(
-            &table_metadata.default_partition_spec().unwrap().fields(),
+            table_metadata.default_partition_spec().unwrap().fields(),
             table_metadata.current_schema(None).unwrap(),
         )
         .unwrap();
@@ -1795,7 +1795,7 @@ mod tests {
             .unwrap();
 
         let raw_schema =
-            partition_value_schema(&spec.fields(), &table_schema.try_into().unwrap()).unwrap();
+            partition_value_schema(spec.fields(), &table_schema.try_into().unwrap()).unwrap();
 
         let schema = apache_avro::Schema::parse_str(&raw_schema).unwrap();
 

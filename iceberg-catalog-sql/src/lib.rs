@@ -247,7 +247,7 @@ impl Catalog for SqlCatalog {
         // Create metadata
 
         // Write metadata to object_store
-        let bucket = parse_bucket(&metadata.location())?;
+        let bucket = parse_bucket(metadata.location())?;
         let object_store = self.object_store(bucket);
 
         let location = &metadata.location();
@@ -351,7 +351,7 @@ impl Catalog for SqlCatalog {
                 let mut metadata = metadata.clone();
                 let metadata_location = match &mut metadata {
                     TabularMetadata::View(metadata) => {
-                        if !check_view_requirements(&commit.requirements, &metadata) {
+                        if !check_view_requirements(&commit.requirements, metadata) {
                             return Err(IcebergError::InvalidFormat(
                                 "View requirements not valid".to_owned(),
                             ));
@@ -372,7 +372,7 @@ impl Catalog for SqlCatalog {
                         Ok(metadata_location)
                     }
                     TabularMetadata::MaterializedView(metadata) => {
-                        if !check_view_requirements(&commit.requirements, &metadata) {
+                        if !check_view_requirements(&commit.requirements, metadata) {
                             return Err(IcebergError::InvalidFormat(
                                 "Materialized view requirements not valid".to_owned(),
                             ));

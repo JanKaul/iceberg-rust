@@ -96,7 +96,7 @@ impl<'table> TableTransaction<'table> {
         // Execute the table operations
         let (mut requirements, mut updates) = (Vec::new(), Vec::new());
         for operation in self.operations.into_values() {
-            let (requirement, update) = operation.execute(&self.table).await?;
+            let (requirement, update) = operation.execute(self.table).await?;
 
             if let Some(requirement) = requirement {
                 requirements.push(requirement);

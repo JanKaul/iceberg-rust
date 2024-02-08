@@ -141,7 +141,7 @@ impl Struct {
                     .ok_or(Error::InvalidFormat("partition spec".to_string()))?;
                 Ok((
                     field.name.clone(),
-                    field.field_type.tranform(&partition_field.transform())?,
+                    field.field_type.tranform(partition_field.transform())?,
                 ))
             })
             .collect::<Result<HashMap<_, _>, Error>>()?;

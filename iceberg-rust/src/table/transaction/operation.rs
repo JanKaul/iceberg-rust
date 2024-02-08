@@ -142,7 +142,7 @@ impl Operation {
                                 let partition_values = partition_values_in_bounds(
                                     summary,
                                     datafiles.keys(),
-                                    &partition_spec.fields(),
+                                    partition_spec.fields(),
                                     schema,
                                 );
                                 if !partition_values.is_empty() {
@@ -377,7 +377,7 @@ pub(crate) async fn write_manifest(
     branch: Option<String>,
 ) -> Result<ManifestListEntry, Error> {
     let manifest_schema = ManifestEntry::schema(
-        &partition_value_schema(&table_metadata.default_partition_spec()?.fields(), schema)?,
+        &partition_value_schema(table_metadata.default_partition_spec()?.fields(), schema)?,
         &table_metadata.format_version,
     )?;
 
@@ -429,8 +429,8 @@ pub(crate) async fn write_manifest(
             added_rows_count += datafile.record_count();
             update_partitions(
                 manifest.partitions.as_mut().unwrap(),
-                &datafile.partition(),
-                &partition_columns,
+                datafile.partition(),
+                partition_columns,
             )?;
 
             let manifest_entry = ManifestEntry::builder()

@@ -48,7 +48,7 @@ pub async fn refresh_materialized_view(
         storage_table.source_tables(branch.clone()).await?
     } {
         Some(x) => x.clone(),
-        None => find_relations(&sql)?
+        None => find_relations(sql)?
             .into_iter()
             .map(|x| {
                 Ok(SourceTable::new(
@@ -68,7 +68,7 @@ pub async fn refresh_materialized_view(
                 let identifier = base_table.identifier();
                 let catalog_name = identifier.catalog();
                 let catalog = catalog_list
-                    .catalog(&catalog_name)
+                    .catalog(catalog_name)
                     .await
                     .ok_or(Error::NotFound(
                         "Catalog".to_owned(),
@@ -76,10 +76,8 @@ pub async fn refresh_materialized_view(
                     ))?;
 
                 let tabular = match catalog
-                    .load_table(&Identifier::try_new(&vec![
-                        identifier.namespace().clone(),
-                        identifier.table_name().clone(),
-                    ])?)
+                    .load_table(&Identifier::try_new(&[identifier.namespace().clone(),
+                        identifier.table_name().clone()])?)
                     .await?
                 {
                     Tabular::View(_) => {
@@ -123,7 +121,7 @@ pub async fn refresh_materialized_view(
         .into_iter()
         .flat_map(|(catalog_name, base_table, _, last_snapshot_id)| {
             let identifier = base_table.identifier().to_string().to_owned();
-            let uuid = base_table.metadata().uuid().clone();
+            let uuid = *base_table.metadata().uuid();
 
             let table = Arc::new(DataFusionTable::new(
                 base_table,

@@ -234,8 +234,10 @@ pub(crate) mod _serde {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "lowercase")]
 /// The operation field is used by some operations, like snapshot expiration, to skip processing certain snapshots.
+#[derive(Default)]
 pub enum Operation {
     /// Only data files were added and no files were removed.
+    #[default]
     Append,
     /// Data and delete files were added and removed without changing table data;
     /// i.e., compaction, changing the data file format, or relocating data files.
@@ -246,11 +248,7 @@ pub enum Operation {
     Delete,
 }
 
-impl Default for Operation {
-    fn default() -> Self {
-        Operation::Append
-    }
-}
+
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 /// Summarises the changes in the snapshot.
@@ -365,7 +363,7 @@ impl FullIdentifier {
     }
 
     pub fn parse(input: &str) -> Result<Self, Error> {
-        let mut parts = input.split(".");
+        let mut parts = input.split('.');
         let catalog_name = parts
             .next()
             .ok_or(Error::InvalidFormat("Input is empty".to_string()))?
