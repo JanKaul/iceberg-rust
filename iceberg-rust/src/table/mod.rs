@@ -98,7 +98,7 @@ impl Table {
             start
                 .and_then(|id| metadata.snapshots.get(&id))
                 .and_then(|snapshot| {
-                    let sequence_number = snapshot.sequence_number;
+                    let sequence_number = *snapshot.sequence_number();
                     if sequence_number == 0 {
                         None
                     } else {
@@ -238,7 +238,7 @@ pub(crate) async fn delete_files(
             let object_store = object_store.clone();
             async move {
                 object_store
-                    .delete(&snapshot.manifest_list.as_str().into())
+                    .delete(&snapshot.manifest_list().as_str().into())
                     .await?;
                 Ok(())
             }

@@ -23,39 +23,39 @@ use super::{
 
 use _serde::SnapshotEnum;
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Builder)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Builder, Getters)]
 #[serde(from = "SnapshotEnum", into = "SnapshotEnum")]
 #[builder(setter(prefix = "with"))]
 /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
 pub struct Snapshot {
     /// A unique long ID
     #[builder(default = "generate_snapshot_id()")]
-    pub snapshot_id: i64,
+    snapshot_id: i64,
     /// The snapshot ID of the snapshot’s parent.
     /// Omitted for any snapshot with no parent
     #[builder(setter(strip_option), default)]
-    pub parent_snapshot_id: Option<i64>,
+    parent_snapshot_id: Option<i64>,
     /// A monotonically increasing long that tracks the order of
     /// changes to a table.
-    pub sequence_number: i64,
+    sequence_number: i64,
     /// A timestamp when the snapshot was created, used for garbage
     /// collection and table inspection
     #[builder(
         default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64"
     )]
-    pub timestamp_ms: i64,
+    timestamp_ms: i64,
     /// The location of a manifest list for this snapshot that
     /// tracks manifest files with additional metadata.
-    pub manifest_list: String,
+    manifest_list: String,
     /// A string map that summarizes the snapshot changes, including operation.
     #[builder(default)]
-    pub summary: Summary,
+    summary: Summary,
     /// ID of the table’s current schema when the snapshot was created.
     #[builder(setter(strip_option), default)]
-    pub schema_id: Option<i32>,
+    schema_id: Option<i32>,
     /// Lineage for the table
     #[builder(setter(strip_option), default)]
-    pub lineage: Option<Lineage>,
+    lineage: Option<Lineage>,
 }
 
 impl Snapshot {

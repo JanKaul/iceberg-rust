@@ -88,18 +88,18 @@ pub async fn refresh_materialized_view(
                     x => x,
                 };
                 let current_snapshot_id = match &tabular {
-                    Tabular::Table(table) => Ok(table
+                    Tabular::Table(table) => Ok(*table
                         .metadata()
                         .current_snapshot(branch.as_deref())?
                         .unwrap()
-                        .snapshot_id),
-                    Tabular::MaterializedView(mv) => Ok(mv
+                        .snapshot_id()),
+                    Tabular::MaterializedView(mv) => Ok(*mv
                         .storage_table()
                         .await?
                         .table_metadata
                         .current_snapshot(branch.as_deref())?
                         .unwrap()
-                        .snapshot_id),
+                        .snapshot_id()),
                     _ => Err(Error::InvalidFormat("storage table".to_string())),
                 }?;
 

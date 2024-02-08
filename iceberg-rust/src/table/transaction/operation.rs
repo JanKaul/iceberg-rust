@@ -106,7 +106,7 @@ impl Operation {
 
                 let existing_partitions = Arc::new(Mutex::new(HashSet::new()));
 
-                let old_manifest_list_location = old_snapshot.map(|x| &x.manifest_list).cloned();
+                let old_manifest_list_location = old_snapshot.map(|x| x.manifest_list()).cloned();
 
                 let manifest_list_bytes = match old_manifest_list_location {
                     Some(old_manifest_list_location) => Some(
@@ -308,7 +308,7 @@ impl Operation {
                     .with_manifest_list(new_manifest_list_location)
                     .with_sequence_number(
                         old_snapshot
-                            .map(|x| x.sequence_number + 1)
+                            .map(|x| *x.sequence_number() + 1)
                             .unwrap_or_default(),
                     )
                     .with_summary(Summary {
@@ -322,7 +322,7 @@ impl Operation {
                 Ok((
                     old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
                         r#ref: branch.clone().unwrap_or("main".to_owned()),
-                        snapshot_id: x.snapshot_id,
+                        snapshot_id: *x.snapshot_id(),
                     }),
                     vec![
                         TableUpdate::AddSnapshot { snapshot },
@@ -440,7 +440,7 @@ pub(crate) async fn write_manifest(
                 .with_sequence_number(
                     table_metadata
                         .current_snapshot(branch.as_deref())?
-                        .map(|x| x.sequence_number),
+                        .map(|x| *x.sequence_number()),
                 )
                 .with_data_file(datafile.clone())
                 .build()

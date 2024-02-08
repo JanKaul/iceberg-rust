@@ -28,7 +28,7 @@ impl StorageTable {
         Ok(self
             .table_metadata
             .current_snapshot(branch.as_deref())?
-            .and_then(|snapshot| snapshot.lineage.as_ref())
+            .and_then(|snapshot| snapshot.lineage().as_ref())
             .map(|x| *x.refresh_version_id()))
     }
 
@@ -38,7 +38,7 @@ impl StorageTable {
     ) -> Result<Option<&Vec<SourceTable>>, Error> {
         Ok(self
             .current_snapshot(branch.as_deref())?
-            .and_then(|snapshot| snapshot.lineage.as_ref())
+            .and_then(|snapshot| snapshot.lineage().as_ref())
             .map(|x| x.source_tables()))
     }
 }

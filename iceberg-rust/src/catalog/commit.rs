@@ -337,7 +337,7 @@ pub fn apply_table_updates(
                 metadata.default_sort_order_id = sort_order_id;
             }
             TableUpdate::AddSnapshot { snapshot } => {
-                metadata.snapshots.insert(snapshot.snapshot_id, snapshot);
+                metadata.snapshots.insert(*snapshot.snapshot_id(), snapshot);
             }
             TableUpdate::SetSnapshotRef {
                 ref_name,

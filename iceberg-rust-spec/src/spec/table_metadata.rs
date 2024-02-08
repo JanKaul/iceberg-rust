@@ -131,7 +131,7 @@ impl TableMetadata {
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         let schema_id = self
             .current_snapshot(branch)?
-            .and_then(|x| x.schema_id)
+            .and_then(|x| *x.schema_id())
             .unwrap_or(self.current_schema_id);
         self.schemas
             .get(&schema_id)
@@ -143,7 +143,7 @@ impl TableMetadata {
         let schema_id = self
             .snapshots
             .get(&snapshot_id)
-            .and_then(|x| x.schema_id)
+            .and_then(|x| *x.schema_id())
             .unwrap_or(self.current_schema_id);
         self.schemas
             .get(&schema_id)
