@@ -11,7 +11,10 @@ use iceberg_rust_spec::{
         manifest_list::ManifestListEntry,
         materialized_view_metadata::{MaterializedViewMetadata, VersionId},
         schema::Schema,
-        snapshot::{generate_snapshot_id, Lineage, SnapshotBuilder, SourceTable},
+        snapshot::{
+            generate_snapshot_id, Lineage, SnapshotBuilder, SnapshotReference, SnapshotRetention,
+            SourceTable,
+        },
         table_metadata::{new_metadata_location, TableMetadataBuilder},
         values::Struct,
     },
@@ -260,6 +263,31 @@ impl MaterializedView {
             .default_spec_id(old_storage_table_metadata.default_spec_id)
             .snapshots(HashMap::from_iter(vec![(snapshot_id, snapshot)]))
             .current_snapshot_id(Some(snapshot_id))
+            .refs(match branch.as_deref() {
+                None | Some("main") => HashMap::from_iter(vec![(
+                    "main".to_owned(),
+                    SnapshotReference {
+                        snapshot_id,
+                        retention: SnapshotRetention::default(),
+                    },
+                )]),
+                Some(branch) => HashMap::from_iter(vec![
+                    (
+                        branch.to_owned(),
+                        SnapshotReference {
+                            snapshot_id,
+                            retention: SnapshotRetention::default(),
+                        },
+                    ),
+                    (
+                        "main".to_owned(),
+                        SnapshotReference {
+                            snapshot_id,
+                            retention: SnapshotRetention::default(),
+                        },
+                    ),
+                ]),
+            })
             .build()?;
         let storage_table_location = new_metadata_location(&table_metadata)?;
 
