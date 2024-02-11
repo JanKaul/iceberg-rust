@@ -25,6 +25,7 @@ use derive_builder::Builder;
 use super::{
     schema::Schema,
     snapshot::{Snapshot, SnapshotReference},
+    tabular::TabularMetadataRef,
 };
 
 pub static MAIN_BRANCH: &str = "main";
@@ -214,15 +215,16 @@ impl TableMetadata {
     }
 }
 
-pub fn new_metadata_location(metadata: &TableMetadata) -> Result<String, Error> {
+pub fn new_metadata_location<'a>(metadata: TabularMetadataRef<'a>) -> String {
     let transaction_uuid = Uuid::new_v4();
-    let version = metadata.last_sequence_number;
-    Ok(metadata.location.to_string()
+    let version = metadata.sequence_number();
+
+    metadata.location().to_string()
         + "/metadata/"
         + &version.to_string()
         + "-"
         + &transaction_uuid.to_string()
-        + ".metadata.json")
+        + ".metadata.json"
 }
 
 mod _serde {

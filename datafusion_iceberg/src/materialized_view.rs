@@ -13,7 +13,7 @@ use iceberg_rust::{
     sql::find_relations,
 };
 use iceberg_rust_spec::spec::{
-    snapshot::{FullIdentifier, SourceTable},
+    snapshot::{FullIdentifier, Lineage, SourceTable},
     view_metadata::ViewRepresentation,
 };
 use itertools::Itertools;
@@ -60,12 +60,13 @@ pub async fn refresh_materialized_view(
             .collect::<Result<Vec<_>, Error>>()?,
     };
 
+    // Load source tables
     let source_tables = stream::iter(source_tables.iter())
-        .then(|base_table| {
+        .then(|source_table| {
             let catalog_list = catalog_list.clone();
             let branch = branch.clone();
             async move {
-                let identifier = base_table.identifier();
+                let identifier = source_table.identifier();
                 let catalog_name = identifier.catalog();
                 let catalog = catalog_list
                     .catalog(catalog_name)
@@ -76,8 +77,10 @@ pub async fn refresh_materialized_view(
                     ))?;
 
                 let tabular = match catalog
-                    .load_table(&Identifier::try_new(&[identifier.namespace().clone(),
-                        identifier.table_name().clone()])?)
+                    .load_table(&Identifier::try_new(&[
+                        identifier.namespace().clone(),
+                        identifier.table_name().clone(),
+                    ])?)
                     .await?
                 {
                     Tabular::View(_) => {
@@ -101,12 +104,12 @@ pub async fn refresh_materialized_view(
                     _ => Err(Error::InvalidFormat("storage table".to_string())),
                 }?;
 
-                let table_state = if current_snapshot_id == *base_table.snapshot_id() {
+                let table_state = if current_snapshot_id == *source_table.snapshot_id() {
                     StorageTableState::Fresh
-                } else if *base_table.snapshot_id() == -1 {
+                } else if *source_table.snapshot_id() == -1 {
                     StorageTableState::Invalid
                 } else {
-                    StorageTableState::Outdated(*base_table.snapshot_id())
+                    StorageTableState::Outdated(*source_table.snapshot_id())
                 };
 
                 Ok((catalog_name, tabular, table_state, current_snapshot_id))
@@ -115,16 +118,15 @@ pub async fn refresh_materialized_view(
         .try_collect::<Vec<_>>()
         .await?;
 
-    // Full refresh
-
-    let new_tables = source_tables
+    // Register source tables in datafusion context and return lineage information
+    let source_tables = source_tables
         .into_iter()
-        .flat_map(|(catalog_name, base_table, _, last_snapshot_id)| {
-            let identifier = base_table.identifier().to_string().to_owned();
-            let uuid = *base_table.metadata().uuid();
+        .flat_map(|(catalog_name, source_table, _, last_snapshot_id)| {
+            let identifier = source_table.identifier().to_string().to_owned();
+            let uuid = *source_table.metadata().as_ref().uuid();
 
             let table = Arc::new(DataFusionTable::new(
-                base_table,
+                source_table,
                 None,
                 None,
                 branch.as_deref(),
@@ -167,6 +169,7 @@ pub async fn refresh_materialized_view(
 
     let logical_plan = ctx.state().create_logical_plan(&sql_statements[0]).await?;
 
+    // Calculate arrow record batches from logical plan
     let batches = ctx
         .execute_logical_plan(logical_plan)
         .await?
@@ -174,6 +177,7 @@ pub async fn refresh_materialized_view(
         .await?
         .map_err(ArrowError::from);
 
+    // Write arrow record batches to datafiles
     let files = write_parquet_partitioned(
         &storage_table.table_metadata,
         batches,
@@ -183,7 +187,9 @@ pub async fn refresh_materialized_view(
     .await?;
 
     matview
-        .full_refresh(files, version_id, new_tables, branch)
+        .new_transaction(branch.as_deref())
+        .full_refresh(files, Lineage::new(version_id, source_tables))
+        .commit()
         .await?;
 
     Ok(())

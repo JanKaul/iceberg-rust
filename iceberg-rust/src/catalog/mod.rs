@@ -8,6 +8,7 @@ use std::sync::Arc;
 pub mod identifier;
 pub mod namespace;
 
+use iceberg_rust_spec::spec::tabular::TabularMetadata;
 use identifier::Identifier;
 use object_store::ObjectStore;
 
@@ -17,7 +18,7 @@ use crate::table::Table;
 use self::bucket::Bucket;
 use self::commit::{CommitTable, CommitView};
 use self::namespace::Namespace;
-use self::tabular::{Tabular, TabularMetadata};
+use self::tabular::Tabular;
 
 pub mod bucket;
 pub mod commit;

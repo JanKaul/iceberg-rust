@@ -12,12 +12,12 @@ use iceberg_rust::{
         },
         identifier::Identifier,
         namespace::Namespace,
-        tabular::{Tabular, TabularMetadata},
+        tabular::Tabular,
         Catalog, CatalogList,
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
-    spec::table_metadata::new_metadata_location,
+    spec::{table_metadata::new_metadata_location, tabular::TabularMetadata},
     table::Table,
     util::strip_prefix,
     view::View,
@@ -245,16 +245,16 @@ impl Catalog for SqlCatalog {
         metadata: TabularMetadata,
     ) -> Result<Tabular, IcebergError> {
         // Create metadata
+        let location = metadata.as_ref().location().to_string();
 
         // Write metadata to object_store
-        let bucket = parse_bucket(metadata.location())?;
+        let bucket = parse_bucket(&location)?;
         let object_store = self.object_store(bucket);
 
-        let location = &metadata.location();
         let uuid = Uuid::new_v4();
-        let version = &metadata.sequence_number();
+        let version = &metadata.as_ref().sequence_number();
         let metadata_json = serde_json::to_string(&metadata)?;
-        let metadata_location = location.to_string()
+        let metadata_location = location
             + "/metadata/"
             + &version.to_string()
             + "-"
@@ -308,7 +308,7 @@ impl Catalog for SqlCatalog {
                     ));
                 }
                 apply_table_updates(&mut metadata, commit.updates)?;
-                let metadata_location = new_metadata_location(&metadata)?;
+                let metadata_location = new_metadata_location((&metadata).into());
                 self.object_store
                     .put(
                         &strip_prefix(&metadata_location).into(),

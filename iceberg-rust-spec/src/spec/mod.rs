@@ -9,6 +9,7 @@ pub mod schema;
 pub mod snapshot;
 pub mod sort;
 pub mod table_metadata;
+pub mod tabular;
 pub mod types;
 pub mod values;
 pub mod view_metadata;

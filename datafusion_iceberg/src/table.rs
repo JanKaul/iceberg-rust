@@ -597,17 +597,14 @@ mod tests {
     };
     use iceberg_catalog_sql::SqlCatalog;
     use iceberg_rust::{
-        catalog::{
-            identifier::Identifier,
-            tabular::{Tabular, TabularMetadata},
-            Catalog,
-        },
+        catalog::{identifier::Identifier, tabular::Tabular, Catalog},
         table::table_builder::TableBuilder,
         view::view_builder::ViewBuilder,
     };
     use iceberg_rust_spec::spec::{
         partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::Schema,
+        tabular::TabularMetadata,
         types::{PrimitiveType, StructField, StructType, Type},
     };
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};

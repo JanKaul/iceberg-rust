@@ -4,12 +4,8 @@
 
 use std::sync::Arc;
 
-use iceberg_rust_spec::spec::materialized_view_metadata::MaterializedViewMetadata;
-use iceberg_rust_spec::spec::table_metadata::TableMetadata;
-use iceberg_rust_spec::spec::view_metadata::ViewMetadata;
+use iceberg_rust_spec::spec::tabular::TabularMetadata;
 use object_store::ObjectStore;
-use serde::{self, Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::error::Error;
 use crate::materialized_view::MaterializedView;
@@ -105,64 +101,6 @@ impl Tabular {
             }
         };
         Ok(())
-    }
-}
-
-/// Metadata of an iceberg relation
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
-#[allow(clippy::large_enum_variant)]
-pub enum TabularMetadata {
-    /// Table metadata
-    Table(TableMetadata),
-    /// View metadata
-    View(ViewMetadata),
-    /// Materialized view metadata
-    MaterializedView(MaterializedViewMetadata),
-}
-
-impl TabularMetadata {
-    /// Get uuid of tabular
-    pub fn uuid(&self) -> &Uuid {
-        match self {
-            TabularMetadata::Table(table) => &table.table_uuid,
-            TabularMetadata::View(view) => &view.view_uuid,
-            TabularMetadata::MaterializedView(matview) => &matview.view_uuid,
-        }
-    }
-    /// Get location for tabular
-    pub fn location(&self) -> &str {
-        match self {
-            TabularMetadata::Table(table) => &table.location,
-            TabularMetadata::View(view) => &view.location,
-            TabularMetadata::MaterializedView(matview) => &matview.location,
-        }
-    }
-    /// Get sequence number for tabular
-    pub fn sequence_number(&self) -> i64 {
-        match self {
-            TabularMetadata::Table(table) => table.last_sequence_number,
-            TabularMetadata::View(view) => view.current_version_id,
-            TabularMetadata::MaterializedView(matview) => matview.current_version_id,
-        }
-    }
-}
-
-impl From<TableMetadata> for TabularMetadata {
-    fn from(value: TableMetadata) -> Self {
-        TabularMetadata::Table(value)
-    }
-}
-
-impl From<ViewMetadata> for TabularMetadata {
-    fn from(value: ViewMetadata) -> Self {
-        TabularMetadata::View(value)
-    }
-}
-
-impl From<MaterializedViewMetadata> for TabularMetadata {
-    fn from(value: MaterializedViewMetadata) -> Self {
-        TabularMetadata::MaterializedView(value)
     }
 }
 

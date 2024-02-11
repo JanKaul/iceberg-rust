@@ -3,19 +3,26 @@
 */
 use std::collections::HashMap;
 
-use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
+use iceberg_rust_spec::spec::{
+    manifest::DataFile,
+    schema::Schema,
+    snapshot::{Lineage, SnapshotReference},
+};
 
 use crate::{catalog::commit::CommitTable, error::Error, table::Table};
 
 use self::operation::Operation;
 
+use super::delete_files;
+
 pub(crate) mod operation;
 
-static APPEND_KEY: &str = "append";
-static ADD_SCHEMA_KEY: &str = "add-schema";
-static SET_DEFAULT_SPEC_KEY: &str = "set-default-spec";
-static UPDATE_PROPERTIES_KEY: &str = "update-properties";
-static SET_SNAPSHOT_REF_KEY: &str = "set-ref";
+pub(crate) static APPEND_KEY: &str = "append";
+pub(crate) static REWRITE_KEY: &str = "rewrite";
+pub(crate) static ADD_SCHEMA_KEY: &str = "add-schema";
+pub(crate) static SET_DEFAULT_SPEC_KEY: &str = "set-default-spec";
+pub(crate) static UPDATE_PROPERTIES_KEY: &str = "update-properties";
+pub(crate) static SET_SNAPSHOT_REF_KEY: &str = "set-ref";
 
 /// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
 pub struct TableTransaction<'table> {
@@ -55,6 +62,7 @@ impl<'table> TableTransaction<'table> {
                 if let Operation::NewAppend {
                     branch: _,
                     files: old,
+                    lineage: None,
                 } = &mut x
                 {
                     old.extend_from_slice(&files)
@@ -63,6 +71,50 @@ impl<'table> TableTransaction<'table> {
             .or_insert(Operation::NewAppend {
                 branch: self.branch.clone(),
                 files,
+                lineage: None,
+            });
+        self
+    }
+    /// Quickly append files to the table
+    pub fn rewrite(mut self, files: Vec<DataFile>) -> Self {
+        self.operations
+            .entry(REWRITE_KEY.to_owned())
+            .and_modify(|mut x| {
+                if let Operation::Rewrite {
+                    branch: _,
+                    files: old,
+                    lineage: None,
+                } = &mut x
+                {
+                    old.extend_from_slice(&files)
+                }
+            })
+            .or_insert(Operation::Rewrite {
+                branch: self.branch.clone(),
+                files,
+                lineage: None,
+            });
+        self
+    }
+    /// Quickly append files to the table
+    pub fn rewrite_with_lineage(mut self, files: Vec<DataFile>, lineage: Lineage) -> Self {
+        self.operations
+            .entry(REWRITE_KEY.to_owned())
+            .and_modify(|mut x| {
+                if let Operation::Rewrite {
+                    branch: _,
+                    files: old,
+                    lineage: old_lineage,
+                } = &mut x
+                {
+                    old.extend_from_slice(&files);
+                    *old_lineage = Some(lineage.clone());
+                }
+            })
+            .or_insert(Operation::Rewrite {
+                branch: self.branch.clone(),
+                files,
+                lineage: Some(lineage),
             });
         self
     }
@@ -89,14 +141,29 @@ impl<'table> TableTransaction<'table> {
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
     pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.table.catalog();
+        let object_store = self.table.object_store();
         let identifier = self.table.identifier.clone();
 
-        // Before executing the transactions operations, update the metadata for a new snapshot
+        // Save old metadata to be able to remove old data after a rewrite operation
+        let delete_data = if self.operations.values().any(|x| match x {
+            Operation::Rewrite {
+                branch: _,
+                files: _,
+                lineage: _,
+            } => true,
+            _ => false,
+        }) {
+            Some(self.table.metadata())
+        } else {
+            None
+        };
 
         // Execute the table operations
         let (mut requirements, mut updates) = (Vec::new(), Vec::new());
         for operation in self.operations.into_values() {
-            let (requirement, update) = operation.execute(self.table).await?;
+            let (requirement, update) = operation
+                .execute(self.table.metadata(), self.table.object_store())
+                .await?;
 
             if let Some(requirement) = requirement {
                 requirements.push(requirement);
@@ -112,6 +179,11 @@ impl<'table> TableTransaction<'table> {
                 updates,
             })
             .await?;
+
+        if let Some(old_metadata) = delete_data {
+            delete_files(old_metadata, object_store).await?;
+        }
+
         *self.table = new_table;
         Ok(())
     }
