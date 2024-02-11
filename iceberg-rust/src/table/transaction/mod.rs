@@ -145,13 +145,15 @@ impl<'table> TableTransaction<'table> {
         let identifier = self.table.identifier.clone();
 
         // Save old metadata to be able to remove old data after a rewrite operation
-        let delete_data = if self.operations.values().any(|x| match x {
-            Operation::Rewrite {
-                branch: _,
-                files: _,
-                lineage: _,
-            } => true,
-            _ => false,
+        let delete_data = if self.operations.values().any(|x| {
+            matches!(
+                x,
+                Operation::Rewrite {
+                    branch: _,
+                    files: _,
+                    lineage: _,
+                }
+            )
         }) {
             Some(self.table.metadata())
         } else {

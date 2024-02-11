@@ -169,7 +169,7 @@ impl<'view> Transaction<'view> {
             self.materialized_view
                 .object_store()
                 .put(
-                    &strip_prefix(&metadata_location).into(),
+                    &strip_prefix(metadata_location).into(),
                     serde_json::to_string(&storage_table_metadata)?.into(),
                 )
                 .await?;

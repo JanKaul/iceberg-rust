@@ -22,7 +22,7 @@ pub enum TabularMetadata {
 }
 
 impl TabularMetadata {
-    pub fn as_ref<'a>(&'a self) -> TabularMetadataRef<'a> {
+    pub fn as_ref(&self) -> TabularMetadataRef<'_> {
         match self {
             TabularMetadata::Table(table) => TabularMetadataRef::Table(table),
             TabularMetadata::View(view) => TabularMetadataRef::View(view),

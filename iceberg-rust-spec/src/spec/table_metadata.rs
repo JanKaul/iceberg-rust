@@ -215,7 +215,7 @@ impl TableMetadata {
     }
 }
 
-pub fn new_metadata_location<'a>(metadata: TabularMetadataRef<'a>) -> String {
+pub fn new_metadata_location(metadata: TabularMetadataRef<'_>) -> String {
     let transaction_uuid = Uuid::new_v4();
     let version = metadata.sequence_number();
 
