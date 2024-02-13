@@ -343,6 +343,9 @@ pub fn apply_table_updates(
                 ref_name,
                 snapshot_reference,
             } => {
+                if ref_name == "main" {
+                    metadata.current_snapshot_id = Some(snapshot_reference.snapshot_id);
+                }
                 metadata.refs.insert(ref_name, snapshot_reference);
             }
             TableUpdate::RemoveSnapshots { snapshot_ids } => {

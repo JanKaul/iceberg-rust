@@ -3,11 +3,11 @@ name = "datafusion_iceberg"
 version = "0.1.2"
 edition = "2021"
 
-description = "TableProvider to Apache iceberg tables with Datafusion"
+description = "Apache Iceberg integration for Datafusion"
 
 license = "Apache-2.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
 futures = { workspace = true }
@@ -24,7 +24,7 @@ itertools = { workspace = true }
 dashmap = "5.4.0"
 uuid = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1.0", features = ["sync"] }
+tokio = { version = "1.0", features = ["sync","rt-multi-thread"] }
 
 [dev-dependencies]
 tokio = "1"

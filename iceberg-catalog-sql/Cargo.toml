@@ -7,7 +7,7 @@ description = "Sql catalog for Apache Iceberg tables"
 
 license = "Apache-2.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
 async-trait.workspace = true

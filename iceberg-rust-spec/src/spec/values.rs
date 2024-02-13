@@ -133,12 +133,17 @@ impl Struct {
         schema: &StructType,
         partition_spec: &[PartitionField],
     ) -> Result<Self, Error> {
+        // Returns a HashMap mapping partition field names to transformed types.
         let map = partition_spec
             .iter()
             .map(|partition_field| {
-                let field = schema
-                    .get(*partition_field.source_id() as usize)
-                    .ok_or(Error::InvalidFormat("partition spec".to_string()))?;
+                let field = schema.get(*partition_field.source_id() as usize).ok_or(
+                    Error::InvalidFormat(format!(
+                        "partition spec references unknown column id {}",
+                        partition_field.source_id()
+                    )),
+                )?;
+
                 Ok((
                     field.name.clone(),
                     field.field_type.tranform(partition_field.transform())?,
@@ -150,15 +155,19 @@ impl Struct {
                 .into_iter()
                 .enumerate()
                 .map(|(idx, field)| {
+                    // Get name of the column
                     let name = self
                         .lookup
                         .iter()
                         .find(|(_, v)| **v == idx)
                         .ok_or(Error::InvalidFormat("partition struct".to_string()))?
                         .0;
+
+                    // Get datatype after tranform
                     let datatype = map
                         .get(name)
                         .ok_or(Error::InvalidFormat("schema".to_string()))?;
+                    // Cast the value to the datatype
                     let value = field.map(|value| value.cast(datatype)).transpose()?;
                     Ok((name.clone(), value))
                 })

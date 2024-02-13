@@ -1,52 +1,3 @@
-# Rust implementation of [Apache Iceberg](https://iceberg.apache.org)
-
-Apache Iceberg is Open Table Format that brings ACID quarantees to large analytic datasets. 
-This repository contains a Rust implementation of Apache Iceberg that focuses on the interoperability with the Arrow ecosystem.
-It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org/datafusion/) query engine.
-
-## Features
-
-### Iceberg tables
-
-| Feature | Status |
-| --- | --- |
-| Read | ![done] |
-| Read partitioned | ![done] |
-| Insert | ![done] |
-| Insert partitioned | ![done] |
-| Delete | |
-
-### Iceberg Views
-
-| Feature | Status |
-| --- | --- |
-| Read | ![done] |
-
-### Iceberg Materialized Views
-
-| Feature | Status |
-| --- | --- |
-| Read | ![done] |
-| Full refresh | ![done] |
-| Incremental refresh | |
-
-### Catalogs
-
-- RDBMS (Postgres, MySQL)
-
-### File formats
-
-- parquet
-
-### Integrations
-
-- [Datafusion](https://arrow.apache.org/datafusion/)
-
-## Example
-
-Check out the [datafusion examples](datafusion_iceberg/examples).
-
-```rust
 use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
 use datafusion_iceberg::DataFusionTable;
 use iceberg_catalog_sql::SqlCatalog;
@@ -240,4 +191,3 @@ pub(crate) async fn main() {
         }
     }
 }
-```

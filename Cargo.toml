@@ -7,6 +7,7 @@ members = [
   "iceberg-catalog-sql",
 ]
 
+resolver = "2"
 
 [workspace.dependencies]
 object_store = { version = "0.9", features = ["aws", "gcp"] }
