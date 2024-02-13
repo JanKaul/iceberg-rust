@@ -10,24 +10,24 @@ It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org
 
 | Feature | Status |
 | --- | --- |
-| Read | ![done] |
-| Read partitioned | ![done] |
-| Insert | ![done] |
-| Insert partitioned | ![done] |
+| Read | :white_check_mark: |
+| Read partitioned | :white_check_mark: |
+| Insert | :white_check_mark: |
+| Insert partitioned | :white_check_mark: |
 | Delete | |
 
 ### Iceberg Views
 
 | Feature | Status |
 | --- | --- |
-| Read | ![done] |
+| Read | :white_check_mark: |
 
 ### Iceberg Materialized Views
 
 | Feature | Status |
 | --- | --- |
-| Read | ![done] |
-| Full refresh | ![done] |
+| Read | :white_check_mark: |
+| Full refresh | :white_check_mark: |
 | Incremental refresh | |
 
 ### Catalogs
