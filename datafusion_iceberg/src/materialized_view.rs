@@ -129,6 +129,13 @@ pub async fn refresh_materialized_view(
         .try_collect::<Vec<_>>()
         .await?;
 
+    if source_tables
+        .iter()
+        .all(|x| matches!(x.2, StorageTableState::Fresh))
+    {
+        return Ok(());
+    }
+
     // Register source tables in datafusion context and return lineage information
     let source_tables = source_tables
         .into_iter()
