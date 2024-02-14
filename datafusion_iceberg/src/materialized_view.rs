@@ -92,15 +92,26 @@ pub async fn refresh_materialized_view(
                     Tabular::Table(table) => Ok(*table
                         .metadata()
                         .current_snapshot(branch.as_deref())?
-                        .unwrap()
+                        // Fallback to main branch
+                        .or(table.metadata().current_snapshot(None)?)
+                        .ok_or(Error::NotFound(
+                            "Snapshot in source table".to_owned(),
+                            format!("{}", &identifier.table_name()),
+                        ))?
                         .snapshot_id()),
-                    Tabular::MaterializedView(mv) => Ok(*mv
-                        .storage_table()
-                        .await?
-                        .table_metadata
-                        .current_snapshot(branch.as_deref())?
-                        .unwrap()
-                        .snapshot_id()),
+                    Tabular::MaterializedView(mv) => {
+                        let storage_table = mv.storage_table().await?;
+                        Ok(*storage_table
+                            .table_metadata
+                            .current_snapshot(branch.as_deref())?
+                            // Fallback to main branch
+                            .or(storage_table.table_metadata.current_snapshot(None)?)
+                            .ok_or(Error::NotFound(
+                                "Snapshot in source table".to_owned(),
+                                format!("{}", &identifier.table_name()),
+                            ))?
+                            .snapshot_id())
+                    }
                     _ => Err(Error::InvalidFormat("storage table".to_string())),
                 }?;
 
