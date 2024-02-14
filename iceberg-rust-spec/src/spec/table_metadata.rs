@@ -172,7 +172,9 @@ impl TableMetadata {
         match snapshot_id {
             Some(snapshot_id) => Ok(self.snapshots.get(&snapshot_id)),
             None => {
-                if self.snapshots.is_empty() {
+                if self.snapshots.is_empty()
+                    || (snapshot_ref.is_some() && snapshot_ref != Some("main"))
+                {
                     Ok(None)
                 } else {
                     Err(Error::InvalidFormat("snapshots".to_string()))
@@ -187,17 +189,19 @@ impl TableMetadata {
         &mut self,
         snapshot_ref: Option<String>,
     ) -> Result<Option<&mut Snapshot>, Error> {
-        let snapshot_id = match snapshot_ref {
+        let snapshot_id = match &snapshot_ref {
             None => self
                 .refs
                 .get("main")
                 .map(|x| x.snapshot_id)
                 .or(self.current_snapshot_id),
-            Some(reference) => self.refs.get(&reference).map(|x| x.snapshot_id),
+            Some(reference) => self.refs.get(reference).map(|x| x.snapshot_id),
         };
         match snapshot_id {
             Some(-1) => {
-                if self.snapshots.is_empty() {
+                if self.snapshots.is_empty()
+                    || (snapshot_ref.is_some() && snapshot_ref.as_deref() != Some("main"))
+                {
                     Ok(None)
                 } else {
                     Err(Error::InvalidFormat("snapshots".to_string()))
@@ -205,7 +209,9 @@ impl TableMetadata {
             }
             Some(snapshot_id) => Ok(self.snapshots.get_mut(&snapshot_id)),
             None => {
-                if self.snapshots.is_empty() {
+                if self.snapshots.is_empty()
+                    || (snapshot_ref.is_some() && snapshot_ref.as_deref() != Some("main"))
+                {
                     Ok(None)
                 } else {
                     Err(Error::InvalidFormat("snapshots".to_string()))
