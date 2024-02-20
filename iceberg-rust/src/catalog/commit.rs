@@ -288,14 +288,15 @@ pub fn check_table_requirements(
 }
 
 /// Check table update requirements
-pub fn check_view_requirements<T: Clone + Eq + 'static>(
+pub fn check_view_requirements<T: Clone + Default + Eq + 'static>(
     requirements: &[ViewRequirement],
     metadata: &GeneralViewMetadata<T>,
 ) -> bool {
     requirements.iter().all(|x| match x {
         ViewRequirement::AssertViewUuid { uuid } => metadata.view_uuid == *uuid,
         ViewRequirement::AssertMaterialization { materialization } => {
-            metadata.materialization == *(materialization as &dyn Any).downcast_ref::<T>().unwrap()
+            metadata.properties.storage_table
+                == *(materialization as &dyn Any).downcast_ref::<T>().unwrap()
         }
     })
 }
@@ -373,7 +374,7 @@ pub fn apply_table_updates(
 }
 
 /// Apply updates to metadata
-pub fn apply_view_updates<T: Clone + 'static>(
+pub fn apply_view_updates<T: Clone + Default + 'static>(
     metadata: &mut GeneralViewMetadata<T>,
     updates: Vec<ViewUpdate>,
 ) -> Result<(), Error> {
@@ -411,7 +412,7 @@ pub fn apply_view_updates<T: Clone + 'static>(
                 metadata.current_version_id = view_version_id;
             }
             ViewUpdate::SetMaterialization { materialization } => {
-                metadata.materialization = (&materialization as &dyn Any)
+                metadata.properties.storage_table = (&materialization as &dyn Any)
                     .downcast_ref::<T>()
                     .cloned()
                     .ok_or(Error::InvalidFormat(

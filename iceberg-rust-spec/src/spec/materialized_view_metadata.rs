@@ -75,7 +75,8 @@ mod tests {
         "location" : "s3://bucket/warehouse/default.db/event_agg",
         "current-version-id" : 1,
         "properties" : {
-            "comment" : "Daily event counts"
+            "comment" : "Daily event counts",
+            "storage_table": "s3://bucket/path/to/metadata.json"
         },
         "versions" : [ {
             "version-id" : 1,
@@ -113,8 +114,7 @@ mod tests {
         "version-log" : [ {
             "timestamp-ms" : 1573518431292,
             "version-id" : 1
-        } ],
-        "materialization": "s3://bucket/path/to/metadata.json"
+        } ]
         }
         "#;
         let metadata = serde_json::from_str::<MaterializedViewMetadata>(data)

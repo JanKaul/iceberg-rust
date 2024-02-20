@@ -4,6 +4,7 @@
 
 use std::{
     collections::HashMap,
+    ops::{Deref, DerefMut},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -29,7 +30,7 @@ pub type ViewMetadataBuilder = GeneralViewMetadataBuilder<Option<()>>;
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
 #[serde(try_from = "ViewMetadataEnum<T>", into = "ViewMetadataEnum<T>")]
 /// Fields for the version 1 of the view metadata.
-pub struct GeneralViewMetadata<T: Clone> {
+pub struct GeneralViewMetadata<T: Clone + Default> {
     #[builder(default = "Uuid::new_v4()")]
     /// A UUID that identifies the view, generated when the view is created. Implementations must throw an exception if a view’s UUID does not match the expected UUID after refreshing metadata
     pub view_uuid: Uuid,
@@ -54,11 +55,10 @@ pub struct GeneralViewMetadata<T: Clone> {
     #[builder(default)]
     /// A string to string map of view properties. This is used for metadata such as “comment” and for settings that affect view maintenance.
     /// This is not intended to be used for arbitrary metadata.
-    pub properties: HashMap<String, String>,
-    pub materialization: T,
+    pub properties: ViewProperties<T>,
 }
 
-impl<T: Clone> GeneralViewMetadata<T> {
+impl<T: Clone + Default> GeneralViewMetadata<T> {
     /// Get current schema
     #[inline]
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
@@ -112,12 +112,12 @@ mod _serde {
         spec::{schema::SchemaV2, table_metadata::VersionNumber},
     };
 
-    use super::{FormatVersion, GeneralViewMetadata, Version, VersionLogStruct};
+    use super::{FormatVersion, GeneralViewMetadata, Version, VersionLogStruct, ViewProperties};
 
     /// Metadata of an iceberg view
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
     #[serde(untagged)]
-    pub(super) enum ViewMetadataEnum<T> {
+    pub(super) enum ViewMetadataEnum<T: Clone> {
         /// Version 1 of the table metadata
         V1(ViewMetadataV1<T>),
     }
@@ -125,7 +125,7 @@ mod _serde {
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
     #[serde(rename_all = "kebab-case")]
     /// Fields for the version 1 of the view metadata.
-    pub struct ViewMetadataV1<T> {
+    pub struct ViewMetadataV1<T: Clone> {
         /// A UUID that identifies the view, generated when the view is created. Implementations must throw an exception if a view’s UUID does not match the expected UUID after refreshing metadata
         pub view_uuid: Uuid,
         /// An integer version number for the view format; must be 1
@@ -143,11 +143,10 @@ mod _serde {
         pub schemas: Vec<SchemaV2>,
         /// A string to string map of view properties. This is used for metadata such as “comment” and for settings that affect view maintenance.
         /// This is not intended to be used for arbitrary metadata.
-        pub properties: Option<HashMap<String, String>>,
-        pub materialization: T,
+        pub properties: Option<ViewProperties<T>>,
     }
 
-    impl<T: Clone> TryFrom<ViewMetadataEnum<T>> for GeneralViewMetadata<T> {
+    impl<T: Clone + Default> TryFrom<ViewMetadataEnum<T>> for GeneralViewMetadata<T> {
         type Error = Error;
         fn try_from(value: ViewMetadataEnum<T>) -> Result<Self, Self::Error> {
             match value {
@@ -156,7 +155,7 @@ mod _serde {
         }
     }
 
-    impl<T: Clone> From<GeneralViewMetadata<T>> for ViewMetadataEnum<T> {
+    impl<T: Clone + Default> From<GeneralViewMetadata<T>> for ViewMetadataEnum<T> {
         fn from(value: GeneralViewMetadata<T>) -> Self {
             match value.format_version {
                 FormatVersion::V1 => ViewMetadataEnum::V1(value.into()),
@@ -164,7 +163,7 @@ mod _serde {
         }
     }
 
-    impl<T: Clone> TryFrom<ViewMetadataV1<T>> for GeneralViewMetadata<T> {
+    impl<T: Clone + Default> TryFrom<ViewMetadataV1<T>> for GeneralViewMetadata<T> {
         type Error = Error;
         fn try_from(value: ViewMetadataV1<T>) -> Result<Self, Self::Error> {
             Ok(GeneralViewMetadata {
@@ -175,7 +174,6 @@ mod _serde {
                 versions: HashMap::from_iter(value.versions.into_iter().map(|x| (x.version_id, x))),
                 version_log: value.version_log,
                 properties: value.properties.unwrap_or_default(),
-                materialization: value.materialization,
                 schemas: HashMap::from_iter(
                     value
                         .schemas
@@ -187,7 +185,7 @@ mod _serde {
         }
     }
 
-    impl<T: Clone> From<GeneralViewMetadata<T>> for ViewMetadataV1<T> {
+    impl<T: Clone + Default> From<GeneralViewMetadata<T>> for ViewMetadataV1<T> {
         fn from(value: GeneralViewMetadata<T>) -> Self {
             ViewMetadataV1 {
                 view_uuid: value.view_uuid,
@@ -201,12 +199,32 @@ mod _serde {
                 } else {
                     Some(value.properties)
                 },
-                materialization: value.materialization,
                 schemas: value.schemas.into_values().map(Into::into).collect(),
             }
         }
     }
 }
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
+pub struct ViewProperties<T: Clone> {
+    pub storage_table: T,
+    #[serde(flatten)]
+    pub other: HashMap<String, String>,
+}
+
+impl<T: Clone> Deref for ViewProperties<T> {
+    type Target = HashMap<String, String>;
+    fn deref(&self) -> &Self::Target {
+        &self.other
+    }
+}
+
+impl<T: Clone> DerefMut for ViewProperties<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.other
+    }
+}
+
 #[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
 #[repr(u8)]
 /// Iceberg format version

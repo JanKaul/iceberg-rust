@@ -11,7 +11,7 @@ use crate::catalog::tabular::Tabular;
 use crate::error::Error;
 use iceberg_rust_spec::spec::schema::Schema;
 use iceberg_rust_spec::spec::view_metadata::{
-    VersionBuilder, ViewMetadataBuilder, ViewRepresentation, REF_PREFIX,
+    VersionBuilder, ViewMetadataBuilder, ViewProperties, ViewRepresentation, REF_PREFIX,
 };
 
 use super::Catalog;
@@ -60,12 +60,11 @@ impl ViewBuilder {
                     .schema_id(1)
                     .build()?,
             ))
-            .materialization(None)
             .current_version_id(1)
-            .properties(HashMap::from_iter(vec![(
-                REF_PREFIX.to_string() + "main",
-                1.to_string(),
-            )]));
+            .properties(ViewProperties {
+                storage_table: None,
+                other: HashMap::from_iter(vec![(REF_PREFIX.to_string() + "main", 1.to_string())]),
+            });
         Ok(ViewBuilder {
             metadata: builder,
             identifier,

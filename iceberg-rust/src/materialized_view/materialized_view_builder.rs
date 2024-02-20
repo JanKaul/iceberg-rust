@@ -13,7 +13,7 @@ use iceberg_rust_spec::{
         materialized_view_metadata::MaterializedViewMetadataBuilder,
         schema::Schema,
         table_metadata::TableMetadataBuilder,
-        view_metadata::{VersionBuilder, ViewRepresentation, REF_PREFIX},
+        view_metadata::{VersionBuilder, ViewProperties, ViewRepresentation, REF_PREFIX},
     },
     util::strip_prefix,
 };
@@ -68,12 +68,11 @@ impl MaterializedViewBuilder {
                     .schema_id(1)
                     .build()?,
             ))
-            .materialization("".to_owned())
             .current_version_id(1)
-            .properties(HashMap::from_iter(vec![(
-                REF_PREFIX.to_string() + "main",
-                1.to_string(),
-            )]));
+            .properties(ViewProperties {
+                storage_table: "".to_owned(),
+                other: HashMap::from_iter(vec![(REF_PREFIX.to_string() + "main", 1.to_string())]),
+            });
         Ok(Self {
             identifier: Identifier::parse(&identifier.to_string())?,
             catalog,
@@ -106,7 +105,7 @@ impl MaterializedViewBuilder {
             + "-"
             + &Uuid::new_v4().to_string()
             + ".metadata.json";
-        metadata.materialization = table_path.clone();
+        metadata.properties.storage_table = table_path.clone();
         let table_metadata_json = serde_json::to_string(&table_metadata)?;
         object_store
             .put(

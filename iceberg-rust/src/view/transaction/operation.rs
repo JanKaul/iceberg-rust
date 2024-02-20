@@ -35,7 +35,7 @@ pub enum Operation<T: Clone> {
     UpdateMaterialization(T),
 }
 
-impl<T: Clone + 'static> Operation<T> {
+impl<T: Clone + Default + 'static> Operation<T> {
     /// Execute operation
     pub async fn execute(
         self,
@@ -105,7 +105,7 @@ impl<T: Clone + 'static> Operation<T> {
             )),
             Operation::UpdateMaterialization(materialization) => {
                 let previous_materialization =
-                    (&metadata.materialization as &dyn Any).downcast_ref::<String>();
+                    (&metadata.properties.storage_table as &dyn Any).downcast_ref::<String>();
                 let materialization = (&materialization as &dyn Any)
                     .downcast_ref::<String>()
                     .ok_or(Error::InvalidFormat(
