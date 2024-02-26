@@ -501,7 +501,7 @@ impl CatalogList for SqlCatalogList {
 #[cfg(test)]
 pub mod tests {
     use iceberg_rust::{
-        catalog::{identifier::Identifier, Catalog},
+        catalog::{identifier::Identifier, namespace::Namespace, Catalog},
         spec::{
             schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
@@ -560,6 +560,23 @@ pub mod tests {
             .await
             .expect("Table doesn't exist");
         assert!(exists);
+
+        let tables = catalog
+            .clone()
+            .list_tables(
+                &Namespace::try_new(&vec!["load_table".to_owned()])
+                    .expect("Failed to create namespace"),
+            )
+            .await
+            .expect("Failed to list Tables");
+        assert_eq!(tables[0].to_string(), "load_table.table3".to_owned());
+
+        let namespaces = catalog
+            .clone()
+            .list_namespaces(None)
+            .await
+            .expect("Failed to list namespaces");
+        assert_eq!(namespaces[0].to_string(), "load_table");
 
         let transaction = table.new_transaction(None);
         transaction.commit().await.expect("Transaction failed.");

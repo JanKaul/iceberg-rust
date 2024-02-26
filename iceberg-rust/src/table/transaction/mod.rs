@@ -4,9 +4,8 @@
 use std::collections::HashMap;
 
 use iceberg_rust_spec::spec::{
-    manifest::DataFile,
-    schema::Schema,
-    snapshot::{Lineage, SnapshotReference},
+    manifest::DataFile, materialized_view_metadata::SourceTable, schema::Schema,
+    snapshot::SnapshotReference,
 };
 
 use crate::{catalog::commit::CommitTable, error::Error, table::Table};
@@ -97,7 +96,7 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Quickly append files to the table
-    pub fn rewrite_with_lineage(mut self, files: Vec<DataFile>, lineage: Lineage) -> Self {
+    pub fn rewrite_with_lineage(mut self, files: Vec<DataFile>, lineage: Vec<SourceTable>) -> Self {
         self.operations
             .entry(REWRITE_KEY.to_owned())
             .and_modify(|mut x| {

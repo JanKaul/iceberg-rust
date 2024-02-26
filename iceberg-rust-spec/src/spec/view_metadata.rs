@@ -194,11 +194,7 @@ mod _serde {
                 current_version_id: value.current_version_id,
                 versions: value.versions.into_values().collect(),
                 version_log: value.version_log,
-                properties: if value.properties.is_empty() {
-                    None
-                } else {
-                    Some(value.properties)
-                },
+                properties: Some(value.properties),
                 schemas: value.schemas.into_values().map(Into::into).collect(),
             }
         }
@@ -210,6 +206,14 @@ pub struct ViewProperties<T: Clone> {
     pub storage_table: T,
     #[serde(flatten)]
     pub other: HashMap<String, String>,
+}
+
+impl<T: Clone> Extend<(String, String)> for ViewProperties<T> {
+    fn extend<S: IntoIterator<Item = (String, String)>>(&mut self, iter: S) {
+        for (key, value) in iter {
+            self.other.insert(key, value);
+        }
+    }
 }
 
 impl<T: Clone> Deref for ViewProperties<T> {

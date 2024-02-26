@@ -1,6 +1,10 @@
 use std::ops::{Deref, DerefMut};
 
-use iceberg_rust_spec::spec::{snapshot::SourceTable, table_metadata::TableMetadata};
+use iceberg_rust_spec::spec::{
+    materialized_view_metadata::{depends_on_tables_from_string, SourceTable},
+    snapshot::DEPENDS_ON_TABLES,
+    table_metadata::TableMetadata,
+};
 
 use crate::error::Error;
 
@@ -23,22 +27,15 @@ impl DerefMut for StorageTable {
 
 impl StorageTable {
     #[inline]
-    /// Returns the version id of the last refresh.
-    pub fn version_id(&self, branch: Option<String>) -> Result<Option<i64>, Error> {
-        Ok(self
-            .table_metadata
-            .current_snapshot(branch.as_deref())?
-            .and_then(|snapshot| snapshot.lineage().as_ref())
-            .map(|x| *x.refresh_version_id()))
-    }
 
     pub async fn source_tables(
         &self,
         branch: Option<String>,
-    ) -> Result<Option<&Vec<SourceTable>>, Error> {
-        Ok(self
-            .current_snapshot(branch.as_deref())?
-            .and_then(|snapshot| snapshot.lineage().as_ref())
-            .map(|x| x.source_tables()))
+    ) -> Result<Option<Vec<SourceTable>>, Error> {
+        self.current_snapshot(branch.as_deref())?
+            .and_then(|snapshot| snapshot.summary().other.get(DEPENDS_ON_TABLES))
+            .map(|x| depends_on_tables_from_string(x))
+            .transpose()
+            .map_err(Error::from)
     }
 }

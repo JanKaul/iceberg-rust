@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use datafusion::catalog::{CatalogList as DFCatalogList, CatalogProvider};
+use datafusion::catalog::{CatalogProvider, CatalogProviderList};
 use futures::{stream, StreamExt};
 use iceberg_rust::catalog::CatalogList;
 
@@ -35,7 +35,7 @@ impl IcebergCatalogList {
     }
 }
 
-impl DFCatalogList for IcebergCatalogList {
+impl CatalogProviderList for IcebergCatalogList {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }

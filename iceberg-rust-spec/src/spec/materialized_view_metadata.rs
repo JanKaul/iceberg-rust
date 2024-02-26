@@ -2,7 +2,10 @@
  * A Struct for the materialized view metadata   
 */
 
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+
+use crate::error::Error;
 
 use super::{
     table_metadata::VersionNumber,
@@ -46,15 +49,34 @@ impl From<FormatVersionSerde> for FormatVersion {
     }
 }
 
-/// Version id of the materialized view when the refresh operation was performed.
-pub type VersionId = i64;
-/// Map from references in the sql expression to snapshot_ids of the last refresh operation
-pub type BaseTables = Vec<BaseTable>;
+pub fn depends_on_tables_to_string(source_tables: &[SourceTable]) -> Result<String, Error> {
+    Ok(source_tables
+        .iter()
+        .map(|x| x.identifier.to_string() + "=" + &x.snapshot_id.to_string())
+        .join(","))
+}
+
+pub fn depends_on_tables_from_string(value: &str) -> Result<Vec<SourceTable>, Error> {
+    Ok(value
+        .split(',')
+        .map(|x| {
+            x.split('=')
+                .next_tuple()
+                .ok_or(Error::InvalidFormat("Lineage information".to_owned()))
+                .and_then(|(identifier, snapshot_id)| {
+                    Ok(SourceTable {
+                        identifier: identifier.to_owned(),
+                        snapshot_id: snapshot_id.parse()?,
+                    })
+                })
+        })
+        .collect::<Result<_, Error>>()?)
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Freshness information of the materialized view
-pub struct BaseTable {
+pub struct SourceTable {
     /// Table reference in the SQL expression.
     pub identifier: String,
     /// Snapshot id of the base table when the refresh operation was performed.
@@ -64,7 +86,13 @@ pub struct BaseTable {
 #[cfg(test)]
 mod tests {
 
-    use crate::{error::Error, spec::materialized_view_metadata::MaterializedViewMetadata};
+    use crate::{
+        error::Error,
+        spec::materialized_view_metadata::{
+            depends_on_tables_from_string, depends_on_tables_to_string, MaterializedViewMetadata,
+            SourceTable,
+        },
+    };
 
     #[test]
     fn test_deserialize_materialized_view_metadata_v1() -> Result<(), Error> {
@@ -127,5 +155,45 @@ mod tests {
         assert_eq!(metadata, metadata_two);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_depends_on_tables_try_from_str() {
+        let input = "table1=1,table2=2";
+
+        let result = depends_on_tables_from_string(&input).unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                SourceTable {
+                    identifier: "table1".to_string(),
+                    snapshot_id: 1
+                },
+                SourceTable {
+                    identifier: "table2".to_string(),
+                    snapshot_id: 2
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn test_try_from_depends_on_tables_to_string() {
+        let depends_on_tables = vec![
+            SourceTable {
+                identifier: "table1".to_string(),
+                snapshot_id: 1,
+            },
+            SourceTable {
+                identifier: "table2".to_string(),
+                snapshot_id: 2,
+            },
+        ];
+
+        let result = depends_on_tables_to_string(&depends_on_tables);
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "table1=1,table2=2");
     }
 }

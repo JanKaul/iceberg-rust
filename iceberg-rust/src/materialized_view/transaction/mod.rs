@@ -6,8 +6,9 @@ use std::collections::HashMap;
 
 use iceberg_rust_spec::{
     spec::{
-        manifest::DataFile, snapshot::Lineage, table_metadata::new_metadata_location,
-        types::StructType, view_metadata::ViewRepresentation,
+        manifest::DataFile, materialized_view_metadata::SourceTable,
+        table_metadata::new_metadata_location, types::StructType,
+        view_metadata::ViewRepresentation,
     },
     util::strip_prefix,
 };
@@ -78,7 +79,7 @@ impl<'view> Transaction<'view> {
     }
 
     /// Perform full refresh operation
-    pub fn full_refresh(mut self, files: Vec<DataFile>, lineage: Lineage) -> Self {
+    pub fn full_refresh(mut self, files: Vec<DataFile>, lineage: Vec<SourceTable>) -> Self {
         self.storage_table_operations
             .entry(REWRITE_KEY.to_owned())
             .and_modify(|mut x| {

@@ -19,12 +19,12 @@ async-trait = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["serde"] }
 arrow = "50.0.0"
 arrow-schema = "50.0.0"
-datafusion = "35.0.0"
-datafusion-sql = "35.0.0"
-datafusion-expr = "35.0.0"
-datafusion-common = "35.0.0"
+datafusion = "36.0.0"
+datafusion-sql = "36.0.0"
+datafusion-expr = "36.0.0"
+datafusion-common = "36.0.0"
 parquet = { version = "50.0.0", features = ["async", "object_store"] }
-sqlparser = { version = "0.41.0", features = ["visitor"] }
+sqlparser = { version = "0.43.0", features = ["visitor"] }
 thiserror = "1.0"
 url = "^2.2"
 uuid = { version = "1.3.2", features = ["serde", "v4"] }

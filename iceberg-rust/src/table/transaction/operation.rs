@@ -12,11 +12,12 @@ use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
 use iceberg_rust_spec::spec::{
     manifest::{partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status},
     manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
+    materialized_view_metadata::{depends_on_tables_to_string, SourceTable},
     partition::PartitionField,
     schema::Schema,
     snapshot::{
-        generate_snapshot_id, Lineage, SnapshotBuilder, SnapshotReference, SnapshotRetention,
-        Summary,
+        generate_snapshot_id, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary,
+        DEPENDS_ON_TABLES,
     },
     types::StructField,
     values::{Struct, Value},
@@ -49,7 +50,7 @@ pub enum Operation {
     NewAppend {
         branch: Option<String>,
         files: Vec<DataFile>,
-        lineage: Option<Lineage>,
+        lineage: Option<Vec<SourceTable>>,
     },
     // /// Quickly append new files to the table
     // NewFastAppend {
@@ -60,7 +61,7 @@ pub enum Operation {
     Rewrite {
         branch: Option<String>,
         files: Vec<DataFile>,
-        lineage: Option<Lineage>,
+        lineage: Option<Vec<SourceTable>>,
     },
     // /// Replace manifests files and commit
     // RewriteManifests,
@@ -322,12 +323,16 @@ impl Operation {
                     )
                     .with_summary(Summary {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
-                        other: HashMap::new(),
+                        other: if let Some(lineage) = lineage {
+                            HashMap::from_iter(vec![(
+                                DEPENDS_ON_TABLES.to_owned(),
+                                depends_on_tables_to_string(&lineage)?,
+                            )])
+                        } else {
+                            HashMap::new()
+                        },
                     })
                     .with_schema_id(*schema.schema_id());
-                if let Some(lineage) = lineage {
-                    snapshot_builder.with_lineage(lineage);
-                }
                 let snapshot = snapshot_builder
                     .build()
                     .map_err(iceberg_rust_spec::error::Error::from)?;
@@ -473,10 +478,18 @@ impl Operation {
                     .with_snapshot_id(snapshot_id)
                     .with_sequence_number(0)
                     .with_schema_id(*schema.schema_id())
-                    .with_manifest_list(manifest_list_location);
-                if let Some(lineage) = lineage {
-                    snapshot_builder.with_lineage(lineage);
-                }
+                    .with_manifest_list(manifest_list_location)
+                    .with_summary(Summary {
+                        operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
+                        other: if let Some(lineage) = lineage {
+                            HashMap::from_iter(vec![(
+                                DEPENDS_ON_TABLES.to_owned(),
+                                depends_on_tables_to_string(&lineage)?,
+                            )])
+                        } else {
+                            HashMap::new()
+                        },
+                    });
                 let snapshot = snapshot_builder
                     .build()
                     .map_err(iceberg_rust_spec::error::Error::from)?;
