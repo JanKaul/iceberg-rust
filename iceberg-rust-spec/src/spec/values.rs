@@ -103,6 +103,28 @@ impl From<Value> for ByteBuf {
     }
 }
 
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::Boolean(b) => write!(f, "{}", b),
+            Value::Int(i) => write!(f, "{}", i),
+            Value::LongInt(l) => write!(f, "{}", l),
+            Value::Float(fl) => write!(f, "{}", fl),
+            Value::Double(d) => write!(f, "{}", d),
+            Value::Date(d) => write!(f, "{}", d),
+            Value::Time(t) => write!(f, "{}", t),
+            Value::Timestamp(ts) => write!(f, "{}", ts),
+            Value::TimestampTZ(ts) => write!(f, "{}", ts),
+            Value::String(s) => write!(f, "{}", s),
+            Value::UUID(u) => write!(f, "{}", u),
+            Value::Fixed(size, data) => write!(f, "{:?} ({} bytes)", data, size),
+            Value::Binary(data) => write!(f, "{:?} ({} bytes)", data, data.len()),
+            Value::Decimal(d) => write!(f, "{}", d),
+            _ => panic!("Printing of compound types is not supported"),
+        }
+    }
+}
+
 /// The partition struct stores the tuple of partition values for each file.
 /// Its type is derived from the partition fields of the partition spec used to write the manifest file.
 /// In v2, the partition struct’s field ids must match the ids from the partition spec.

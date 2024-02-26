@@ -41,10 +41,16 @@ pub async fn partition_record_batches(
     record_batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     partition_spec: &PartitionSpec,
     schema: &Schema,
-) -> Result<Vec<impl Stream<Item = Result<RecordBatch, ArrowError>> + Send>, ArrowError> {
+) -> Result<
+    Vec<(
+        Vec<Value>,
+        impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
+    )>,
+    ArrowError,
+> {
     let (partition_sender, partition_reciever): (
-        UnboundedSender<SendableRecordBatchStream>,
-        UnboundedReceiver<SendableRecordBatchStream>,
+        UnboundedSender<(Vec<Value>, SendableRecordBatchStream)>,
+        UnboundedReceiver<(Vec<Value>, SendableRecordBatchStream)>,
     ) = unbounded();
     let partition_streams: Arc<Mutex<HashMap<Vec<Value>, RecordBatchSender>>> =
         Arc::new(Mutex::new(HashMap::new()));
@@ -126,13 +132,13 @@ pub async fn partition_record_batches(
                         async move {
                             let mut sender = {
                                 let mut partition_streams = partition_streams.lock().await;
-                                let entry = partition_streams.entry(values);
+                                let entry = partition_streams.entry(values.clone());
                                 match entry {
                                     Entry::Occupied(entry) => entry.get().clone(),
                                     Entry::Vacant(entry) => {
                                         let (sender, reciever) = unbounded();
                                         entry.insert(sender.clone());
-                                        partition_sender.send(Box::pin(reciever)).await.map_err(
+                                        partition_sender.send((values,Box::pin(reciever))).await.map_err(
                                             |err| ArrowError::ExternalError(Box::new(err)),
                                         )?;
                                         sender
@@ -305,7 +311,7 @@ mod tests {
             .await
             .unwrap();
         let output = stream::iter(streams.into_iter())
-            .then(|s| async move { s.collect::<Vec<_>>().await })
+            .then(|s| async move { s.1.collect::<Vec<_>>().await })
             .collect::<Vec<_>>()
             .await;
 
