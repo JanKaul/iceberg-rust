@@ -13,7 +13,9 @@ use identifier::Identifier;
 use object_store::ObjectStore;
 
 use crate::error::Error;
+use crate::materialized_view::MaterializedView;
 use crate::table::Table;
+use crate::view::View;
 
 use self::bucket::Bucket;
 use self::commit::{CommitTable, CommitView};
@@ -37,7 +39,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// Drop a table and delete all data and metadata files.
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Load a table.
-    async fn load_table(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
+    async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
     /// Register a table with the catalog if it doesn't exist.
     async fn register_tabular(
         self: Arc<Self>,
@@ -47,7 +49,12 @@ pub trait Catalog: Send + Sync + Debug {
     /// perform commit table operation
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;
     /// perform commit view operation
-    async fn update_view(self: Arc<Self>, commit: CommitView) -> Result<Tabular, Error>;
+    async fn update_view(self: Arc<Self>, commit: CommitView) -> Result<View, Error>;
+    /// perform commit view operation
+    async fn update_materialized_view(
+        self: Arc<Self>,
+        commit: CommitView,
+    ) -> Result<MaterializedView, Error>;
     /// Return the associated object store for a bucket
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }

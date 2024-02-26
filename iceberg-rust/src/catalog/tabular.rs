@@ -65,7 +65,7 @@ impl Tabular {
         match self {
             Tabular::Table(table) => {
                 let new = if let Tabular::Table(table) =
-                    table.catalog().load_table(table.identifier()).await?
+                    table.catalog().load_tabular(table.identifier()).await?
                 {
                     Ok(table)
                 } else {
@@ -77,7 +77,7 @@ impl Tabular {
             }
             Tabular::View(view) => {
                 let new = if let Tabular::View(view) =
-                    view.catalog().load_table(view.identifier()).await?
+                    view.catalog().load_tabular(view.identifier()).await?
                 {
                     Ok(view)
                 } else {
@@ -89,7 +89,7 @@ impl Tabular {
             }
             Tabular::MaterializedView(matview) => {
                 let new = if let Tabular::MaterializedView(matview) =
-                    matview.catalog().load_table(matview.identifier()).await?
+                    matview.catalog().load_tabular(matview.identifier()).await?
                 {
                     Ok(matview)
                 } else {

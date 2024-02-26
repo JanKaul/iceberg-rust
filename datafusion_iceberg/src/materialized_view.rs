@@ -79,7 +79,7 @@ pub async fn refresh_materialized_view(
                     ))?;
 
                 let tabular = match catalog
-                    .load_table(&Identifier::try_new(&[
+                    .load_tabular(&Identifier::try_new(&[
                         namespace_name.to_string(),
                         identifier.table().to_string(),
                     ])?)

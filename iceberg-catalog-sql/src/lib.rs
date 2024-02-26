@@ -201,7 +201,10 @@ impl Catalog for SqlCatalog {
         })}).await.map_err(Error::from)?;
         Ok(())
     }
-    async fn load_table(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, IcebergError> {
+    async fn load_tabular(
+        self: Arc<Self>,
+        identifier: &Identifier,
+    ) -> Result<Tabular, IcebergError> {
         let path = {
             let mut connection = self.connection.lock().await;
             let row = connection.transaction(|txn|{
@@ -277,7 +280,7 @@ impl Catalog for SqlCatalog {
             sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut **txn).await
         })}).await.map_err(Error::from)?;
         }
-        self.load_table(&identifier).await
+        self.load_tabular(&identifier).await
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
@@ -328,7 +331,7 @@ impl Catalog for SqlCatalog {
             }
         }
         self.clone()
-            .load_table(&identifier)
+            .load_tabular(&identifier)
             .await
             .and_then(|x| match x {
                 Tabular::Table(table) => Ok(table),
@@ -338,7 +341,7 @@ impl Catalog for SqlCatalog {
             })
     }
 
-    async fn update_view(self: Arc<Self>, commit: CommitView) -> Result<Tabular, IcebergError> {
+    async fn update_view(self: Arc<Self>, commit: CommitView) -> Result<View, IcebergError> {
         let identifier = commit.identifier;
         match self.cache.get(&identifier) {
             None => {
@@ -409,7 +412,95 @@ impl Catalog for SqlCatalog {
         })}).await.map_err(Error::from)?;
             }
         }
-        self.clone().load_table(&identifier).await
+        if let Tabular::View(view) = self.clone().load_tabular(&identifier).await? {
+            Ok(view)
+        } else {
+            Err(IcebergError::InvalidFormat(
+                "Entity is not a view".to_owned(),
+            ))
+        }
+    }
+    async fn update_materialized_view(
+        self: Arc<Self>,
+        commit: CommitView,
+    ) -> Result<MaterializedView, IcebergError> {
+        let identifier = commit.identifier;
+        match self.cache.get(&identifier) {
+            None => {
+                return Err(IcebergError::InvalidFormat(
+                    "Create table assertion".to_owned(),
+                ))
+            }
+            Some(entry) => {
+                let (previous_metadata_location, metadata) = entry.value();
+                let mut metadata = metadata.clone();
+                let metadata_location = match &mut metadata {
+                    TabularMetadata::View(metadata) => {
+                        if !check_view_requirements(&commit.requirements, metadata) {
+                            return Err(IcebergError::InvalidFormat(
+                                "View requirements not valid".to_owned(),
+                            ));
+                        }
+                        apply_view_updates(metadata, commit.updates)?;
+                        let metadata_location = metadata.location.to_string()
+                            + "/metadata/"
+                            + &metadata.current_version_id.to_string()
+                            + "-"
+                            + &Uuid::new_v4().to_string()
+                            + ".metadata.json";
+                        self.object_store
+                            .put(
+                                &strip_prefix(&metadata_location).into(),
+                                serde_json::to_string(&metadata)?.into(),
+                            )
+                            .await?;
+                        Ok(metadata_location)
+                    }
+                    TabularMetadata::MaterializedView(metadata) => {
+                        if !check_view_requirements(&commit.requirements, metadata) {
+                            return Err(IcebergError::InvalidFormat(
+                                "Materialized view requirements not valid".to_owned(),
+                            ));
+                        }
+                        apply_view_updates(metadata, commit.updates)?;
+                        let metadata_location = metadata.location.to_string()
+                            + "/metadata/"
+                            + &metadata.current_version_id.to_string()
+                            + "-"
+                            + &Uuid::new_v4().to_string()
+                            + ".metadata.json";
+                        self.object_store
+                            .put(
+                                &strip_prefix(&metadata_location).into(),
+                                serde_json::to_string(&metadata)?.into(),
+                            )
+                            .await?;
+                        Ok(metadata_location)
+                    }
+                    _ => Err(IcebergError::InvalidFormat(
+                        "Table update on entity that is not a table".to_owned(),
+                    )),
+                }?;
+
+                let mut connection = self.connection.lock().await;
+                connection.transaction(|txn|{
+                let catalog_name = self.name.clone();
+                let namespace = identifier.namespace().to_string();
+                let name = identifier.name().to_string();
+                let metadata_file_location = metadata_location.to_string();
+                let previous_metadata_file_location = previous_metadata_location.to_string();
+                Box::pin(async move {
+            sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&mut **txn).await
+        })}).await.map_err(Error::from)?;
+            }
+        }
+        if let Tabular::MaterializedView(matview) = self.clone().load_tabular(&identifier).await? {
+            Ok(matview)
+        } else {
+            Err(IcebergError::InvalidFormat(
+                "Entity is not a materialized view".to_owned(),
+            ))
+        }
     }
 
     fn object_store(&self, _: Bucket) -> Arc<dyn object_store::ObjectStore> {

@@ -633,7 +633,7 @@ mod tests {
             .expect("Failed to register table.");
 
         let table = if let Tabular::Table(table) = catalog
-            .load_table(&identifier)
+            .load_tabular(&identifier)
             .await
             .expect("Failed to load table")
         {

@@ -14,10 +14,7 @@ use iceberg_rust_spec::{
 };
 
 use crate::{
-    catalog::{
-        commit::{apply_table_updates, check_table_requirements, CommitView},
-        tabular::Tabular,
-    },
+    catalog::commit::{apply_table_updates, check_table_requirements, CommitView},
     error::Error,
     table::{
         delete_files,
@@ -190,25 +187,19 @@ impl<'view> Transaction<'view> {
             view_updates.extend(update);
         }
 
-        if let Tabular::MaterializedView(new_matview) = catalog
+        let new_matview = catalog
             .clone()
-            .update_view(CommitView {
+            .update_materialized_view(CommitView {
                 identifier,
                 requirements: view_requirements,
                 updates: view_updates,
             })
-            .await?
-        {
-            // Delete data files in case of a rewrite operation
-            if let Some(old_metadata) = delete_data {
-                delete_files(&old_metadata, self.materialized_view.object_store()).await?;
-            }
-            *self.materialized_view = new_matview;
-            Ok(())
-        } else {
-            Err(Error::InvalidFormat(
-                "Entity returned from catalog".to_string(),
-            ))
+            .await?;
+        // Delete data files in case of a rewrite operation
+        if let Some(old_metadata) = delete_data {
+            delete_files(&old_metadata, self.materialized_view.object_store()).await?;
         }
+        *self.materialized_view = new_matview;
+        Ok(())
     }
 }

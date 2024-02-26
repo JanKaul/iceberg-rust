@@ -5,10 +5,7 @@
 pub mod operation;
 use iceberg_rust_spec::spec::{types::StructType, view_metadata::ViewRepresentation};
 
-use crate::{
-    catalog::{commit::CommitView, tabular::Tabular},
-    error::Error,
-};
+use crate::{catalog::commit::CommitView, error::Error};
 
 use self::operation::Operation as ViewOperation;
 
@@ -64,22 +61,15 @@ impl<'view> Transaction<'view> {
             }
             updates.extend(update);
         }
-
-        if let Tabular::View(new_view) = catalog
+        let new_view = catalog
             .clone()
             .update_view(CommitView {
                 identifier,
                 requirements,
                 updates,
             })
-            .await?
-        {
-            *self.view = new_view;
-            Ok(())
-        } else {
-            Err(Error::InvalidFormat(
-                "Entity returned from catalog".to_string(),
-            ))
-        }
+            .await?;
+        *self.view = new_view;
+        Ok(())
     }
 }

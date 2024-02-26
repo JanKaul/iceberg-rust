@@ -97,7 +97,7 @@ impl Mirror {
     pub async fn table(&self, identifier: Identifier) -> Option<Arc<dyn TableProvider>> {
         self.catalog
             .clone()
-            .load_table(&identifier)
+            .load_tabular(&identifier)
             .await
             .map(|tabular| match tabular {
                 Tabular::Table(table) => {
