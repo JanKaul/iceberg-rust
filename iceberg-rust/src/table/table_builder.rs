@@ -7,7 +7,6 @@ use std::{
     sync::Arc,
 };
 
-use crate::catalog::tabular::Tabular;
 use crate::table::Table;
 use crate::{catalog::identifier::Identifier, error::Error};
 use iceberg_rust_spec::spec::table_metadata::TableMetadataBuilder;
@@ -72,17 +71,9 @@ impl TableBuilder {
             .insert("write.parquet.compression-level".to_owned(), 1.to_string());
 
         // Register table in catalog
-        if let Tabular::Table(table) = self
-            .catalog
+        self.catalog
             .clone()
-            .register_tabular(self.identifier.clone(), metadata.into())
-            .await?
-        {
-            Ok(table)
-        } else {
-            Err(Error::InvalidFormat(
-                "Entity returned from catalog".to_string(),
-            ))
-        }
+            .create_table(self.identifier.clone(), metadata.into())
+            .await
     }
 }

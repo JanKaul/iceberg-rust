@@ -604,7 +604,7 @@ mod tests {
     use iceberg_rust_spec::spec::{
         partition::{PartitionField, PartitionSpecBuilder, Transform},
         schema::Schema,
-        tabular::TabularMetadata,
+        table_metadata::TableMetadata,
         types::{PrimitiveType, StructField, StructType, Type},
     };
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
@@ -624,11 +624,11 @@ mod tests {
         );
         let identifier = Identifier::parse("test.table1").unwrap();
 
-        let metadata: TabularMetadata = serde_json::from_slice(&object_store.get(&"/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json".into()).await.unwrap().bytes().await.unwrap()).unwrap();
+        let metadata: TableMetadata= serde_json::from_slice(&object_store.get(&"/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json".into()).await.unwrap().bytes().await.unwrap()).unwrap();
 
         catalog
             .clone()
-            .register_tabular(identifier.clone(), metadata)
+            .create_table(identifier.clone(), metadata)
             .await
             .expect("Failed to register table.");
 

@@ -7,7 +7,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use crate::catalog::identifier::Identifier;
-use crate::catalog::tabular::Tabular;
 use crate::error::Error;
 use iceberg_rust_spec::spec::schema::Schema;
 use iceberg_rust_spec::spec::view_metadata::{
@@ -74,16 +73,8 @@ impl ViewBuilder {
     /// Building a table writes the metadata file and commits the table to either the metastore or the filesystem
     pub async fn build(self) -> Result<View, Error> {
         let metadata = self.metadata.build()?;
-        if let Tabular::View(view) = self
-            .catalog
-            .register_tabular(self.identifier, metadata.into())
-            .await?
-        {
-            Ok(view)
-        } else {
-            Err(Error::InvalidFormat(
-                "Entity returned from catalog".to_string(),
-            ))
-        }
+        self.catalog
+            .create_view(self.identifier, metadata.into())
+            .await
     }
 }

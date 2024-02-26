@@ -20,7 +20,7 @@ use iceberg_rust_spec::{
 use uuid::Uuid;
 
 use crate::{
-    catalog::{bucket::parse_bucket, identifier::Identifier, tabular::Tabular, Catalog},
+    catalog::{bucket::parse_bucket, identifier::Identifier, Catalog},
     error::Error,
 };
 
@@ -113,16 +113,8 @@ impl MaterializedViewBuilder {
                 table_metadata_json.into(),
             )
             .await?;
-        if let Tabular::MaterializedView(matview) = self
-            .catalog
-            .register_tabular(self.identifier, metadata.into())
-            .await?
-        {
-            Ok(matview)
-        } else {
-            Err(Error::InvalidFormat(
-                "Entity returned from catalog".to_string(),
-            ))
-        }
+        self.catalog
+            .create_materialized_view(self.identifier, metadata.into())
+            .await
     }
 }

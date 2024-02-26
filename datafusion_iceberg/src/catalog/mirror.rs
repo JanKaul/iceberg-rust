@@ -7,7 +7,7 @@ use iceberg_rust::{
     catalog::{identifier::Identifier, namespace::Namespace, tabular::Tabular, Catalog},
     error::Error as IcebergError,
 };
-use iceberg_rust_spec::spec::view_metadata::REF_PREFIX;
+use iceberg_rust_spec::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
 
 use crate::{error::Error, DataFusionTable};
 
@@ -194,10 +194,26 @@ impl Mirror {
                         .await
                         .metadata()
                         .to_owned();
-                    cloned_catalog
-                        .register_tabular(identifier, metadata)
-                        .await
-                        .unwrap();
+                    match metadata {
+                        TabularMetadata::Table(metadata) => {
+                            cloned_catalog
+                                .create_table(identifier, metadata)
+                                .await
+                                .unwrap();
+                        }
+                        TabularMetadata::View(metadata) => {
+                            cloned_catalog
+                                .create_view(identifier, metadata)
+                                .await
+                                .unwrap();
+                        }
+                        TabularMetadata::MaterializedView(metadata) => {
+                            cloned_catalog
+                                .create_materialized_view(identifier, metadata)
+                                .await
+                                .unwrap();
+                        }
+                    }
                 }
             })
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;

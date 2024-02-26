@@ -8,7 +8,9 @@ use std::sync::Arc;
 pub mod identifier;
 pub mod namespace;
 
-use iceberg_rust_spec::spec::tabular::TabularMetadata;
+use iceberg_rust_spec::spec::materialized_view_metadata::MaterializedViewMetadata;
+use iceberg_rust_spec::spec::table_metadata::TableMetadata;
+use iceberg_rust_spec::spec::view_metadata::ViewMetadata;
 use identifier::Identifier;
 use object_store::ObjectStore;
 
@@ -41,11 +43,23 @@ pub trait Catalog: Send + Sync + Debug {
     /// Load a table.
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
     /// Register a table with the catalog if it doesn't exist.
-    async fn register_tabular(
+    async fn create_table(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: TabularMetadata,
-    ) -> Result<Tabular, Error>;
+        metadata: TableMetadata,
+    ) -> Result<Table, Error>;
+    /// Register a view with the catalog if it doesn't exist.
+    async fn create_view(
+        self: Arc<Self>,
+        identifier: Identifier,
+        metadata: ViewMetadata,
+    ) -> Result<View, Error>;
+    /// Register a materialized view with the catalog if it doesn't exist.
+    async fn create_materialized_view(
+        self: Arc<Self>,
+        identifier: Identifier,
+        metadata: MaterializedViewMetadata,
+    ) -> Result<MaterializedView, Error>;
     /// perform commit table operation
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;
     /// perform commit view operation

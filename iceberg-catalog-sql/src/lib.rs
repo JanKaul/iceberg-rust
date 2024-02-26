@@ -17,7 +17,12 @@ use iceberg_rust::{
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
-    spec::{table_metadata::new_metadata_location, tabular::TabularMetadata},
+    spec::{
+        materialized_view_metadata::MaterializedViewMetadata,
+        table_metadata::{new_metadata_location, TableMetadata},
+        tabular::TabularMetadata,
+        view_metadata::ViewMetadata,
+    },
     table::Table,
     util::strip_prefix,
     view::View,
@@ -242,20 +247,20 @@ impl Catalog for SqlCatalog {
         }
     }
 
-    async fn register_tabular(
+    async fn create_table(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: TabularMetadata,
-    ) -> Result<Tabular, IcebergError> {
+        metadata: TableMetadata,
+    ) -> Result<Table, IcebergError> {
         // Create metadata
-        let location = metadata.as_ref().location().to_string();
+        let location = metadata.location.to_string();
 
         // Write metadata to object_store
         let bucket = parse_bucket(&location)?;
         let object_store = self.object_store(bucket);
 
         let uuid = Uuid::new_v4();
-        let version = &metadata.as_ref().sequence_number();
+        let version = &metadata.last_sequence_number;
         let metadata_json = serde_json::to_string(&metadata)?;
         let metadata_location = location
             + "/metadata/"
@@ -280,7 +285,113 @@ impl Catalog for SqlCatalog {
             sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut **txn).await
         })}).await.map_err(Error::from)?;
         }
-        self.load_tabular(&identifier).await
+        self.clone()
+            .load_tabular(&identifier)
+            .await
+            .and_then(|x| match x {
+                Tabular::Table(table) => Ok(table),
+                _ => Err(IcebergError::InvalidFormat(
+                    "Table update on an entity that is nor a table".to_owned(),
+                )),
+            })
+    }
+
+    async fn create_view(
+        self: Arc<Self>,
+        identifier: Identifier,
+        metadata: ViewMetadata,
+    ) -> Result<View, IcebergError> {
+        // Create metadata
+        let location = metadata.location.to_string();
+
+        // Write metadata to object_store
+        let bucket = parse_bucket(&location)?;
+        let object_store = self.object_store(bucket);
+
+        let uuid = Uuid::new_v4();
+        let version = &metadata.current_version_id;
+        let metadata_json = serde_json::to_string(&metadata)?;
+        let metadata_location = location
+            + "/metadata/"
+            + &version.to_string()
+            + "-"
+            + &uuid.to_string()
+            + ".metadata.json";
+        object_store
+            .put(
+                &strip_prefix(&metadata_location).into(),
+                metadata_json.into(),
+            )
+            .await?;
+        {
+            let mut connection = self.connection.lock().await;
+            connection.transaction(|txn|{
+                let catalog_name = self.name.clone();
+                let namespace = identifier.namespace().to_string();
+                let name = identifier.name().to_string();
+                let metadata_location = metadata_location.to_string();
+                Box::pin(async move {
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut **txn).await
+        })}).await.map_err(Error::from)?;
+        }
+        self.clone()
+            .load_tabular(&identifier)
+            .await
+            .and_then(|x| match x {
+                Tabular::View(view) => Ok(view),
+                _ => Err(IcebergError::InvalidFormat(
+                    "Table update on an entity that is nor a table".to_owned(),
+                )),
+            })
+    }
+
+    async fn create_materialized_view(
+        self: Arc<Self>,
+        identifier: Identifier,
+        metadata: MaterializedViewMetadata,
+    ) -> Result<MaterializedView, IcebergError> {
+        // Create metadata
+        let location = metadata.location.to_string();
+
+        // Write metadata to object_store
+        let bucket = parse_bucket(&location)?;
+        let object_store = self.object_store(bucket);
+
+        let uuid = Uuid::new_v4();
+        let version = &metadata.current_version_id;
+        let metadata_json = serde_json::to_string(&metadata)?;
+        let metadata_location = location
+            + "/metadata/"
+            + &version.to_string()
+            + "-"
+            + &uuid.to_string()
+            + ".metadata.json";
+        object_store
+            .put(
+                &strip_prefix(&metadata_location).into(),
+                metadata_json.into(),
+            )
+            .await?;
+        {
+            let mut connection = self.connection.lock().await;
+            connection.transaction(|txn|{
+                let catalog_name = self.name.clone();
+                let namespace = identifier.namespace().to_string();
+                let name = identifier.name().to_string();
+                let metadata_location = metadata_location.to_string();
+                Box::pin(async move {
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut **txn).await
+        })}).await.map_err(Error::from)?;
+        }
+        self.clone()
+            .load_tabular(&identifier)
+            .await
+            .and_then(|x| match x {
+                Tabular::MaterializedView(matview) => Ok(matview),
+                _ => Err(IcebergError::InvalidFormat(
+                    "Table update on an entity that is nor a table".to_owned(),
+                )),
+            })
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
