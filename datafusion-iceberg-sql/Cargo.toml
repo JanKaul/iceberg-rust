@@ -3,7 +3,11 @@ name = "datafusion-iceberg-sql"
 version = "0.2.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Apache Iceberg integration for Datafusion"
+
+license = "Apache-2.0"
+
+repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
 iceberg-rust = { path = "../iceberg-rust", version = "0.2.0" }
