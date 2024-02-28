@@ -4,6 +4,7 @@ Struct to perform a [CommitTable] or [CommitView] operation
 use std::{any::Any, collections::HashMap};
 
 use iceberg_rust_spec::spec::{
+    materialized_view_metadata::STORAGE_TABLE_LOCATION,
     partition::PartitionSpec,
     schema::Schema,
     snapshot::{Snapshot, SnapshotReference},
@@ -229,11 +230,6 @@ pub enum ViewUpdate {
         /// The id to set
         view_version_id: i64,
     },
-    /// Set Materialization
-    SetMaterialization {
-        /// Storage table pointer to set
-        materialization: String,
-    },
 }
 
 /// Requirements on the table metadata to perform the updates
@@ -250,9 +246,9 @@ pub enum ViewRequirement {
         uuid: Uuid,
     },
     /// The materialization must match the requirement's materialization
-    AssertMaterialization {
+    AssertProperty {
         /// Storage table pointer to assert
-        materialization: String,
+        property: (String, String),
     },
 }
 /// Check table update requirements
@@ -294,9 +290,20 @@ pub fn check_view_requirements<T: Clone + Default + Eq + 'static>(
 ) -> bool {
     requirements.iter().all(|x| match x {
         ViewRequirement::AssertViewUuid { uuid } => metadata.view_uuid == *uuid,
-        ViewRequirement::AssertMaterialization { materialization } => {
-            metadata.properties.storage_table
-                == *(materialization as &dyn Any).downcast_ref::<T>().unwrap()
+        ViewRequirement::AssertProperty {
+            property: (key, value),
+        } => {
+            if key == STORAGE_TABLE_LOCATION {
+                metadata.properties.metadata_location
+                    == *(value as &dyn Any).downcast_ref::<T>().unwrap()
+            } else {
+                metadata
+                    .properties
+                    .other
+                    .get(key)
+                    .map(|x| x == value)
+                    .unwrap_or(false)
+            }
         }
     })
 }
@@ -395,7 +402,15 @@ pub fn apply_view_updates<T: Clone + Default + 'static>(
             ViewUpdate::SetLocation { location } => {
                 metadata.location = location;
             }
-            ViewUpdate::SetProperties { updates } => {
+            ViewUpdate::SetProperties { mut updates } => {
+                if let Some(materialization) = updates.remove(STORAGE_TABLE_LOCATION) {
+                    metadata.properties.metadata_location = (&materialization as &dyn Any)
+                        .downcast_ref::<T>()
+                        .cloned()
+                        .ok_or(Error::InvalidFormat(
+                            "Materialization must be a string".to_owned(),
+                        ))?;
+                }
                 metadata.properties.extend(updates);
             }
             ViewUpdate::RemoveProperties { removals } => {
@@ -410,14 +425,6 @@ pub fn apply_view_updates<T: Clone + Default + 'static>(
             }
             ViewUpdate::SetCurrentViewVersion { view_version_id } => {
                 metadata.current_version_id = view_version_id;
-            }
-            ViewUpdate::SetMaterialization { materialization } => {
-                metadata.properties.storage_table = (&materialization as &dyn Any)
-                    .downcast_ref::<T>()
-                    .cloned()
-                    .ok_or(Error::InvalidFormat(
-                        "Materialization must be a string".to_owned(),
-                    ))?;
             }
         };
     }

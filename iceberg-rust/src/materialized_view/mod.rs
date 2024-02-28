@@ -87,7 +87,7 @@ impl MaterializedView {
     }
     /// Get the storage table of the materialized view
     pub async fn storage_table(&self) -> Result<StorageTable, Error> {
-        let storage_table_location = &self.metadata.properties.storage_table;
+        let storage_table_location = &self.metadata.properties.metadata_location;
         let bucket = parse_bucket(storage_table_location)?;
         if let TabularMetadata::Table(metadata) = serde_json::from_str(std::str::from_utf8(
             &self

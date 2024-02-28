@@ -7,47 +7,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 
-use super::{
-    table_metadata::VersionNumber,
-    view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder},
-};
+use super::view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder};
+
+/// Property for the metadata location
+pub static STORAGE_TABLE_LOCATION: &str = "metadata_location";
 
 /// Fields for the version 1 of the view metadata.
 pub type MaterializedViewMetadata = GeneralViewMetadata<String>;
 /// Builder for materialized view metadata
 pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<String>;
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-#[serde(from = "FormatVersionSerde", into = "FormatVersionSerde")]
-/// Format version of the materialized view
-pub enum FormatVersion {
-    /// Version 1
-    V1,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-#[serde(untagged)]
-/// Format version of the materialized view
-pub enum FormatVersionSerde {
-    /// Version 1
-    V1(VersionNumber<1>),
-}
-
-impl From<FormatVersion> for FormatVersionSerde {
-    fn from(value: FormatVersion) -> Self {
-        match value {
-            FormatVersion::V1 => FormatVersionSerde::V1(VersionNumber::<1>),
-        }
-    }
-}
-
-impl From<FormatVersionSerde> for FormatVersion {
-    fn from(value: FormatVersionSerde) -> Self {
-        match value {
-            FormatVersionSerde::V1(_) => FormatVersion::V1,
-        }
-    }
-}
 
 pub fn depends_on_tables_to_string(source_tables: &[SourceTable]) -> Result<String, Error> {
     Ok(source_tables
@@ -57,7 +25,7 @@ pub fn depends_on_tables_to_string(source_tables: &[SourceTable]) -> Result<Stri
 }
 
 pub fn depends_on_tables_from_string(value: &str) -> Result<Vec<SourceTable>, Error> {
-    Ok(value
+    value
         .split(',')
         .map(|x| {
             x.split('=')
@@ -70,7 +38,7 @@ pub fn depends_on_tables_from_string(value: &str) -> Result<Vec<SourceTable>, Er
                     })
                 })
         })
-        .collect::<Result<_, Error>>()?)
+        .collect::<Result<_, Error>>()
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -104,7 +72,7 @@ mod tests {
         "current-version-id" : 1,
         "properties" : {
             "comment" : "Daily event counts",
-            "storage_table": "s3://bucket/path/to/metadata.json"
+            "metadata_location": "s3://bucket/path/to/metadata.json"
         },
         "versions" : [ {
             "version-id" : 1,
@@ -161,7 +129,7 @@ mod tests {
     fn test_depends_on_tables_try_from_str() {
         let input = "table1=1,table2=2";
 
-        let result = depends_on_tables_from_string(&input).unwrap();
+        let result = depends_on_tables_from_string(input).unwrap();
 
         assert_eq!(
             result,

@@ -98,7 +98,7 @@ pub async fn refresh_materialized_view(
                         .or(table.metadata().current_snapshot(None)?)
                         .ok_or(Error::NotFound(
                             "Snapshot in source table".to_owned(),
-                            format!("{}", &identifier.table()),
+                            (&identifier.table()).to_string(),
                         ))?
                         .snapshot_id()),
                     Tabular::MaterializedView(mv) => {
@@ -110,7 +110,7 @@ pub async fn refresh_materialized_view(
                             .or(storage_table.table_metadata.current_snapshot(None)?)
                             .ok_or(Error::NotFound(
                                 "Snapshot in source table".to_owned(),
-                                format!("{}", &identifier.table()),
+                                (&identifier.table()).to_string(),
                             ))?
                             .snapshot_id())
                     }

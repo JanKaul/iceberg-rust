@@ -70,7 +70,7 @@ impl MaterializedViewBuilder {
             ))
             .current_version_id(1)
             .properties(ViewProperties {
-                storage_table: "".to_owned(),
+                metadata_location: "".to_owned(),
                 other: HashMap::from_iter(vec![(REF_PREFIX.to_string() + "main", 1.to_string())]),
             });
         Ok(Self {
@@ -105,7 +105,7 @@ impl MaterializedViewBuilder {
             + "-"
             + &Uuid::new_v4().to_string()
             + ".metadata.json";
-        metadata.properties.storage_table = table_path.clone();
+        metadata.properties.metadata_location = table_path.clone();
         let table_metadata_json = serde_json::to_string(&table_metadata)?;
         object_store
             .put(
@@ -114,7 +114,7 @@ impl MaterializedViewBuilder {
             )
             .await?;
         self.catalog
-            .create_materialized_view(self.identifier, metadata.into())
+            .create_materialized_view(self.identifier, metadata)
             .await
     }
 }

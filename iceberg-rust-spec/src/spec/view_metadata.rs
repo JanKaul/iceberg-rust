@@ -203,7 +203,7 @@ mod _serde {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default)]
 pub struct ViewProperties<T: Clone> {
-    pub storage_table: T,
+    pub metadata_location: T,
     #[serde(flatten)]
     pub other: HashMap<String, String>,
 }

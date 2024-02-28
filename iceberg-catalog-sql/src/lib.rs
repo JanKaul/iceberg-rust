@@ -766,7 +766,7 @@ pub mod tests {
         let tables = catalog
             .clone()
             .list_tables(
-                &Namespace::try_new(&vec!["load_table".to_owned()])
+                &Namespace::try_new(&["load_table".to_owned()])
                     .expect("Failed to create namespace"),
             )
             .await

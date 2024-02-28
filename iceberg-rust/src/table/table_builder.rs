@@ -73,7 +73,7 @@ impl TableBuilder {
         // Register table in catalog
         self.catalog
             .clone()
-            .create_table(self.identifier.clone(), metadata.into())
+            .create_table(self.identifier.clone(), metadata)
             .await
     }
 }

@@ -3,6 +3,7 @@
 */
 
 use iceberg_rust_spec::spec::{
+    materialized_view_metadata::STORAGE_TABLE_LOCATION,
     schema::SchemaBuilder,
     types::StructType,
     view_metadata::{GeneralViewMetadata, Summary, Version, ViewRepresentation, REF_PREFIX},
@@ -105,18 +106,21 @@ impl<T: Clone + Default + 'static> Operation<T> {
             )),
             Operation::UpdateMaterialization(materialization) => {
                 let previous_materialization =
-                    (&metadata.properties.storage_table as &dyn Any).downcast_ref::<String>();
+                    (&metadata.properties.metadata_location as &dyn Any).downcast_ref::<String>();
                 let materialization = (&materialization as &dyn Any)
                     .downcast_ref::<String>()
                     .ok_or(Error::InvalidFormat(
                         "Materialization is not a string.".to_owned(),
                     ))?;
                 Ok((
-                    previous_materialization.map(|x| ViewRequirement::AssertMaterialization {
-                        materialization: x.clone(),
+                    previous_materialization.map(|x| ViewRequirement::AssertProperty {
+                        property: (STORAGE_TABLE_LOCATION.to_string(), x.clone()),
                     }),
-                    vec![ViewUpdate::SetMaterialization {
-                        materialization: materialization.clone(),
+                    vec![ViewUpdate::SetProperties {
+                        updates: HashMap::from_iter(vec![(
+                            STORAGE_TABLE_LOCATION.to_string(),
+                            materialization.to_string(),
+                        )]),
                     }],
                 ))
             }

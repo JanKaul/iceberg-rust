@@ -61,7 +61,7 @@ impl ViewBuilder {
             ))
             .current_version_id(1)
             .properties(ViewProperties {
-                storage_table: None,
+                metadata_location: None,
                 other: HashMap::from_iter(vec![(REF_PREFIX.to_string() + "main", 1.to_string())]),
             });
         Ok(ViewBuilder {
@@ -73,8 +73,6 @@ impl ViewBuilder {
     /// Building a table writes the metadata file and commits the table to either the metastore or the filesystem
     pub async fn build(self) -> Result<View, Error> {
         let metadata = self.metadata.build()?;
-        self.catalog
-            .create_view(self.identifier, metadata.into())
-            .await
+        self.catalog.create_view(self.identifier, metadata).await
     }
 }
