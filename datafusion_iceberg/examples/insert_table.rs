@@ -1,6 +1,5 @@
 use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
 use datafusion_iceberg::DataFusionTable;
-use iceberg_catalog_sql::SqlCatalog;
 use iceberg_rust::{
     catalog::Catalog,
     spec::{
@@ -10,6 +9,7 @@ use iceberg_rust::{
     },
     table::table_builder::TableBuilder,
 };
+use iceberg_sql_catalog::SqlCatalog;
 use object_store::memory::InMemory;
 use object_store::ObjectStore;
 

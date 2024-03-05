@@ -595,7 +595,6 @@ mod tests {
         },
         prelude::SessionContext,
     };
-    use iceberg_catalog_sql::SqlCatalog;
     use iceberg_rust::{
         catalog::{identifier::Identifier, tabular::Tabular, Catalog},
         table::table_builder::TableBuilder,
@@ -607,6 +606,7 @@ mod tests {
         table_metadata::TableMetadata,
         types::{PrimitiveType, StructField, StructType, Type},
     };
+    use iceberg_sql_catalog::SqlCatalog;
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
     use std::sync::Arc;
 
