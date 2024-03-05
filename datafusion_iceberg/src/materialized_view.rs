@@ -215,7 +215,6 @@ pub async fn refresh_materialized_view(
 mod tests {
 
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
-    use iceberg_catalog_sql::SqlCatalogList;
     use iceberg_rust::{
         catalog::CatalogList,
         materialized_view::materialized_view_builder::MaterializedViewBuilder,
@@ -226,6 +225,7 @@ mod tests {
         schema::Schema,
         types::{PrimitiveType, StructField, StructType, Type},
     };
+    use iceberg_sql_catalog::SqlCatalogList;
     use object_store::{memory::InMemory, ObjectStore};
     use std::sync::Arc;
 

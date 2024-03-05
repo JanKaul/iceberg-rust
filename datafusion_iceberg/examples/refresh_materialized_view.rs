@@ -1,7 +1,6 @@
 use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
 use datafusion_iceberg::materialized_view::refresh_materialized_view;
-use iceberg_catalog_sql::SqlCatalogList;
 use iceberg_rust::catalog::CatalogList;
 use iceberg_rust::materialized_view::materialized_view_builder::MaterializedViewBuilder;
 use iceberg_rust::{
@@ -12,6 +11,7 @@ use iceberg_rust::{
     },
     table::table_builder::TableBuilder,
 };
+use iceberg_sql_catalog::SqlCatalogList;
 use object_store::memory::InMemory;
 use object_store::ObjectStore;
 
