@@ -28,4 +28,4 @@ tokio = { version = "1.0", features = ["sync","rt-multi-thread"] }
 
 [dev-dependencies]
 tokio = "1"
-iceberg-catalog-sql = { path = "../iceberg-catalog-sql" }
+iceberg-sql-catalog = { path = "../iceberg-sql-catalog" }

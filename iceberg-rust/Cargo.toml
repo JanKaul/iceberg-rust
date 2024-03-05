@@ -30,5 +30,3 @@ thrift = { version = "0.17.0", default-features = false }
 thiserror = { workspace = true }
 iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.2.0" }
 
-[dev-dependencies]
-iceberg-catalog-sql = { path = "../iceberg-catalog-sql" }

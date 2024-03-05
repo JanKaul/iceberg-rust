@@ -1114,9 +1114,9 @@ dependencies = [
  "datafusion",
  "datafusion-expr",
  "futures",
- "iceberg-catalog-sql",
  "iceberg-rust",
  "iceberg-rust-spec",
+ "iceberg-sql-catalog",
  "itertools 0.10.5",
  "object_store",
  "serde_json",
@@ -1674,23 +1674,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iceberg-catalog-sql"
-version = "0.2.0"
-dependencies = [
- "async-trait",
- "dashmap",
- "futures",
- "iceberg-rust",
- "object_store",
- "serde_json",
- "sqlx",
- "thiserror",
- "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "iceberg-rust"
 version = "0.2.0"
 dependencies = [
@@ -1700,7 +1683,6 @@ dependencies = [
  "derive_builder",
  "futures",
  "getrandom",
- "iceberg-catalog-sql",
  "iceberg-rust-spec",
  "itertools 0.10.5",
  "object_store",
@@ -1737,6 +1719,23 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "thiserror",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "iceberg-sql-catalog"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dashmap",
+ "futures",
+ "iceberg-rust",
+ "object_store",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
  "url",
  "uuid",
 ]
