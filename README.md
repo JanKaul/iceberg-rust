@@ -49,7 +49,7 @@ Check out the [datafusion examples](datafusion_iceberg/examples).
 ```rust
 use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
 use datafusion_iceberg::DataFusionTable;
-use iceberg_catalog_sql::SqlCatalog;
+use iceberg_sql_catalog::SqlCatalog;
 use iceberg_rust::{
     catalog::Catalog,
     spec::{
