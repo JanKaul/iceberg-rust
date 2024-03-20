@@ -46,11 +46,8 @@ use crate::{
 };
 
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned,
-    catalog::{identifier::Identifier, tabular::Tabular},
-    materialized_view::MaterializedView,
-    table::Table,
-    view::View,
+    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular,
+    materialized_view::MaterializedView, table::Table, view::View,
 };
 use iceberg_rust_spec::spec::{
     schema::Schema,
@@ -193,16 +190,7 @@ impl TableProvider for DataFusionTable {
                 .await
             }
             Tabular::MaterializedView(mv) => {
-                let table = Table::new(
-                    Identifier::try_new(&["temp".to_owned()]).map_err(Error::from)?,
-                    mv.catalog(),
-                    mv.storage_table()
-                        .await
-                        .map_err(Error::from)?
-                        .table_metadata,
-                )
-                .await
-                .map_err(Error::from)?;
+                let table = mv.storage_table().await.map_err(Error::from)?;
                 let schema = self.schema();
                 let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
                 table_scan(

@@ -4,17 +4,13 @@
 
 use std::sync::Arc;
 
-use iceberg_rust_spec::{
-    spec::{
-        materialized_view_metadata::MaterializedViewMetadata, schema::Schema,
-        tabular::TabularMetadata,
-    },
-    util::strip_prefix,
+use iceberg_rust_spec::spec::{
+    materialized_view_metadata::MaterializedViewMetadata, schema::Schema,
 };
 use object_store::ObjectStore;
 
 use crate::{
-    catalog::{bucket::parse_bucket, identifier::Identifier, Catalog},
+    catalog::{bucket::parse_bucket, identifier::Identifier, tabular::Tabular, Catalog},
     error::Error,
 };
 
@@ -87,20 +83,9 @@ impl MaterializedView {
     }
     /// Get the storage table of the materialized view
     pub async fn storage_table(&self) -> Result<StorageTable, Error> {
-        let storage_table_location = &self.metadata.properties.metadata_location;
-        let bucket = parse_bucket(storage_table_location)?;
-        if let TabularMetadata::Table(metadata) = serde_json::from_str(std::str::from_utf8(
-            &self
-                .catalog()
-                .object_store(bucket)
-                .get(&strip_prefix(storage_table_location).into())
-                .await?
-                .bytes()
-                .await?,
-        )?)? {
-            Ok(StorageTable {
-                table_metadata: metadata,
-            })
+        let identifier = Identifier::parse(&self.metadata().properties.storage_table)?;
+        if let Tabular::Table(table) = self.catalog().load_tabular(&identifier).await? {
+            Ok(StorageTable::new(table))
         } else {
             Err(Error::InvalidFormat("storage table".to_string()))
         }

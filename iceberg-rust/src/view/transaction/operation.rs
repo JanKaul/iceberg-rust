@@ -3,13 +3,11 @@
 */
 
 use iceberg_rust_spec::spec::{
-    materialized_view_metadata::STORAGE_TABLE_LOCATION,
     schema::SchemaBuilder,
     types::StructType,
     view_metadata::{GeneralViewMetadata, Summary, Version, ViewRepresentation, REF_PREFIX},
 };
 use std::{
-    any::Any,
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -20,7 +18,7 @@ use crate::{
 };
 
 /// View operation
-pub enum Operation<T: Clone> {
+pub enum Operation {
     /// Update vresion
     UpdateRepresentation {
         /// Representation to add
@@ -32,13 +30,11 @@ pub enum Operation<T: Clone> {
     },
     /// Update view properties
     UpdateProperties(Vec<(String, String)>),
-    /// Update materialization
-    UpdateMaterialization(T),
 }
 
-impl<T: Clone + Default + 'static> Operation<T> {
+impl Operation {
     /// Execute operation
-    pub async fn execute(
+    pub async fn execute<T: Clone + Default>(
         self,
         metadata: &GeneralViewMetadata<T>,
     ) -> Result<(Option<ViewRequirement>, Vec<ViewUpdate>), Error> {
@@ -104,26 +100,6 @@ impl<T: Clone + Default + 'static> Operation<T> {
                     updates: HashMap::from_iter(entries),
                 }],
             )),
-            Operation::UpdateMaterialization(materialization) => {
-                let previous_materialization =
-                    (&metadata.properties.metadata_location as &dyn Any).downcast_ref::<String>();
-                let materialization = (&materialization as &dyn Any)
-                    .downcast_ref::<String>()
-                    .ok_or(Error::InvalidFormat(
-                        "Materialization is not a string.".to_owned(),
-                    ))?;
-                Ok((
-                    previous_materialization.map(|x| ViewRequirement::AssertProperty {
-                        property: (STORAGE_TABLE_LOCATION.to_string(), x.clone()),
-                    }),
-                    vec![ViewUpdate::SetProperties {
-                        updates: HashMap::from_iter(vec![(
-                            STORAGE_TABLE_LOCATION.to_string(),
-                            materialization.to_string(),
-                        )]),
-                    }],
-                ))
-            }
         }
     }
 }

@@ -8,23 +8,21 @@ use std::{
     sync::Arc,
 };
 
-use iceberg_rust_spec::{
-    spec::{
-        materialized_view_metadata::MaterializedViewMetadataBuilder,
-        schema::Schema,
-        table_metadata::TableMetadataBuilder,
-        view_metadata::{VersionBuilder, ViewProperties, ViewRepresentation, REF_PREFIX},
-    },
-    util::strip_prefix,
+use iceberg_rust_spec::spec::{
+    materialized_view_metadata::MaterializedViewMetadataBuilder,
+    schema::Schema,
+    table_metadata::TableMetadataBuilder,
+    view_metadata::{VersionBuilder, ViewProperties, ViewRepresentation, REF_PREFIX},
 };
-use uuid::Uuid;
 
 use crate::{
-    catalog::{bucket::parse_bucket, identifier::Identifier, Catalog},
+    catalog::{identifier::Identifier, Catalog},
     error::Error,
 };
 
 use super::MaterializedView;
+
+static STORAGE_TABLE_POSTFIX: &str = "__storage";
 
 ///Builder pattern to create a view
 pub struct MaterializedViewBuilder {
@@ -70,8 +68,14 @@ impl MaterializedViewBuilder {
             ))
             .current_version_id(1)
             .properties(ViewProperties {
-                metadata_location: "".to_owned(),
-                other: HashMap::from_iter(vec![(REF_PREFIX.to_string() + "main", 1.to_string())]),
+                storage_table: identifier.to_string() + STORAGE_TABLE_POSTFIX,
+                other: HashMap::from_iter(vec![
+                    (REF_PREFIX.to_string() + "main", 1.to_string()),
+                    (
+                        "iceberg.materialized-views.hide-storage-table".to_owned(),
+                        "false".to_owned(),
+                    ),
+                ]),
             });
         Ok(Self {
             identifier: Identifier::parse(&identifier.to_string())?,
@@ -82,8 +86,7 @@ impl MaterializedViewBuilder {
 
     /// Building a materialized view writes the metadata file to the object store and commits the table to the metastore
     pub async fn build(self) -> Result<MaterializedView, Error> {
-        let mut metadata = self.metadata.build()?;
-        let bucket = parse_bucket(&metadata.location)?;
+        let metadata = self.metadata.build()?;
         let schema_id = &metadata.current_version(None)?.schema_id;
         let table_metadata = TableMetadataBuilder::default()
             .location(&metadata.location)
@@ -97,20 +100,11 @@ impl MaterializedViewBuilder {
             ))
             .current_schema_id(*schema_id)
             .build()?;
-        let object_store = self.catalog.object_store(bucket);
-        let location = &metadata.location;
-        let table_path = location.to_string()
-            + "/metadata/"
-            + &table_metadata.last_sequence_number.to_string()
-            + "-"
-            + &Uuid::new_v4().to_string()
-            + ".metadata.json";
-        metadata.properties.metadata_location = table_path.clone();
-        let table_metadata_json = serde_json::to_string(&table_metadata)?;
-        object_store
-            .put(
-                &strip_prefix(&table_path).into(),
-                table_metadata_json.into(),
+        self.catalog
+            .clone()
+            .create_table(
+                Identifier::parse(&metadata.properties.storage_table)?,
+                table_metadata,
             )
             .await?;
         self.catalog

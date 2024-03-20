@@ -4,17 +4,13 @@
 
 use std::collections::HashMap;
 
-use iceberg_rust_spec::{
-    spec::{
-        manifest::DataFile, materialized_view_metadata::SourceTable,
-        table_metadata::new_metadata_location, types::StructType,
-        view_metadata::ViewRepresentation,
-    },
-    util::strip_prefix,
+use iceberg_rust_spec::spec::{
+    manifest::DataFile, materialized_view_metadata::SourceTable, types::StructType,
+    view_metadata::ViewRepresentation,
 };
 
 use crate::{
-    catalog::commit::{apply_table_updates, check_table_requirements, CommitView},
+    catalog::commit::{CommitTable, CommitView},
     error::Error,
     table::{
         delete_files,
@@ -28,7 +24,7 @@ use super::MaterializedView;
 /// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
 pub struct Transaction<'view> {
     materialized_view: &'view mut MaterializedView,
-    view_operations: Vec<ViewOperation<String>>,
+    view_operations: Vec<ViewOperation>,
     storage_table_operations: HashMap<String, TableOperation>,
     branch: Option<String>,
 }
@@ -66,15 +62,6 @@ impl<'view> Transaction<'view> {
         self
     }
 
-    /// Update materialization
-    pub fn update_materialization(mut self, materialization: &str) -> Self {
-        self.view_operations
-            .push(ViewOperation::UpdateMaterialization(
-                materialization.to_owned(),
-            ));
-        self
-    }
-
     /// Perform full refresh operation
     pub fn full_refresh(mut self, files: Vec<DataFile>, lineage: Vec<SourceTable>) -> Self {
         self.storage_table_operations
@@ -95,11 +82,6 @@ impl<'view> Transaction<'view> {
                 files,
                 lineage: Some(lineage),
             });
-        let materialization = new_metadata_location((self.materialized_view.metadata()).into());
-        self.view_operations
-            .push(ViewOperation::UpdateMaterialization(
-                materialization.to_owned(),
-            ));
         self
     }
 
@@ -112,8 +94,7 @@ impl<'view> Transaction<'view> {
         let delete_data = if !self.storage_table_operations.is_empty() {
             let (mut table_requirements, mut table_updates) = (Vec::new(), Vec::new());
 
-            let mut storage_table_metadata =
-                self.materialized_view.storage_table().await?.table_metadata;
+            let storage_table = self.materialized_view.storage_table().await?;
 
             // Save old metadata to be able to remove old data after a rewrite operation
             let delete_data = if self.storage_table_operations.values().any(|x| match x {
@@ -124,7 +105,7 @@ impl<'view> Transaction<'view> {
                 } => true,
                 _ => false,
             }) {
-                Some(storage_table_metadata.clone())
+                Some(storage_table.metadata().clone())
             } else {
                 None
             };
@@ -133,7 +114,7 @@ impl<'view> Transaction<'view> {
             for operation in self.storage_table_operations.into_values() {
                 let (requirement, update) = operation
                     .execute(
-                        &storage_table_metadata,
+                        &storage_table.metadata(),
                         self.materialized_view.object_store(),
                     )
                     .await?;
@@ -144,32 +125,13 @@ impl<'view> Transaction<'view> {
                 table_updates.extend(update);
             }
 
-            if !check_table_requirements(&table_requirements, &storage_table_metadata) {
-                return Err(Error::InvalidFormat(
-                    "Table requirements not valid".to_owned(),
-                ));
-            }
-
-            apply_table_updates(&mut storage_table_metadata, table_updates)?;
-
-            let metadata_location = self
-                .view_operations
-                .iter()
-                .find_map(|x| match x {
-                    ViewOperation::UpdateMaterialization(materialization) => Some(materialization),
-                    _ => None,
+            storage_table
+                .catalog()
+                .update_table(CommitTable {
+                    identifier: storage_table.identifier().clone(),
+                    requirements: table_requirements,
+                    updates: table_updates,
                 })
-                .ok_or(Error::NotFound(
-                    "Storage table".to_owned(),
-                    "pointer".to_owned(),
-                ))?;
-
-            self.materialized_view
-                .object_store()
-                .put(
-                    &strip_prefix(metadata_location).into(),
-                    serde_json::to_string(&storage_table_metadata)?.into(),
-                )
                 .await?;
 
             delete_data

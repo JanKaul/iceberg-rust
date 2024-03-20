@@ -61,7 +61,7 @@ impl ViewBuilder {
             ))
             .current_version_id(1)
             .properties(ViewProperties {
-                metadata_location: None,
+                storage_table: None,
                 other: HashMap::from_iter(vec![(REF_PREFIX.to_string() + "main", 1.to_string())]),
             });
         Ok(ViewBuilder {

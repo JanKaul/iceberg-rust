@@ -4,7 +4,7 @@ Struct to perform a [CommitTable] or [CommitView] operation
 use std::{any::Any, collections::HashMap};
 
 use iceberg_rust_spec::spec::{
-    materialized_view_metadata::STORAGE_TABLE_LOCATION,
+    materialized_view_metadata::STORAGE_TABLE,
     partition::PartitionSpec,
     schema::Schema,
     snapshot::{Snapshot, SnapshotReference},
@@ -293,8 +293,8 @@ pub fn check_view_requirements<T: Clone + Default + Eq + 'static>(
         ViewRequirement::AssertProperty {
             property: (key, value),
         } => {
-            if key == STORAGE_TABLE_LOCATION {
-                metadata.properties.metadata_location
+            if key == STORAGE_TABLE {
+                metadata.properties.storage_table
                     == *(value as &dyn Any).downcast_ref::<T>().unwrap()
             } else {
                 metadata
@@ -403,8 +403,8 @@ pub fn apply_view_updates<T: Clone + Default + 'static>(
                 metadata.location = location;
             }
             ViewUpdate::SetProperties { mut updates } => {
-                if let Some(materialization) = updates.remove(STORAGE_TABLE_LOCATION) {
-                    metadata.properties.metadata_location = (&materialization as &dyn Any)
+                if let Some(materialization) = updates.remove(STORAGE_TABLE) {
+                    metadata.properties.storage_table = (&materialization as &dyn Any)
                         .downcast_ref::<T>()
                         .cloned()
                         .ok_or(Error::InvalidFormat(

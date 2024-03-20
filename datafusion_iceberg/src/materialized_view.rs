@@ -104,10 +104,10 @@ pub async fn refresh_materialized_view(
                     Tabular::MaterializedView(mv) => {
                         let storage_table = mv.storage_table().await?;
                         Ok(*storage_table
-                            .table_metadata
+                            .metadata()
                             .current_snapshot(branch.as_deref())?
                             // Fallback to main branch
-                            .or(storage_table.table_metadata.current_snapshot(None)?)
+                            .or(storage_table.metadata().current_snapshot(None)?)
                             .ok_or(Error::NotFound(
                                 "Snapshot in source table".to_owned(),
                                 (&identifier.table()).to_string(),
@@ -195,7 +195,7 @@ pub async fn refresh_materialized_view(
 
     // Write arrow record batches to datafiles
     let files = write_parquet_partitioned(
-        &storage_table.table_metadata,
+        &storage_table.metadata(),
         batches,
         matview.object_store(),
         branch.as_deref(),

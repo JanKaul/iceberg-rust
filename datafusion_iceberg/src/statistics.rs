@@ -5,10 +5,7 @@ use datafusion::{
     physical_plan::{ColumnStatistics, Statistics},
     scalar::ScalarValue,
 };
-use iceberg_rust::{
-    catalog::{identifier::Identifier, tabular::Tabular},
-    table::Table,
-};
+use iceberg_rust::{catalog::tabular::Tabular, table::Table};
 use iceberg_rust_spec::spec::values::Value;
 
 use crate::error::Error;
@@ -21,16 +18,7 @@ impl DataFusionTable {
             Tabular::Table(table) => table_statistics(table, &self.snapshot_range).await,
             Tabular::View(_) => Err(Error::NotSupported("Statistics for views".to_string())),
             Tabular::MaterializedView(mv) => {
-                let table = Table::new(
-                    Identifier::try_new(&["temp".to_owned()]).map_err(Error::from)?,
-                    mv.catalog(),
-                    mv.storage_table()
-                        .await
-                        .map_err(Error::from)?
-                        .table_metadata,
-                )
-                .await
-                .map_err(Error::from)?;
+                let table = mv.storage_table().await.map_err(Error::from)?;
                 table_statistics(&table, &self.snapshot_range).await
             }
         }

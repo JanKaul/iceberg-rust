@@ -3,36 +3,37 @@ use std::ops::{Deref, DerefMut};
 use iceberg_rust_spec::spec::{
     materialized_view_metadata::{depends_on_tables_from_string, SourceTable},
     snapshot::DEPENDS_ON_TABLES,
-    table_metadata::TableMetadata,
 };
 
-use crate::error::Error;
+use crate::{error::Error, table::Table};
 
-pub struct StorageTable {
-    pub table_metadata: TableMetadata,
-}
+pub struct StorageTable(Table);
 
 impl Deref for StorageTable {
-    type Target = TableMetadata;
+    type Target = Table;
     fn deref(&self) -> &Self::Target {
-        &self.table_metadata
+        &self.0
     }
 }
 
 impl DerefMut for StorageTable {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.table_metadata
+        &mut self.0
     }
 }
 
 impl StorageTable {
-    #[inline]
+    pub fn new(table: Table) -> Self {
+        Self(table)
+    }
 
+    #[inline]
     pub async fn source_tables(
         &self,
         branch: Option<String>,
     ) -> Result<Option<Vec<SourceTable>>, Error> {
-        self.current_snapshot(branch.as_deref())?
+        self.metadata()
+            .current_snapshot(branch.as_deref())?
             .and_then(|snapshot| snapshot.summary().other.get(DEPENDS_ON_TABLES))
             .map(|x| depends_on_tables_from_string(x))
             .transpose()

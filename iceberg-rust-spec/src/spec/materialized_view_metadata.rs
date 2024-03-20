@@ -10,7 +10,7 @@ use crate::error::Error;
 use super::view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder};
 
 /// Property for the metadata location
-pub static STORAGE_TABLE_LOCATION: &str = "metadata_location";
+pub static STORAGE_TABLE: &str = "storage_table";
 
 /// Fields for the version 1 of the view metadata.
 pub type MaterializedViewMetadata = GeneralViewMetadata<String>;
@@ -72,7 +72,7 @@ mod tests {
         "current-version-id" : 1,
         "properties" : {
             "comment" : "Daily event counts",
-            "metadata_location": "s3://bucket/path/to/metadata.json"
+            "storage_table": "iceberg.default.event_agg"
         },
         "versions" : [ {
             "version-id" : 1,
