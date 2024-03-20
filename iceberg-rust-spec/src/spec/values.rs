@@ -10,7 +10,7 @@ use std::{
     slice::Iter,
 };
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
 use serde::{
@@ -288,8 +288,9 @@ impl Value {
             Transform::Year => match self {
                 Value::Date(date) => Ok(Value::Int(*date / 365)),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                    (DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
+                        .naive_utc()
                         .signed_duration_since(
                             NaiveDate::from_ymd_opt(1970, 1, 1)
                                 .unwrap()
@@ -300,8 +301,9 @@ impl Value {
                         / 364) as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                    (DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
+                        .naive_utc()
                         .signed_duration_since(
                             NaiveDate::from_ymd_opt(1970, 1, 1)
                                 .unwrap()
@@ -318,8 +320,9 @@ impl Value {
             Transform::Month => match self {
                 Value::Date(date) => Ok(Value::Int(*date / 30)),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                    (DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
+                        .naive_utc()
                         .signed_duration_since(
                             NaiveDate::from_ymd_opt(1970, 1, 1)
                                 .unwrap()
@@ -329,8 +332,9 @@ impl Value {
                         .num_weeks()) as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                    (DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
+                        .naive_utc()
                         .signed_duration_since(
                             NaiveDate::from_ymd_opt(1970, 1, 1)
                                 .unwrap()
@@ -346,8 +350,9 @@ impl Value {
             Transform::Day => match self {
                 Value::Date(date) => Ok(Value::Int(*date)),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                    (DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
+                        .naive_utc()
                         .signed_duration_since(
                             NaiveDate::from_ymd_opt(1970, 1, 1)
                                 .unwrap()
@@ -357,8 +362,9 @@ impl Value {
                         .num_days()) as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                    (DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
+                        .naive_utc()
                         .signed_duration_since(
                             NaiveDate::from_ymd_opt(1970, 1, 1)
                                 .unwrap()
@@ -373,8 +379,9 @@ impl Value {
             },
             Transform::Hour => match self {
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                    (DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
+                        .naive_utc()
                         .signed_duration_since(
                             NaiveDate::from_ymd_opt(1970, 1, 1)
                                 .unwrap()
@@ -384,8 +391,9 @@ impl Value {
                         .num_hours()) as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (NaiveDateTime::from_timestamp_millis(time / 1000)
+                    (DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
+                        .naive_utc()
                         .signed_duration_since(
                             NaiveDate::from_ymd_opt(1970, 1, 1)
                                 .unwrap()
@@ -747,8 +755,9 @@ mod datetime {
 
     pub(crate) fn days_to_date(days: i32) -> NaiveDate {
         // This shouldn't fail until the year 262000
-        NaiveDateTime::from_timestamp_opt(days as i64 * 86_400, 0)
+        DateTime::from_timestamp(days as i64 * 86_400, 0)
             .unwrap()
+            .naive_utc()
             .date()
     }
 
@@ -768,14 +777,16 @@ mod datetime {
     }
 
     pub(crate) fn datetime_to_microseconds(time: &NaiveDateTime) -> i64 {
-        time.timestamp_micros()
+        time.and_utc().timestamp_micros()
     }
 
     pub(crate) fn microseconds_to_datetime(micros: i64) -> NaiveDateTime {
         let (secs, rem) = (micros / 1_000_000, micros % 1_000_000);
 
         // This shouldn't fail until the year 262000
-        NaiveDateTime::from_timestamp_opt(secs, rem as u32 * 1_000).unwrap()
+        DateTime::from_timestamp(secs, rem as u32 * 1_000)
+            .unwrap()
+            .naive_utc()
     }
 
     use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
@@ -789,7 +800,9 @@ mod datetime {
 
         Utc.from_utc_datetime(
             // This shouldn't fail until the year 262000
-            &NaiveDateTime::from_timestamp_opt(secs, rem as u32 * 1_000).unwrap(),
+            &DateTime::from_timestamp(secs, rem as u32 * 1_000)
+                .unwrap()
+                .naive_utc(),
         )
     }
 }

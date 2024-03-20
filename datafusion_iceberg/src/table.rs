@@ -3,7 +3,7 @@
 */
 
 use async_trait::async_trait;
-use chrono::{naive::NaiveDateTime, DateTime, Utc};
+use chrono::DateTime;
 use datafusion_expr::utils::conjunction;
 use futures::TryStreamExt;
 use object_store::ObjectMeta;
@@ -366,10 +366,7 @@ async fn table_scan(
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let secs = last_updated_ms / 1000;
                             let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-                            DateTime::from_naive_utc_and_offset(
-                                NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(),
-                                Utc,
-                            )
+                            DateTime::from_timestamp(secs, nsecs).unwrap()
                         },
                         e_tag: None,
                         version: None,
@@ -412,10 +409,7 @@ async fn table_scan(
                     let last_updated_ms = table.metadata().last_updated_ms;
                     let secs = last_updated_ms / 1000;
                     let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-                    DateTime::from_naive_utc_and_offset(
-                        NaiveDateTime::from_timestamp_opt(secs, nsecs).unwrap(),
-                        Utc,
-                    )
+                    DateTime::from_timestamp(secs, nsecs).unwrap()
                 },
                 e_tag: None,
                 version: None,
