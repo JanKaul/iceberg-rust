@@ -528,7 +528,7 @@ fn avro_schema_datatype(data_type: &Type) -> Type {
             PrimitiveType::Date => Type::Primitive(PrimitiveType::Int),
             PrimitiveType::Time => Type::Primitive(PrimitiveType::Long),
             PrimitiveType::Timestamp => Type::Primitive(PrimitiveType::Long),
-            PrimitiveType::Timestampz => Type::Primitive(PrimitiveType::Long),
+            PrimitiveType::Timestamptz => Type::Primitive(PrimitiveType::Long),
             p => Type::Primitive(p.clone()),
         },
         t => t.clone(),
