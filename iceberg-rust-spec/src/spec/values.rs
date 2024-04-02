@@ -437,7 +437,7 @@ impl Value {
                 PrimitiveType::Timestamp => {
                     Ok(Value::Timestamp(i64::from_le_bytes(bytes.try_into()?)))
                 }
-                PrimitiveType::Timestampz => {
+                PrimitiveType::Timestamptz => {
                     Ok(Value::TimestampTZ(i64::from_le_bytes(bytes.try_into()?)))
                 }
                 PrimitiveType::String => Ok(Value::String(std::str::from_utf8(bytes)?.to_string())),
@@ -493,7 +493,7 @@ impl Value {
                         &NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f")?,
                     ))))
                 }
-                (PrimitiveType::Timestampz, JsonValue::String(s)) => Ok(Some(Value::TimestampTZ(
+                (PrimitiveType::Timestamptz, JsonValue::String(s)) => Ok(Some(Value::TimestampTZ(
                     datetime::datetimetz_to_microseconds(&Utc.from_utc_datetime(
                         &NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f+00:00")?,
                     )),
@@ -601,7 +601,7 @@ impl Value {
             Value::Date(_) => Type::Primitive(PrimitiveType::Date),
             Value::Time(_) => Type::Primitive(PrimitiveType::Time),
             Value::Timestamp(_) => Type::Primitive(PrimitiveType::Timestamp),
-            Value::TimestampTZ(_) => Type::Primitive(PrimitiveType::Timestampz),
+            Value::TimestampTZ(_) => Type::Primitive(PrimitiveType::Timestamptz),
             Value::Fixed(len, _) => Type::Primitive(PrimitiveType::Fixed(*len as u64)),
             Value::Binary(_) => Type::Primitive(PrimitiveType::Binary),
             Value::String(_) => Type::Primitive(PrimitiveType::String),
@@ -650,7 +650,7 @@ impl Value {
                 (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestamp)) => {
                     Ok(Value::Timestamp(input))
                 }
-                (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestampz)) => {
+                (Value::LongInt(input), Type::Primitive(PrimitiveType::Timestamptz)) => {
                     Ok(Value::TimestampTZ(input))
                 }
                 _ => Err(Error::NotSupported("cast".to_string())),

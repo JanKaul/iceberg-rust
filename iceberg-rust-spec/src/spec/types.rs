@@ -67,7 +67,7 @@ pub enum PrimitiveType {
     /// Timestamp without timezone
     Timestamp,
     /// Timestamp with timezone
-    Timestampz,
+    Timestamptz,
     /// Arbitrary-length character sequences
     String,
     /// Universally Unique Identifiers
@@ -170,7 +170,7 @@ impl fmt::Display for PrimitiveType {
             PrimitiveType::Date => write!(f, "date"),
             PrimitiveType::Time => write!(f, "time"),
             PrimitiveType::Timestamp => write!(f, "timestamp"),
-            PrimitiveType::Timestampz => write!(f, "timestampz"),
+            PrimitiveType::Timestamptz => write!(f, "timestamptz"),
             PrimitiveType::String => write!(f, "string"),
             PrimitiveType::Uuid => write!(f, "uuid"),
             PrimitiveType::Fixed(_) => write!(f, "fixed"),

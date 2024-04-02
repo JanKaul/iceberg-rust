@@ -92,7 +92,7 @@ impl TryFrom<&Type> for DataType {
                 PrimitiveType::Date => Ok(DataType::Date32),
                 PrimitiveType::Time => Ok(DataType::Time64(TimeUnit::Microsecond)),
                 PrimitiveType::Timestamp => Ok(DataType::Timestamp(TimeUnit::Microsecond, None)),
-                PrimitiveType::Timestampz => Ok(DataType::Timestamp(
+                PrimitiveType::Timestamptz => Ok(DataType::Timestamp(
                     TimeUnit::Microsecond,
                     Some(Arc::from("UTC")),
                 )),
