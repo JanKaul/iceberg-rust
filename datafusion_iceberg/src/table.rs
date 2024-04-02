@@ -756,7 +756,7 @@ mod tests {
 
         for batch in batches {
             if batch.num_rows() != 0 {
-                let (order_ids, amounts) = (
+                let (product_ids, amounts) = (
                     batch
                         .column(0)
                         .as_any()
@@ -768,12 +768,12 @@ mod tests {
                         .downcast_ref::<Int64Array>()
                         .unwrap(),
                 );
-                for (order_id, amount) in order_ids.iter().zip(amounts) {
-                    if order_id.unwrap() == 1 {
+                for (product_id, amount) in product_ids.iter().zip(amounts) {
+                    if product_id.unwrap() == 1 {
                         assert_eq!(amount.unwrap(), 7)
-                    } else if order_id.unwrap() == 2 {
+                    } else if product_id.unwrap() == 2 {
                         assert_eq!(amount.unwrap(), 1)
-                    } else if order_id.unwrap() == 3 {
+                    } else if product_id.unwrap() == 3 {
                         assert_eq!(amount.unwrap(), 3)
                     } else {
                         panic!("Unexpected order id")
@@ -804,7 +804,7 @@ mod tests {
 
         for batch in batches {
             if batch.num_rows() != 0 {
-                let (order_ids, amounts) = (
+                let (product_ids, amounts) = (
                     batch
                         .column(0)
                         .as_any()
@@ -816,12 +816,12 @@ mod tests {
                         .downcast_ref::<Int64Array>()
                         .unwrap(),
                 );
-                for (order_id, amount) in order_ids.iter().zip(amounts) {
-                    if order_id.unwrap() == 1 {
+                for (product_id, amount) in product_ids.iter().zip(amounts) {
+                    if product_id.unwrap() == 1 {
                         assert_eq!(amount.unwrap(), 9)
-                    } else if order_id.unwrap() == 2 {
+                    } else if product_id.unwrap() == 2 {
                         assert_eq!(amount.unwrap(), 2)
-                    } else if order_id.unwrap() == 3 {
+                    } else if product_id.unwrap() == 3 {
                         assert_eq!(amount.unwrap(), 4)
                     } else {
                         panic!("Unexpected order id")
@@ -940,7 +940,7 @@ mod tests {
 
         for batch in batches {
             if batch.num_rows() != 0 {
-                let (order_ids, amounts) = (
+                let (product_ids, amounts) = (
                     batch
                         .column(0)
                         .as_any()
@@ -952,12 +952,12 @@ mod tests {
                         .downcast_ref::<Int64Array>()
                         .unwrap(),
                 );
-                for (order_id, amount) in order_ids.iter().zip(amounts) {
-                    if order_id.unwrap() == 1 {
+                for (product_id, amount) in product_ids.iter().zip(amounts) {
+                    if product_id.unwrap() == 1 {
                         assert_eq!(amount.unwrap(), 7)
-                    } else if order_id.unwrap() == 2 {
+                    } else if product_id.unwrap() == 2 {
                         assert_eq!(amount.unwrap(), 1)
-                    } else if order_id.unwrap() == 3 {
+                    } else if product_id.unwrap() == 3 {
                         assert_eq!(amount.unwrap(), 3)
                     } else {
                         panic!("Unexpected order id")
@@ -988,7 +988,7 @@ mod tests {
 
         for batch in batches {
             if batch.num_rows() != 0 {
-                let (order_ids, amounts) = (
+                let (product_ids, amounts) = (
                     batch
                         .column(0)
                         .as_any()
@@ -1000,12 +1000,12 @@ mod tests {
                         .downcast_ref::<Int64Array>()
                         .unwrap(),
                 );
-                for (order_id, amount) in order_ids.iter().zip(amounts) {
-                    if order_id.unwrap() == 1 {
+                for (product_id, amount) in product_ids.iter().zip(amounts) {
+                    if product_id.unwrap() == 1 {
                         assert_eq!(amount.unwrap(), 9)
-                    } else if order_id.unwrap() == 2 {
+                    } else if product_id.unwrap() == 2 {
                         assert_eq!(amount.unwrap(), 2)
-                    } else if order_id.unwrap() == 3 {
+                    } else if product_id.unwrap() == 3 {
                         assert_eq!(amount.unwrap(), 4)
                     } else {
                         panic!("Unexpected order id")
@@ -1161,7 +1161,7 @@ mod tests {
 
         for batch in batches {
             if batch.num_rows() != 0 {
-                let (order_ids, amounts) = (
+                let (product_ids, amounts) = (
                     batch
                         .column(0)
                         .as_any()
@@ -1173,10 +1173,10 @@ mod tests {
                         .downcast_ref::<Int64Array>()
                         .unwrap(),
                 );
-                for (order_id, amount) in order_ids.iter().zip(amounts) {
-                    if order_id.unwrap() == 1 {
+                for (product_id, amount) in product_ids.iter().zip(amounts) {
+                    if product_id.unwrap() == 1 {
                         assert_eq!(amount.unwrap(), 9)
-                    } else if order_id.unwrap() == 2 {
+                    } else if product_id.unwrap() == 2 {
                         assert_eq!(amount.unwrap(), 2)
                     } else {
                         panic!("Unexpected order id")

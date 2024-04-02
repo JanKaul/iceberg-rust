@@ -49,7 +49,6 @@ Check out the [datafusion examples](datafusion_iceberg/examples).
 ```rust
 use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
 use datafusion_iceberg::DataFusionTable;
-use iceberg_sql_catalog::SqlCatalog;
 use iceberg_rust::{
     catalog::Catalog,
     spec::{
@@ -59,6 +58,7 @@ use iceberg_rust::{
     },
     table::table_builder::TableBuilder,
 };
+use iceberg_sql_catalog::SqlCatalog;
 use object_store::memory::InMemory;
 use object_store::ObjectStore;
 
@@ -166,7 +166,7 @@ pub(crate) async fn main() {
 
     for batch in batches {
         if batch.num_rows() != 0 {
-            let (order_ids, amounts) = (
+            let (product_ids, amounts) = (
                 batch
                     .column(0)
                     .as_any()
@@ -178,15 +178,15 @@ pub(crate) async fn main() {
                     .downcast_ref::<Int64Array>()
                     .unwrap(),
             );
-            for (order_id, amount) in order_ids.iter().zip(amounts) {
-                if order_id.unwrap() == 1 {
+            for (product_id, amount) in product_ids.iter().zip(amounts) {
+                if product_id.unwrap() == 1 {
                     assert_eq!(amount.unwrap(), 7)
-                } else if order_id.unwrap() == 2 {
+                } else if product_id.unwrap() == 2 {
                     assert_eq!(amount.unwrap(), 1)
-                } else if order_id.unwrap() == 3 {
+                } else if product_id.unwrap() == 3 {
                     assert_eq!(amount.unwrap(), 3)
                 } else {
-                    panic!("Unexpected order id")
+                    panic!("Unexpected product id")
                 }
             }
         }
@@ -214,7 +214,7 @@ pub(crate) async fn main() {
 
     for batch in batches {
         if batch.num_rows() != 0 {
-            let (order_ids, amounts) = (
+            let (product_ids, amounts) = (
                 batch
                     .column(0)
                     .as_any()
@@ -226,15 +226,15 @@ pub(crate) async fn main() {
                     .downcast_ref::<Int64Array>()
                     .unwrap(),
             );
-            for (order_id, amount) in order_ids.iter().zip(amounts) {
-                if order_id.unwrap() == 1 {
+            for (product_id, amount) in product_ids.iter().zip(amounts) {
+                if product_id.unwrap() == 1 {
                     assert_eq!(amount.unwrap(), 9)
-                } else if order_id.unwrap() == 2 {
+                } else if product_id.unwrap() == 2 {
                     assert_eq!(amount.unwrap(), 2)
-                } else if order_id.unwrap() == 3 {
+                } else if product_id.unwrap() == 3 {
                     assert_eq!(amount.unwrap(), 4)
                 } else {
-                    panic!("Unexpected order id")
+                    panic!("Unexpected product id")
                 }
             }
         }
