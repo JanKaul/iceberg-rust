@@ -3,7 +3,9 @@
 */
 use std::{
     collections::HashMap,
+    fmt,
     io::Cursor,
+    str,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -80,6 +82,23 @@ pub fn generate_snapshot_id() -> i64 {
     let mut bytes: [u8; 8] = [0u8; 8];
     getrandom::getrandom(&mut bytes).unwrap();
     u64::from_le_bytes(bytes) as i64
+}
+
+impl fmt::Display for Snapshot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            &serde_json::to_string(self).map_err(|_| fmt::Error::default())?,
+        )
+    }
+}
+
+impl str::FromStr for Snapshot {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s).map_err(Error::from)
+    }
 }
 
 pub(crate) mod _serde {

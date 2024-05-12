@@ -1,7 +1,7 @@
 /*!
  * Schemas
 */
-use std::ops::Deref;
+use std::{fmt, ops::Deref, str};
 
 use derive_builder::Builder;
 use derive_getters::Getters;
@@ -38,6 +38,23 @@ impl Deref for Schema {
 impl Schema {
     pub fn builder() -> SchemaBuilder {
         SchemaBuilder::default()
+    }
+}
+
+impl fmt::Display for Schema {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            &serde_json::to_string(self).map_err(|_| fmt::Error::default())?,
+        )
+    }
+}
+
+impl str::FromStr for Schema {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s).map_err(Error::from)
     }
 }
 

@@ -5,6 +5,7 @@ The main struct here is [TableMetadataV2] which defines the data for a table.
 
 use std::{
     collections::HashMap,
+    fmt, str,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -231,6 +232,23 @@ pub fn new_metadata_location(metadata: TabularMetadataRef<'_>) -> String {
         + "-"
         + &transaction_uuid.to_string()
         + ".metadata.json"
+}
+
+impl fmt::Display for TableMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            &serde_json::to_string(self).map_err(|_| fmt::Error::default())?,
+        )
+    }
+}
+
+impl str::FromStr for TableMetadata {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s).map_err(Error::from)
+    }
 }
 
 mod _serde {

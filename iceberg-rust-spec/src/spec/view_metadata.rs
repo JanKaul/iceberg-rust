@@ -4,7 +4,9 @@
 
 use std::{
     collections::HashMap,
+    fmt,
     ops::{Deref, DerefMut},
+    str,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -98,6 +100,23 @@ impl<T: Clone + Default> GeneralViewMetadata<T> {
     #[inline]
     pub fn add_schema(&mut self, schema: Schema) {
         self.schemas.insert(*schema.schema_id(), schema);
+    }
+}
+
+impl fmt::Display for ViewMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            &serde_json::to_string(self).map_err(|_| fmt::Error::default())?,
+        )
+    }
+}
+
+impl str::FromStr for ViewMetadata {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s).map_err(Error::from)
     }
 }
 

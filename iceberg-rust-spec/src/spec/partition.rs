@@ -2,6 +2,8 @@
  * Partitioning
 */
 
+use std::{fmt, str};
+
 use derive_getters::Getters;
 use serde::{
     de::{Error as SerdeError, IntoDeserializer},
@@ -164,6 +166,23 @@ impl PartitionSpec {
             })
             .collect::<Option<Vec<_>>>()
             .ok_or(Error::InvalidFormat("partition spec".to_string()))
+    }
+}
+
+impl fmt::Display for PartitionSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            &serde_json::to_string(self).map_err(|_| fmt::Error::default())?,
+        )
+    }
+}
+
+impl str::FromStr for PartitionSpec {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s).map_err(Error::from)
     }
 }
 

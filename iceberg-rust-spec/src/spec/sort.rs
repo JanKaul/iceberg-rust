@@ -1,8 +1,12 @@
 /*!
  * Sorting
 */
+use std::{fmt, str};
+
 use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
+
+use crate::error::Error;
 
 use super::partition::Transform;
 
@@ -53,6 +57,23 @@ pub struct SortOrder {
     #[builder(setter(each(name = "with_sort_field")))]
     /// Details of the sort
     pub fields: Vec<SortField>,
+}
+
+impl fmt::Display for SortOrder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            &serde_json::to_string(self).map_err(|_| fmt::Error::default())?,
+        )
+    }
+}
+
+impl str::FromStr for SortOrder {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s).map_err(Error::from)
+    }
 }
 
 #[cfg(test)]
