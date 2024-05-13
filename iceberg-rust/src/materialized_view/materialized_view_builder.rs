@@ -22,7 +22,10 @@ use crate::{
 
 use super::MaterializedView;
 
-static STORAGE_TABLE_POSTFIX: &str = "__storage";
+/// Default postfix for the storage table identifier
+pub static STORAGE_TABLE_POSTFIX: &str = "__storage";
+/// Flag to mark a table as a storage table
+pub static STORAGE_TABLE_FLAG: &str = "materialize.storage_table";
 
 ///Builder pattern to create a view
 pub struct MaterializedViewBuilder {
@@ -99,6 +102,10 @@ impl MaterializedViewBuilder {
                     .clone(),
             ))
             .current_schema_id(*schema_id)
+            .properties(HashMap::from_iter([(
+                STORAGE_TABLE_FLAG.to_owned(),
+                "true".to_owned(),
+            )]))
             .build()?;
         self.catalog
             .clone()

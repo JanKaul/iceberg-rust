@@ -1,3 +1,7 @@
+use iceberg_rust::catalog::commit::{CommitTable, CommitView};
+pub type CommitTableRequest = CommitTable;
+pub type CommitViewRequest = CommitView;
+
 // pub mod add_partition_spec_update;
 // pub use self::add_partition_spec_update::AddPartitionSpecUpdate;
 // pub mod add_schema_update;
@@ -38,14 +42,10 @@ pub mod catalog_config;
 pub use self::catalog_config::CatalogConfig;
 // pub mod commit_report;
 // pub use self::commit_report::CommitReport;
-pub mod commit_table_request;
-pub use self::commit_table_request::CommitTableRequest;
 pub mod commit_table_response;
 pub use self::commit_table_response::CommitTableResponse;
 pub mod commit_transaction_request;
 pub use self::commit_transaction_request::CommitTransactionRequest;
-pub mod commit_view_request;
-pub use self::commit_view_request::CommitViewRequest;
 // pub mod content_file;
 // pub use self::content_file::ContentFile;
 // pub mod count_map;
