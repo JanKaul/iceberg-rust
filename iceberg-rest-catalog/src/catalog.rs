@@ -22,10 +22,14 @@ use iceberg_rust::{
     view::View,
 };
 use object_store::ObjectStore;
-use std::{path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use crate::{
-    apis::{self, catalog_api_api, configuration::Configuration},
+    apis::{
+        self,
+        catalog_api_api::{self, NamespaceExistsError},
+        configuration::Configuration,
+    },
     models,
 };
 
@@ -38,12 +42,12 @@ pub struct RestCatalog {
 
 impl RestCatalog {
     pub fn new(
-        name: String,
+        name: &str,
         configuration: Configuration,
         object_store_builder: ObjectStoreBuilder,
     ) -> Self {
         RestCatalog {
-            name,
+            name: name.to_string(),
             configuration,
             object_store_builder,
         }
@@ -52,6 +56,85 @@ impl RestCatalog {
 
 #[async_trait]
 impl Catalog for RestCatalog {
+    /// Create a namespace in the catalog
+    async fn create_namespace(
+        &self,
+        namespace: &Namespace,
+        properties: Option<HashMap<String, String>>,
+    ) -> Result<HashMap<String, String>, Error> {
+        let response = catalog_api_api::create_namespace(
+            &self.configuration,
+            &self.name,
+            models::CreateNamespaceRequest {
+                namespace: namespace.to_vec(),
+                properties,
+            },
+        )
+        .await
+        .map_err(Into::<Error>::into)?;
+        Ok(response.properties.unwrap_or_default())
+    }
+    /// Drop a namespace in the catalog
+    async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), Error> {
+        catalog_api_api::drop_namespace(&self.configuration, &self.name, &namespace.url_encode())
+            .await
+            .map_err(Into::<Error>::into)?;
+        Ok(())
+    }
+    /// Load the namespace properties from the catalog
+    async fn load_namespace(
+        &self,
+        namespace: &Namespace,
+    ) -> Result<HashMap<String, String>, Error> {
+        let response = catalog_api_api::load_namespace_metadata(
+            &self.configuration,
+            &self.name,
+            &namespace.url_encode(),
+        )
+        .await
+        .map_err(Into::<Error>::into)?;
+        Ok(response.properties.unwrap_or_default())
+    }
+    /// Update the namespace properties in the catalog
+    async fn update_namespace(
+        &self,
+        namespace: &Namespace,
+        updates: Option<HashMap<String, String>>,
+        removals: Option<Vec<String>>,
+    ) -> Result<(), Error> {
+        catalog_api_api::update_properties(
+            &self.configuration,
+            &self.name,
+            &namespace.url_encode(),
+            models::UpdateNamespacePropertiesRequest { updates, removals },
+        )
+        .await
+        .map_err(Into::<Error>::into)?;
+        Ok(())
+    }
+    /// Check if a namespace exists
+    async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, Error> {
+        match catalog_api_api::namespace_exists(
+            &self.configuration,
+            &self.name,
+            &namespace.url_encode(),
+        )
+        .await
+        {
+            Ok(()) => Ok(true),
+            Err(err) => {
+                if let apis::Error::ResponseError(err) = err {
+                    if let Some(NamespaceExistsError::Status404(_)) = err.entity {
+                        Ok(false)
+                    } else {
+                        Err(apis::Error::ResponseError(err).into())
+                    }
+                } else {
+                    Err(err.into())
+                }
+            }
+        }
+    }
     /// Lists all tables in the given namespace.
     async fn list_tables(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error> {
         let tables = catalog_api_api::list_tables(
@@ -68,7 +151,7 @@ impl Catalog for RestCatalog {
             .unwrap_or(Vec::new())
             .into_iter()
             .map(|x| {
-                let mut vec = x.namespace().levels().to_vec();
+                let mut vec = x.namespace().to_vec();
                 vec.push(x.name().to_string());
                 Identifier::try_new(&vec)
             })
@@ -331,5 +414,124 @@ impl Catalog for RestCatalog {
     /// Return an object store for the desired bucket
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore> {
         self.object_store_builder.build(bucket).unwrap()
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use iceberg_rust::{
+        catalog::{
+            bucket::ObjectStoreBuilder, identifier::Identifier, namespace::Namespace, Catalog,
+        },
+        spec::{
+            schema::Schema,
+            types::{PrimitiveType, StructField, StructType, Type},
+        },
+        table::table_builder::TableBuilder,
+    };
+    use object_store::{memory::InMemory, ObjectStore};
+    use std::sync::Arc;
+    use testcontainers::{core::WaitFor, runners::AsyncRunner, GenericImage};
+
+    use crate::{apis::configuration::Configuration, catalog::RestCatalog};
+
+    fn configuration() -> Configuration {
+        Configuration {
+            base_path: "http://localhost:8181".to_string(),
+            user_agent: None,
+            client: reqwest::Client::new().into(),
+            basic_auth: None,
+            oauth_access_token: None,
+            bearer_access_token: None,
+            api_key: None,
+        }
+    }
+    #[tokio::test]
+    async fn test_create_update_drop_table() {
+        let _ = GenericImage::new("tabulario/iceberg-rest", "latest")
+            .with_exposed_port(8181)
+            .with_wait_for(WaitFor::StdOutMessage {
+                message: "INFO  [org.eclipse.jetty.server.Server] - Started ".to_owned(),
+            })
+            .start()
+            .await;
+
+        let object_store = ObjectStoreBuilder::Memory(Arc::new(InMemory::new()));
+        let catalog = Arc::new(RestCatalog::new("nyc", configuration(), object_store));
+
+        let namespaces = catalog.list_namespaces(None).await.unwrap();
+        dbg!(&namespaces);
+
+        let identifier = Identifier::parse("public.table3").unwrap();
+
+        let schema = Schema::builder()
+            .with_schema_id(1)
+            .with_identifier_field_ids(vec![1, 2])
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "one".to_string(),
+                        required: false,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "two".to_string(),
+                        required: false,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
+        let mut builder = TableBuilder::new(&identifier, catalog.clone())
+            .expect("Failed to create table builder.");
+        builder
+            .location("/")
+            .with_schema((1, schema))
+            .current_schema_id(1);
+        let mut table = builder.build().await.expect("Failed to create table.");
+
+        let exists = Arc::clone(&catalog)
+            .table_exists(&identifier)
+            .await
+            .expect("Table doesn't exist");
+        assert!(exists);
+
+        let tables = catalog
+            .clone()
+            .list_tables(
+                &Namespace::try_new(&["load_table".to_owned()])
+                    .expect("Failed to create namespace"),
+            )
+            .await
+            .expect("Failed to list Tables");
+        assert_eq!(tables[0].to_string(), "load_table.table3".to_owned());
+
+        let namespaces = catalog
+            .clone()
+            .list_namespaces(None)
+            .await
+            .expect("Failed to list namespaces");
+        assert_eq!(namespaces[0].to_string(), "load_table");
+
+        let transaction = table.new_transaction(None);
+        transaction.commit().await.expect("Transaction failed.");
+
+        catalog
+            .drop_table(&identifier)
+            .await
+            .expect("Failed to drop table.");
+
+        let exists = Arc::clone(&catalog)
+            .table_exists(&identifier)
+            .await
+            .expect("Table exists failed");
+        assert!(!exists);
     }
 }

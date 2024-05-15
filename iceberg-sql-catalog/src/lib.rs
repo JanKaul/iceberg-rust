@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -139,6 +139,38 @@ fn query_map(row: &AnyRow) -> Result<TableRef, sqlx::Error> {
 
 #[async_trait]
 impl Catalog for SqlCatalog {
+    /// Create a namespace in the catalog
+    async fn create_namespace(
+        &self,
+        _namespace: &Namespace,
+        _properties: Option<HashMap<String, String>>,
+    ) -> Result<HashMap<String, String>, IcebergError> {
+        todo!()
+    }
+    /// Drop a namespace in the catalog
+    async fn drop_namespace(&self, _namespace: &Namespace) -> Result<(), IcebergError> {
+        todo!()
+    }
+    /// Load the namespace properties from the catalog
+    async fn load_namespace(
+        &self,
+        _namespace: &Namespace,
+    ) -> Result<HashMap<String, String>, IcebergError> {
+        todo!()
+    }
+    /// Update the namespace properties in the catalog
+    async fn update_namespace(
+        &self,
+        _namespace: &Namespace,
+        _updates: Option<HashMap<String, String>>,
+        _removals: Option<Vec<String>>,
+    ) -> Result<(), IcebergError> {
+        todo!()
+    }
+    /// Check if a namespace exists
+    async fn namespace_exists(&self, _namespace: &Namespace) -> Result<bool, IcebergError> {
+        todo!()
+    }
     async fn list_tables(&self, namespace: &Namespace) -> Result<Vec<Identifier>, IcebergError> {
         let mut connection = self.connection.lock().await;
         let rows = connection.transaction(|txn|{

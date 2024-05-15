@@ -5,14 +5,13 @@ Defining the [Namespace] struct for handling namespaces in the catalog.
 use core::fmt::{self, Display};
 use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
+use std::ops::Deref;
 
 use crate::{catalog::identifier::SEPARATOR, error::Error};
 
 /// Namespace struct for iceberg catalogs
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Namespace {
-    levels: Vec<String>,
-}
+pub struct Namespace(Vec<String>);
 
 impl Namespace {
     /// Try to create new namespace with sequence of strings.
@@ -20,26 +19,38 @@ impl Namespace {
         if levels.iter().any(|x| x.is_empty()) {
             Err(Error::InvalidFormat("namespace sequence".to_string()))
         } else {
-            Ok(Namespace {
-                levels: levels.to_vec(),
-            })
+            Ok(Namespace(levels.to_vec()))
         }
     }
     /// Create empty namespace
     pub fn empty() -> Self {
-        Namespace { levels: vec![] }
+        Namespace(vec![])
     }
-    /// Get the namespace levels
-    pub fn levels(&self) -> &[String] {
-        &self.levels
+    /// Url encodes the namespace
+    pub fn url_encode(&self) -> String {
+        url::form_urlencoded::byte_serialize(self.0.join("\u{1F}").as_bytes()).collect()
     }
-    /// Get the number of levels
-    pub fn len(&self) -> usize {
-        self.levels.len()
+    /// Create namespace from url encoded string
+    pub fn from_url_encoded(namespace: &str) -> Result<Self, Error> {
+        Ok(Namespace(
+            url::form_urlencoded::parse(namespace.as_bytes())
+                .next()
+                .ok_or(Error::InvalidFormat(format!(
+                    "Namespace {} is empty",
+                    namespace
+                )))?
+                .0
+                .split("\u{1F}")
+                .map(ToString::to_string)
+                .collect(),
+        ))
     }
-    /// Check if namespace is empty
-    pub fn is_empty(&self) -> bool {
-        self.levels.is_empty()
+}
+
+impl Deref for Namespace {
+    type Target = [String];
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -48,8 +59,7 @@ impl Display for Namespace {
         write!(
             f,
             "{}",
-            Itertools::intersperse(self.levels.iter().map(|x| x as &str), SEPARATOR)
-                .collect::<String>()
+            Itertools::intersperse(self.0.iter().map(|x| x as &str), SEPARATOR).collect::<String>()
         )
     }
 }

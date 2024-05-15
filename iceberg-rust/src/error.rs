@@ -50,6 +50,9 @@ pub enum Error {
     /// Chrono parse
     #[error(transparent)]
     Uuid(#[from] uuid::Error),
+    /// Url parse
+    #[error(transparent)]
+    Url(#[from] url::ParseError),
     /// Io error
     #[error(transparent)]
     IO(#[from] std::io::Error),

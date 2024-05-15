@@ -2,6 +2,7 @@
 Defines traits to communicate with an iceberg catalog.
 */
 
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -31,11 +32,30 @@ pub mod tabular;
 /// Trait to create, replace and drop tables in an iceberg catalog.
 #[async_trait::async_trait]
 pub trait Catalog: Send + Sync + Debug {
+    /// Create a namespace in the catalog
+    async fn create_namespace(
+        &self,
+        namespace: &Namespace,
+        properties: Option<HashMap<String, String>>,
+    ) -> Result<HashMap<String, String>, Error>;
+    /// Drop a namespace in the catalog
+    async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), Error>;
+    /// Load the namespace properties from the catalog
+    async fn load_namespace(&self, namespace: &Namespace)
+        -> Result<HashMap<String, String>, Error>;
+    /// Update the namespace properties in the catalog
+    async fn update_namespace(
+        &self,
+        namespace: &Namespace,
+        updates: Option<HashMap<String, String>>,
+        removals: Option<Vec<String>>,
+    ) -> Result<(), Error>;
+    /// Check if a namespace exists
+    async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, Error>;
     /// Lists all tables in the given namespace.
     async fn list_tables(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error>;
     /// Lists all namespaces in the catalog.
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error>;
-    /// Create a table from an identifier and a schema
     /// Check if a table exists
     async fn table_exists(&self, identifier: &Identifier) -> Result<bool, Error>;
     /// Drop a table and delete all data and metadata files.

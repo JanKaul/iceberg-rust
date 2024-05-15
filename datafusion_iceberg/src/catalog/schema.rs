@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, ops::Deref, sync::Arc};
 
 use datafusion::{
     catalog::schema::SchemaProvider,
@@ -35,13 +35,13 @@ impl SchemaProvider for IcebergSchema {
     async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
         self.catalog
             .table(
-                Identifier::try_new(&[self.schema.levels(), &[name.to_string()]].concat()).unwrap(),
+                Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat()).unwrap(),
             )
             .await
     }
     fn table_exist(&self, name: &str) -> bool {
         self.catalog.table_exists(
-            Identifier::try_new(&[self.schema.levels(), &[name.to_string()]].concat()).unwrap(),
+            Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat()).unwrap(),
         )
     }
 
@@ -50,14 +50,14 @@ impl SchemaProvider for IcebergSchema {
         name: String,
         table: Arc<dyn TableProvider>,
     ) -> Result<Option<Arc<dyn TableProvider>>> {
-        let mut full_name = Vec::from(self.schema.levels());
+        let mut full_name = self.schema.to_vec();
         full_name.push(name.to_owned());
         let identifier = Identifier::try_new(&full_name)
             .map_err(|err| DataFusionError::Internal(err.to_string()))?;
         self.catalog.register_table(identifier, table)
     }
     fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
-        let mut full_name = Vec::from(self.schema.levels());
+        let mut full_name = self.schema.to_vec();
         full_name.push(name.to_owned());
         let identifier = Identifier::try_new(&full_name)
             .map_err(|err| DataFusionError::Internal(err.to_string()))?;
