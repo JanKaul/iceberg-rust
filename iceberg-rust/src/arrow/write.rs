@@ -223,7 +223,6 @@ async fn create_arrow_writer(
         AsyncArrowWriter::try_new(
             writer,
             Arc::new(schema.clone()),
-            1024,
             Some(
                 WriterProperties::builder()
                     .set_compression(Compression::ZSTD(ZstdLevel::try_new(1)?))

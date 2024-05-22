@@ -51,17 +51,14 @@ impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
 
 impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
+        let column = self.schema.fields().get_name(&column.name)?;
         let (index, partition_field) = self
             .partition_spec
             .fields()
             .iter()
             .enumerate()
-            .find(|(_, partition_field)| partition_field.name() == &column.name)?;
-        let data_type = self
-            .schema
-            .fields()
-            .get(*partition_field.source_id() as usize)
-            .as_ref()?
+            .find(|(_, partition_field)| partition_field.source_id() == &column.id)?;
+        let data_type = column
             .field_type
             .tranform(partition_field.transform())
             .ok()?;
@@ -76,17 +73,14 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
         any_iter_to_array(min_values, &(&data_type).try_into().ok()?).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
+        let column = self.schema.fields().get_name(&column.name)?;
         let (index, partition_field) = self
             .partition_spec
             .fields()
             .iter()
             .enumerate()
-            .find(|(_, partition_field)| partition_field.name() == &column.name)?;
-        let data_type = self
-            .schema
-            .fields()
-            .get(*partition_field.source_id() as usize)
-            .as_ref()?
+            .find(|(_, partition_field)| partition_field.source_id() == &column.id)?;
+        let data_type = column
             .field_type
             .tranform(partition_field.transform())
             .ok()?;
@@ -104,12 +98,13 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
         self.files.len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
+        let column = self.schema.fields().get_name(&column.name)?;
         let (index, _) = self
             .partition_spec
             .fields()
             .iter()
             .enumerate()
-            .find(|(_, partition_field)| partition_field.name() == &column.name)?;
+            .find(|(_, partition_field)| partition_field.source_id() == &column.id)?;
         let contains_null = self.files.iter().filter_map(|manifest| {
             manifest.partitions.as_ref().map(|partitions| {
                 if !partitions[index].contains_null {
@@ -127,6 +122,16 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
         _values: &std::collections::HashSet<ScalarValue>,
     ) -> Option<datafusion::arrow::array::BooleanArray> {
         None
+    }
+
+    fn row_counts(&self, _column: &Column) -> Option<ArrayRef> {
+        ScalarValue::iter_to_array(
+            self.files
+                .iter()
+                .map(|x| x.added_rows_count)
+                .map(ScalarValue::Int64),
+        )
+        .ok()
     }
 }
 
@@ -207,6 +212,18 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         _values: &std::collections::HashSet<ScalarValue>,
     ) -> Option<datafusion::arrow::array::BooleanArray> {
         None
+    }
+
+    fn row_counts(&self, column: &Column) -> Option<ArrayRef> {
+        let column_id = self.schema.fields().get_name(&column.name)?.id;
+        let null_counts =
+            self.files
+                .iter()
+                .map(|manifest| match &manifest.data_file().value_counts() {
+                    Some(map) => map.get(&(column_id as i32)).copied(),
+                    None => None,
+                });
+        ScalarValue::iter_to_array(null_counts.map(ScalarValue::Int64)).ok()
     }
 }
 

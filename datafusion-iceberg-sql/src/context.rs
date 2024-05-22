@@ -94,4 +94,16 @@ impl ContextProvider for IcebergContext {
     fn options(&self) -> &ConfigOptions {
         &self.config_options
     }
+
+    fn udfs_names(&self) -> Vec<String> {
+        todo!()
+    }
+
+    fn udafs_names(&self) -> Vec<String> {
+        todo!()
+    }
+
+    fn udwfs_names(&self) -> Vec<String> {
+        todo!()
+    }
 }

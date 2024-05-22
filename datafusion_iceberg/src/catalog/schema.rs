@@ -7,7 +7,7 @@ use datafusion::{
 };
 use iceberg_rust::catalog::{identifier::Identifier, namespace::Namespace};
 
-use crate::catalog::mirror::Mirror;
+use crate::{catalog::mirror::Mirror, error::Error};
 
 pub struct IcebergSchema {
     schema: Namespace,
@@ -32,10 +32,11 @@ impl SchemaProvider for IcebergSchema {
             Ok(schemas) => schemas.into_iter().map(|x| x.name().to_owned()).collect(),
         }
     }
-    async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
+    async fn table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
         self.catalog
             .table(
-                Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat()).unwrap(),
+                Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat())
+                    .map_err(Error::from)?,
             )
             .await
     }

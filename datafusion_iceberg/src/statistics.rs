@@ -6,7 +6,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use iceberg_rust::{catalog::tabular::Tabular, table::Table};
-use iceberg_rust_spec::spec::values::Value;
+use iceberg_rust_spec::spec::{manifest::ManifestEntry, schema::Schema, values::Value};
 
 use crate::error::Error;
 
@@ -50,49 +50,7 @@ pub(crate) async fn table_statistics(
             ],
         },
         |acc, manifest| {
-            let column_statistics =
-                schema
-                    .fields()
-                    .iter()
-                    .map(|x| x.id)
-                    .map(|id| ColumnStatistics {
-                        null_count: manifest
-                            .data_file()
-                            .null_value_counts()
-                            .as_ref()
-                            .and_then(|x| x.get(&id))
-                            .map(|x| Precision::Exact(*x as usize))
-                            .unwrap_or(Precision::Absent),
-                        max_value: manifest
-                            .data_file()
-                            .upper_bounds()
-                            .as_ref()
-                            .and_then(|x| x.get(&id))
-                            .and_then(|x| {
-                                Some(Precision::Exact(
-                                    convert_value_to_scalar_value(x.clone()).ok()?,
-                                ))
-                            })
-                            .unwrap_or(Precision::Absent),
-                        min_value: manifest
-                            .data_file()
-                            .lower_bounds()
-                            .as_ref()
-                            .and_then(|x| x.get(&id))
-                            .and_then(|x| {
-                                Some(Precision::Exact(
-                                    convert_value_to_scalar_value(x.clone()).ok()?,
-                                ))
-                            })
-                            .unwrap_or(Precision::Absent),
-                        distinct_count: manifest
-                            .data_file()
-                            .distinct_counts()
-                            .as_ref()
-                            .and_then(|x| x.get(&id))
-                            .map(|x| Precision::Exact(*x as usize))
-                            .unwrap_or(Precision::Absent),
-                    });
+            let column_stats = column_statistics(&schema, manifest);
             Statistics {
                 num_rows: acc.num_rows.add(&Precision::Exact(
                     *manifest.data_file().record_count() as usize
@@ -103,7 +61,7 @@ pub(crate) async fn table_statistics(
                 column_statistics: acc
                     .column_statistics
                     .into_iter()
-                    .zip(column_statistics)
+                    .zip(column_stats)
                     .map(|(acc, x)| ColumnStatistics {
                         null_count: acc.null_count.add(&x.null_count),
                         max_value: acc.max_value.max(&x.max_value),
@@ -114,6 +72,57 @@ pub(crate) async fn table_statistics(
             }
         },
     ))
+}
+
+fn column_statistics<'a>(
+    schema: &'a Schema,
+    manifest: &'a ManifestEntry,
+) -> impl Iterator<Item = ColumnStatistics> + 'a {
+    schema.fields().iter().map(|x| x.id).map(|id| {
+        let data_file = &manifest.data_file();
+        ColumnStatistics {
+            null_count: data_file
+                .null_value_counts()
+                .as_ref()
+                .and_then(|x| x.get(&id))
+                .map(|x| Precision::Exact(*x as usize))
+                .unwrap_or(Precision::Absent),
+            max_value: data_file
+                .upper_bounds()
+                .as_ref()
+                .and_then(|x| x.get(&id))
+                .and_then(|x| {
+                    Some(Precision::Exact(
+                        convert_value_to_scalar_value(x.clone()).ok()?,
+                    ))
+                })
+                .unwrap_or(Precision::Absent),
+            min_value: data_file
+                .lower_bounds()
+                .as_ref()
+                .and_then(|x| x.get(&id))
+                .and_then(|x| {
+                    Some(Precision::Exact(
+                        convert_value_to_scalar_value(x.clone()).ok()?,
+                    ))
+                })
+                .unwrap_or(Precision::Absent),
+            distinct_count: data_file
+                .distinct_counts()
+                .as_ref()
+                .and_then(|x| x.get(&id))
+                .map(|x| Precision::Exact(*x as usize))
+                .unwrap_or(Precision::Absent),
+        }
+    })
+}
+
+pub(crate) fn manifest_statistics(schema: &Schema, manifest: &ManifestEntry) -> Statistics {
+    Statistics {
+        num_rows: Precision::Exact(*manifest.data_file().record_count() as usize),
+        total_byte_size: Precision::Exact(*manifest.data_file().file_size_in_bytes() as usize),
+        column_statistics: column_statistics(schema, manifest).collect(),
+    }
 }
 
 fn convert_value_to_scalar_value(value: Value) -> Result<ScalarValue, Error> {

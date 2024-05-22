@@ -31,7 +31,7 @@ use datafusion::{
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
     physical_plan::{
-        insert::{DataSink, FileSinkExec},
+        insert::{DataSink, DataSinkExec},
         metrics::MetricsSet,
         DisplayAs, DisplayFormatType, ExecutionPlan, SendableRecordBatchStream, Statistics,
     },
@@ -43,6 +43,7 @@ use datafusion::{
 use crate::{
     error::Error,
     pruning_statistics::{PruneDataFiles, PruneManifests},
+    statistics::manifest_statistics,
 };
 
 use iceberg_rust::{
@@ -221,7 +222,7 @@ impl TableProvider for DataFusionTable {
         if overwrite {
             return not_impl_err!("Overwrite not implemented for MemoryTable yet");
         }
-        Ok(Arc::new(FileSinkExec::new(
+        Ok(Arc::new(DataSinkExec::new(
             input,
             Arc::new(self.clone().into_data_sink()),
             self.schema.clone(),
@@ -379,10 +380,12 @@ async fn table_scan(
                         e_tag: None,
                         version: None,
                     };
+                    let manifest_statistics = manifest_statistics(&schema, &manifest);
                     let file = PartitionedFile {
                         object_meta,
                         partition_values,
                         range: None,
+                        statistics: Some(manifest_statistics),
                         extensions: None,
                     };
                     file_groups
@@ -422,10 +425,12 @@ async fn table_scan(
                 e_tag: None,
                 version: None,
             };
+            let manifest_statistics = manifest_statistics(&schema, &manifest);
             let file = PartitionedFile {
                 object_meta,
                 partition_values,
                 range: None,
+                statistics: Some(manifest_statistics),
                 extensions: None,
             };
             file_groups

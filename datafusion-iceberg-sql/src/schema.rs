@@ -24,13 +24,7 @@ pub async fn get_schema(
     let planner = SqlToRel::new(&context);
 
     let logical_plan = planner.sql_statement_to_plan(statement)?;
-    let fields: Vec<FieldRef> = logical_plan
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| field.field())
-        .cloned()
-        .collect();
+    let fields: Vec<FieldRef> = logical_plan.schema().fields().iter().cloned().collect();
     let struct_type = StructType::try_from(&Schema::new(fields))
         .map_err(|err| DataFusionError::Internal(err.to_string()))?;
     Ok(struct_type)
