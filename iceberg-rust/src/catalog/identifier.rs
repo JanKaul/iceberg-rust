@@ -16,7 +16,6 @@ pub static SEPARATOR: &str = ".";
 ///Identifies a table in an iceberg catalog.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Identifier {
-    #[serde(flatten)]
     namespace: Namespace,
     name: String,
 }

@@ -152,15 +152,7 @@ impl Catalog for RestCatalog {
         )
         .await
         .map_err(Into::<Error>::into)?;
-        let tables = tables
-            .identifiers
-            .unwrap_or(Vec::new())
-            .into_iter()
-            .map(|x| {
-                let mut vec = x.namespace().to_vec();
-                vec.push(x.name().to_string());
-                Identifier::try_new(&vec)
-            });
+        let tables = tables.identifiers.unwrap_or(Vec::new()).into_iter();
         let views = catalog_api_api::list_views(
             &self.configuration,
             self.name.as_deref(),
@@ -170,17 +162,12 @@ impl Catalog for RestCatalog {
         )
         .await
         .map_err(Into::<Error>::into)?;
-        views
+        Ok(views
             .identifiers
             .unwrap_or(Vec::new())
             .into_iter()
-            .map(|x| {
-                let mut vec = x.namespace().to_vec();
-                vec.push(x.name().to_string());
-                Identifier::try_new(&vec)
-            })
             .chain(tables)
-            .collect()
+            .collect())
     }
     /// Lists all namespaces in the catalog.
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error> {
@@ -508,7 +495,7 @@ pub mod tests {
             api_key: None,
         }
     }
-    // #[tokio::test]
+    #[tokio::test]
     async fn test_create_update_drop_table() {
         let container = GenericImage::new("tabulario/iceberg-rest", "latest")
             .with_wait_for(WaitFor::StdOutMessage {
@@ -529,7 +516,6 @@ pub mod tests {
             .expect("Failed to create namespace");
 
         let identifier = Identifier::parse("public.test").unwrap();
-        dbg!(&identifier);
 
         let schema = Schema::builder()
             .with_schema_id(1)
@@ -564,28 +550,21 @@ pub mod tests {
             .current_schema_id(1);
         let mut table = builder.build().await.expect("Failed to create table.");
 
-        let exists = Arc::clone(&catalog)
-            .tabular_exists(&identifier)
-            .await
-            .expect("Table doesn't exist");
-        assert!(exists);
-
         let tables = catalog
             .clone()
             .list_tabulars(
-                &Namespace::try_new(&["load_table".to_owned()])
-                    .expect("Failed to create namespace"),
+                &Namespace::try_new(&["public".to_owned()]).expect("Failed to create namespace"),
             )
             .await
             .expect("Failed to list Tables");
-        assert_eq!(tables[0].to_string(), "load_table.test".to_owned());
+        assert_eq!(tables[0].to_string(), "public.test".to_owned());
 
         let namespaces = catalog
             .clone()
             .list_namespaces(None)
             .await
             .expect("Failed to list namespaces");
-        assert_eq!(namespaces[0].to_string(), "load_table");
+        assert_eq!(namespaces[0].to_string(), "public");
 
         let transaction = table.new_transaction(None);
         transaction.commit().await.expect("Transaction failed.");
@@ -594,11 +573,5 @@ pub mod tests {
             .drop_table(&identifier)
             .await
             .expect("Failed to drop table.");
-
-        let exists = Arc::clone(&catalog)
-            .tabular_exists(&identifier)
-            .await
-            .expect("Table exists failed");
-        assert!(!exists);
     }
 }

@@ -34,3 +34,65 @@ impl ListTablesResponse {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iceberg_rust::catalog::identifier::Identifier;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn test_list_tables_response_serialization() {
+        let identifiers = vec![
+            Identifier::parse("db.table1").unwrap(),
+            Identifier::parse("db.table2").unwrap(),
+        ];
+
+        let response = ListTablesResponse {
+            next_page_token: None,
+            identifiers: Some(identifiers),
+        };
+
+        let expected_json = json!({
+            "identifiers": [
+                {
+                    "namespace": ["db"],
+                    "name": "table1"
+                },
+                {
+                    "namespace": ["db"],
+                    "name": "table2"
+                }
+            ]
+        });
+
+        let serialized = serde_json::to_value(&response).unwrap();
+        assert_eq!(serialized, expected_json);
+    }
+
+    #[test]
+    fn test_list_tables_response_deserialization() {
+        let json_value = json!({
+            "identifiers": [
+                {
+                    "namespace": ["db"],
+                    "name": "table1"
+                },
+                {
+                    "namespace": ["db"],
+                    "name": "table2"
+                }
+            ]
+        });
+
+        let expected_response = ListTablesResponse {
+            next_page_token: None,
+            identifiers: Some(vec![
+                Identifier::parse("db.table1").unwrap(),
+                Identifier::parse("db.table2").unwrap(),
+            ]),
+        };
+
+        let deserialized: ListTablesResponse = serde_json::from_value(json_value).unwrap();
+        assert_eq!(deserialized, expected_response);
+    }
+}

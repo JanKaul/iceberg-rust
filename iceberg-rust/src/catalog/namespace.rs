@@ -67,6 +67,8 @@ impl Display for Namespace {
 #[cfg(test)]
 
 mod tests {
+    use serde_json::{json, Value};
+
     use super::Namespace;
 
     #[test]
@@ -83,5 +85,30 @@ mod tests {
     #[should_panic]
     fn test_empty() {
         let _ = Namespace::try_new(&["".to_string(), "level2".to_string()]).unwrap();
+    }
+
+    #[test]
+    fn test_namespace_serialization() {
+        let namespace = Namespace(vec!["foo".to_string(), "bar".to_string()]);
+        let serialized = serde_json::to_string(&namespace).unwrap();
+        assert_eq!(serialized, r#"["foo","bar"]"#);
+    }
+
+    #[test]
+    fn test_namespace_deserialization() {
+        let json_value: Value = json!(["foo", "bar"]);
+        let namespace: Namespace = serde_json::from_value(json_value).unwrap();
+        assert_eq!(
+            namespace,
+            Namespace(vec!["foo".to_string(), "bar".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_namespace_roundtrip() {
+        let original = Namespace(vec!["foo".to_string(), "bar".to_string()]);
+        let serialized = serde_json::to_string(&original).unwrap();
+        let deserialized: Namespace = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(original, deserialized);
     }
 }
