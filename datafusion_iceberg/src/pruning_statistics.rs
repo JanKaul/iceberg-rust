@@ -17,41 +17,48 @@ use std::any::Any;
 use datafusion::{
     arrow::{
         array::ArrayRef,
-        datatypes::{DataType, Schema},
+        datatypes::{DataType, Schema as ArrowSchema},
     },
     common::DataFusionError,
     physical_optimizer::pruning::PruningStatistics,
     prelude::Column,
     scalar::ScalarValue,
 };
-use iceberg_rust::table::Table;
-use iceberg_rust_spec::spec::{manifest::ManifestEntry, manifest_list::ManifestListEntry};
+use iceberg_rust_spec::spec::{
+    manifest::ManifestEntry, manifest_list::ManifestListEntry, partition::PartitionSpec,
+    schema::Schema,
+};
 
 pub(crate) struct PruneManifests<'table, 'manifests> {
-    table: &'table Table,
+    schema: &'table Schema,
+    partition_spec: &'table PartitionSpec,
     files: &'manifests [ManifestListEntry],
 }
 
 impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
-    pub fn new(table: &'table Table, files: &'manifests [ManifestListEntry]) -> Self {
-        PruneManifests { table, files }
+    pub(crate) fn new(
+        schema: &'table Schema,
+        partition_spec: &'table PartitionSpec,
+        files: &'manifests [ManifestListEntry],
+    ) -> Self {
+        Self {
+            schema,
+            partition_spec,
+            files,
+        }
     }
 }
 
 impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = &self
-            .table
-            .metadata()
-            .default_partition_spec()
-            .ok()?
-            .fields();
-        let schema = self.table.current_schema(None).ok()?;
-        let (index, partition_field) = partition_spec
+        let (index, partition_field) = self
+            .partition_spec
+            .fields()
             .iter()
             .enumerate()
             .find(|(_, partition_field)| partition_field.name() == &column.name)?;
-        let data_type = schema
+        let data_type = self
+            .schema
             .fields()
             .get(*partition_field.source_id() as usize)
             .as_ref()?
@@ -69,14 +76,14 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
         any_iter_to_array(min_values, &(&data_type).try_into().ok()?).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = self.table.metadata().default_partition_spec().ok()?;
-        let schema = self.table.current_schema(None).ok()?;
-        let (index, partition_field) = partition_spec
+        let (index, partition_field) = self
+            .partition_spec
             .fields()
             .iter()
             .enumerate()
             .find(|(_, partition_field)| partition_field.name() == &column.name)?;
-        let data_type = schema
+        let data_type = self
+            .schema
             .fields()
             .get(*partition_field.source_id() as usize)
             .as_ref()?
@@ -97,8 +104,8 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
         self.files.len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let partition_spec = self.table.metadata().default_partition_spec().ok()?;
-        let (index, _) = partition_spec
+        let (index, _) = self
+            .partition_spec
             .fields()
             .iter()
             .enumerate()
@@ -124,23 +131,33 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
 }
 
 pub(crate) struct PruneDataFiles<'table, 'manifests> {
-    table: &'table Table,
+    schema: &'table Schema,
+    arrow_schema: &'table ArrowSchema,
     files: &'manifests [ManifestEntry],
 }
 
 impl<'table, 'manifests> PruneDataFiles<'table, 'manifests> {
-    pub fn new(table: &'table Table, files: &'manifests [ManifestEntry]) -> Self {
-        PruneDataFiles { table, files }
+    pub(crate) fn new(
+        schema: &'table Schema,
+        arrow_schema: &'table ArrowSchema,
+        files: &'manifests [ManifestEntry],
+    ) -> Self {
+        Self {
+            schema,
+            arrow_schema,
+            files,
+        }
     }
 }
 
 impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = (self.table.current_schema(None).ok()?.fields())
-            .try_into()
-            .ok()?;
-        let column_id = schema.index_of(&column.name).ok()?;
-        let datatype = schema.field_with_name(&column.name).ok()?.data_type();
+        let column_id = self.schema.fields().get_name(&column.name)?.id;
+        let datatype = self
+            .arrow_schema
+            .field_with_name(&column.name)
+            .ok()?
+            .data_type();
         let min_values =
             self.files
                 .iter()
@@ -153,11 +170,12 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         any_iter_to_array(min_values, datatype).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = (self.table.current_schema(None).ok()?.fields())
-            .try_into()
-            .ok()?;
-        let column_id = schema.index_of(&column.name).ok()?;
-        let datatype = schema.field_with_name(&column.name).ok()?.data_type();
+        let column_id = self.schema.fields().get_name(&column.name)?.id;
+        let datatype = self
+            .arrow_schema
+            .field_with_name(&column.name)
+            .ok()?
+            .data_type();
         let max_values =
             self.files
                 .iter()
@@ -173,10 +191,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
         self.files.len()
     }
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
-        let schema: Schema = (self.table.current_schema(None).ok()?.fields())
-            .try_into()
-            .ok()?;
-        let column_id = schema.index_of(&column.name).ok()?;
+        let column_id = self.schema.fields().get_name(&column.name)?.id;
         let null_counts =
             self.files
                 .iter()

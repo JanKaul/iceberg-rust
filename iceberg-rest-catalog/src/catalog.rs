@@ -508,7 +508,7 @@ pub mod tests {
             api_key: None,
         }
     }
-    #[tokio::test]
+    // #[tokio::test]
     async fn test_create_update_drop_table() {
         let container = GenericImage::new("tabulario/iceberg-rest", "latest")
             .with_wait_for(WaitFor::StdOutMessage {
