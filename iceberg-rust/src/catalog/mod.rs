@@ -53,13 +53,17 @@ pub trait Catalog: Send + Sync + Debug {
     /// Check if a namespace exists
     async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, Error>;
     /// Lists all tables in the given namespace.
-    async fn list_tables(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error>;
+    async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error>;
     /// Lists all namespaces in the catalog.
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error>;
     /// Check if a table exists
-    async fn table_exists(&self, identifier: &Identifier) -> Result<bool, Error>;
+    async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error>;
     /// Drop a table and delete all data and metadata files.
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error>;
+    /// Drop a table and delete all data and metadata files.
+    async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error>;
+    /// Drop a table and delete all data and metadata files.
+    async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Load a table.
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
     /// Register a table with the catalog if it doesn't exist.

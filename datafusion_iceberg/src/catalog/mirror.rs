@@ -40,7 +40,7 @@ impl Mirror {
             let mut namespace_node = HashSet::new();
             let tables = catalog
                 .clone()
-                .list_tables(&namespace)
+                .list_tabulars(&namespace)
                 .await
                 .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
             for identifier in tables {

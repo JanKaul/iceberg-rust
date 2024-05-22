@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use futures::TryFutureExt;
+use futures::{FutureExt, TryFutureExt};
 /**
 Iceberg rest catalog implementation
 */
@@ -15,8 +15,10 @@ use iceberg_rust::{
     error::Error,
     materialized_view::{materialized_view_builder::STORAGE_TABLE_FLAG, MaterializedView},
     spec::{
-        materialized_view_metadata::MaterializedViewMetadata, table_metadata::TableMetadata,
-        tabular::TabularMetadata, view_metadata::ViewMetadata,
+        materialized_view_metadata::MaterializedViewMetadata,
+        table_metadata::TableMetadata,
+        tabular::TabularMetadata,
+        view_metadata::{self, ViewMetadata},
     },
     table::Table,
     view::View,
@@ -35,19 +37,19 @@ use crate::{
 
 #[derive(Debug)]
 pub struct RestCatalog {
-    name: String,
+    name: Option<String>,
     configuration: Configuration,
     object_store_builder: ObjectStoreBuilder,
 }
 
 impl RestCatalog {
     pub fn new(
-        name: &str,
+        name: Option<&str>,
         configuration: Configuration,
         object_store_builder: ObjectStoreBuilder,
     ) -> Self {
         RestCatalog {
-            name: name.to_string(),
+            name: name.map(ToString::to_string),
             configuration,
             object_store_builder,
         }
@@ -64,7 +66,7 @@ impl Catalog for RestCatalog {
     ) -> Result<HashMap<String, String>, Error> {
         let response = catalog_api_api::create_namespace(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             models::CreateNamespaceRequest {
                 namespace: namespace.to_vec(),
                 properties,
@@ -76,9 +78,13 @@ impl Catalog for RestCatalog {
     }
     /// Drop a namespace in the catalog
     async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), Error> {
-        catalog_api_api::drop_namespace(&self.configuration, &self.name, &namespace.url_encode())
-            .await
-            .map_err(Into::<Error>::into)?;
+        catalog_api_api::drop_namespace(
+            &self.configuration,
+            self.name.as_deref(),
+            &namespace.url_encode(),
+        )
+        .await
+        .map_err(Into::<Error>::into)?;
         Ok(())
     }
     /// Load the namespace properties from the catalog
@@ -88,7 +94,7 @@ impl Catalog for RestCatalog {
     ) -> Result<HashMap<String, String>, Error> {
         let response = catalog_api_api::load_namespace_metadata(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &namespace.url_encode(),
         )
         .await
@@ -104,7 +110,7 @@ impl Catalog for RestCatalog {
     ) -> Result<(), Error> {
         catalog_api_api::update_properties(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &namespace.url_encode(),
             models::UpdateNamespacePropertiesRequest { updates, removals },
         )
@@ -116,7 +122,7 @@ impl Catalog for RestCatalog {
     async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, Error> {
         match catalog_api_api::namespace_exists(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &namespace.url_encode(),
         )
         .await
@@ -136,17 +142,35 @@ impl Catalog for RestCatalog {
         }
     }
     /// Lists all tables in the given namespace.
-    async fn list_tables(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error> {
+    async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error> {
         let tables = catalog_api_api::list_tables(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &namespace.to_string(),
             None,
             None,
         )
         .await
         .map_err(Into::<Error>::into)?;
-        tables
+        let tables = tables
+            .identifiers
+            .unwrap_or(Vec::new())
+            .into_iter()
+            .map(|x| {
+                let mut vec = x.namespace().to_vec();
+                vec.push(x.name().to_string());
+                Identifier::try_new(&vec)
+            });
+        let views = catalog_api_api::list_views(
+            &self.configuration,
+            self.name.as_deref(),
+            &namespace.to_string(),
+            None,
+            None,
+        )
+        .await
+        .map_err(Into::<Error>::into)?;
+        views
             .identifiers
             .unwrap_or(Vec::new())
             .into_iter()
@@ -155,14 +179,20 @@ impl Catalog for RestCatalog {
                 vec.push(x.name().to_string());
                 Identifier::try_new(&vec)
             })
+            .chain(tables)
             .collect()
     }
     /// Lists all namespaces in the catalog.
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error> {
-        let namespaces =
-            catalog_api_api::list_namespaces(&self.configuration, &self.name, None, None, parent)
-                .await
-                .map_err(Into::<Error>::into)?;
+        let namespaces = catalog_api_api::list_namespaces(
+            &self.configuration,
+            self.name.as_deref(),
+            None,
+            None,
+            parent,
+        )
+        .await
+        .map_err(Into::<Error>::into)?;
         namespaces
             .namespaces
             .ok_or(Error::NotFound("Namespaces".to_string(), "".to_owned()))?
@@ -171,13 +201,22 @@ impl Catalog for RestCatalog {
             .collect()
     }
     /// Check if a table exists
-    async fn table_exists(&self, identifier: &Identifier) -> Result<bool, Error> {
-        catalog_api_api::table_exists(
+    async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error> {
+        catalog_api_api::view_exists(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &identifier.namespace().to_string(),
             identifier.name(),
         )
+        .or_else(|_| async move {
+            catalog_api_api::table_exists(
+                &self.configuration,
+                self.name.as_deref(),
+                &identifier.namespace().to_string(),
+                identifier.name(),
+            )
+            .await
+        })
         .await
         .map(|_| true)
         .map_err(Into::<Error>::into)
@@ -186,7 +225,7 @@ impl Catalog for RestCatalog {
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error> {
         catalog_api_api::drop_table(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &identifier.namespace().to_string(),
             identifier.name(),
             None,
@@ -194,52 +233,70 @@ impl Catalog for RestCatalog {
         .await
         .map_err(Into::<Error>::into)
     }
-    /// Load a table.
-    async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error> {
-        let table_metadata = catalog_api_api::load_table(
+    /// Drop a table and delete all data and metadata files.
+    async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error> {
+        catalog_api_api::drop_view(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &identifier.namespace().to_string(),
             identifier.name(),
-            None,
-            None,
+        )
+        .await
+        .map_err(Into::<Error>::into)
+    }
+    /// Drop a table and delete all data and metadata files.
+    async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error> {
+        catalog_api_api::drop_view(
+            &self.configuration,
+            self.name.as_deref(),
+            &identifier.namespace().to_string(),
+            identifier.name(),
+        )
+        .await
+        .map_err(Into::<Error>::into)
+    }
+    /// Load a table.
+    async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error> {
+        // Load View/Matview metadata, is loaded as tabular to enable both possibilities. Must not be table metadata
+        let tabular_metadata = catalog_api_api::load_view(
+            &self.configuration,
+            self.name.as_deref(),
+            &identifier.namespace().to_string(),
+            identifier.name(),
         )
         .await
         .map(|x| x.metadata)
-        .map_err(Into::<Error>::into);
+        .map_err(Into::<Error>::into)?;
+        let view_metadata = match *tabular_metadata {
+            TabularMetadata::View(view) => Ok(Tabular::View(
+                View::new(identifier.clone(), self.clone(), view).await?,
+            )),
+            TabularMetadata::MaterializedView(matview) => Ok(Tabular::MaterializedView(
+                MaterializedView::new(identifier.clone(), self.clone(), matview).await?,
+            )),
+            TabularMetadata::Table(_) => Err(Error::InvalidFormat(
+                "Entity returned from load_view cannot be a table.".to_owned(),
+            )),
+        };
 
-        let is_storage_table = table_metadata
-            .as_ref()
-            .ok()
-            .and_then(|table_metadata| table_metadata.properties.get(STORAGE_TABLE_FLAG))
-            .is_some_and(|x| x == "true");
-
-        if let (Ok(table_metadata), false) = (table_metadata, is_storage_table) {
-            Ok(Tabular::Table(
-                Table::new(identifier.clone(), self.clone(), *table_metadata).await?,
-            ))
+        if let Ok(view_metadata) = view_metadata {
+            Ok(view_metadata)
         } else {
-            // Load View/Matview metadata, is loaded as tabular to enable both possibilities. Must not be table metadata
-            let tabular_metadata = catalog_api_api::load_view(
+            let table_metadata = catalog_api_api::load_table(
                 &self.configuration,
-                &self.name,
+                self.name.as_deref(),
                 &identifier.namespace().to_string(),
                 identifier.name(),
+                None,
+                None,
             )
             .await
             .map(|x| x.metadata)
             .map_err(Into::<Error>::into)?;
-            match *tabular_metadata {
-                TabularMetadata::View(view) => Ok(Tabular::View(
-                    View::new(identifier.clone(), self.clone(), view).await?,
-                )),
-                TabularMetadata::MaterializedView(matview) => Ok(Tabular::MaterializedView(
-                    MaterializedView::new(identifier.clone(), self.clone(), matview).await?,
-                )),
-                TabularMetadata::Table(_) => Err(Error::InvalidFormat(
-                    "Entity returned from load_view cannot be a table.".to_owned(),
-                )),
-            }
+
+            Ok(Tabular::Table(
+                Table::new(identifier.clone(), self.clone(), *table_metadata).await?,
+            ))
         }
     }
     /// Register a table with the catalog if it doesn't exist.
@@ -262,22 +319,17 @@ impl Catalog for RestCatalog {
         request.properties = Some(metadata.properties);
         catalog_api_api::create_table(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &identifier.namespace().to_string(),
             request,
             None,
         )
+        .map_err(Into::<Error>::into)
+        .and_then(|response| {
+            let clone = self.clone();
+            async move { Table::new(identifier.clone(), clone, *response.metadata).await }
+        })
         .await
-        .map_err(Into::<Error>::into)?;
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::Table(table) => Ok(table),
-                _ => Err(Error::InvalidFormat(
-                    "Table update on an entity that is nor a table".to_owned(),
-                )),
-            })
     }
     /// Update a table by atomically changing the pointer to the metadata file
     async fn update_table(
@@ -287,22 +339,18 @@ impl Catalog for RestCatalog {
         let identifier = commit.identifier.clone();
         catalog_api_api::update_table(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &identifier.namespace().to_string(),
             identifier.name(),
             commit,
         )
+        .map_err(Into::<Error>::into)
+        .and_then(|response| {
+            let clone = self.clone();
+            let identifier = identifier.clone();
+            async move { Table::new(identifier, clone, *response.metadata).await }
+        })
         .await
-        .map_err(Into::<Error>::into)?;
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::Table(table) => Ok(table),
-                _ => Err(Error::InvalidFormat(
-                    "Table update on an entity that is nor a table".to_owned(),
-                )),
-            })
     }
     async fn create_view(
         self: Arc<Self>,
@@ -318,42 +366,49 @@ impl Catalog for RestCatalog {
         request.location = Some(metadata.location);
         catalog_api_api::create_view(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &identifier.namespace().to_string(),
             request,
         )
+        .map_err(Into::<Error>::into)
+        .and_then(|response| {
+            let clone = self.clone();
+            async move {
+                if let TabularMetadata::View(metadata) = *response.metadata {
+                    View::new(identifier.clone(), clone, metadata).await
+                } else {
+                    Err(Error::InvalidFormat(
+                        "Create view didn't return view metadata.".to_owned(),
+                    ))
+                }
+            }
+        })
         .await
-        .map_err(Into::<Error>::into)?;
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::View(view) => Ok(view),
-                _ => Err(Error::InvalidFormat(
-                    "View update on an entity that is not a view".to_owned(),
-                )),
-            })
     }
     async fn update_view(self: Arc<Self>, commit: CommitView) -> Result<View, Error> {
         let identifier = commit.identifier.clone();
         catalog_api_api::replace_view(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &identifier.namespace().to_string(),
             identifier.name(),
             commit,
         )
+        .map_err(Into::<Error>::into)
+        .and_then(|response| {
+            let clone = self.clone();
+            let identifier = identifier.clone();
+            async move {
+                if let TabularMetadata::View(metadata) = *response.metadata {
+                    View::new(identifier.clone(), clone, metadata).await
+                } else {
+                    Err(Error::InvalidFormat(
+                        "Create view didn't return view metadata.".to_owned(),
+                    ))
+                }
+            }
+        })
         .await
-        .map_err(Into::<Error>::into)?;
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::View(view) => Ok(view),
-                _ => Err(Error::InvalidFormat(
-                    "View update on an entity that is not a view".to_owned(),
-                )),
-            })
     }
     async fn create_materialized_view(
         self: Arc<Self>,
@@ -369,22 +424,25 @@ impl Catalog for RestCatalog {
         request.location = Some(metadata.location);
         catalog_api_api::create_view(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &identifier.namespace().to_string(),
             request,
         )
+        .map_err(Into::<Error>::into)
+        .and_then(|response| {
+            let clone = self.clone();
+            async move {
+                if let TabularMetadata::MaterializedView(metadata) = *response.metadata {
+                    MaterializedView::new(identifier.clone(), clone, metadata).await
+                } else {
+                    Err(Error::InvalidFormat(
+                        "Create materialzied view didn't return materialized view metadata."
+                            .to_owned(),
+                    ))
+                }
+            }
+        })
         .await
-        .map_err(Into::<Error>::into)?;
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::MaterializedView(matview) => Ok(matview),
-                _ => Err(Error::InvalidFormat(
-                    "Materialzied View update on an entity that is not a materialized view"
-                        .to_owned(),
-                )),
-            })
     }
     async fn update_materialized_view(
         self: Arc<Self>,
@@ -393,23 +451,27 @@ impl Catalog for RestCatalog {
         let identifier = commit.identifier.clone();
         catalog_api_api::replace_view(
             &self.configuration,
-            &self.name,
+            self.name.as_deref(),
             &identifier.namespace().to_string(),
             identifier.name(),
             commit,
         )
+        .map_err(Into::<Error>::into)
+        .and_then(|response| {
+            let clone = self.clone();
+            let identifier = identifier.clone();
+            async move {
+                if let TabularMetadata::MaterializedView(metadata) = *response.metadata {
+                    MaterializedView::new(identifier.clone(), clone, metadata).await
+                } else {
+                    Err(Error::InvalidFormat(
+                        "Create materialzied view didn't return materialized view metadata."
+                            .to_owned(),
+                    ))
+                }
+            }
+        })
         .await
-        .map_err(Into::<Error>::into)?;
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::MaterializedView(matview) => Ok(matview),
-                _ => Err(Error::InvalidFormat(
-                    "Materialzied View update on an entity that is not a materialized view"
-                        .to_owned(),
-                )),
-            })
     }
     /// Return an object store for the desired bucket
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore> {
@@ -430,7 +492,7 @@ pub mod tests {
         table::table_builder::TableBuilder,
     };
     use object_store::{memory::InMemory, ObjectStore};
-    use std::sync::Arc;
+    use std::{convert::TryFrom, sync::Arc, time::Duration};
     use testcontainers::{core::WaitFor, runners::AsyncRunner, GenericImage};
 
     use crate::{apis::configuration::Configuration, catalog::RestCatalog};
@@ -448,21 +510,26 @@ pub mod tests {
     }
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        let _ = GenericImage::new("tabulario/iceberg-rest", "latest")
-            .with_exposed_port(8181)
+        let container = GenericImage::new("tabulario/iceberg-rest", "latest")
             .with_wait_for(WaitFor::StdOutMessage {
                 message: "INFO  [org.eclipse.jetty.server.Server] - Started ".to_owned(),
             })
-            .start()
+            .with_env_var("CATALOG_WAREHOUSE", "/tmp/warehouse")
+            .pull_image()
             .await;
 
+        let _node = container.with_mapped_port((8181, 8181)).start().await;
+
         let object_store = ObjectStoreBuilder::Memory(Arc::new(InMemory::new()));
-        let catalog = Arc::new(RestCatalog::new("nyc", configuration(), object_store));
+        let catalog = Arc::new(RestCatalog::new(None, configuration(), object_store));
 
-        let namespaces = catalog.list_namespaces(None).await.unwrap();
-        dbg!(&namespaces);
+        catalog
+            .create_namespace(&Namespace::try_new(&["public".to_owned()]).unwrap(), None)
+            .await
+            .expect("Failed to create namespace");
 
-        let identifier = Identifier::parse("public.table3").unwrap();
+        let identifier = Identifier::parse("public.test").unwrap();
+        dbg!(&identifier);
 
         let schema = Schema::builder()
             .with_schema_id(1)
@@ -472,14 +539,14 @@ pub mod tests {
                     .with_struct_field(StructField {
                         id: 1,
                         name: "one".to_string(),
-                        required: false,
+                        required: true,
                         field_type: Type::Primitive(PrimitiveType::String),
                         doc: None,
                     })
                     .with_struct_field(StructField {
                         id: 2,
                         name: "two".to_string(),
-                        required: false,
+                        required: true,
                         field_type: Type::Primitive(PrimitiveType::String),
                         doc: None,
                     })
@@ -492,26 +559,26 @@ pub mod tests {
         let mut builder = TableBuilder::new(&identifier, catalog.clone())
             .expect("Failed to create table builder.");
         builder
-            .location("/")
+            .location("/tmp/warehouse/test")
             .with_schema((1, schema))
             .current_schema_id(1);
         let mut table = builder.build().await.expect("Failed to create table.");
 
         let exists = Arc::clone(&catalog)
-            .table_exists(&identifier)
+            .tabular_exists(&identifier)
             .await
             .expect("Table doesn't exist");
         assert!(exists);
 
         let tables = catalog
             .clone()
-            .list_tables(
+            .list_tabulars(
                 &Namespace::try_new(&["load_table".to_owned()])
                     .expect("Failed to create namespace"),
             )
             .await
             .expect("Failed to list Tables");
-        assert_eq!(tables[0].to_string(), "load_table.table3".to_owned());
+        assert_eq!(tables[0].to_string(), "load_table.test".to_owned());
 
         let namespaces = catalog
             .clone()
@@ -529,7 +596,7 @@ pub mod tests {
             .expect("Failed to drop table.");
 
         let exists = Arc::clone(&catalog)
-            .table_exists(&identifier)
+            .tabular_exists(&identifier)
             .await
             .expect("Table exists failed");
         assert!(!exists);

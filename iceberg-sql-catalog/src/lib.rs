@@ -171,7 +171,7 @@ impl Catalog for SqlCatalog {
     async fn namespace_exists(&self, _namespace: &Namespace) -> Result<bool, IcebergError> {
         todo!()
     }
-    async fn list_tables(&self, namespace: &Namespace) -> Result<Vec<Identifier>, IcebergError> {
+    async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, IcebergError> {
         let mut connection = self.connection.lock().await;
         let rows = connection.transaction(|txn|{
             let name = self.name.clone();
@@ -210,7 +210,7 @@ impl Catalog for SqlCatalog {
             .collect::<Result<_, sqlx::Error>>()
             .map_err(Error::from)?)
     }
-    async fn table_exists(&self, identifier: &Identifier) -> Result<bool, IcebergError> {
+    async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, IcebergError> {
         let mut connection = self.connection.lock().await;
         let rows = connection.transaction(|txn|{
             let catalog_name = self.name.clone();
@@ -226,6 +226,32 @@ impl Catalog for SqlCatalog {
         Ok(iter.next().is_some())
     }
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), IcebergError> {
+        let mut connection = self.connection.lock().await;
+        connection.transaction(|txn|{
+            let catalog_name = self.name.clone();
+            let namespace = identifier.namespace().to_string();
+            let name = identifier.name().to_string();
+            Box::pin(async move {
+            sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
+                &namespace,
+                &name)).execute(&mut **txn).await
+        })}).await.map_err(Error::from)?;
+        Ok(())
+    }
+    async fn drop_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
+        let mut connection = self.connection.lock().await;
+        connection.transaction(|txn|{
+            let catalog_name = self.name.clone();
+            let namespace = identifier.namespace().to_string();
+            let name = identifier.name().to_string();
+            Box::pin(async move {
+            sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
+                &namespace,
+                &name)).execute(&mut **txn).await
+        })}).await.map_err(Error::from)?;
+        Ok(())
+    }
+    async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
         let mut connection = self.connection.lock().await;
         connection.transaction(|txn|{
             let catalog_name = self.name.clone();
@@ -790,14 +816,14 @@ pub mod tests {
         let mut table = builder.build().await.expect("Failed to create table.");
 
         let exists = Arc::clone(&catalog)
-            .table_exists(&identifier)
+            .tabular_exists(&identifier)
             .await
             .expect("Table doesn't exist");
         assert!(exists);
 
         let tables = catalog
             .clone()
-            .list_tables(
+            .list_tabulars(
                 &Namespace::try_new(&["load_table".to_owned()])
                     .expect("Failed to create namespace"),
             )
@@ -821,7 +847,7 @@ pub mod tests {
             .expect("Failed to drop table.");
 
         let exists = Arc::clone(&catalog)
-            .table_exists(&identifier)
+            .tabular_exists(&identifier)
             .await
             .expect("Table exists failed");
         assert!(!exists);

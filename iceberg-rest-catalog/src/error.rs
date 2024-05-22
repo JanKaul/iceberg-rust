@@ -13,9 +13,10 @@ impl<T> Into<Error> for apis::Error<T> {
             apis::Error::ReqwestMiddleware(err) => Error::InvalidFormat(err.to_string()),
             apis::Error::Serde(err) => Error::JSONSerde(err),
             apis::Error::Io(err) => Error::IO(err),
-            apis::Error::ResponseError(err) => {
-                Error::InvalidFormat(format!("Response status: {}", err.status))
-            }
+            apis::Error::ResponseError(err) => Error::InvalidFormat(format!(
+                "Response status: {}, Response content: {}",
+                err.status, err.content
+            )),
         }
     }
 }
