@@ -58,22 +58,27 @@ impl Mirror {
     }
     /// Lists all tables in the given namespace.
     pub fn table_names(&self, namespace: &Namespace) -> Result<Vec<Identifier>, DataFusionError> {
-        let tables = self
+        let node = self
             .storage
             .get(&namespace.to_string())
             .ok_or_else(|| Error::InvalidFormat("namespace in catalog".to_string()))
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
-        let names = match tables.value() {
-            Node::Relation(_) => Err(Error::InvalidFormat("table in namespace".to_string())),
-            Node::Namespace(names) => Ok(names),
+        let names = if let Node::Namespace(names) = node.value() {
+            Ok(names)
+        } else {
+            Err(Error::InvalidFormat("table in namespace".to_string()))
         }
         .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
-        names
+        Ok(names
             .iter()
-            .map(|x| {
-                Identifier::parse(x).map_err(|err| DataFusionError::Internal(format!("{}", err)))
+            .filter_map(|r| {
+                let r = &self.storage.get(r)?;
+                match &r.value() {
+                    &Node::Relation(ident) => Some(ident.clone()),
+                    &Node::Namespace(_) => None,
+                }
             })
-            .collect::<Result<_, DataFusionError>>()
+            .collect())
     }
     /// Lists all namespaces in the catalog.
     pub fn schema_names(&self, _parent: Option<&str>) -> Result<Vec<Namespace>, DataFusionError> {
