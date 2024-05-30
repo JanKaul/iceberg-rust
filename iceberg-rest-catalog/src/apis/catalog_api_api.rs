@@ -408,7 +408,6 @@ where
 
     let status = resp.status();
     let content = resp.text().await?;
-    dbg!(&content);
 
     if !status.is_client_error() && !status.is_server_error() {
         serde_json::from_str(&content).map_err(Error::from)
@@ -472,7 +471,6 @@ where
 
     let status = resp.status();
     let content = resp.text().await?;
-    dbg!(&content);
 
     if !status.is_client_error() && !status.is_server_error() {
         Ok(())
