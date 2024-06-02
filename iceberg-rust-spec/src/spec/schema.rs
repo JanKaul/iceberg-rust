@@ -11,12 +11,15 @@ use crate::error::Error;
 
 use super::types::StructType;
 
+pub static DEFAULT_SCHEMA_ID: i32 = 0;
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder, Getters)]
 #[serde(rename_all = "kebab-case")]
 #[builder(setter(prefix = "with"))]
 /// Names and types of fields in a table.
 pub struct Schema {
     /// Identifier of the schema
+    #[builder(default = "DEFAULT_SCHEMA_ID")]
     schema_id: i32,
     /// Set of primitive fields that identify rows in a table.
     #[serde(skip_serializing_if = "Option::is_none")]

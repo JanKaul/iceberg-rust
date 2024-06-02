@@ -139,6 +139,7 @@ impl TableMetadata {
             .get(&schema_id)
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
+
     /// Get schema for snapshot
     #[inline]
     pub fn schema(&self, snapshot_id: i64) -> Result<&Schema, Error> {
@@ -151,6 +152,7 @@ impl TableMetadata {
             .get(&schema_id)
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
+
     /// Get default partition spec
     #[inline]
     pub fn default_partition_spec(&self) -> Result<&PartitionSpec, Error> {
@@ -222,7 +224,8 @@ impl TableMetadata {
     }
 }
 
-pub fn new_metadata_location(metadata: TabularMetadataRef<'_>) -> String {
+pub fn new_metadata_location<'a, T: Into<TabularMetadataRef<'a>>>(metadata: T) -> String {
+    let metadata: TabularMetadataRef = metadata.into();
     let transaction_uuid = Uuid::new_v4();
     let version = metadata.sequence_number();
 
@@ -768,7 +771,7 @@ mod tests {
     use crate::{
         error::Error,
         spec::{
-            partition::{PartitionField, PartitionSpecBuilder, Transform},
+            partition::{PartitionField, PartitionSpec, Transform},
             schema::SchemaBuilder,
             snapshot::{Operation, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary},
             sort::{NullOrder, SortDirection, SortField, SortOrderBuilder},
@@ -1052,8 +1055,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let partition_spec = PartitionSpecBuilder::default()
-            .with_spec_id(0)
+        let partition_spec = PartitionSpec::builder()
             .with_partition_field(PartitionField::new(1, 1000, "x", Transform::Identity))
             .build()
             .unwrap();
@@ -1184,8 +1186,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let partition_spec = PartitionSpecBuilder::default()
-            .with_spec_id(0)
+        let partition_spec = PartitionSpec::builder()
             .with_partition_field(PartitionField::new(1, 1000, "x", Transform::Identity))
             .build()
             .unwrap();
@@ -1268,8 +1269,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let partition_spec = PartitionSpecBuilder::default()
-            .with_spec_id(0)
+        let partition_spec = PartitionSpec::builder()
             .with_partition_field(PartitionField::new(1, 1000, "x", Transform::Identity))
             .build()
             .unwrap();

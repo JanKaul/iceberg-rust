@@ -10,7 +10,6 @@ pub mod identifier;
 pub mod namespace;
 
 use iceberg_rust_spec::spec::materialized_view_metadata::MaterializedViewMetadata;
-use iceberg_rust_spec::spec::table_metadata::TableMetadata;
 use iceberg_rust_spec::spec::view_metadata::ViewMetadata;
 use identifier::Identifier;
 use object_store::ObjectStore;
@@ -22,11 +21,13 @@ use crate::view::View;
 
 use self::bucket::Bucket;
 use self::commit::{CommitTable, CommitView};
+use self::create::CreateTable;
 use self::namespace::Namespace;
 use self::tabular::Tabular;
 
 pub mod bucket;
 pub mod commit;
+pub mod create;
 pub mod tabular;
 
 /// Trait to create, replace and drop tables in an iceberg catalog.
@@ -66,11 +67,11 @@ pub trait Catalog: Send + Sync + Debug {
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Load a table.
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
-    /// Register a table with the catalog if it doesn't exist.
+    /// Create a table in the catalog if it doesn't exist.
     async fn create_table(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: TableMetadata,
+        create_table: CreateTable,
     ) -> Result<Table, Error>;
     /// Register a view with the catalog if it doesn't exist.
     async fn create_view(
@@ -93,6 +94,12 @@ pub trait Catalog: Send + Sync + Debug {
         self: Arc<Self>,
         commit: CommitView,
     ) -> Result<MaterializedView, Error>;
+    /// Register a table with the catalog if it doesn't exist.
+    async fn register_table(
+        self: Arc<Self>,
+        identifier: Identifier,
+        metadata_location: &str,
+    ) -> Result<Table, Error>;
     /// Return the associated object store for a bucket
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }

@@ -11,7 +11,7 @@ use crate::{catalog::identifier::SEPARATOR, error::Error};
 
 /// Namespace struct for iceberg catalogs
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Namespace(Vec<String>);
+pub struct Namespace(pub(crate) Vec<String>);
 
 impl Namespace {
     /// Try to create new namespace with sequence of strings.

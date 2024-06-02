@@ -90,6 +90,9 @@ pub enum Error {
     /// version builder
     #[error(transparent)]
     VersionBuilder(#[from] iceberg_rust_spec::spec::view_metadata::VersionBuilderError),
+    /// create table builder
+    #[error(transparent)]
+    CreateTableBuilder(#[from] crate::catalog::create::CreateTableBuilderError),
 }
 
 impl From<Error> for ArrowError {

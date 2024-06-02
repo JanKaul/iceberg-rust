@@ -47,7 +47,7 @@ impl ViewBuilder {
         let identifier = Identifier::parse(&identifier.to_string())?;
         let mut builder = ViewMetadataBuilder::default();
         builder
-            .with_schema((1, schema))
+            .with_schema((0, schema))
             .with_version((
                 1,
                 VersionBuilder::default()
@@ -56,7 +56,7 @@ impl ViewBuilder {
                         sql: sql.to_string(),
                         dialect: "ANSI".to_string(),
                     })
-                    .schema_id(1)
+                    .schema_id(0)
                     .build()?,
             ))
             .current_version_id(1)

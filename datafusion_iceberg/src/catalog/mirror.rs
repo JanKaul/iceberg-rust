@@ -4,8 +4,12 @@ use futures::{executor::LocalPool, task::LocalSpawnExt};
 use std::{collections::HashSet, sync::Arc};
 
 use iceberg_rust::{
-    catalog::{identifier::Identifier, namespace::Namespace, tabular::Tabular, Catalog},
+    catalog::{
+        bucket::Bucket, identifier::Identifier, namespace::Namespace, tabular::Tabular, Catalog,
+    },
     error::Error as IcebergError,
+    spec::table_metadata::new_metadata_location,
+    util::strip_prefix,
 };
 use iceberg_rust_spec::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
 
@@ -204,10 +208,20 @@ impl Mirror {
                         .await
                         .metadata()
                         .to_owned();
+                    let metadata_location = new_metadata_location(&metadata);
+                    let object_store =
+                        cloned_catalog.object_store(Bucket::from_path(&metadata_location).unwrap());
+                    object_store
+                        .put(
+                            &strip_prefix(&metadata_location).into(),
+                            serde_json::to_vec(&metadata).unwrap().into(),
+                        )
+                        .await
+                        .unwrap();
                     match metadata {
-                        TabularMetadata::Table(metadata) => {
+                        TabularMetadata::Table(_) => {
                             cloned_catalog
-                                .create_table(identifier, metadata)
+                                .register_table(identifier, &metadata_location)
                                 .await
                                 .unwrap();
                         }

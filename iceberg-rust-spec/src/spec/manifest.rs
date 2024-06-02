@@ -1503,7 +1503,7 @@ fn avro_value_to_manifest_entry(
 #[cfg(test)]
 mod tests {
     use crate::spec::{
-        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        partition::{PartitionField, Transform},
         schema::SchemaV2,
         table_metadata::TableMetadataBuilder,
         types::{PrimitiveType, StructField, StructType, Type},
@@ -1517,11 +1517,10 @@ mod tests {
     fn manifest_entry() {
         let table_metadata = TableMetadataBuilder::default()
             .location("/")
-            .current_schema_id(1)
+            .current_schema_id(0)
             .schemas(HashMap::from_iter(vec![(
-                1,
+                0,
                 Schema::builder()
-                    .with_schema_id(1)
                     .with_fields(
                         StructType::builder()
                             .with_struct_field(StructField {
@@ -1537,11 +1536,10 @@ mod tests {
                     .build()
                     .unwrap(),
             )]))
-            .default_spec_id(1)
+            .default_spec_id(0)
             .partition_specs(HashMap::from_iter(vec![(
-                1,
-                PartitionSpecBuilder::default()
-                    .with_spec_id(1)
+                0,
+                PartitionSpec::builder()
                     .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),
@@ -1647,11 +1645,10 @@ mod tests {
     fn test_read_manifest_entry() {
         let table_metadata = TableMetadataBuilder::default()
             .location("/")
-            .current_schema_id(1)
+            .current_schema_id(0)
             .schemas(HashMap::from_iter(vec![(
-                1,
+                0,
                 Schema::builder()
-                    .with_schema_id(1)
                     .with_fields(
                         StructType::builder()
                             .with_struct_field(StructField {
@@ -1667,11 +1664,10 @@ mod tests {
                     .build()
                     .unwrap(),
             )]))
-            .default_spec_id(1)
+            .default_spec_id(0)
             .partition_specs(HashMap::from_iter(vec![(
-                1,
-                PartitionSpecBuilder::default()
-                    .with_spec_id(1)
+                0,
+                PartitionSpec::builder()
                     .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),
@@ -1788,8 +1784,7 @@ mod tests {
             }]),
         };
 
-        let spec = PartitionSpecBuilder::default()
-            .with_spec_id(0)
+        let spec = PartitionSpec::builder()
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .unwrap();

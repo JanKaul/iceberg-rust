@@ -21,6 +21,14 @@ pub struct Identifier {
 }
 
 impl Identifier {
+    /// Create new Identifier
+    pub fn new(namespace: &[String], name: &str) -> Self {
+        Self {
+            namespace: Namespace(namespace.to_vec()),
+            name: name.to_owned(),
+        }
+    }
+
     ///Create Identifier
     pub fn try_new(names: &[String]) -> Result<Self, Error> {
         let length = names.len();

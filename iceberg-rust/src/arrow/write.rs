@@ -30,9 +30,7 @@ use parquet::{
 };
 use uuid::Uuid;
 
-use crate::{
-    catalog::bucket::parse_bucket, error::Error, file_format::parquet::parquet_to_datafile,
-};
+use crate::{catalog::bucket::Bucket, error::Error, file_format::parquet::parquet_to_datafile};
 
 use super::partition::partition_record_batches;
 
@@ -103,7 +101,7 @@ async fn write_parquet_files(
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<Vec<DataFile>, ArrowError> {
-    let bucket = parse_bucket(location)?;
+    let bucket = Bucket::from_path(location)?;
     let partition_location =
         generate_partition_location(location, partition_spec, partiton_values)?;
     let current_writer = Arc::new(Mutex::new(

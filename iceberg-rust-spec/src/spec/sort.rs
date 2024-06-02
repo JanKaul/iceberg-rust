@@ -10,6 +10,8 @@ use crate::error::Error;
 
 use super::partition::Transform;
 
+pub static DEFAULT_SORT_ORDER_ID: i32 = 0;
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 /// Sort direction in a partition, either ascending or descending
 pub enum SortDirection {
@@ -53,6 +55,7 @@ pub struct SortField {
 /// The order of the sort fields within the list defines the order in which the sort is applied to the data.
 pub struct SortOrder {
     /// Identifier for SortOrder, order_id `0` is no sort order.
+    #[builder(default = "DEFAULT_SORT_ORDER_ID")]
     pub order_id: i32,
     #[builder(setter(each(name = "with_sort_field")))]
     /// Details of the sort

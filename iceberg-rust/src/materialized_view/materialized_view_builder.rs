@@ -11,13 +11,13 @@ use std::{
 use iceberg_rust_spec::spec::{
     materialized_view_metadata::MaterializedViewMetadataBuilder,
     schema::Schema,
-    table_metadata::TableMetadataBuilder,
     view_metadata::{VersionBuilder, ViewProperties, ViewRepresentation, REF_PREFIX},
 };
 
 use crate::{
     catalog::{identifier::Identifier, Catalog},
     error::Error,
+    table::Table,
 };
 
 use super::MaterializedView;
@@ -57,7 +57,7 @@ impl MaterializedViewBuilder {
     ) -> Result<Self, Error> {
         let mut builder = MaterializedViewMetadataBuilder::default();
         builder
-            .with_schema((1, schema))
+            .with_schema((0, schema))
             .with_version((
                 1,
                 VersionBuilder::default()
@@ -66,7 +66,7 @@ impl MaterializedViewBuilder {
                         sql: sql.to_string(),
                         dialect: "ANSI".to_string(),
                     })
-                    .schema_id(1)
+                    .schema_id(0)
                     .build()?,
             ))
             .current_version_id(1)
@@ -91,28 +91,19 @@ impl MaterializedViewBuilder {
     pub async fn build(self) -> Result<MaterializedView, Error> {
         let metadata = self.metadata.build()?;
         let schema_id = &metadata.current_version(None)?.schema_id;
-        let table_metadata = TableMetadataBuilder::default()
-            .location(&metadata.location)
-            .with_schema((
-                *schema_id,
+        let storage_table_identifier = Identifier::parse(&metadata.properties.storage_table)?;
+        Table::builder()
+            .with_name(storage_table_identifier.name())
+            .with_location(&metadata.location)
+            .with_schema(
                 metadata
                     .schemas
                     .get(schema_id)
                     .ok_or(Error::InvalidFormat("schema in metadata".to_string()))?
                     .clone(),
-            ))
-            .current_schema_id(*schema_id)
-            .properties(HashMap::from_iter([(
-                STORAGE_TABLE_FLAG.to_owned(),
-                "true".to_owned(),
-            )]))
-            .build()?;
-        self.catalog
-            .clone()
-            .create_table(
-                Identifier::parse(&metadata.properties.storage_table)?,
-                table_metadata,
             )
+            .with_property((STORAGE_TABLE_FLAG.to_owned(), "true".to_owned()))
+            .build(&storage_table_identifier.namespace(), self.catalog.clone())
             .await?;
         self.catalog
             .create_materialized_view(self.identifier, metadata)

@@ -5,7 +5,6 @@ use datafusion_expr::{col, min};
 use datafusion_iceberg::DataFusionTable;
 use iceberg_rust::catalog::identifier::Identifier;
 use iceberg_rust::catalog::Catalog;
-use iceberg_rust::spec::table_metadata::TableMetadata;
 use iceberg_sql_catalog::SqlCatalog;
 use object_store::local::LocalFileSystem;
 use object_store::ObjectStore;
@@ -24,13 +23,7 @@ pub(crate) async fn main() {
     );
     let identifier = Identifier::parse("test.table1").unwrap();
 
-    let metadata: TableMetadata= serde_json::from_slice(&object_store.get(&"/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json".into()).await.unwrap().bytes().await.unwrap()).unwrap();
-
-    let table = catalog
-        .clone()
-        .create_table(identifier.clone(), metadata)
-        .await
-        .expect("Failed to register table.");
+    let table = catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
 
     let ctx = SessionContext::new();
 

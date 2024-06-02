@@ -592,13 +592,13 @@ mod tests {
     };
     use iceberg_rust::{
         catalog::{identifier::Identifier, tabular::Tabular, Catalog},
-        table::table_builder::TableBuilder,
+        spec::partition::PartitionSpec,
+        table::Table,
         view::view_builder::ViewBuilder,
     };
     use iceberg_rust_spec::spec::{
-        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        partition::{PartitionField, Transform},
         schema::Schema,
-        table_metadata::TableMetadata,
         types::{PrimitiveType, StructField, StructType, Type},
     };
     use iceberg_sql_catalog::SqlCatalog;
@@ -619,13 +619,7 @@ mod tests {
         );
         let identifier = Identifier::parse("test.table1").unwrap();
 
-        let metadata: TableMetadata= serde_json::from_slice(&object_store.get(&"/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json".into()).await.unwrap().bytes().await.unwrap()).unwrap();
-
-        catalog
-            .clone()
-            .create_table(identifier.clone(), metadata)
-            .await
-            .expect("Failed to register table.");
+        catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
 
         let table = if let Tabular::Table(table) = catalog
             .load_tabular(&identifier)
@@ -678,7 +672,6 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_schema_id(1)
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {
@@ -722,23 +715,21 @@ mod tests {
             .build()
             .unwrap();
 
-        let partition_spec = PartitionSpecBuilder::default()
-            .with_spec_id(1)
+        let partition_spec = PartitionSpec::builder()
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
-        let mut builder =
-            TableBuilder::new("test.orders", catalog).expect("Failed to create table builder");
-        builder
-            .location("/test/orders")
-            .with_schema((1, schema))
-            .current_schema_id(1)
-            .with_partition_spec((1, partition_spec))
-            .default_spec_id(1);
-        let table = Arc::new(DataFusionTable::from(
-            builder.build().await.expect("Failed to create table."),
-        ));
+        let table = Table::builder()
+            .with_name("orders")
+            .with_location("/test/orders")
+            .with_schema(schema)
+            .with_partition_spec(partition_spec)
+            .build(&["test".to_owned()], catalog)
+            .await
+            .expect("Failed to create table");
+
+        let table = Arc::new(DataFusionTable::from(table));
 
         let ctx = SessionContext::new();
 
@@ -855,7 +846,6 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_schema_id(1)
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {
@@ -899,23 +889,21 @@ mod tests {
             .build()
             .unwrap();
 
-        let partition_spec = PartitionSpecBuilder::default()
-            .with_spec_id(1)
+        let partition_spec = PartitionSpec::builder()
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
-        let mut builder =
-            TableBuilder::new("test.orders", catalog).expect("Failed to create table builder");
-        builder
-            .location("/test/orders")
-            .with_schema((1, schema))
-            .current_schema_id(1)
-            .with_partition_spec((1, partition_spec))
-            .default_spec_id(1);
-        let table = Arc::new(DataFusionTable::from(
-            builder.build().await.expect("Failed to create table."),
-        ));
+        let table = Table::builder()
+            .with_name("orders")
+            .with_location("/test/orders")
+            .with_schema(schema)
+            .with_partition_spec(partition_spec)
+            .build(&["test".to_owned()], catalog)
+            .await
+            .expect("Failed to create table");
+
+        let table = Arc::new(DataFusionTable::from(table));
 
         let ctx = SessionContext::new();
 
@@ -1032,7 +1020,6 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_schema_id(1)
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {
@@ -1076,22 +1063,19 @@ mod tests {
             .build()
             .unwrap();
 
-        let partition_spec = PartitionSpecBuilder::default()
-            .with_spec_id(1)
+        let partition_spec = PartitionSpec::builder()
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
-        let mut builder = TableBuilder::new("test.orders", catalog.clone())
-            .expect("Failed to create table builder");
-        builder
-            .location("/test/orders")
-            .with_schema((1, schema.clone()))
-            .current_schema_id(1)
-            .with_partition_spec((1, partition_spec))
-            .default_spec_id(1);
-
-        builder.build().await.expect("Failed to create table.");
+        Table::builder()
+            .with_name("orders")
+            .with_location("/test/orders")
+            .with_schema(schema)
+            .with_partition_spec(partition_spec)
+            .build(&["test".to_owned()], catalog.clone())
+            .await
+            .expect("Failed to create table");
 
         // Datafusion
 
@@ -1216,7 +1200,6 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_schema_id(1)
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {
@@ -1259,23 +1242,21 @@ mod tests {
             )
             .build()
             .unwrap();
-        let partition_spec = PartitionSpecBuilder::default()
-            .with_spec_id(1)
+        let partition_spec = PartitionSpec::builder()
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
-        let mut builder = TableBuilder::new("test.orders", catalog.clone())
-            .expect("Failed to create table builder");
-        builder
-            .location("/test/orders")
-            .with_schema((1, schema.clone()))
-            .current_schema_id(1)
-            .with_partition_spec((1, partition_spec))
-            .default_spec_id(1);
-        let table = Arc::new(DataFusionTable::from(
-            builder.build().await.expect("Failed to create table."),
-        ));
+        let table = Table::builder()
+            .with_name("orders")
+            .with_location("/test/orders")
+            .with_schema(schema)
+            .with_partition_spec(partition_spec)
+            .build(&["schema".to_owned()], catalog.clone())
+            .await
+            .expect("Failed to create table");
+
+        let table = Arc::new(DataFusionTable::from(table));
 
         let ctx = SessionContext::new();
 
@@ -1300,7 +1281,7 @@ mod tests {
         .expect("Failed to insert values into table");
 
         let view_schema = Schema::builder()
-            .with_schema_id(1)
+            .with_schema_id(0)
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {

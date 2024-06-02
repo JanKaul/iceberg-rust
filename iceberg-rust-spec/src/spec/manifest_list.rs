@@ -696,7 +696,7 @@ mod tests {
     use super::*;
 
     use crate::spec::{
-        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         table_metadata::TableMetadataBuilder,
         types::{PrimitiveType, StructField, StructType},
@@ -726,11 +726,10 @@ mod tests {
                     .build()
                     .unwrap(),
             )]))
-            .default_spec_id(1)
+            .default_spec_id(0)
             .partition_specs(HashMap::from_iter(vec![(
-                1,
-                PartitionSpecBuilder::default()
-                    .with_spec_id(1)
+                0,
+                PartitionSpec::builder()
                     .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),
@@ -807,11 +806,10 @@ mod tests {
                     .build()
                     .unwrap(),
             )]))
-            .default_spec_id(1)
+            .default_spec_id(0)
             .partition_specs(HashMap::from_iter(vec![(
-                1,
-                PartitionSpecBuilder::default()
-                    .with_spec_id(1)
+                0,
+                PartitionSpec::builder()
                     .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
                     .build()
                     .unwrap(),

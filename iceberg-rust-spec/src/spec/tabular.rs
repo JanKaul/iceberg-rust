@@ -125,3 +125,15 @@ impl<'a> From<&'a MaterializedViewMetadata> for TabularMetadataRef<'a> {
         TabularMetadataRef::MaterializedView(value)
     }
 }
+
+impl<'a> From<&'a TabularMetadata> for TabularMetadataRef<'a> {
+    fn from(value: &'a TabularMetadata) -> Self {
+        match value {
+            TabularMetadata::Table(table) => TabularMetadataRef::Table(table),
+            TabularMetadata::View(view) => TabularMetadataRef::View(view),
+            TabularMetadata::MaterializedView(matview) => {
+                TabularMetadataRef::MaterializedView(matview)
+            }
+        }
+    }
+}

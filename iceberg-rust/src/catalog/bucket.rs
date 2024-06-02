@@ -31,22 +31,24 @@ impl<'s> Display for Bucket<'s> {
     }
 }
 
-/// Get the bucket and coud provider from the location string
-pub fn parse_bucket(path: &str) -> Result<Bucket, Error> {
-    if path.starts_with("s3://") {
-        path.trim_start_matches("s3://")
-            .split('/')
-            .next()
-            .map(Bucket::S3)
-            .ok_or(Error::NotFound("Table".to_string(), "location".to_string()))
-    } else if path.starts_with("gcs://") {
-        path.trim_start_matches("gcs://")
-            .split('/')
-            .next()
-            .map(Bucket::GCS)
-            .ok_or(Error::NotFound("Table".to_string(), "location".to_string()))
-    } else {
-        Ok(Bucket::Local)
+impl<'a> Bucket<'a> {
+    /// Get the bucket and coud provider from the location string
+    pub fn from_path(path: &str) -> Result<Bucket, Error> {
+        if path.starts_with("s3://") {
+            path.trim_start_matches("s3://")
+                .split('/')
+                .next()
+                .map(Bucket::S3)
+                .ok_or(Error::NotFound("Table".to_string(), "location".to_string()))
+        } else if path.starts_with("gcs://") {
+            path.trim_start_matches("gcs://")
+                .split('/')
+                .next()
+                .map(Bucket::GCS)
+                .ok_or(Error::NotFound("Table".to_string(), "location".to_string()))
+        } else {
+            Ok(Bucket::Local)
+        }
     }
 }
 

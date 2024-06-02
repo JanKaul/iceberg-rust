@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 
+use iceberg_rust::catalog::create::CreateTable;
 use reqwest;
 
 use super::{configuration, Error};
@@ -531,7 +532,7 @@ pub async fn create_table(
     configuration: &configuration::Configuration,
     prefix: Option<&str>,
     namespace: &str,
-    create_table_request: models::CreateTableRequest,
+    create_table_request: CreateTable,
     x_iceberg_access_delegation: Option<&str>,
 ) -> Result<models::LoadTableResult, Error<CreateTableError>> {
     let mut headers = HashMap::new();

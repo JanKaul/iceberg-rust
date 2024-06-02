@@ -16,12 +16,11 @@ use iceberg_rust_spec::spec::{
 use iceberg_rust_spec::util::{self};
 
 use crate::{
-    catalog::{bucket::parse_bucket, identifier::Identifier, Catalog},
+    catalog::{bucket::Bucket, create::CreateTableBuilder, identifier::Identifier, Catalog},
     error::Error,
     table::transaction::TableTransaction,
 };
 
-pub mod table_builder;
 pub mod transaction;
 
 #[derive(Debug)]
@@ -34,6 +33,11 @@ pub struct Table {
 
 /// Public interface of the table.
 impl Table {
+    /// Build a new table
+    pub fn builder() -> CreateTableBuilder {
+        CreateTableBuilder::default()
+    }
+
     /// Create a new metastore Table
     pub async fn new(
         identifier: Identifier,
@@ -60,7 +64,7 @@ impl Table {
     /// Get the object_store associated to the table
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog
-            .object_store(parse_bucket(&self.metadata.location).unwrap())
+            .object_store(Bucket::from_path(&self.metadata.location).unwrap())
     }
     #[inline]
     /// Get the schema of the table for a given branch. Defaults to main.

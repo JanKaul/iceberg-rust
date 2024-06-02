@@ -16,6 +16,8 @@ use crate::error::Error;
 
 use super::types::{StructType, Type};
 
+pub static DEFAULT_PARTITION_SPEC_ID: i32 = 0;
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "lowercase", remote = "Self")]
 /// A Transform that is applied to each source column to produce a partition value.
@@ -144,6 +146,7 @@ impl PartitionField {
 ///  Partition spec that defines how to produce a tuple of partition values from a record.
 pub struct PartitionSpec {
     /// Identifier for PartitionSpec
+    #[builder(default = "DEFAULT_PARTITION_SPEC_ID")]
     spec_id: i32,
     /// Details of the partition spec
     #[builder(setter(each(name = "with_partition_field")))]

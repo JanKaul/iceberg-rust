@@ -10,7 +10,7 @@ use iceberg_rust_spec::spec::{
 use object_store::ObjectStore;
 
 use crate::{
-    catalog::{bucket::parse_bucket, identifier::Identifier, tabular::Tabular, Catalog},
+    catalog::{bucket::Bucket, identifier::Identifier, tabular::Tabular, Catalog},
     error::Error,
 };
 
@@ -67,7 +67,7 @@ impl MaterializedView {
     /// Get the object_store associated to the view
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog
-            .object_store(parse_bucket(&self.metadata.location).unwrap())
+            .object_store(Bucket::from_path(&self.metadata.location).unwrap())
     }
     /// Get the schema of the view
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {

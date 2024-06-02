@@ -3,14 +3,13 @@ use datafusion_iceberg::catalog::catalog::IcebergCatalog;
 use datafusion_iceberg::materialized_view::refresh_materialized_view;
 use iceberg_rust::catalog::CatalogList;
 use iceberg_rust::materialized_view::materialized_view_builder::MaterializedViewBuilder;
-use iceberg_rust::{
-    spec::{
-        partition::{PartitionField, PartitionSpecBuilder, Transform},
-        schema::Schema,
-        types::{PrimitiveType, StructField, StructType, Type},
-    },
-    table::table_builder::TableBuilder,
+use iceberg_rust::spec::partition::PartitionSpec;
+use iceberg_rust::spec::{
+    partition::{PartitionField, Transform},
+    schema::Schema,
+    types::{PrimitiveType, StructField, StructType, Type},
 };
+use iceberg_rust::table::Table;
 use iceberg_sql_catalog::SqlCatalogList;
 use object_store::memory::InMemory;
 use object_store::ObjectStore;
@@ -29,7 +28,6 @@ pub(crate) async fn main() {
     let catalog = catalog_list.catalog("iceberg").await.unwrap();
 
     let schema = Schema::builder()
-        .with_schema_id(1)
         .with_fields(
             StructType::builder()
                 .with_struct_field(StructField {
@@ -73,25 +71,21 @@ pub(crate) async fn main() {
         .build()
         .unwrap();
 
-    let partition_spec = PartitionSpecBuilder::default()
-        .with_spec_id(1)
+    let partition_spec = PartitionSpec::builder()
         .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
         .build()
         .expect("Failed to create partition spec");
 
-    let mut builder =
-        TableBuilder::new("test.orders", catalog.clone()).expect("Failed to create table builder");
-    builder
-        .location("/test/orders")
-        .with_schema((1, schema.clone()))
-        .current_schema_id(1)
-        .with_partition_spec((1, partition_spec))
-        .default_spec_id(1);
-
-    builder.build().await.expect("Failed to create table.");
+    Table::builder()
+        .with_name("orders")
+        .with_location("/test/orders")
+        .with_schema(schema)
+        .with_partition_spec(partition_spec)
+        .build(&["test".to_owned()], catalog.clone())
+        .await
+        .expect("Failed to create table");
 
     let matview_schema = Schema::builder()
-        .with_schema_id(1)
         .with_fields(
             StructType::builder()
                 .with_struct_field(StructField {
@@ -127,7 +121,6 @@ pub(crate) async fn main() {
         .await
         .expect("Failed to create filesystem view");
     let total_matview_schema = Schema::builder()
-        .with_schema_id(1)
         .with_fields(
             StructType::builder()
                 .with_struct_field(StructField {

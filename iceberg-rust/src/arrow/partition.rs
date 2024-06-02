@@ -228,7 +228,7 @@ mod tests {
     };
 
     use iceberg_rust_spec::spec::{
-        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         types::{PrimitiveType, StructField, StructType, Type},
     };
@@ -302,8 +302,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let partition_spec = PartitionSpecBuilder::default()
-            .with_spec_id(0)
+        let partition_spec = PartitionSpec::builder()
             .with_partition_field(PartitionField::new(1, 1001, "x", Transform::Identity))
             .build()
             .unwrap();

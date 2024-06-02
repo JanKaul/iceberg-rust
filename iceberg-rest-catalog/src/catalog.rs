@@ -7,6 +7,7 @@ use iceberg_rust::{
     catalog::{
         bucket::{Bucket, ObjectStoreBuilder},
         commit::CommitView,
+        create::CreateTable,
         identifier::{self, Identifier},
         namespace::Namespace,
         tabular::Tabular,
@@ -290,25 +291,13 @@ impl Catalog for RestCatalog {
     async fn create_table(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: TableMetadata,
+        create_table: CreateTable,
     ) -> Result<Table, Error> {
-        let mut request = models::CreateTableRequest::new(
-            identifier.name().to_owned(),
-            metadata.current_schema(None)?.clone(),
-        );
-        request.partition_spec = Some(Box::new(metadata.default_partition_spec()?.clone()));
-        request.location = Some(metadata.location.clone());
-        request.write_order = metadata
-            .sort_orders
-            .get(&metadata.default_sort_order_id)
-            .cloned()
-            .map(Box::new);
-        request.properties = Some(metadata.properties);
         catalog_api_api::create_table(
             &self.configuration,
             self.name.as_deref(),
             &identifier.namespace().to_string(),
-            request,
+            create_table,
             None,
         )
         .map_err(Into::<Error>::into)
@@ -460,6 +449,30 @@ impl Catalog for RestCatalog {
         })
         .await
     }
+    /// Register a table with the catalog if it doesn't exist.
+    async fn register_table(
+        self: Arc<Self>,
+        identifier: Identifier,
+        metadata_location: &str,
+    ) -> Result<Table, Error> {
+        let request = models::RegisterTableRequest::new(
+            identifier.name().to_owned(),
+            metadata_location.to_owned(),
+        );
+
+        catalog_api_api::register_table(
+            &self.configuration,
+            self.name.as_deref(),
+            &identifier.namespace().to_string(),
+            request,
+        )
+        .map_err(Into::<Error>::into)
+        .and_then(|response| {
+            let clone = self.clone();
+            async move { Table::new(identifier.clone(), clone, *response.metadata).await }
+        })
+        .await
+    }
     /// Return an object store for the desired bucket
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore> {
         self.object_store_builder.build(bucket).unwrap()
@@ -476,7 +489,7 @@ pub mod tests {
             schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
         },
-        table::table_builder::TableBuilder,
+        table::Table,
     };
     use object_store::{memory::InMemory, ObjectStore};
     use std::{convert::TryFrom, sync::Arc, time::Duration};
@@ -542,13 +555,13 @@ pub mod tests {
             .build()
             .unwrap();
 
-        let mut builder = TableBuilder::new(&identifier, catalog.clone())
-            .expect("Failed to create table builder.");
-        builder
-            .location("/tmp/warehouse/test")
-            .with_schema((1, schema))
-            .current_schema_id(1);
-        let mut table = builder.build().await.expect("Failed to create table.");
+        let mut table = Table::builder()
+            .with_name(identifier.name())
+            .with_location("/tmp/warehouse/test")
+            .with_schema(schema)
+            .build(&identifier.namespace(), catalog.clone())
+            .await
+            .expect("Failed to create table");
 
         let tables = catalog
             .clone()

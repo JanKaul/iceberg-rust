@@ -218,10 +218,10 @@ mod tests {
     use iceberg_rust::{
         catalog::CatalogList,
         materialized_view::materialized_view_builder::MaterializedViewBuilder,
-        table::table_builder::TableBuilder,
+        spec::partition::PartitionSpec, table::Table,
     };
     use iceberg_rust_spec::spec::{
-        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        partition::{PartitionField, Transform},
         schema::Schema,
         types::{PrimitiveType, StructField, StructType, Type},
     };
@@ -244,7 +244,7 @@ mod tests {
         let catalog = catalog_list.catalog("iceberg").await.unwrap();
 
         let schema = Schema::builder()
-            .with_schema_id(1)
+            .with_schema_id(0)
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {
@@ -288,25 +288,23 @@ mod tests {
             .build()
             .unwrap();
 
-        let partition_spec = PartitionSpecBuilder::default()
-            .with_spec_id(1)
+        let partition_spec = PartitionSpec::builder()
+            .with_spec_id(0)
             .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
-        let mut builder = TableBuilder::new("test.orders", catalog.clone())
-            .expect("Failed to create table builder");
-        builder
-            .location("/test/orders")
-            .with_schema((1, schema.clone()))
-            .current_schema_id(1)
-            .with_partition_spec((1, partition_spec))
-            .default_spec_id(1);
-
-        builder.build().await.expect("Failed to create table.");
+        Table::builder()
+            .with_name("orders")
+            .with_location("/test/orders")
+            .with_schema(schema.clone())
+            .with_partition_spec(partition_spec)
+            .build(&["test".to_owned()], catalog.clone())
+            .await
+            .expect("Failed to create table");
 
         let matview_schema = Schema::builder()
-            .with_schema_id(1)
+            .with_schema_id(0)
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {
@@ -342,7 +340,7 @@ mod tests {
             .await
             .expect("Failed to create filesystem view");
         let total_matview_schema = Schema::builder()
-            .with_schema_id(1)
+            .with_schema_id(0)
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {

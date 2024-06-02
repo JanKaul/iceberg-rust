@@ -5,11 +5,12 @@ use dashmap::DashMap;
 use futures::lock::Mutex;
 use iceberg_rust::{
     catalog::{
-        bucket::{parse_bucket, Bucket},
+        bucket::Bucket,
         commit::{
             apply_table_updates, apply_view_updates, check_table_requirements,
             check_view_requirements, CommitTable, CommitView, TableRequirement,
         },
+        create::CreateTable,
         identifier::Identifier,
         namespace::Namespace,
         tabular::Tabular,
@@ -308,24 +309,18 @@ impl Catalog for SqlCatalog {
     async fn create_table(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: TableMetadata,
+        create_table: CreateTable,
     ) -> Result<Table, IcebergError> {
+        let metadata: TableMetadata = create_table.try_into()?;
         // Create metadata
         let location = metadata.location.to_string();
 
         // Write metadata to object_store
-        let bucket = parse_bucket(&location)?;
+        let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
-        let uuid = Uuid::new_v4();
-        let version = &metadata.last_sequence_number;
         let metadata_json = serde_json::to_string(&metadata)?;
-        let metadata_location = location
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &uuid.to_string()
-            + ".metadata.json";
+        let metadata_location = new_metadata_location(&metadata);
         object_store
             .put(
                 &strip_prefix(&metadata_location).into(),
@@ -363,7 +358,7 @@ impl Catalog for SqlCatalog {
         let location = metadata.location.to_string();
 
         // Write metadata to object_store
-        let bucket = parse_bucket(&location)?;
+        let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
         let uuid = Uuid::new_v4();
@@ -412,7 +407,7 @@ impl Catalog for SqlCatalog {
         let location = metadata.location.to_string();
 
         // Write metadata to object_store
-        let bucket = parse_bucket(&location)?;
+        let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
         let uuid = Uuid::new_v4();
@@ -480,7 +475,7 @@ impl Catalog for SqlCatalog {
                     ));
                 }
                 apply_table_updates(&mut metadata, commit.updates)?;
-                let metadata_location = new_metadata_location((&metadata).into());
+                let metadata_location = new_metadata_location(&metadata);
                 self.object_store
                     .put(
                         &strip_prefix(&metadata_location).into(),
@@ -672,6 +667,66 @@ impl Catalog for SqlCatalog {
         }
     }
 
+    async fn register_table(
+        self: Arc<Self>,
+        identifier: Identifier,
+        metadata_location: &str,
+    ) -> Result<Table, IcebergError> {
+        let bucket = Bucket::from_path(metadata_location)?;
+        let object_store = self.object_store(bucket);
+
+        let metadata: TableMetadata = serde_json::from_slice(
+            &object_store
+                .get(&metadata_location.into())
+                .await?
+                .bytes()
+                .await?,
+        )?;
+
+        // Create metadata
+        let location = metadata.location.to_string();
+
+        // Write metadata to object_store
+        let bucket = Bucket::from_path(&location)?;
+        let object_store = self.object_store(bucket);
+
+        let uuid = Uuid::new_v4();
+        let version = &metadata.last_sequence_number;
+        let metadata_json = serde_json::to_string(&metadata)?;
+        let metadata_location = location
+            + "/metadata/"
+            + &version.to_string()
+            + "-"
+            + &uuid.to_string()
+            + ".metadata.json";
+        object_store
+            .put(
+                &strip_prefix(&metadata_location).into(),
+                metadata_json.into(),
+            )
+            .await?;
+        {
+            let mut connection = self.connection.lock().await;
+            connection.transaction(|txn|{
+                let catalog_name = self.name.clone();
+                let namespace = identifier.namespace().to_string();
+                let name = identifier.name().to_string();
+                let metadata_location = metadata_location.to_string();
+                Box::pin(async move {
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut **txn).await
+        })}).await.map_err(Error::from)?;
+        }
+        self.clone()
+            .load_tabular(&identifier)
+            .await
+            .and_then(|x| match x {
+                Tabular::Table(table) => Ok(table),
+                _ => Err(IcebergError::InvalidFormat(
+                    "Table update on an entity that is nor a table".to_owned(),
+                )),
+            })
+    }
+
     fn object_store(&self, _: Bucket) -> Arc<dyn object_store::ObjectStore> {
         self.object_store.clone()
     }
@@ -766,7 +821,7 @@ pub mod tests {
             schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
         },
-        table::table_builder::TableBuilder,
+        table::Table,
     };
     use object_store::{memory::InMemory, ObjectStore};
     use std::sync::Arc;
@@ -783,7 +838,7 @@ pub mod tests {
         );
         let identifier = Identifier::parse("load_table.table3").unwrap();
         let schema = Schema::builder()
-            .with_schema_id(1)
+            .with_schema_id(0)
             .with_identifier_field_ids(vec![1, 2])
             .with_fields(
                 StructType::builder()
@@ -807,13 +862,13 @@ pub mod tests {
             .build()
             .unwrap();
 
-        let mut builder = TableBuilder::new(&identifier, catalog.clone())
-            .expect("Failed to create table builder.");
-        builder
-            .location("/")
-            .with_schema((1, schema))
-            .current_schema_id(1);
-        let mut table = builder.build().await.expect("Failed to create table.");
+        let mut table = Table::builder()
+            .with_name(identifier.name())
+            .with_location("/")
+            .with_schema(schema)
+            .build(&identifier.namespace(), catalog.clone())
+            .await
+            .expect("Failed to create table");
 
         let exists = Arc::clone(&catalog)
             .tabular_exists(&identifier)

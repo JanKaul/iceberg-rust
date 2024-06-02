@@ -3,11 +3,11 @@ use datafusion_iceberg::DataFusionTable;
 use iceberg_rust::{
     catalog::Catalog,
     spec::{
-        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         types::{PrimitiveType, StructField, StructType, Type},
     },
-    table::table_builder::TableBuilder,
+    table::Table,
 };
 use iceberg_sql_catalog::SqlCatalog;
 use object_store::memory::InMemory;
@@ -26,7 +26,6 @@ pub(crate) async fn main() {
     );
 
     let schema = Schema::builder()
-        .with_schema_id(1)
         .with_fields(
             StructType::builder()
                 .with_struct_field(StructField {
@@ -70,23 +69,21 @@ pub(crate) async fn main() {
         .build()
         .unwrap();
 
-    let partition_spec = PartitionSpecBuilder::default()
-        .with_spec_id(1)
+    let partition_spec = PartitionSpec::builder()
         .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
         .build()
         .expect("Failed to create partition spec");
 
-    let mut builder =
-        TableBuilder::new("test.orders", catalog).expect("Failed to create table builder");
-    builder
-        .location("/test/orders")
-        .with_schema((1, schema))
-        .current_schema_id(1)
-        .with_partition_spec((1, partition_spec))
-        .default_spec_id(1);
-    let table = Arc::new(DataFusionTable::from(
-        builder.build().await.expect("Failed to create table."),
-    ));
+    let table = Table::builder()
+        .with_name("orders")
+        .with_location("/test/orders")
+        .with_schema(schema)
+        .with_partition_spec(partition_spec)
+        .build(&["test".to_owned()], catalog)
+        .await
+        .expect("Failed to create table");
+
+    let table = Arc::new(DataFusionTable::from(table));
 
     let ctx = SessionContext::new();
 
