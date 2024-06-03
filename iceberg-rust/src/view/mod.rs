@@ -8,14 +8,13 @@ use iceberg_rust_spec::spec::{schema::Schema, view_metadata::ViewMetadata};
 use object_store::ObjectStore;
 
 use crate::{
-    catalog::{bucket::Bucket, identifier::Identifier, Catalog},
+    catalog::{bucket::Bucket, create::CreateViewBuilder, identifier::Identifier, Catalog},
     error::Error,
 };
 
 use self::transaction::Transaction as ViewTransaction;
 
 pub mod transaction;
-pub mod view_builder;
 
 #[derive(Debug)]
 /// An iceberg view
@@ -30,6 +29,10 @@ pub struct View {
 
 /// Public interface of the table.
 impl View {
+    /// Create a view builder
+    pub fn builder() -> CreateViewBuilder<Option<()>> {
+        CreateViewBuilder::default()
+    }
     /// Create a new metastore view
     pub async fn new(
         identifier: Identifier,

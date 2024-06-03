@@ -217,8 +217,12 @@ mod tests {
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
     use iceberg_rust::{
         catalog::CatalogList,
-        materialized_view::materialized_view_builder::MaterializedViewBuilder,
-        spec::partition::PartitionSpec, table::Table,
+        materialized_view::MaterializedView,
+        spec::{
+            partition::PartitionSpec,
+            view_metadata::{Version, ViewRepresentation},
+        },
+        table::Table,
     };
     use iceberg_rust_spec::spec::{
         partition::{PartitionField, Transform},
@@ -327,18 +331,23 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut builder = MaterializedViewBuilder::new(
-            "select product_id, amount from iceberg.test.orders where product_id < 3;",
-            "test.orders_view",
-            matview_schema,
-            catalog.clone(),
-        )
-        .expect("Failed to create filesystem view builder.");
-        builder.location("test/orders_view");
-        let mut matview = builder
-            .build()
+        let mut matview = MaterializedView::builder()
+            .with_name("orders_view")
+            .with_location("test/orders_view")
+            .with_schema(matview_schema)
+            .with_view_version(
+                Version::builder()
+                    .with_representation(ViewRepresentation::sql(
+                        "select product_id, amount from iceberg.test.orders where product_id < 3;",
+                        None,
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .build(&["test".to_owned()], catalog.clone())
             .await
-            .expect("Failed to create filesystem view");
+            .expect("Failed to create materialized view");
+
         let total_matview_schema = Schema::builder()
             .with_schema_id(0)
             .with_fields(
@@ -363,18 +372,22 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut total_builder = MaterializedViewBuilder::new(
-            "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
-            "test.total_orders",
-            total_matview_schema,
-            catalog.clone(),
-        )
-        .expect("Failed to create filesystem view builder.");
-        total_builder.location("test/total_orders");
-        let mut total_matview = total_builder
-            .build()
+        let mut total_matview = MaterializedView::builder()
+            .with_name("total_orders")
+            .with_location("test/total_orders")
+            .with_schema(total_matview_schema)
+            .with_view_version(
+                Version::builder()
+                    .with_representation(ViewRepresentation::sql(
+                        "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
+                        None,
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .build(&["test".to_owned()], catalog.clone())
             .await
-            .expect("Failed to create filesystem view");
+            .expect("Failed to create materialized view");
 
         // Datafusion
 

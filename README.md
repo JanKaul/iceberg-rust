@@ -32,6 +32,7 @@ It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org
 
 ### Catalogs
 
+- REST
 - RDBMS (Postgres, MySQL)
 
 ### File formats

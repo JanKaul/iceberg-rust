@@ -17,12 +17,15 @@ use uuid::Uuid;
 
 use crate::error::Error;
 
-use super::schema::Schema;
+use super::schema::{Schema, DEFAULT_SCHEMA_ID};
 
 use _serde::ViewMetadataEnum;
 
 /// Prefix used to denote branch references in the view properties
 pub static REF_PREFIX: &str = "ref-";
+
+/// Default version id
+pub static DEFAULT_VERSION_ID: i64 = 0;
 
 /// Fields for the version 1 of the view metadata.
 pub type ViewMetadata = GeneralViewMetadata<Option<()>>;
@@ -227,6 +230,15 @@ pub struct ViewProperties<T: Clone> {
     pub other: HashMap<String, String>,
 }
 
+impl ViewProperties<String> {
+    pub fn new(storage_table: &str) -> Self {
+        ViewProperties {
+            storage_table: storage_table.to_owned(),
+            other: HashMap::new(),
+        }
+    }
+}
+
 impl<T: Clone> Extend<(String, String)> for ViewProperties<T> {
     fn extend<S: IntoIterator<Item = (String, String)>>(&mut self, iter: S) {
         for (key, value) in iter {
@@ -263,8 +275,10 @@ pub enum FormatVersion {
 /// Fields for the version 2 of the view metadata.
 pub struct Version {
     /// Monotonically increasing id indicating the version of the view. Starts with 1.
+    #[builder(default = "DEFAULT_VERSION_ID")]
     pub version_id: i64,
     /// ID of the schema for the view version
+    #[builder(default = "DEFAULT_SCHEMA_ID")]
     pub schema_id: i32,
     #[builder(
         default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64"
@@ -277,13 +291,19 @@ pub struct Version {
     #[builder(setter(each(name = "with_representation")), default)]
     /// A list of “representations” as described in Representations.
     pub representations: Vec<ViewRepresentation>,
-    #[builder(default)]
+    #[builder(setter(strip_option), default)]
     /// A string specifying the catalog to use when the table or view references in the view definition do not contain an explicit catalog.
     pub default_catalog: Option<String>,
-    #[builder(default)]
+    #[builder(setter(strip_option), default)]
     /// The namespace to use when the table or view references in the view definition do not contain an explicit namespace.
     /// Since the namespace may contain multiple parts, it is serialized as a list of strings.
     pub default_namespace: Option<Vec<String>>,
+}
+
+impl Version {
+    pub fn builder() -> VersionBuilder {
+        VersionBuilder::default()
+    }
 }
 
 impl fmt::Display for Version {
@@ -381,6 +401,15 @@ pub enum ViewRepresentation {
         /// A string specifying the dialect of the ‘sql’ field. It can be used by the engines to detect the SQL dialect.
         dialect: String,
     },
+}
+
+impl ViewRepresentation {
+    pub fn sql(sql: &str, dialect: Option<&str>) -> Self {
+        ViewRepresentation::Sql {
+            sql: sql.to_owned(),
+            dialect: dialect.unwrap_or("ansi").to_owned(),
+        }
+    }
 }
 
 impl Representation for ViewRepresentation {}

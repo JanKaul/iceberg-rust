@@ -9,8 +9,6 @@ use std::sync::Arc;
 pub mod identifier;
 pub mod namespace;
 
-use iceberg_rust_spec::spec::materialized_view_metadata::MaterializedViewMetadata;
-use iceberg_rust_spec::spec::view_metadata::ViewMetadata;
 use identifier::Identifier;
 use object_store::ObjectStore;
 
@@ -21,7 +19,7 @@ use crate::view::View;
 
 use self::bucket::Bucket;
 use self::commit::{CommitTable, CommitView};
-use self::create::CreateTable;
+use self::create::{CreateMaterializedView, CreateTable, CreateView};
 use self::namespace::Namespace;
 use self::tabular::Tabular;
 
@@ -73,17 +71,17 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         create_table: CreateTable,
     ) -> Result<Table, Error>;
-    /// Register a view with the catalog if it doesn't exist.
+    /// Create a view with the catalog if it doesn't exist.
     async fn create_view(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: ViewMetadata,
+        create_view: CreateView<Option<()>>,
     ) -> Result<View, Error>;
     /// Register a materialized view with the catalog if it doesn't exist.
     async fn create_materialized_view(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: MaterializedViewMetadata,
+        create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, Error>;
     /// perform commit table operation
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;

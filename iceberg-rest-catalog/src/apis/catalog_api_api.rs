@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use iceberg_rust::catalog::create::CreateTable;
+use iceberg_rust::catalog::create::{CreateTable, CreateView};
 use reqwest;
 
 use super::{configuration, Error};
@@ -566,7 +566,7 @@ pub async fn create_view<T: Clone + Default + serde::Serialize>(
     configuration: &configuration::Configuration,
     prefix: Option<&str>,
     namespace: &str,
-    create_view_request: models::CreateViewRequest<T>,
+    create_view_request: CreateView<T>,
 ) -> Result<models::LoadViewResult, Error<CreateViewError>> {
     let uri_str = format!(
         "namespaces/{namespace}/views",

@@ -5,7 +5,12 @@ use std::{collections::HashSet, sync::Arc};
 
 use iceberg_rust::{
     catalog::{
-        bucket::Bucket, identifier::Identifier, namespace::Namespace, tabular::Tabular, Catalog,
+        bucket::Bucket,
+        create::{CreateMaterializedView, CreateView},
+        identifier::Identifier,
+        namespace::Namespace,
+        tabular::Tabular,
+        Catalog,
     },
     error::Error as IcebergError,
     spec::table_metadata::new_metadata_location,
@@ -208,32 +213,60 @@ impl Mirror {
                         .await
                         .metadata()
                         .to_owned();
-                    let metadata_location = new_metadata_location(&metadata);
-                    let object_store =
-                        cloned_catalog.object_store(Bucket::from_path(&metadata_location).unwrap());
-                    object_store
-                        .put(
-                            &strip_prefix(&metadata_location).into(),
-                            serde_json::to_vec(&metadata).unwrap().into(),
-                        )
-                        .await
-                        .unwrap();
                     match metadata {
                         TabularMetadata::Table(_) => {
+                            let metadata_location = new_metadata_location(&metadata);
+                            let object_store = cloned_catalog
+                                .object_store(Bucket::from_path(&metadata_location).unwrap());
+                            object_store
+                                .put(
+                                    &strip_prefix(&metadata_location).into(),
+                                    serde_json::to_vec(&metadata).unwrap().into(),
+                                )
+                                .await
+                                .unwrap();
                             cloned_catalog
                                 .register_table(identifier, &metadata_location)
                                 .await
                                 .unwrap();
                         }
                         TabularMetadata::View(metadata) => {
+                            let name = identifier.name().to_owned();
+                            let view_version =
+                                metadata.versions[&metadata.current_version_id].clone();
                             cloned_catalog
-                                .create_view(identifier, metadata)
+                                .create_view(
+                                    identifier,
+                                    CreateView {
+                                        name,
+                                        location: Some(metadata.location),
+                                        schema: metadata.schemas[&view_version.schema_id].clone(),
+                                        view_version,
+                                        properties: metadata.properties,
+                                    },
+                                )
                                 .await
                                 .unwrap();
                         }
                         TabularMetadata::MaterializedView(metadata) => {
+                            let name = identifier.name().to_owned();
+                            let view_version =
+                                metadata.versions[&metadata.current_version_id].clone();
                             cloned_catalog
-                                .create_materialized_view(identifier, metadata)
+                                .create_materialized_view(
+                                    identifier,
+                                    CreateMaterializedView {
+                                        name,
+                                        location: Some(metadata.location),
+                                        schema: metadata.schemas[&view_version.schema_id].clone(),
+                                        view_version,
+                                        properties: metadata.properties,
+                                        partition_spec: None,
+                                        write_order: None,
+                                        stage_create: None,
+                                        table_properties: None,
+                                    },
+                                )
                                 .await
                                 .unwrap();
                         }

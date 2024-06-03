@@ -10,7 +10,7 @@ use iceberg_rust::{
             apply_table_updates, apply_view_updates, check_table_requirements,
             check_view_requirements, CommitTable, CommitView, TableRequirement,
         },
-        create::CreateTable,
+        create::{CreateMaterializedView, CreateTable, CreateView},
         identifier::Identifier,
         namespace::Namespace,
         tabular::Tabular,
@@ -352,8 +352,9 @@ impl Catalog for SqlCatalog {
     async fn create_view(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: ViewMetadata,
+        create_view: CreateView<Option<()>>,
     ) -> Result<View, IcebergError> {
+        let metadata: ViewMetadata = create_view.try_into()?;
         // Create metadata
         let location = metadata.location.to_string();
 
@@ -361,15 +362,8 @@ impl Catalog for SqlCatalog {
         let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
-        let uuid = Uuid::new_v4();
-        let version = &metadata.current_version_id;
         let metadata_json = serde_json::to_string(&metadata)?;
-        let metadata_location = location
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &uuid.to_string()
-            + ".metadata.json";
+        let metadata_location = new_metadata_location(&metadata);
         object_store
             .put(
                 &strip_prefix(&metadata_location).into(),
@@ -401,8 +395,11 @@ impl Catalog for SqlCatalog {
     async fn create_materialized_view(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: MaterializedViewMetadata,
+        create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, IcebergError> {
+        let (create_view, create_table) = create_view.into();
+        let metadata: MaterializedViewMetadata = create_view.try_into()?;
+        let table_metadata: TableMetadata = create_table.try_into()?;
         // Create metadata
         let location = metadata.location.to_string();
 
@@ -410,19 +407,22 @@ impl Catalog for SqlCatalog {
         let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
-        let uuid = Uuid::new_v4();
-        let version = &metadata.current_version_id;
         let metadata_json = serde_json::to_string(&metadata)?;
-        let metadata_location = location
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &uuid.to_string()
-            + ".metadata.json";
+        let metadata_location = new_metadata_location(&metadata);
+
+        let table_metadata_json = serde_json::to_string(&table_metadata)?;
+        let table_metadata_location = new_metadata_location(&table_metadata);
+        let table_identifier = Identifier::parse(&metadata.properties.storage_table)?;
         object_store
             .put(
                 &strip_prefix(&metadata_location).into(),
                 metadata_json.into(),
+            )
+            .await?;
+        object_store
+            .put(
+                &strip_prefix(&table_metadata_location).into(),
+                table_metadata_json.into(),
             )
             .await?;
         {
@@ -434,6 +434,14 @@ impl Catalog for SqlCatalog {
                 let metadata_location = metadata_location.to_string();
                 Box::pin(async move {
             sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut **txn).await
+        })}).await.map_err(Error::from)?;
+            connection.transaction(|txn|{
+                let catalog_name = self.name.clone();
+                let namespace = table_identifier.namespace().to_string();
+                let name = table_identifier.name().to_string();
+                let table_metadata_location = table_metadata_location.to_string();
+                Box::pin(async move {
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, table_metadata_location)).execute(&mut **txn).await
         })}).await.map_err(Error::from)?;
         }
         self.clone()

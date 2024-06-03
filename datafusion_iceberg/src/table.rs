@@ -592,9 +592,12 @@ mod tests {
     };
     use iceberg_rust::{
         catalog::{identifier::Identifier, tabular::Tabular, Catalog},
-        spec::partition::PartitionSpec,
+        spec::{
+            partition::PartitionSpec,
+            view_metadata::{Version, ViewRepresentation},
+        },
         table::Table,
-        view::view_builder::ViewBuilder,
+        view::View,
     };
     use iceberg_rust_spec::spec::{
         partition::{PartitionField, Transform},
@@ -1304,21 +1307,24 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut builder = ViewBuilder::new(
-            "select product_id, amount from orders where product_id < 3;",
-            "test.orders_view",
-            view_schema,
-            catalog,
-        )
-        .expect("Failed to create filesystem view builder.");
-        builder.location("test/orders_view");
+        let view = View::builder()
+            .with_name("orders_view")
+            .with_location("test/orders_view")
+            .with_schema(view_schema)
+            .with_view_version(
+                Version::builder()
+                    .with_representation(ViewRepresentation::sql(
+                        "select product_id, amount from orders where product_id < 3;",
+                        None,
+                    ))
+                    .build()
+                    .unwrap(),
+            )
+            .build(&["test".to_owned()], catalog)
+            .await
+            .expect("Failed to build view");
 
-        let view = Arc::new(DataFusionTable::from(
-            builder
-                .build()
-                .await
-                .expect("Failed to create filesystem view"),
-        ));
+        let view = Arc::new(DataFusionTable::from(view));
 
         ctx.register_table("orders_view", view).unwrap();
 

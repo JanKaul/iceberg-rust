@@ -10,15 +10,22 @@ use iceberg_rust_spec::spec::{
 use object_store::ObjectStore;
 
 use crate::{
-    catalog::{bucket::Bucket, identifier::Identifier, tabular::Tabular, Catalog},
+    catalog::{
+        bucket::Bucket, create::CreateMaterializedViewBuilder, identifier::Identifier,
+        tabular::Tabular, Catalog,
+    },
     error::Error,
 };
 
 use self::{storage_table::StorageTable, transaction::Transaction as MaterializedViewTransaction};
 
-pub mod materialized_view_builder;
 mod storage_table;
 pub mod transaction;
+
+/// Default postfix for the storage table identifier
+pub static STORAGE_TABLE_POSTFIX: &str = "__storage";
+/// Flag to mark a table as a storage table
+pub static STORAGE_TABLE_FLAG: &str = "materialize.storage_table";
 
 #[derive(Debug)]
 /// An iceberg materialized view
@@ -44,6 +51,11 @@ pub enum StorageTableState {
 
 /// Public interface of the table.
 impl MaterializedView {
+    /// Create a mateerialized view builder
+    pub fn builder() -> CreateMaterializedViewBuilder {
+        CreateMaterializedViewBuilder::default()
+    }
+
     /// Create a new metastore view
     pub async fn new(
         identifier: Identifier,

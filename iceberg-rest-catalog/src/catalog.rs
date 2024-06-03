@@ -7,14 +7,14 @@ use iceberg_rust::{
     catalog::{
         bucket::{Bucket, ObjectStoreBuilder},
         commit::CommitView,
-        create::CreateTable,
+        create::{CreateMaterializedView, CreateTable, CreateView},
         identifier::{self, Identifier},
         namespace::Namespace,
         tabular::Tabular,
         Catalog,
     },
     error::Error,
-    materialized_view::{materialized_view_builder::STORAGE_TABLE_FLAG, MaterializedView},
+    materialized_view::MaterializedView,
     spec::{
         materialized_view_metadata::MaterializedViewMetadata,
         table_metadata::TableMetadata,
@@ -331,20 +331,13 @@ impl Catalog for RestCatalog {
     async fn create_view(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: ViewMetadata,
+        create_view: CreateView<Option<()>>,
     ) -> Result<View, Error> {
-        let mut request = models::CreateViewRequest::new(
-            identifier.name().to_owned(),
-            metadata.current_schema(None)?.clone(),
-            metadata.current_version(None)?.clone(),
-            metadata.properties,
-        );
-        request.location = Some(metadata.location);
         catalog_api_api::create_view(
             &self.configuration,
             self.name.as_deref(),
             &identifier.namespace().to_string(),
-            request,
+            create_view,
         )
         .map_err(Into::<Error>::into)
         .and_then(|response| {
@@ -389,20 +382,24 @@ impl Catalog for RestCatalog {
     async fn create_materialized_view(
         self: Arc<Self>,
         identifier: Identifier,
-        metadata: MaterializedViewMetadata,
+        create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, Error> {
-        let mut request = models::CreateViewRequest::new(
-            identifier.name().to_owned(),
-            metadata.current_schema(None)?.clone(),
-            metadata.current_version(None)?.clone(),
-            metadata.properties,
-        );
-        request.location = Some(metadata.location);
+        let (create_view, mut create_table) = create_view.into();
+        create_table.name = create_view.name.clone();
+        catalog_api_api::create_table(
+            &self.configuration,
+            self.name.as_deref(),
+            &identifier.namespace().to_string(),
+            create_table,
+            None,
+        )
+        .map_err(Into::<Error>::into)
+        .await?;
         catalog_api_api::create_view(
             &self.configuration,
             self.name.as_deref(),
             &identifier.namespace().to_string(),
-            request,
+            create_view,
         )
         .map_err(Into::<Error>::into)
         .and_then(|response| {

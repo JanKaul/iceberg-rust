@@ -93,6 +93,14 @@ pub enum Error {
     /// create table builder
     #[error(transparent)]
     CreateTableBuilder(#[from] crate::catalog::create::CreateTableBuilderError),
+    /// create view builder
+    #[error(transparent)]
+    CreateViewBuilder(#[from] crate::catalog::create::CreateViewBuilderError),
+    /// create view builder
+    #[error(transparent)]
+    CreateMaterializedViewBuilder(
+        #[from] crate::catalog::create::CreateMaterializedViewBuilderError,
+    ),
 }
 
 impl From<Error> for ArrowError {
