@@ -1265,7 +1265,6 @@ dependencies = [
  "datafusion-expr",
  "futures",
  "iceberg-rust",
- "iceberg-rust-spec",
  "iceberg-sql-catalog",
  "itertools 0.10.5",
  "object_store",

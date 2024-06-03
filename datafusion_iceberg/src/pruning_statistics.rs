@@ -24,7 +24,7 @@ use datafusion::{
     prelude::Column,
     scalar::ScalarValue,
 };
-use iceberg_rust_spec::spec::{
+use iceberg_rust::spec::{
     manifest::ManifestEntry, manifest_list::ManifestListEntry, partition::PartitionSpec,
     schema::Schema,
 };

@@ -46,16 +46,16 @@ use crate::{
     statistics::manifest_statistics,
 };
 
-use iceberg_rust::{
-    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular,
-    materialized_view::MaterializedView, table::Table, view::View,
-};
-use iceberg_rust_spec::spec::{
+use iceberg_rust::spec::util;
+use iceberg_rust::spec::{
     schema::Schema,
     types::{StructField, StructType},
     view_metadata::ViewRepresentation,
 };
-use iceberg_rust_spec::util;
+use iceberg_rust::{
+    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular,
+    materialized_view::MaterializedView, table::Table, view::View,
+};
 // mod value;
 
 #[derive(Debug, Clone)]
@@ -488,11 +488,11 @@ async fn table_scan(
         .with_fields(
             schema_builder
                 .build()
-                .map_err(iceberg_rust_spec::error::Error::from)
+                .map_err(iceberg_rust::spec::error::Error::from)
                 .map_err(Error::from)?,
         )
         .build()
-        .map_err(iceberg_rust_spec::error::Error::from)
+        .map_err(iceberg_rust::spec::error::Error::from)
         .map_err(Error::from)?;
 
     let file_schema: SchemaRef = Arc::new((file_schema.fields()).try_into().unwrap());
@@ -590,6 +590,11 @@ mod tests {
         },
         prelude::SessionContext,
     };
+    use iceberg_rust::spec::{
+        partition::{PartitionField, Transform},
+        schema::Schema,
+        types::{PrimitiveType, StructField, StructType, Type},
+    };
     use iceberg_rust::{
         catalog::{identifier::Identifier, tabular::Tabular, Catalog},
         spec::{
@@ -598,11 +603,6 @@ mod tests {
         },
         table::Table,
         view::View,
-    };
-    use iceberg_rust_spec::spec::{
-        partition::{PartitionField, Transform},
-        schema::Schema,
-        types::{PrimitiveType, StructField, StructType, Type},
     };
     use iceberg_sql_catalog::SqlCatalog;
     use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};

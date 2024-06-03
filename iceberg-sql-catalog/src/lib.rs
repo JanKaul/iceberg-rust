@@ -18,6 +18,7 @@ use iceberg_rust::{
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
+    spec::util::strip_prefix,
     spec::{
         materialized_view_metadata::MaterializedViewMetadata,
         table_metadata::{new_metadata_location, TableMetadata},
@@ -25,7 +26,6 @@ use iceberg_rust::{
         view_metadata::ViewMetadata,
     },
     table::Table,
-    util::strip_prefix,
     view::View,
 };
 use object_store::ObjectStore;

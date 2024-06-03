@@ -3,6 +3,7 @@ use datafusion::{datasource::TableProvider, error::DataFusionError};
 use futures::{executor::LocalPool, task::LocalSpawnExt};
 use std::{collections::HashSet, sync::Arc};
 
+use iceberg_rust::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
 use iceberg_rust::{
     catalog::{
         bucket::Bucket,
@@ -14,9 +15,8 @@ use iceberg_rust::{
     },
     error::Error as IcebergError,
     spec::table_metadata::new_metadata_location,
-    util::strip_prefix,
+    spec::util::strip_prefix,
 };
-use iceberg_rust_spec::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
 
 use crate::{error::Error, DataFusionTable};
 

@@ -7,14 +7,14 @@ use datafusion::{
     sql::TableReference,
 };
 use futures::{stream, StreamExt, TryStreamExt};
+use iceberg_rust::spec::{
+    materialized_view_metadata::SourceTable, view_metadata::ViewRepresentation,
+};
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned,
     catalog::{identifier::Identifier, tabular::Tabular, CatalogList},
     materialized_view::{MaterializedView, StorageTableState},
     sql::find_relations,
-};
-use iceberg_rust_spec::spec::{
-    materialized_view_metadata::SourceTable, view_metadata::ViewRepresentation,
 };
 use itertools::Itertools;
 
@@ -215,6 +215,11 @@ pub async fn refresh_materialized_view(
 mod tests {
 
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
+    use iceberg_rust::spec::{
+        partition::{PartitionField, Transform},
+        schema::Schema,
+        types::{PrimitiveType, StructField, StructType, Type},
+    };
     use iceberg_rust::{
         catalog::CatalogList,
         materialized_view::MaterializedView,
@@ -223,11 +228,6 @@ mod tests {
             view_metadata::{Version, ViewRepresentation},
         },
         table::Table,
-    };
-    use iceberg_rust_spec::spec::{
-        partition::{PartitionField, Transform},
-        schema::Schema,
-        types::{PrimitiveType, StructField, StructType, Type},
     };
     use iceberg_sql_catalog::SqlCatalogList;
     use object_store::{memory::InMemory, ObjectStore};
