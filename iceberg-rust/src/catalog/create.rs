@@ -39,25 +39,25 @@ pub struct CreateTable {
     /// Location tables base location
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(into, strip_option), default)]
-    location: Option<String>,
+    pub location: Option<String>,
     /// Table schemma
-    schema: Schema,
+    pub schema: Schema,
     /// Partition spec
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(strip_option), default)]
-    partition_spec: Option<PartitionSpec>,
+    pub partition_spec: Option<PartitionSpec>,
     /// Sort order
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(strip_option, name = "with_sort_order"), default)]
-    write_order: Option<SortOrder>,
+    pub write_order: Option<SortOrder>,
     /// stage create
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(strip_option), default)]
-    stage_create: Option<bool>,
+    pub stage_create: Option<bool>,
     /// Table properties
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(strip_option, each(name = "with_property")), default)]
-    properties: Option<HashMap<String, String>>,
+    pub properties: Option<HashMap<String, String>>,
 }
 
 impl CreateTableBuilder {
