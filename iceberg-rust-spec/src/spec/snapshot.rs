@@ -118,7 +118,7 @@ pub(crate) mod _serde {
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
     #[serde(rename_all = "kebab-case")]
     /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
-    pub(crate) struct SnapshotV2 {
+    pub struct SnapshotV2 {
         /// A unique long ID
         pub snapshot_id: i64,
         /// The snapshot ID of the snapshot’s parent.
@@ -144,7 +144,7 @@ pub(crate) mod _serde {
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
     #[serde(rename_all = "kebab-case")]
     /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
-    pub(crate) struct SnapshotV1 {
+    pub struct SnapshotV1 {
         /// A unique long ID
         pub snapshot_id: i64,
         /// The snapshot ID of the snapshot’s parent.

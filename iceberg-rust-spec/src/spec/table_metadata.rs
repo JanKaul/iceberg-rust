@@ -292,7 +292,7 @@ mod _serde {
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
     #[serde(rename_all = "kebab-case")]
     /// Fields for the version 2 of the table metadata.
-    pub(crate) struct TableMetadataV2 {
+    pub struct TableMetadataV2 {
         /// Integer Version for the format.
         pub format_version: VersionNumber<2>,
         /// A UUID that identifies the table
@@ -365,7 +365,7 @@ mod _serde {
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
     #[serde(rename_all = "kebab-case")]
     /// Fields for the version 1 of the table metadata.
-    pub(super) struct TableMetadataV1 {
+    pub struct TableMetadataV1 {
         /// Integer Version for the format.
         pub format_version: VersionNumber<1>,
         /// A UUID that identifies the table
