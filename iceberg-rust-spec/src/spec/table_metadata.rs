@@ -33,6 +33,8 @@ pub static MAIN_BRANCH: &str = "main";
 static DEFAULT_SORT_ORDER_ID: i32 = 0;
 static DEFAULT_SPEC_ID: i32 = 0;
 
+pub use _serde::{TableMetadataV1, TableMetadataV2};
+
 use _serde::TableMetadataEnum;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder)]
@@ -254,7 +256,7 @@ impl str::FromStr for TableMetadata {
     }
 }
 
-mod _serde {
+pub mod _serde {
     use std::collections::HashMap;
 
     use itertools::Itertools;

@@ -19,6 +19,8 @@ use crate::error::Error;
 
 use super::schema::{Schema, DEFAULT_SCHEMA_ID};
 
+pub use _serde::ViewMetadataV1;
+
 use _serde::ViewMetadataEnum;
 
 /// Prefix used to denote branch references in the view properties
