@@ -8,13 +8,16 @@ use std::{
 };
 
 use derive_builder::Builder;
-use iceberg_rust_spec::spec::{
-    materialized_view_metadata::MaterializedViewMetadata,
-    partition::{PartitionSpec, DEFAULT_PARTITION_SPEC_ID},
-    schema::{Schema, DEFAULT_SCHEMA_ID},
-    sort::{SortOrder, DEFAULT_SORT_ORDER_ID},
-    table_metadata::TableMetadata,
-    view_metadata::{Version, ViewMetadata, ViewProperties, DEFAULT_VERSION_ID},
+use iceberg_rust_spec::{
+    spec::{
+        materialized_view_metadata::MaterializedViewMetadata,
+        partition::{PartitionSpec, DEFAULT_PARTITION_SPEC_ID},
+        schema::{Schema, DEFAULT_SCHEMA_ID},
+        sort::{SortOrder, DEFAULT_SORT_ORDER_ID},
+        table_metadata::TableMetadata,
+        view_metadata::{Version, ViewMetadata, DEFAULT_VERSION_ID},
+    },
+    view_metadata::{FullIdentifier, Materialization},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -136,7 +139,7 @@ impl TryInto<TableMetadata> for CreateTable {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
-pub struct CreateView<T: Clone + Default> {
+pub struct CreateView<T: Materialization> {
     /// Name of the view
     #[builder(setter(into))]
     pub name: String,
@@ -147,10 +150,10 @@ pub struct CreateView<T: Clone + Default> {
     /// Schema of the view
     pub schema: Schema,
     /// Viersion of the view
-    pub view_version: Version,
+    pub view_version: Version<T>,
     /// View properties
     #[builder(setter(each(name = "with_property")), default)]
-    pub properties: ViewProperties<T>,
+    pub properties: HashMap<String, String>,
 }
 
 impl CreateViewBuilder<Option<()>> {
@@ -191,7 +194,7 @@ impl TryInto<ViewMetadata> for CreateView<Option<()>> {
     }
 }
 
-impl TryInto<MaterializedViewMetadata> for CreateView<String> {
+impl TryInto<MaterializedViewMetadata> for CreateView<FullIdentifier> {
     type Error = Error;
     fn try_into(self) -> Result<MaterializedViewMetadata, Self::Error> {
         Ok(MaterializedViewMetadata {
@@ -224,10 +227,10 @@ pub struct CreateMaterializedView {
     /// Schema of the view
     pub schema: Schema,
     /// Viersion of the view
-    pub view_version: Version,
+    pub view_version: Version<FullIdentifier>,
     /// View properties
     #[builder(setter(each(name = "with_property")), default)]
-    pub properties: ViewProperties<String>,
+    pub properties: HashMap<String, String>,
     /// Partition spec
     #[serde(skip_serializing_if = "Option::is_none")]
     #[builder(setter(strip_option), default)]
@@ -259,16 +262,25 @@ impl CreateMaterializedViewBuilder {
             .ok_or(Error::NotFound("View".to_owned(), "name".to_owned()))?;
         let identifier = Identifier::new(namespace, name);
 
-        if let Some(properties) = &mut self.properties {
-            properties.storage_table = identifier.to_string() + STORAGE_TABLE_POSTFIX;
-        } else {
-            self.properties = Some(ViewProperties {
-                storage_table: identifier.to_string() + STORAGE_TABLE_POSTFIX,
-                other: HashMap::new(),
-            })
+        let mut create = self.create()?;
+
+        let version = Version {
+            version_id: create.view_version.version_id,
+            schema_id: create.view_version.schema_id,
+            timestamp_ms: create.view_version.timestamp_ms,
+            summary: create.view_version.summary.clone(),
+            representations: create.view_version.representations.clone(),
+            default_catalog: create.view_version.default_catalog,
+            default_namespace: create.view_version.default_namespace,
+            storage_table: FullIdentifier::new(
+                catalog.name(),
+                identifier.namespace(),
+                &(identifier.name().to_string() + STORAGE_TABLE_POSTFIX),
+                None,
+            ),
         };
 
-        let create = self.create()?;
+        create.view_version = version;
 
         // Register materialized view in catalog
         catalog
@@ -278,9 +290,9 @@ impl CreateMaterializedViewBuilder {
     }
 }
 
-impl Into<(CreateView<String>, CreateTable)> for CreateMaterializedView {
-    fn into(self) -> (CreateView<String>, CreateTable) {
-        let storage_table = self.properties.storage_table.clone();
+impl Into<(CreateView<FullIdentifier>, CreateTable)> for CreateMaterializedView {
+    fn into(self) -> (CreateView<FullIdentifier>, CreateTable) {
+        let storage_table = self.view_version.storage_table.name().clone();
         (
             CreateView {
                 name: self.name.clone(),

@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub mod identifier;
 pub mod namespace;
 
+use iceberg_rust_spec::view_metadata::FullIdentifier;
 use identifier::Identifier;
 use object_store::ObjectStore;
 
@@ -31,6 +32,8 @@ pub mod tabular;
 /// Trait to create, replace and drop tables in an iceberg catalog.
 #[async_trait::async_trait]
 pub trait Catalog: Send + Sync + Debug {
+    /// Name of the catalog
+    fn name(&self) -> &str;
     /// Create a namespace in the catalog
     async fn create_namespace(
         &self,
@@ -86,11 +89,11 @@ pub trait Catalog: Send + Sync + Debug {
     /// perform commit table operation
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;
     /// perform commit view operation
-    async fn update_view(self: Arc<Self>, commit: CommitView) -> Result<View, Error>;
+    async fn update_view(self: Arc<Self>, commit: CommitView<Option<()>>) -> Result<View, Error>;
     /// perform commit view operation
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView,
+        commit: CommitView<FullIdentifier>,
     ) -> Result<MaterializedView, Error>;
     /// Register a table with the catalog if it doesn't exist.
     async fn register_table(

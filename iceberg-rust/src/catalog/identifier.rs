@@ -4,6 +4,7 @@ Defining the [Identifier] struct for identifying tables in an iceberg catalog.
 
 use core::fmt::{self, Display};
 
+use iceberg_rust_spec::view_metadata::FullIdentifier;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::error::Error;
@@ -71,6 +72,15 @@ impl TryFrom<&str> for Identifier {
     type Error = Error;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         Self::parse(value)
+    }
+}
+
+impl From<&FullIdentifier> for Identifier {
+    fn from(value: &FullIdentifier) -> Self {
+        Identifier {
+            namespace: Namespace(value.namespace().clone()),
+            name: value.name().clone(),
+        }
     }
 }
 

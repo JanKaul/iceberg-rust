@@ -1,6 +1,6 @@
 use iceberg_rust::catalog::commit::{CommitTable, CommitView};
 pub type CommitTableRequest = CommitTable;
-pub type CommitViewRequest = CommitView;
+pub type CommitViewRequest<T> = CommitView<T>;
 
 // pub mod add_partition_spec_update;
 // pub use self::add_partition_spec_update::AddPartitionSpecUpdate;

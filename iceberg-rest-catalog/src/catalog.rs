@@ -19,7 +19,7 @@ use iceberg_rust::{
         materialized_view_metadata::MaterializedViewMetadata,
         table_metadata::TableMetadata,
         tabular::TabularMetadata,
-        view_metadata::{self, ViewMetadata},
+        view_metadata::{self, FullIdentifier, ViewMetadata},
     },
     table::Table,
     view::View,
@@ -59,6 +59,10 @@ impl RestCatalog {
 
 #[async_trait]
 impl Catalog for RestCatalog {
+    /// Catalog name
+    fn name(&self) -> &str {
+        self.name.as_ref().unwrap()
+    }
     /// Create a namespace in the catalog
     async fn create_namespace(
         &self,
@@ -354,7 +358,7 @@ impl Catalog for RestCatalog {
         })
         .await
     }
-    async fn update_view(self: Arc<Self>, commit: CommitView) -> Result<View, Error> {
+    async fn update_view(self: Arc<Self>, commit: CommitView<Option<()>>) -> Result<View, Error> {
         let identifier = commit.identifier.clone();
         catalog_api_api::replace_view(
             &self.configuration,
@@ -419,7 +423,7 @@ impl Catalog for RestCatalog {
     }
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView,
+        commit: CommitView<FullIdentifier>,
     ) -> Result<MaterializedView, Error> {
         let identifier = commit.identifier.clone();
         catalog_api_api::replace_view(

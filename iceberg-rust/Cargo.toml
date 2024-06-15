@@ -28,5 +28,6 @@ derive_builder = "0.12.0"
 sqlparser = { workspace = true }
 thrift = { version = "0.17.0", default-features = false }
 thiserror = { workspace = true }
+derive-getters = { workspace = true }
 iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.4.0" }
 

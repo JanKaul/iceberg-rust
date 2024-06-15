@@ -5,7 +5,7 @@
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
-use crate::error::Error;
+use crate::{error::Error, view_metadata::FullIdentifier};
 
 use super::view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder};
 
@@ -13,9 +13,9 @@ use super::view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder};
 pub static STORAGE_TABLE: &str = "storage_table";
 
 /// Fields for the version 1 of the view metadata.
-pub type MaterializedViewMetadata = GeneralViewMetadata<String>;
+pub type MaterializedViewMetadata = GeneralViewMetadata<FullIdentifier>;
 /// Builder for materialized view metadata
-pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<String>;
+pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<FullIdentifier>;
 
 pub fn depends_on_tables_to_string(source_tables: &[SourceTable]) -> Result<String, Error> {
     Ok(source_tables
@@ -71,8 +71,7 @@ mod tests {
         "location" : "s3://bucket/warehouse/default.db/event_agg",
         "current-version-id" : 1,
         "properties" : {
-            "comment" : "Daily event counts",
-            "storage_table": "iceberg.default.event_agg"
+            "comment" : "Daily event counts"
         },
         "versions" : [ {
             "version-id" : 1,
@@ -89,7 +88,12 @@ mod tests {
             "type" : "sql",
             "sql" : "SELECT\n    COUNT(1), CAST(event_ts AS DATE)\nFROM events\nGROUP BY 2",
             "dialect" : "spark"
-            } ]
+            } ],
+            "storage-table": {
+                "catalog": "prod",
+                "namespace": ["default"],
+                "name": "event_agg_storage"
+            }
         } ],
         "schemas": [ {
             "schema-id": 1,

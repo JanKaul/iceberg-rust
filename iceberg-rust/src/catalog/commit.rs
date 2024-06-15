@@ -1,16 +1,18 @@
 /*!
 Struct to perform a [CommitTable] or [CommitView] operation
 */
-use std::{any::Any, collections::HashMap};
+use std::collections::HashMap;
 
-use iceberg_rust_spec::spec::{
-    materialized_view_metadata::STORAGE_TABLE,
-    partition::PartitionSpec,
-    schema::Schema,
-    snapshot::{Snapshot, SnapshotReference},
-    sort::SortOrder,
-    table_metadata::TableMetadata,
-    view_metadata::{GeneralViewMetadata, Version},
+use iceberg_rust_spec::{
+    spec::{
+        partition::PartitionSpec,
+        schema::Schema,
+        snapshot::{Snapshot, SnapshotReference},
+        sort::SortOrder,
+        table_metadata::TableMetadata,
+        view_metadata::{GeneralViewMetadata, Version},
+    },
+    view_metadata::Materialization,
 };
 use serde_derive::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -32,13 +34,13 @@ pub struct CommitTable {
 
 /// Update metadata of a table
 #[derive(Debug, Serialize, Deserialize)]
-pub struct CommitView {
+pub struct CommitView<T: Materialization> {
     /// Table identifier
     pub identifier: Identifier,
     /// Assertions about the metadata that must be true to update the metadata
     pub requirements: Vec<ViewRequirement>,
     /// Changes to the table metadata
-    pub updates: Vec<ViewUpdate>,
+    pub updates: Vec<ViewUpdate<T>>,
 }
 
 /// Update the metadata of a table in the catalog
@@ -187,7 +189,7 @@ pub enum TableRequirement {
     rename_all = "kebab-case",
     rename_all_fields = "kebab-case"
 )]
-pub enum ViewUpdate {
+pub enum ViewUpdate<T: Materialization> {
     /// Assigning a UUID to a table/view should only be done when creating the table/view. It is not safe to re-assign the UUID if a table/view already has a UUID assigned
     AssignUUID {
         /// new uuid
@@ -223,7 +225,7 @@ pub enum ViewUpdate {
     /// Add a new version to the view
     AddViewVersion {
         /// Version to add
-        view_version: Version,
+        view_version: Version<T>,
     },
     /// The view version id to set as current, or -1 to set last added view version id
     SetCurrentViewVersion {
@@ -244,11 +246,6 @@ pub enum ViewRequirement {
     AssertViewUuid {
         /// Uuid to assert
         uuid: Uuid,
-    },
-    /// The materialization must match the requirement's materialization
-    AssertProperty {
-        /// Storage table pointer to assert
-        property: (String, String),
     },
 }
 /// Check table update requirements
@@ -284,27 +281,12 @@ pub fn check_table_requirements(
 }
 
 /// Check table update requirements
-pub fn check_view_requirements<T: Clone + Default + Eq + 'static>(
+pub fn check_view_requirements<T: Materialization + Eq + 'static>(
     requirements: &[ViewRequirement],
     metadata: &GeneralViewMetadata<T>,
 ) -> bool {
     requirements.iter().all(|x| match x {
         ViewRequirement::AssertViewUuid { uuid } => metadata.view_uuid == *uuid,
-        ViewRequirement::AssertProperty {
-            property: (key, value),
-        } => {
-            if key == STORAGE_TABLE {
-                metadata.properties.storage_table
-                    == *(value as &dyn Any).downcast_ref::<T>().unwrap()
-            } else {
-                metadata
-                    .properties
-                    .other
-                    .get(key)
-                    .map(|x| x == value)
-                    .unwrap_or(false)
-            }
-        }
     })
 }
 /// Apply updates to metadata
@@ -381,9 +363,9 @@ pub fn apply_table_updates(
 }
 
 /// Apply updates to metadata
-pub fn apply_view_updates<T: Clone + Default + 'static>(
+pub fn apply_view_updates<T: Materialization + 'static>(
     metadata: &mut GeneralViewMetadata<T>,
-    updates: Vec<ViewUpdate>,
+    updates: Vec<ViewUpdate<T>>,
 ) -> Result<(), Error> {
     for update in updates {
         match update {
@@ -402,15 +384,7 @@ pub fn apply_view_updates<T: Clone + Default + 'static>(
             ViewUpdate::SetLocation { location } => {
                 metadata.location = location;
             }
-            ViewUpdate::SetProperties { mut updates } => {
-                if let Some(materialization) = updates.remove(STORAGE_TABLE) {
-                    metadata.properties.storage_table = (&materialization as &dyn Any)
-                        .downcast_ref::<T>()
-                        .cloned()
-                        .ok_or(Error::InvalidFormat(
-                            "Materialization must be a string".to_owned(),
-                        ))?;
-                }
+            ViewUpdate::SetProperties { updates } => {
                 metadata.properties.extend(updates);
             }
             ViewUpdate::RemoveProperties { removals } => {

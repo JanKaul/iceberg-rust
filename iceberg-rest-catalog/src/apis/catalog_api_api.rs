@@ -10,7 +10,10 @@
 
 use std::collections::HashMap;
 
-use iceberg_rust::catalog::create::{CreateTable, CreateView};
+use iceberg_rust::{
+    catalog::create::{CreateTable, CreateView},
+    spec::view_metadata::Materialization,
+};
 use reqwest;
 
 use super::{configuration, Error};
@@ -562,7 +565,7 @@ pub async fn create_table(
 }
 
 /// Create a view in the given namespace.
-pub async fn create_view<T: Clone + Default + serde::Serialize>(
+pub async fn create_view<T: Materialization + serde::Serialize>(
     configuration: &configuration::Configuration,
     prefix: Option<&str>,
     namespace: &str,
@@ -910,12 +913,12 @@ pub async fn rename_view(
 }
 
 /// Commit updates to a view.
-pub async fn replace_view(
+pub async fn replace_view<T: Materialization + serde::Serialize>(
     configuration: &configuration::Configuration,
     prefix: Option<&str>,
     namespace: &str,
     view: &str,
-    commit_view_request: models::CommitViewRequest,
+    commit_view_request: models::CommitViewRequest<T>,
 ) -> Result<models::LoadViewResult, Error<ReplaceViewError>> {
     let uri_str = format!(
         "namespaces/{namespace}/views/{view}",

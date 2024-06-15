@@ -18,12 +18,12 @@ use iceberg_rust::{
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
-    spec::util::strip_prefix,
     spec::{
         materialized_view_metadata::MaterializedViewMetadata,
         table_metadata::{new_metadata_location, TableMetadata},
         tabular::TabularMetadata,
-        view_metadata::ViewMetadata,
+        util::strip_prefix,
+        view_metadata::{FullIdentifier, ViewMetadata},
     },
     table::Table,
     view::View,
@@ -140,6 +140,10 @@ fn query_map(row: &AnyRow) -> Result<TableRef, sqlx::Error> {
 
 #[async_trait]
 impl Catalog for SqlCatalog {
+    /// Catalog name
+    fn name(&self) -> &str {
+        &self.name
+    }
     /// Create a namespace in the catalog
     async fn create_namespace(
         &self,
@@ -412,7 +416,7 @@ impl Catalog for SqlCatalog {
 
         let table_metadata_json = serde_json::to_string(&table_metadata)?;
         let table_metadata_location = new_metadata_location(&table_metadata);
-        let table_identifier = Identifier::parse(&metadata.properties.storage_table)?;
+        let table_identifier: Identifier = (metadata.current_version(None)?.storage_table()).into();
         object_store
             .put(
                 &strip_prefix(&metadata_location).into(),
@@ -513,7 +517,10 @@ impl Catalog for SqlCatalog {
             })
     }
 
-    async fn update_view(self: Arc<Self>, commit: CommitView) -> Result<View, IcebergError> {
+    async fn update_view(
+        self: Arc<Self>,
+        commit: CommitView<Option<()>>,
+    ) -> Result<View, IcebergError> {
         let identifier = commit.identifier;
         match self.cache.get(&identifier) {
             None => {
@@ -546,29 +553,8 @@ impl Catalog for SqlCatalog {
                             .await?;
                         Ok(metadata_location)
                     }
-                    TabularMetadata::MaterializedView(metadata) => {
-                        if !check_view_requirements(&commit.requirements, metadata) {
-                            return Err(IcebergError::InvalidFormat(
-                                "Materialized view requirements not valid".to_owned(),
-                            ));
-                        }
-                        apply_view_updates(metadata, commit.updates)?;
-                        let metadata_location = metadata.location.to_string()
-                            + "/metadata/"
-                            + &metadata.current_version_id.to_string()
-                            + "-"
-                            + &Uuid::new_v4().to_string()
-                            + ".metadata.json";
-                        self.object_store
-                            .put(
-                                &strip_prefix(&metadata_location).into(),
-                                serde_json::to_string(&metadata)?.into(),
-                            )
-                            .await?;
-                        Ok(metadata_location)
-                    }
                     _ => Err(IcebergError::InvalidFormat(
-                        "Table update on entity that is not a table".to_owned(),
+                        "View update on entity that is not a view".to_owned(),
                     )),
                 }?;
 
@@ -594,7 +580,7 @@ impl Catalog for SqlCatalog {
     }
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView,
+        commit: CommitView<FullIdentifier>,
     ) -> Result<MaterializedView, IcebergError> {
         let identifier = commit.identifier;
         match self.cache.get(&identifier) {
@@ -607,27 +593,6 @@ impl Catalog for SqlCatalog {
                 let (previous_metadata_location, metadata) = entry.value();
                 let mut metadata = metadata.clone();
                 let metadata_location = match &mut metadata {
-                    TabularMetadata::View(metadata) => {
-                        if !check_view_requirements(&commit.requirements, metadata) {
-                            return Err(IcebergError::InvalidFormat(
-                                "View requirements not valid".to_owned(),
-                            ));
-                        }
-                        apply_view_updates(metadata, commit.updates)?;
-                        let metadata_location = metadata.location.to_string()
-                            + "/metadata/"
-                            + &metadata.current_version_id.to_string()
-                            + "-"
-                            + &Uuid::new_v4().to_string()
-                            + ".metadata.json";
-                        self.object_store
-                            .put(
-                                &strip_prefix(&metadata_location).into(),
-                                serde_json::to_string(&metadata)?.into(),
-                            )
-                            .await?;
-                        Ok(metadata_location)
-                    }
                     TabularMetadata::MaterializedView(metadata) => {
                         if !check_view_requirements(&commit.requirements, metadata) {
                             return Err(IcebergError::InvalidFormat(
@@ -650,7 +615,8 @@ impl Catalog for SqlCatalog {
                         Ok(metadata_location)
                     }
                     _ => Err(IcebergError::InvalidFormat(
-                        "Table update on entity that is not a table".to_owned(),
+                        "Materialized view update on entity that is not a materialized view"
+                            .to_owned(),
                     )),
                 }?;
 

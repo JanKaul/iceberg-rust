@@ -2056,6 +2056,7 @@ dependencies = [
  "apache-avro",
  "arrow",
  "async-trait",
+ "derive-getters",
  "derive_builder",
  "futures",
  "getrandom",

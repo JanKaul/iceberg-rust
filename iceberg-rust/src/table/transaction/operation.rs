@@ -536,7 +536,19 @@ impl Operation {
                     snapshot_reference: value,
                 }],
             )),
-            _ => Ok((None, vec![])),
+            Operation::AddSchema(schema) => {
+                let last_column_id = schema.fields().iter().map(|x| x.id).max();
+                Ok((
+                    None,
+                    vec![TableUpdate::AddSchema {
+                        schema,
+                        last_column_id,
+                    }],
+                ))
+            }
+            Operation::SetDefaultSpec(spec_id) => {
+                Ok((None, vec![TableUpdate::SetDefaultSpec { spec_id }]))
+            }
         }
     }
 }

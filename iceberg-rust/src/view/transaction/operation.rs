@@ -2,10 +2,13 @@
  * Defines the different [Operation]s on a [View].
 */
 
-use iceberg_rust_spec::spec::{
-    schema::SchemaBuilder,
-    types::StructType,
-    view_metadata::{GeneralViewMetadata, Summary, Version, ViewRepresentation, REF_PREFIX},
+use iceberg_rust_spec::{
+    spec::{
+        schema::SchemaBuilder,
+        types::StructType,
+        view_metadata::{GeneralViewMetadata, Summary, Version, ViewRepresentation, REF_PREFIX},
+    },
+    view_metadata::Materialization,
 };
 use std::{
     collections::HashMap,
@@ -34,16 +37,17 @@ pub enum Operation {
 
 impl Operation {
     /// Execute operation
-    pub async fn execute<T: Clone + Default>(
+    pub async fn execute<T: Materialization>(
         self,
         metadata: &GeneralViewMetadata<T>,
-    ) -> Result<(Option<ViewRequirement>, Vec<ViewUpdate>), Error> {
+    ) -> Result<(Option<ViewRequirement>, Vec<ViewUpdate<T>>), Error> {
         match self {
             Operation::UpdateRepresentation {
                 representation,
                 schema,
                 branch,
             } => {
+                let version = metadata.current_version(branch.as_deref())?;
                 let version_id = metadata.versions.keys().max().unwrap_or(&0) + 1;
                 let schema_id = metadata.schemas.keys().max().unwrap_or(&0) + 1;
                 let last_column_id = schema.iter().map(|x| x.id).max().unwrap_or(0);
@@ -56,12 +60,13 @@ impl Operation {
                         engine_version: None,
                     },
                     representations: vec![representation],
-                    default_catalog: None,
-                    default_namespace: None,
+                    default_catalog: version.default_catalog.clone(),
+                    default_namespace: version.default_namespace.clone(),
                     timestamp_ms: SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_micros() as i64,
+                    storage_table: version.storage_table.clone(),
                 };
 
                 let branch_name = branch.unwrap_or("main".to_string());
