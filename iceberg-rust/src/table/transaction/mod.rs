@@ -3,10 +3,7 @@
 */
 use std::collections::HashMap;
 
-use iceberg_rust_spec::spec::{
-    manifest::DataFile, materialized_view_metadata::SourceTable, schema::Schema,
-    snapshot::SnapshotReference,
-};
+use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
 
 use crate::{catalog::commit::CommitTable, error::Error, table::Table};
 
@@ -61,7 +58,7 @@ impl<'table> TableTransaction<'table> {
                 if let Operation::NewAppend {
                     branch: _,
                     files: old,
-                    lineage: None,
+                    additional_summary: None,
                 } = &mut x
                 {
                     old.extend_from_slice(&files)
@@ -70,7 +67,7 @@ impl<'table> TableTransaction<'table> {
             .or_insert(Operation::NewAppend {
                 branch: self.branch.clone(),
                 files,
-                lineage: None,
+                additional_summary: None,
             });
         self
     }
@@ -82,7 +79,7 @@ impl<'table> TableTransaction<'table> {
                 if let Operation::Rewrite {
                     branch: _,
                     files: old,
-                    lineage: None,
+                    additional_summary: None,
                 } = &mut x
                 {
                     old.extend_from_slice(&files)
@@ -91,29 +88,33 @@ impl<'table> TableTransaction<'table> {
             .or_insert(Operation::Rewrite {
                 branch: self.branch.clone(),
                 files,
-                lineage: None,
+                additional_summary: None,
             });
         self
     }
     /// Quickly append files to the table
-    pub fn rewrite_with_lineage(mut self, files: Vec<DataFile>, lineage: Vec<SourceTable>) -> Self {
+    pub fn rewrite_with_lineage(
+        mut self,
+        files: Vec<DataFile>,
+        additional_summary: HashMap<String, String>,
+    ) -> Self {
         self.operations
             .entry(REWRITE_KEY.to_owned())
             .and_modify(|mut x| {
                 if let Operation::Rewrite {
                     branch: _,
                     files: old,
-                    lineage: old_lineage,
+                    additional_summary: old_lineage,
                 } = &mut x
                 {
                     old.extend_from_slice(&files);
-                    *old_lineage = Some(lineage.clone());
+                    *old_lineage = Some(additional_summary.clone());
                 }
             })
             .or_insert(Operation::Rewrite {
                 branch: self.branch.clone(),
                 files,
-                lineage: Some(lineage),
+                additional_summary: Some(additional_summary),
             });
         self
     }
@@ -150,7 +151,7 @@ impl<'table> TableTransaction<'table> {
                 Operation::Rewrite {
                     branch: _,
                     files: _,
-                    lineage: _,
+                    additional_summary: _,
                 }
             )
         }) {

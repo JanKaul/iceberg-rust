@@ -24,7 +24,8 @@ use super::{
 
 use _serde::SnapshotEnum;
 
-pub static DEPENDS_ON_TABLES: &str = "depends_on_tables";
+pub static REFRESH_TABLES: &str = "refresh-tables";
+pub static REFRESH_VERSION_ID: &str = "refresh-version-id";
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Builder, Getters)]
 #[serde(from = "SnapshotEnum", into = "SnapshotEnum")]

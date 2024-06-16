@@ -17,7 +17,7 @@ use iceberg_rust_spec::{
         table_metadata::TableMetadata,
         view_metadata::{Version, ViewMetadata, DEFAULT_VERSION_ID},
     },
-    view_metadata::{FullIdentifier, Materialization},
+    view_metadata::{FullIdentifier, Lineage, Materialization, ViewRepresentation},
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -25,6 +25,7 @@ use uuid::Uuid;
 use crate::{
     error::Error,
     materialized_view::{MaterializedView, STORAGE_TABLE_POSTFIX},
+    sql::find_relations,
     table::Table,
     view::View,
 };
@@ -264,6 +265,30 @@ impl CreateMaterializedViewBuilder {
 
         let mut create = self.create()?;
 
+        let relations = find_relations(match &create.view_version.representations()[0] {
+            ViewRepresentation::Sql {
+                sql,
+                dialect: _dialect,
+            } => sql,
+        })?;
+
+        let lineage = Lineage::from_iter(
+            relations
+                .into_iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    Ok::<_, Error>((
+                        FullIdentifier::parse(
+                            &name,
+                            create.view_version.default_namespace().as_deref(),
+                            create.view_version.default_catalog().as_deref(),
+                        )?,
+                        i as i64,
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+
         let version = Version {
             version_id: create.view_version.version_id,
             schema_id: create.view_version.schema_id,
@@ -278,6 +303,7 @@ impl CreateMaterializedViewBuilder {
                 &(identifier.name().to_string() + STORAGE_TABLE_POSTFIX),
                 None,
             ),
+            lineage: Some(lineage),
         };
 
         create.view_version = version;

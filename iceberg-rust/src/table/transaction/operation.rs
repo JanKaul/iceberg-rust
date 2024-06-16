@@ -12,12 +12,10 @@ use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
 use iceberg_rust_spec::spec::{
     manifest::{partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status},
     manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
-    materialized_view_metadata::{depends_on_tables_to_string, SourceTable},
     partition::PartitionField,
     schema::Schema,
     snapshot::{
         generate_snapshot_id, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary,
-        DEPENDS_ON_TABLES,
     },
     types::StructField,
     values::{Struct, Value},
@@ -50,7 +48,7 @@ pub enum Operation {
     NewAppend {
         branch: Option<String>,
         files: Vec<DataFile>,
-        lineage: Option<Vec<SourceTable>>,
+        additional_summary: Option<HashMap<String, String>>,
     },
     // /// Quickly append new files to the table
     // NewFastAppend {
@@ -61,7 +59,7 @@ pub enum Operation {
     Rewrite {
         branch: Option<String>,
         files: Vec<DataFile>,
-        lineage: Option<Vec<SourceTable>>,
+        additional_summary: Option<HashMap<String, String>>,
     },
     // /// Replace manifests files and commit
     // RewriteManifests,
@@ -89,7 +87,7 @@ impl Operation {
             Operation::NewAppend {
                 branch,
                 files,
-                lineage,
+                additional_summary,
             } => {
                 let partition_spec = table_metadata.default_partition_spec()?;
                 let schema = table_metadata.current_schema(branch.as_deref())?;
@@ -323,11 +321,8 @@ impl Operation {
                     )
                     .with_summary(Summary {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
-                        other: if let Some(lineage) = lineage {
-                            HashMap::from_iter(vec![(
-                                DEPENDS_ON_TABLES.to_owned(),
-                                depends_on_tables_to_string(&lineage)?,
-                            )])
+                        other: if let Some(additional_summary) = additional_summary {
+                            additional_summary
                         } else {
                             HashMap::new()
                         },
@@ -357,7 +352,7 @@ impl Operation {
             Operation::Rewrite {
                 branch,
                 files,
-                lineage,
+                additional_summary,
             } => {
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
                 let schema = table_metadata.current_schema(branch.as_deref())?.clone();
@@ -481,11 +476,8 @@ impl Operation {
                     .with_manifest_list(manifest_list_location)
                     .with_summary(Summary {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
-                        other: if let Some(lineage) = lineage {
-                            HashMap::from_iter(vec![(
-                                DEPENDS_ON_TABLES.to_owned(),
-                                depends_on_tables_to_string(&lineage)?,
-                            )])
+                        other: if let Some(additional_summary) = additional_summary {
+                            additional_summary
                         } else {
                             HashMap::new()
                         },

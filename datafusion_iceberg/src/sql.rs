@@ -18,7 +18,7 @@ pub(crate) fn transform_relations(sql: &str) -> Result<Vec<String>, Error> {
 
     visit_relations_mut(&mut statements, |relation| {
         relation.0 = vec![Ident::new(transform_name(
-            &Itertools::intersperse(relation.0.iter().skip(1).map(|x| x.value.as_str()), ".")
+            &Itertools::intersperse(relation.0.iter().map(|x| x.value.as_str()), ".")
                 .collect::<String>(),
         ))];
         relation.0[0].value = transform_name(&relation.0[0].value);

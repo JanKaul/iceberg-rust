@@ -1284,7 +1284,6 @@ mod tests {
         .expect("Failed to insert values into table");
 
         let view_schema = Schema::builder()
-            .with_schema_id(0)
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {

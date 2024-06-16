@@ -8,7 +8,7 @@ use iceberg_rust_spec::{
         types::StructType,
         view_metadata::{GeneralViewMetadata, Summary, Version, ViewRepresentation, REF_PREFIX},
     },
-    view_metadata::Materialization,
+    view_metadata::{FullIdentifier, Lineage, Materialization},
 };
 use std::{
     collections::HashMap,
@@ -18,6 +18,7 @@ use std::{
 use crate::{
     catalog::commit::{ViewRequirement, ViewUpdate},
     error::Error,
+    sql::find_relations,
 };
 
 /// View operation
@@ -51,6 +52,30 @@ impl Operation {
                 let version_id = metadata.versions.keys().max().unwrap_or(&0) + 1;
                 let schema_id = metadata.schemas.keys().max().unwrap_or(&0) + 1;
                 let last_column_id = schema.iter().map(|x| x.id).max().unwrap_or(0);
+                let relations = find_relations(match &representation {
+                    ViewRepresentation::Sql {
+                        sql,
+                        dialect: _dialect,
+                    } => sql,
+                })?;
+
+                let lineage = Lineage::from_iter(
+                    relations
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, name)| {
+                            Ok::<_, Error>((
+                                FullIdentifier::parse(
+                                    &name,
+                                    version.default_namespace().as_deref(),
+                                    version.default_catalog().as_deref(),
+                                )?,
+                                i as i64,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+
                 let version = Version {
                     version_id,
                     schema_id,
@@ -67,6 +92,7 @@ impl Operation {
                         .unwrap()
                         .as_micros() as i64,
                     storage_table: version.storage_table.clone(),
+                    lineage: Some(lineage),
                 };
 
                 let branch_name = branch.unwrap_or("main".to_string());

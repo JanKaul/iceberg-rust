@@ -4,9 +4,12 @@
 
 use std::collections::HashMap;
 
-use iceberg_rust_spec::spec::{
-    manifest::DataFile, materialized_view_metadata::SourceTable, types::StructType,
-    view_metadata::ViewRepresentation,
+use iceberg_rust_spec::{
+    snapshot::{REFRESH_TABLES, REFRESH_VERSION_ID},
+    spec::{
+        manifest::DataFile, materialized_view_metadata::RefreshTable, types::StructType,
+        view_metadata::ViewRepresentation,
+    },
 };
 
 use crate::{
@@ -63,26 +66,38 @@ impl<'view> Transaction<'view> {
     }
 
     /// Perform full refresh operation
-    pub fn full_refresh(mut self, files: Vec<DataFile>, lineage: Vec<SourceTable>) -> Self {
+    pub fn full_refresh(
+        mut self,
+        files: Vec<DataFile>,
+        lineage: Vec<RefreshTable>,
+        version_id: i64,
+    ) -> Result<Self, Error> {
+        let refresh_tables = serde_json::to_string(&lineage)?;
         self.storage_table_operations
             .entry(REWRITE_KEY.to_owned())
             .and_modify(|mut x| {
                 if let TableOperation::Rewrite {
                     branch: _,
                     files: old,
-                    lineage: old_lineage,
+                    additional_summary: old_lineage,
                 } = &mut x
                 {
                     old.extend_from_slice(&files);
-                    *old_lineage = Some(lineage.clone());
+                    *old_lineage = Some(HashMap::from_iter(vec![
+                        (REFRESH_VERSION_ID.to_owned(), version_id.to_string()),
+                        (REFRESH_TABLES.to_owned(), refresh_tables.clone()),
+                    ]));
                 }
             })
             .or_insert(TableOperation::Rewrite {
                 branch: self.branch.clone(),
                 files,
-                lineage: Some(lineage),
+                additional_summary: Some(HashMap::from_iter(vec![
+                    (REFRESH_VERSION_ID.to_owned(), version_id.to_string()),
+                    (REFRESH_TABLES.to_owned(), refresh_tables),
+                ])),
             });
-        self
+        Ok(self)
     }
 
     /// Commit the transaction to perform the [Operation]s with ACID guarantees.
@@ -101,7 +116,7 @@ impl<'view> Transaction<'view> {
                 TableOperation::Rewrite {
                     branch: _,
                     files: _,
-                    lineage: _,
+                    additional_summary: _,
                 } => true,
                 _ => false,
             }) {

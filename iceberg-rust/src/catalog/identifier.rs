@@ -60,6 +60,10 @@ impl Identifier {
     pub fn name(&self) -> &str {
         &self.name
     }
+    /// Create Full Identifier
+    pub fn into_full_identifier(&self, catalog: &str) -> FullIdentifier {
+        FullIdentifier::new(catalog, &self.namespace, &self.name, None)
+    }
 }
 
 impl Display for Identifier {

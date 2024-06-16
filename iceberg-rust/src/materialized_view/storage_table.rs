@@ -1,8 +1,11 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+};
 
-use iceberg_rust_spec::spec::{
-    materialized_view_metadata::{depends_on_tables_from_string, SourceTable},
-    snapshot::DEPENDS_ON_TABLES,
+use iceberg_rust_spec::{
+    snapshot::REFRESH_VERSION_ID,
+    spec::{materialized_view_metadata::RefreshTable, snapshot::REFRESH_TABLES},
 };
 
 use crate::{error::Error, table::Table};
@@ -28,15 +31,29 @@ impl StorageTable {
     }
 
     #[inline]
-    pub async fn source_tables(
+    pub async fn refresh_tables(
         &self,
+        version_id: i64,
         branch: Option<String>,
-    ) -> Result<Option<Vec<SourceTable>>, Error> {
-        self.metadata()
-            .current_snapshot(branch.as_deref())?
-            .and_then(|snapshot| snapshot.summary().other.get(DEPENDS_ON_TABLES))
-            .map(|x| depends_on_tables_from_string(x))
-            .transpose()
-            .map_err(Error::from)
+    ) -> Result<Option<HashMap<i64, i64>>, Error> {
+        let current_snapshot = self.metadata().current_snapshot(branch.as_deref())?;
+        if Some(version_id)
+            == current_snapshot
+                .and_then(|snapshot| snapshot.summary().other.get(REFRESH_VERSION_ID))
+                .map(|x| str::parse::<i64>(x))
+                .transpose()?
+        {
+            current_snapshot
+                .and_then(|snapshot| snapshot.summary().other.get(REFRESH_TABLES))
+                .map(|x| {
+                    serde_json::from_str::<Vec<RefreshTable>>(x).map(|x| {
+                        HashMap::from_iter(x.into_iter().map(|y| (y.sequence_id, y.revision_id)))
+                    })
+                })
+                .transpose()
+                .map_err(Error::from)
+        } else {
+            Ok(None)
+        }
     }
 }

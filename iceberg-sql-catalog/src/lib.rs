@@ -294,7 +294,7 @@ impl Catalog for SqlCatalog {
             .await?
             .bytes()
             .await?;
-        let metadata: TabularMetadata = serde_json::from_str(std::str::from_utf8(bytes)?)?;
+        let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
         self.cache
             .insert(identifier.clone(), (path.clone(), metadata.clone()));
         match metadata {
