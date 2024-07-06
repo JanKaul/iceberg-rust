@@ -47,35 +47,49 @@ pub async fn write_parquet_partitioned(
     let schema = metadata.current_schema(branch).map_err(Error::from)?;
     let partition_spec = metadata.default_partition_spec().map_err(Error::from)?;
 
-    let streams = partition_record_batches(batches, partition_spec, schema).await?;
-
     let arrow_schema: Arc<ArrowSchema> =
         Arc::new((schema.fields()).try_into().map_err(Error::from)?);
 
-    let (sender, reciever) = unbounded();
+    let (mut sender, reciever) = unbounded();
 
-    stream::iter(streams.into_iter())
-        .map(Ok::<_, ArrowError>)
-        .try_for_each_concurrent(None, |(partition_values, batches)| {
-            let arrow_schema = arrow_schema.clone();
-            let object_store = object_store.clone();
-            let mut sender = sender.clone();
-            async move {
-                let files = write_parquet_files(
-                    location,
-                    schema,
-                    &arrow_schema,
-                    partition_spec,
-                    &partition_values,
-                    batches,
-                    object_store.clone(),
-                )
-                .await?;
-                sender.send(files).await.map_err(Error::from)?;
-                Ok(())
-            }
-        })
+    if partition_spec.fields().is_empty() {
+        let files = write_parquet_files(
+            location,
+            schema,
+            &arrow_schema,
+            partition_spec,
+            &Vec::new(),
+            batches,
+            object_store.clone(),
+        )
         .await?;
+        sender.send(files).await.map_err(Error::from)?;
+    } else {
+        let streams = partition_record_batches(batches, partition_spec, schema).await?;
+
+        stream::iter(streams.into_iter())
+            .map(Ok::<_, ArrowError>)
+            .try_for_each_concurrent(None, |(partition_values, batches)| {
+                let arrow_schema = arrow_schema.clone();
+                let object_store = object_store.clone();
+                let mut sender = sender.clone();
+                async move {
+                    let files = write_parquet_files(
+                        location,
+                        schema,
+                        &arrow_schema,
+                        partition_spec,
+                        &partition_values,
+                        batches,
+                        object_store.clone(),
+                    )
+                    .await?;
+                    sender.send(files).await.map_err(Error::from)?;
+                    Ok(())
+                }
+            })
+            .await?;
+    }
 
     sender.close_channel();
 
