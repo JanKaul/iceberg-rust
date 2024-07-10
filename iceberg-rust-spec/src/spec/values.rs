@@ -188,7 +188,7 @@ impl Struct {
                     // Get datatype after tranform
                     let datatype = map
                         .get(name)
-                        .ok_or(Error::InvalidFormat("schema".to_string()))?;
+                        .ok_or(Error::InvalidFormat("partition_struct".to_string()))?;
                     // Cast the value to the datatype
                     let value = field.map(|value| value.cast(datatype)).transpose()?;
                     Ok((name.clone(), value))

@@ -17,7 +17,6 @@ use iceberg_rust_spec::spec::{
     snapshot::{
         generate_snapshot_id, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary,
     },
-    types::StructField,
     values::{Struct, Value},
 };
 use iceberg_rust_spec::util::strip_prefix;
@@ -134,6 +133,7 @@ impl Operation {
                     Some(stream::iter(manifest_list_reader).filter_map(|manifest| {
                         let datafiles = datafiles.clone();
                         let existing_partitions = existing_partitions.clone();
+                        let partition_spec = partition_spec.clone();
                         async move {
                             let manifest = manifest
                                 .map_err(Into::into)
@@ -150,7 +150,6 @@ impl Operation {
                                     summary,
                                     datafiles.keys(),
                                     partition_spec.fields(),
-                                    schema,
                                 );
                                 if !partition_values.is_empty() {
                                     for file in &partition_values {
@@ -221,17 +220,6 @@ impl Operation {
                     },
                 );
 
-                let partition_columns = Arc::new(
-                    partition_spec
-                        .fields()
-                        .iter()
-                        .map(|x| schema.fields().get(*x.source_id() as usize))
-                        .collect::<Option<Vec<_>>>()
-                        .ok_or(Error::InvalidFormat(
-                            "Partition column in schema".to_string(),
-                        ))?,
-                );
-
                 match existing_manifest_iter {
                     Some(existing_manifest_iter) => {
                         let manifest_iter =
@@ -241,7 +229,6 @@ impl Operation {
                             .then(|(manifest, files): (ManifestStatus, Vec<Struct>)| {
                                 let object_store = object_store.clone();
                                 let datafiles = datafiles.clone();
-                                let partition_columns = partition_columns.clone();
                                 let branch = branch.clone();
                                 async move {
                                     write_manifest(
@@ -250,7 +237,6 @@ impl Operation {
                                         files,
                                         datafiles,
                                         schema,
-                                        &partition_columns,
                                         object_store,
                                         branch,
                                     )
@@ -271,7 +257,6 @@ impl Operation {
                             .then(|(manifest, files): (ManifestStatus, Vec<Struct>)| {
                                 let object_store = object_store.clone();
                                 let datafiles = datafiles.clone();
-                                let partition_columns = partition_columns.clone();
                                 let branch = branch.clone();
                                 async move {
                                     write_manifest(
@@ -280,7 +265,6 @@ impl Operation {
                                         files,
                                         datafiles,
                                         schema,
-                                        &partition_columns,
                                         object_store,
                                         branch,
                                     )
@@ -405,18 +389,6 @@ impl Operation {
                     (ManifestStatus::New(manifest), vec![partition_value.clone()])
                 });
 
-                let partition_columns = Arc::new(
-                    table_metadata
-                        .default_partition_spec()?
-                        .fields()
-                        .iter()
-                        .map(|x| schema.fields().get(*x.source_id() as usize))
-                        .collect::<Option<Vec<_>>>()
-                        .ok_or(Error::InvalidFormat(
-                            "Partition column in schema".to_string(),
-                        ))?,
-                );
-
                 let manifest_list_schema =
                     ManifestListEntry::schema(&table_metadata.format_version)?;
 
@@ -429,7 +401,6 @@ impl Operation {
                     .then(|(manifest, files): (ManifestStatus, Vec<Struct>)| {
                         let object_store = object_store.clone();
                         let datafiles = datafiles.clone();
-                        let partition_columns = partition_columns.clone();
                         let branch = branch.clone();
                         let schema = &schema;
                         let old_storage_table_metadata = &table_metadata;
@@ -440,7 +411,6 @@ impl Operation {
                                 files,
                                 datafiles,
                                 schema,
-                                &partition_columns,
                                 object_store,
                                 branch,
                             )
@@ -556,12 +526,12 @@ pub(crate) async fn write_manifest(
     files: Vec<Struct>,
     datafiles: Arc<HashMap<Struct, Vec<DataFile>>>,
     schema: &Schema,
-    partition_columns: &[&StructField],
     object_store: Arc<dyn ObjectStore>,
     branch: Option<String>,
 ) -> Result<ManifestListEntry, Error> {
+    let partition_spec = table_metadata.default_partition_spec()?;
     let manifest_schema = ManifestEntry::schema(
-        &partition_value_schema(table_metadata.default_partition_spec()?.fields(), schema)?,
+        &partition_value_schema(partition_spec.fields(), schema)?,
         &table_metadata.format_version,
     )?;
 
@@ -596,8 +566,7 @@ pub(crate) async fn write_manifest(
 
             if manifest.partitions.is_none() {
                 manifest.partitions = Some(
-                    table_metadata
-                        .default_partition_spec()?
+                    partition_spec
                         .fields()
                         .iter()
                         .map(|_| FieldSummary {
@@ -614,7 +583,7 @@ pub(crate) async fn write_manifest(
             update_partitions(
                 manifest.partitions.as_mut().unwrap(),
                 datafile.partition(),
-                partition_columns,
+                partition_spec.fields(),
             )?;
 
             let manifest_entry = ManifestEntry::builder()
@@ -662,13 +631,10 @@ pub(crate) async fn write_manifest(
 fn update_partitions(
     partitions: &mut [FieldSummary],
     partition_values: &Struct,
-    partition_columns: &[&StructField],
+    partition_columns: &[PartitionField],
 ) -> Result<(), Error> {
     for (field, summary) in partition_columns.iter().zip(partitions.iter_mut()) {
-        let value = &partition_values.fields[*partition_values
-            .lookup
-            .get(&field.name)
-            .ok_or_else(|| Error::InvalidFormat("partition value in schema".to_string()))?];
+        let value = &partition_values.get(field.name()).and_then(|x| x.as_ref());
         if let Some(value) = value {
             if let Some(lower_bound) = &mut summary.lower_bound {
                 match (value, lower_bound) {
@@ -770,23 +736,14 @@ fn partition_values_in_bounds<'a>(
     partitions: &[FieldSummary],
     partition_values: impl Iterator<Item = &'a Struct>,
     partition_spec: &[PartitionField],
-    schema: &Schema,
 ) -> Vec<Struct> {
     partition_values
         .filter(|value| {
             partition_spec
                 .iter()
                 .map(|field| {
-                    let name = &schema
-                        .fields()
-                        .get(*field.source_id() as usize)
-                        .ok_or_else(|| {
-                            Error::InvalidFormat("partition values in schema".to_string())
-                        })
-                        .unwrap()
-                        .name;
                     value
-                        .get(name)
+                        .get(field.name())
                         .ok_or_else(|| {
                             Error::InvalidFormat("partition values in schema".to_string())
                         })

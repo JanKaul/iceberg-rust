@@ -9,7 +9,7 @@ use std::{
 
 use iceberg_rust_spec::spec::{
     manifest::{AvroMap, Content, DataFile, FileFormat},
-    partition::{PartitionField, Transform},
+    partition::PartitionField,
     schema::Schema,
     types::Type,
     values::{Struct, Value},
@@ -33,24 +33,18 @@ pub fn parquet_to_datafile(
 ) -> Result<DataFile, Error> {
     let mut partition = partition_spec
         .iter()
-        .map(|x| {
-            let field = schema
-                .fields()
-                .get(*x.source_id() as usize)
-                .ok_or_else(|| Error::InvalidFormat("partition column in schema".to_string()))?;
-            Ok((field.name.clone(), None))
-        })
+        .map(|x| Ok((x.name().clone(), None)))
         .collect::<Result<Struct, Error>>()?;
-    let transforms = partition_spec
+    let partition_fields = partition_spec
         .iter()
         .map(|x| {
             let field = schema
                 .fields()
                 .get(*x.source_id() as usize)
                 .ok_or_else(|| Error::InvalidFormat("partition column in schema".to_string()))?;
-            Ok((field.name.clone(), x.transform().clone()))
+            Ok((field.name.clone(), x.clone()))
         })
-        .collect::<Result<HashMap<String, Transform>, Error>>()?;
+        .collect::<Result<HashMap<String, PartitionField>, Error>>()?;
     let parquet_schema = Arc::new(SchemaDescriptor::new(from_thrift(&file_metadata.schema)?));
 
     let mut column_sizes = AvroMap(HashMap::new());
@@ -202,17 +196,23 @@ pub fn parquet_to_datafile(
                             }
                         }
 
-                        if let Some(partition_value) = partition.get_mut(column_name) {
-                            if partition_value.is_none() {
-                                let transform = transforms
-                                    .get(column_name)
-                                    .ok_or_else(|| Error::InvalidFormat("transform".to_string()))?;
-                                let min = Value::try_from_bytes(statistics.min_bytes(), data_type)?
-                                    .tranform(transform)?;
-                                let max = Value::try_from_bytes(statistics.max_bytes(), data_type)?
-                                    .tranform(transform)?;
-                                if min == max {
-                                    *partition_value = Some(min)
+                        if let Some(partition_field) = partition_fields.get(column_name) {
+                            if let Some(partition_value) = partition.get_mut(partition_field.name())
+                            {
+                                if partition_value.is_none() {
+                                    let partition_field =
+                                        partition_fields.get(column_name).ok_or_else(|| {
+                                            Error::InvalidFormat("transform".to_string())
+                                        })?;
+                                    let min =
+                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                            .tranform(partition_field.transform())?;
+                                    let max =
+                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                            .tranform(partition_field.transform())?;
+                                    if min == max {
+                                        *partition_value = Some(min)
+                                    }
                                 }
                             }
                         }
