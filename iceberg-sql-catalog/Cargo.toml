@@ -3,7 +3,7 @@ name = "iceberg-sql-catalog"
 version = "0.4.0"
 edition = "2021"
 
-description = "Sql catalog for Apache Iceberg tables"
+description = "Sql catalog for the unofficial Iceberg table format implementation"
 
 license = "Apache-2.0"
 

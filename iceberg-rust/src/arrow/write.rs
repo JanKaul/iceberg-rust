@@ -7,12 +7,11 @@ use futures::{
     lock::Mutex,
     stream, SinkExt, StreamExt, TryStreamExt,
 };
-use object_store::ObjectStore;
+use object_store::{buffered::BufWriter, ObjectStore};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
-use tokio::io::AsyncWrite;
 
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
@@ -101,7 +100,7 @@ pub async fn write_parquet_partitioned(
         .await)
 }
 
-type SendableAsyncArrowWriter = AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>;
+type SendableAsyncArrowWriter = AsyncArrowWriter<BufWriter>;
 type ArrowSender = Sender<(String, SendableAsyncArrowWriter)>;
 type ArrowReciever = Receiver<(String, SendableAsyncArrowWriter)>;
 
@@ -216,7 +215,7 @@ async fn create_arrow_writer(
     partition_location: &str,
     schema: &arrow::datatypes::Schema,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<(String, AsyncArrowWriter<Box<dyn AsyncWrite + Send + Unpin>>), ArrowError> {
+) -> Result<(String, AsyncArrowWriter<BufWriter>), ArrowError> {
     let mut rand = [0u8; 6];
     getrandom::getrandom(&mut rand)
         .map_err(|err| ArrowError::ExternalError(Box::new(err)))
@@ -225,10 +224,12 @@ async fn create_arrow_writer(
     let parquet_path =
         partition_location.to_string() + &Uuid::now_v1(&rand).to_string() + ".parquet";
 
-    let (_, writer) = object_store
-        .put_multipart(&parquet_path.clone().into())
-        .await
-        .map_err(|err| ArrowError::from_external_error(err.into()))?;
+    let writer = BufWriter::new(object_store.clone(), parquet_path.clone().into());
+
+    // let writer = object_store
+    //     .put_multipart(&parquet_path.clone().into())
+    //     .await
+    //     .map_err(|err| ArrowError::from_external_error(err.into()))?;
 
     Ok((
         parquet_path,
