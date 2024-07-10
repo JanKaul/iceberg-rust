@@ -28,3 +28,9 @@ tokio = { version = "1.0", features = ["sync","rt-multi-thread"] }
 [dev-dependencies]
 tokio = "1"
 iceberg-sql-catalog = { path = "../iceberg-sql-catalog" }
+iceberg-rest-catalog = { path = "../iceberg-rest-catalog" }
+testcontainers-modules = { version = "0.8.0", features = ["localstack"] }
+testcontainers = "0.20.0"
+tokio-stream = { version = "0.1.15", features = ["io-util"] }
+tempfile = "3.10.1"
+reqwest = "0.11"

@@ -257,38 +257,38 @@ impl Catalog for RestCatalog {
             identifier.name(),
         )
         .await
-        .map(|x| x.metadata)
-        .map_err(Into::<Error>::into)?;
-        let view_metadata = match *tabular_metadata {
-            TabularMetadata::View(view) => Ok(Tabular::View(
+        .map(|x| *x.metadata);
+        match tabular_metadata {
+            Ok(TabularMetadata::View(view)) => Ok(Tabular::View(
                 View::new(identifier.clone(), self.clone(), view).await?,
             )),
-            TabularMetadata::MaterializedView(matview) => Ok(Tabular::MaterializedView(
+            Ok(TabularMetadata::MaterializedView(matview)) => Ok(Tabular::MaterializedView(
                 MaterializedView::new(identifier.clone(), self.clone(), matview).await?,
             )),
-            TabularMetadata::Table(_) => Err(Error::InvalidFormat(
+            Err(apis::Error::ResponseError(content)) => {
+                if content.status == 404 {
+                    let table_metadata = catalog_api_api::load_table(
+                        &self.configuration,
+                        self.name.as_deref(),
+                        &identifier.namespace().to_string(),
+                        identifier.name(),
+                        None,
+                        None,
+                    )
+                    .await
+                    .map(|x| x.metadata)
+                    .map_err(Into::<Error>::into)?;
+
+                    Ok(Tabular::Table(
+                        Table::new(identifier.clone(), self.clone(), *table_metadata).await?,
+                    ))
+                } else {
+                    Err(Into::<Error>::into(apis::Error::ResponseError(content)))
+                }
+            }
+            _ => Err(Error::InvalidFormat(
                 "Entity returned from load_view cannot be a table.".to_owned(),
             )),
-        };
-
-        if let Ok(view_metadata) = view_metadata {
-            Ok(view_metadata)
-        } else {
-            let table_metadata = catalog_api_api::load_table(
-                &self.configuration,
-                self.name.as_deref(),
-                &identifier.namespace().to_string(),
-                identifier.name(),
-                None,
-                None,
-            )
-            .await
-            .map(|x| x.metadata)
-            .map_err(Into::<Error>::into)?;
-
-            Ok(Tabular::Table(
-                Table::new(identifier.clone(), self.clone(), *table_metadata).await?,
-            ))
         }
     }
     /// Register a table with the catalog if it doesn't exist.
