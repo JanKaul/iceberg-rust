@@ -167,7 +167,7 @@ impl Struct {
                 )?;
 
                 Ok((
-                    field.name.clone(),
+                    partition_field.name().clone(),
                     field.field_type.tranform(partition_field.transform())?,
                 ))
             })
