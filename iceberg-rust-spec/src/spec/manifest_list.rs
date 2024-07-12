@@ -10,13 +10,13 @@ use std::{
 use apache_avro::{types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use crate::error::Error;
 
 use self::_serde::{FieldSummarySerde, ManifestListEntryV1, ManifestListEntryV2};
 
 use super::{
-    manifest::Content,
     table_metadata::{FormatVersion, TableMetadata},
     types::Type,
     values::Value,
@@ -117,6 +117,16 @@ pub struct FieldSummary {
     /// Upper bound for the non-null, non-NaN values in the partition field, or null if all values are null or NaN .
     /// If +0.0 is a value of the partition field, the upper_bound must not be -0.0.
     pub upper_bound: Option<Value>,
+}
+
+#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
+#[repr(u8)]
+/// Type of content stored by the data file.
+pub enum Content {
+    /// Data.
+    Data = 0,
+    /// Deletes
+    Deletes = 1,
 }
 
 mod _serde {

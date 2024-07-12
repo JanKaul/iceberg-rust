@@ -46,7 +46,7 @@ use crate::{
     statistics::manifest_statistics,
 };
 
-use iceberg_rust::spec::util;
+use iceberg_rust::spec::{manifest::Status, util};
 use iceberg_rust::spec::{
     schema::Schema,
     types::{StructField, StructType},
@@ -358,7 +358,7 @@ async fn table_scan(
             .into_iter()
             .zip(files_to_prune.into_iter())
             .for_each(|(manifest, prune_file)| {
-                if prune_file {
+                if prune_file && *manifest.status() != Status::Deleted {
                     let partition_values = manifest
                         .data_file()
                         .partition()
@@ -404,39 +404,41 @@ async fn table_scan(
             .await
             .map_err(Into::<Error>::into)?;
         data_files.into_iter().for_each(|manifest| {
-            let partition_values = manifest
-                .data_file()
-                .partition()
-                .iter()
-                .map(|value| match value {
-                    Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
-                    None => ScalarValue::Null,
-                })
-                .collect::<Vec<ScalarValue>>();
-            let object_meta = ObjectMeta {
-                location: util::strip_prefix(manifest.data_file().file_path()).into(),
-                size: *manifest.data_file().file_size_in_bytes() as usize,
-                last_modified: {
-                    let last_updated_ms = table.metadata().last_updated_ms;
-                    let secs = last_updated_ms / 1000;
-                    let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-                    DateTime::from_timestamp(secs, nsecs).unwrap()
-                },
-                e_tag: None,
-                version: None,
-            };
-            let manifest_statistics = manifest_statistics(&schema, &manifest);
-            let file = PartitionedFile {
-                object_meta,
-                partition_values,
-                range: None,
-                statistics: Some(manifest_statistics),
-                extensions: None,
-            };
-            file_groups
-                .entry(file.partition_values.clone())
-                .or_default()
-                .push(file);
+            if *manifest.status() != Status::Deleted {
+                let partition_values = manifest
+                    .data_file()
+                    .partition()
+                    .iter()
+                    .map(|value| match value {
+                        Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
+                        None => ScalarValue::Null,
+                    })
+                    .collect::<Vec<ScalarValue>>();
+                let object_meta = ObjectMeta {
+                    location: util::strip_prefix(manifest.data_file().file_path()).into(),
+                    size: *manifest.data_file().file_size_in_bytes() as usize,
+                    last_modified: {
+                        let last_updated_ms = table.metadata().last_updated_ms;
+                        let secs = last_updated_ms / 1000;
+                        let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
+                        DateTime::from_timestamp(secs, nsecs).unwrap()
+                    },
+                    e_tag: None,
+                    version: None,
+                };
+                let manifest_statistics = manifest_statistics(&schema, &manifest);
+                let file = PartitionedFile {
+                    object_meta,
+                    partition_values,
+                    range: None,
+                    statistics: Some(manifest_statistics),
+                    extensions: None,
+                };
+                file_groups
+                    .entry(file.partition_values.clone())
+                    .or_default()
+                    .push(file);
+            }
         });
     };
 

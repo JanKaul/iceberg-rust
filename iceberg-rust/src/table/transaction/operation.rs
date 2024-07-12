@@ -10,8 +10,8 @@ use std::{
 use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
 use iceberg_rust_spec::spec::{
-    manifest::{partition_value_schema, Content, DataFile, ManifestEntry, ManifestWriter, Status},
-    manifest_list::{FieldSummary, ManifestListEntry, ManifestListEntryEnum},
+    manifest::{partition_value_schema, DataFile, ManifestEntry, ManifestWriter, Status},
+    manifest_list::{Content, FieldSummary, ManifestListEntry, ManifestListEntryEnum},
     partition::PartitionField,
     schema::Schema,
     snapshot::{
