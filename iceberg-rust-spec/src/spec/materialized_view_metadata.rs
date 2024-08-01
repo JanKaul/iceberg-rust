@@ -2,14 +2,15 @@
  * A Struct for the materialized view metadata   
 */
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::view_metadata::FullIdentifier;
 
 use super::view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder};
 
-/// Property for the metadata location
-pub static STORAGE_TABLE: &str = "storage_table";
+pub static REFRESH_STATE: &str = "refresh-state";
 
 /// Fields for the version 1 of the view metadata.
 pub type MaterializedViewMetadata = GeneralViewMetadata<FullIdentifier>;
@@ -19,11 +20,13 @@ pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<FullIdenti
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 /// Freshness information of the materialized view
-pub struct RefreshTable {
-    /// Sequence id in the materialized view lineage
-    pub sequence_id: i64,
-    /// Snapshot id of the base table when the refresh operation was performed.
-    pub revision_id: i64,
+pub struct RefreshState {
+    /// The version-id of the materialized view when the refresh operation was performed.
+    pub refresh_version_id: i64,
+    /// A map from sequence-id (as defined in the view lineage) to the source tables’ snapshot-id of when the last refresh operation was performed.
+    pub source_table_states: HashMap<String, i64>,
+    /// A map from sequence-id (as defined in the view lineage) to the source views’ version-id of when the last refresh operation was performed.
+    pub source_view_states: HashMap<String, i64>,
 }
 
 #[cfg(test)]
@@ -97,44 +100,4 @@ mod tests {
 
         Ok(())
     }
-
-    // #[test]
-    // fn test_depends_on_tables_try_from_str() {
-    //     let input = "table1=1,table2=2";
-
-    //     let result = depends_on_tables_from_string(input).unwrap();
-
-    //     assert_eq!(
-    //         result,
-    //         vec![
-    //             RefreshTable {
-    //                 identifier: "table1".to_string(),
-    //                 revision_id: 1
-    //             },
-    //             RefreshTable {
-    //                 identifier: "table2".to_string(),
-    //                 revision_id: 2
-    //             }
-    //         ]
-    //     );
-    // }
-
-    // #[test]
-    // fn test_try_from_depends_on_tables_to_string() {
-    //     let depends_on_tables = vec![
-    //         RefreshTable {
-    //             identifier: "table1".to_string(),
-    //             revision_id: 1,
-    //         },
-    //         RefreshTable {
-    //             identifier: "table2".to_string(),
-    //             revision_id: 2,
-    //         },
-    //     ];
-
-    //     let result = depends_on_tables_to_string(&depends_on_tables);
-
-    //     assert!(result.is_ok());
-    //     assert_eq!(result.unwrap(), "table1=1,table2=2");
-    // }
 }

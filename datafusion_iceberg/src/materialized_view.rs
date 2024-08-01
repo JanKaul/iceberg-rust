@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
     arrow::error::ArrowError,
@@ -7,7 +7,7 @@ use datafusion::{
 };
 use futures::{stream, StreamExt, TryStreamExt};
 use iceberg_rust::spec::{
-    materialized_view_metadata::RefreshTable,
+    materialized_view_metadata::RefreshState,
     view_metadata::{FullIdentifier, ViewRepresentation},
 };
 use iceberg_rust::{
@@ -132,7 +132,7 @@ pub async fn refresh_materialized_view(
     }
 
     // Register source tables in datafusion context and return lineage information
-    let refresh_tables = source_tables
+    let source_table_states = source_tables
         .into_iter()
         .flat_map(|(identifier, source_table, _, last_snapshot_id)| {
             let table = Arc::new(DataFusionTable::new(
@@ -164,16 +164,13 @@ pub async fn refresh_materialized_view(
         .filter_ok(|(identifier, _)| !identifier.name().ends_with("__delta__"))
         .map(|x| {
             let (identifer, snapshot_id) = x?;
-            let sequence_id = *lineage.get(&identifer).ok_or(Error::NotFound(
+            let sequence_id = lineage.get(&identifer).ok_or(Error::NotFound(
                 "Lineage entry".to_owned(),
                 identifer.to_string(),
             ))?;
-            Ok(RefreshTable {
-                sequence_id,
-                revision_id: snapshot_id,
-            })
+            Ok((sequence_id.clone(), snapshot_id))
         })
-        .collect::<Result<_, Error>>()?;
+        .collect::<Result<HashMap<String, i64>, Error>>()?;
 
     let sql_statements = transform_relations(sql)?;
 
@@ -196,10 +193,16 @@ pub async fn refresh_materialized_view(
     )
     .await?;
 
-    let version_id = matview.metadata().current_version_id;
+    let refresh_version_id = matview.metadata().current_version_id;
+
+    let refresh_state = RefreshState {
+        refresh_version_id,
+        source_table_states,
+        source_view_states: HashMap::new(),
+    };
     matview
         .new_transaction(branch.as_deref())
-        .full_refresh(files, refresh_tables, version_id)?
+        .full_refresh(files, refresh_state)?
         .commit()
         .await?;
 

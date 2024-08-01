@@ -490,18 +490,18 @@ impl Display for FullIdentifier {
 #[serde(rename_all = "kebab-case")]
 pub struct SourceTable {
     identifier: FullIdentifier,
-    sequence_id: i64,
+    sequence_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(from = "Vec<SourceTable>", into = "Vec<SourceTable>")]
-pub struct Lineage(HashMap<FullIdentifier, i64>);
+pub struct Lineage(HashMap<FullIdentifier, String>);
 
 impl Lineage {
     pub fn new() -> Self {
         Lineage(HashMap::new())
     }
-    pub fn from_iter<T: IntoIterator<Item = (FullIdentifier, i64)>>(iter: T) -> Self {
+    pub fn from_iter<T: IntoIterator<Item = (FullIdentifier, String)>>(iter: T) -> Self {
         Lineage(HashMap::from_iter(iter))
     }
 }
@@ -528,7 +528,7 @@ impl From<Lineage> for Vec<SourceTable> {
 }
 
 impl Deref for Lineage {
-    type Target = HashMap<FullIdentifier, i64>;
+    type Target = HashMap<FullIdentifier, String>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

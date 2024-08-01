@@ -283,7 +283,7 @@ impl CreateMaterializedViewBuilder {
                             create.view_version.default_namespace().as_deref(),
                             create.view_version.default_catalog().as_deref(),
                         )?,
-                        i as i64,
+                        i.to_string(),
                     ))
                 })
                 .collect::<Result<Vec<_>, _>>()?,

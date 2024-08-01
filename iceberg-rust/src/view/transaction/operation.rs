@@ -70,7 +70,7 @@ impl Operation {
                                     version.default_namespace().as_deref(),
                                     version.default_catalog().as_deref(),
                                 )?,
-                                i as i64,
+                                i.to_string(),
                             ))
                         })
                         .collect::<Result<Vec<_>, _>>()?,

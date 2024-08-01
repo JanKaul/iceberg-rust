@@ -5,11 +5,8 @@
 use std::collections::HashMap;
 
 use iceberg_rust_spec::{
-    snapshot::{REFRESH_TABLES, REFRESH_VERSION_ID},
-    spec::{
-        manifest::DataFile, materialized_view_metadata::RefreshTable, types::StructType,
-        view_metadata::ViewRepresentation,
-    },
+    materialized_view_metadata::{RefreshState, REFRESH_STATE},
+    spec::{manifest::DataFile, types::StructType, view_metadata::ViewRepresentation},
 };
 
 use crate::{
@@ -69,10 +66,9 @@ impl<'view> Transaction<'view> {
     pub fn full_refresh(
         mut self,
         files: Vec<DataFile>,
-        lineage: Vec<RefreshTable>,
-        version_id: i64,
+        refresh_state: RefreshState,
     ) -> Result<Self, Error> {
-        let refresh_tables = serde_json::to_string(&lineage)?;
+        let refresh_state = serde_json::to_string(&refresh_state)?;
         self.storage_table_operations
             .entry(REWRITE_KEY.to_owned())
             .and_modify(|mut x| {
@@ -83,19 +79,19 @@ impl<'view> Transaction<'view> {
                 } = &mut x
                 {
                     old.extend_from_slice(&files);
-                    *old_lineage = Some(HashMap::from_iter(vec![
-                        (REFRESH_VERSION_ID.to_owned(), version_id.to_string()),
-                        (REFRESH_TABLES.to_owned(), refresh_tables.clone()),
-                    ]));
+                    *old_lineage = Some(HashMap::from_iter(vec![(
+                        REFRESH_STATE.to_owned(),
+                        refresh_state.clone(),
+                    )]));
                 }
             })
             .or_insert(TableOperation::Rewrite {
                 branch: self.branch.clone(),
                 files,
-                additional_summary: Some(HashMap::from_iter(vec![
-                    (REFRESH_VERSION_ID.to_owned(), version_id.to_string()),
-                    (REFRESH_TABLES.to_owned(), refresh_tables),
-                ])),
+                additional_summary: Some(HashMap::from_iter(vec![(
+                    REFRESH_STATE.to_owned(),
+                    refresh_state,
+                )])),
             });
         Ok(self)
     }
