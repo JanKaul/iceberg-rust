@@ -57,7 +57,7 @@ impl SqlCatalog {
 
         let mut pool_options = PoolOptions::new();
 
-        if url.starts_with("sqlite") {
+        if url == "sqlite://" {
             pool_options = pool_options.max_connections(1);
         }
 
