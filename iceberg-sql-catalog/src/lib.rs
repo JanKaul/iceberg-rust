@@ -2,7 +2,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use futures::lock::Mutex;
 use iceberg_rust::{
     catalog::{
         bucket::Bucket,
@@ -30,8 +29,9 @@ use iceberg_rust::{
 };
 use object_store::ObjectStore;
 use sqlx::{
-    any::{install_default_drivers, AnyRow},
-    AnyConnection, Connection, Row,
+    any::{install_default_drivers, AnyPoolOptions, AnyRow},
+    pool::PoolOptions,
+    AnyPool, Row,
 };
 use uuid::Uuid;
 
@@ -40,7 +40,7 @@ use crate::error::Error;
 #[derive(Debug)]
 pub struct SqlCatalog {
     name: String,
-    connection: Arc<Mutex<AnyConnection>>,
+    pool: AnyPool,
     object_store: Arc<dyn ObjectStore>,
     cache: Arc<DashMap<Identifier, (String, TabularMetadata)>>,
 }
@@ -55,7 +55,13 @@ impl SqlCatalog {
     ) -> Result<Self, Error> {
         install_default_drivers();
 
-        let mut pool = AnyConnection::connect(&url).await?;
+        let mut options = PoolOptions::new();
+
+        if url.starts_with("sqlite") {
+            options = options.max_connections(1);
+        }
+
+        let pool = AnyPoolOptions::connect(options, &url).await?;
 
         sqlx::query(
             "create table if not exists iceberg_tables (
@@ -67,7 +73,7 @@ impl SqlCatalog {
                                 primary key (catalog_name, table_namespace, table_name)
                             );",
         )
-        .execute(&mut pool)
+        .execute(&pool)
         .await?;
 
         sqlx::query(
@@ -79,13 +85,13 @@ impl SqlCatalog {
                                 primary key (catalog_name, namespace, property_key)
                             );",
         )
-        .execute(&mut pool)
+        .execute(&pool)
         .await
         .map_err(Error::from)?;
 
         Ok(SqlCatalog {
             name: name.to_owned(),
-            connection: Arc::new(Mutex::new(pool)),
+            pool,
             object_store,
             cache: Arc::new(DashMap::new()),
         })
@@ -93,7 +99,7 @@ impl SqlCatalog {
 
     pub fn catalog_list(&self) -> Arc<SqlCatalogList> {
         Arc::new(SqlCatalogList {
-            connection: self.connection.clone(),
+            pool: self.pool.clone(),
             object_store: self.object_store.clone(),
         })
     }
@@ -169,8 +175,7 @@ impl Catalog for SqlCatalog {
         let namespace = namespace.to_string();
 
         let rows = {
-            let mut connection = self.connection.lock().await;
-            sqlx::query(&format!("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = '{}' and table_namespace = '{}';",&name, &namespace)).fetch_all(&mut *connection).await.map_err(Error::from)?
+            sqlx::query(&format!("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = '{}' and table_namespace = '{}';",&name, &namespace)).fetch_all(&self.pool).await.map_err(Error::from)?
         };
         let iter = rows.iter().map(query_map);
 
@@ -188,12 +193,11 @@ impl Catalog for SqlCatalog {
         let name = self.name.clone();
 
         let rows = {
-            let mut connection = self.connection.lock().await;
             sqlx::query(&format!(
                 "select distinct table_namespace from iceberg_tables where catalog_name = '{}';",
                 &name
             ))
-            .fetch_all(&mut *connection)
+            .fetch_all(&self.pool)
             .await
             .map_err(Error::from)?
         };
@@ -215,10 +219,9 @@ impl Catalog for SqlCatalog {
         let name = identifier.name().to_string();
 
         let rows = {
-            let mut connection = self.connection.lock().await;
             sqlx::query(&format!("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
                 &namespace,
-                &name)).fetch_all(&mut *connection).await.map_err(Error::from)?
+                &name)).fetch_all(&self.pool).await.map_err(Error::from)?
         };
         let mut iter = rows.iter().map(query_map);
 
@@ -230,10 +233,9 @@ impl Catalog for SqlCatalog {
         let name = identifier.name().to_string();
 
         {
-            let mut connection = self.connection.lock().await;
             sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
                 &namespace,
-                &name)).execute(&mut *connection).await.map_err(Error::from)?
+                &name)).execute(&self.pool).await.map_err(Error::from)?
         };
         Ok(())
     }
@@ -243,10 +245,9 @@ impl Catalog for SqlCatalog {
         let name = identifier.name().to_string();
 
         {
-            let mut connection = self.connection.lock().await;
             sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
                 &namespace,
-                &name)).execute(&mut *connection).await.map_err(Error::from)?
+                &name)).execute(&self.pool).await.map_err(Error::from)?
         };
         Ok(())
     }
@@ -256,10 +257,9 @@ impl Catalog for SqlCatalog {
         let name = identifier.name().to_string();
 
         {
-            let mut connection = self.connection.lock().await;
             sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
                 &namespace,
-                &name)).execute(&mut *connection).await.map_err(Error::from)?
+                &name)).execute(&self.pool).await.map_err(Error::from)?
         };
         Ok(())
     }
@@ -273,10 +273,9 @@ impl Catalog for SqlCatalog {
             let name = identifier.name().to_string();
 
             let row = {
-                let mut connection = self.connection.lock().await;
                 sqlx::query(&format!("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
                     &namespace,
-                    &name)).fetch_one(&mut *connection).await.map_err(Error::from)?
+                    &name)).fetch_one(&self.pool).await.map_err(Error::from)?
             };
             let row = query_map(&row).map_err(Error::from)?;
 
@@ -331,9 +330,7 @@ impl Catalog for SqlCatalog {
             let name = identifier.name().to_string();
             let metadata_location = metadata_location.to_string();
 
-            let mut connection = self.connection.lock().await;
-
-            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut *connection).await.map_err(Error::from)?;
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?;
         }
         self.clone()
             .load_tabular(&identifier)
@@ -373,9 +370,7 @@ impl Catalog for SqlCatalog {
             let name = identifier.name().to_string();
             let metadata_location = metadata_location.to_string();
 
-            let mut connection = self.connection.lock().await;
-
-            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut *connection).await.map_err(Error::from)?;
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?;
         }
         self.clone()
             .load_tabular(&identifier)
@@ -422,8 +417,7 @@ impl Catalog for SqlCatalog {
             )
             .await?;
         {
-            let mut connection = self.connection.lock().await;
-            let mut transaction = connection.begin().await.map_err(Error::from)?;
+            let mut transaction = self.pool.begin().await.map_err(Error::from)?;
             let catalog_name = self.name.clone();
             let namespace = identifier.namespace().to_string();
             let name = identifier.name().to_string();
@@ -493,8 +487,7 @@ impl Catalog for SqlCatalog {
                 let previous_metadata_file_location = previous_metadata_location.to_string();
 
                 {
-                    let mut connection = self.connection.lock().await;
-                    sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&mut *connection).await.map_err(Error::from)?
+                    sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
                 };
             }
         }
@@ -557,8 +550,7 @@ impl Catalog for SqlCatalog {
                 let previous_metadata_file_location = previous_metadata_location.to_string();
 
                 {
-                    let mut connection = self.connection.lock().await;
-                    sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&mut *connection).await.map_err(Error::from)?
+                    sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
                 };
             }
         }
@@ -619,8 +611,7 @@ impl Catalog for SqlCatalog {
                 let previous_metadata_file_location = previous_metadata_location.to_string();
 
                 {
-                    let mut connection = self.connection.lock().await;
-                    sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&mut *connection).await.map_err(Error::from)?
+                    sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
                 };
             }
         }
@@ -678,8 +669,7 @@ impl Catalog for SqlCatalog {
             let metadata_location = metadata_location.to_string();
 
             {
-                let mut connection = self.connection.lock().await;
-                sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut *connection).await.map_err(Error::from)?
+                sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?
             };
         }
         self.clone()
@@ -702,7 +692,7 @@ impl SqlCatalog {
     pub fn duplicate(&self, name: &str) -> Self {
         Self {
             name: name.to_owned(),
-            connection: self.connection.clone(),
+            pool: self.pool.clone(),
             object_store: self.object_store.clone(),
             cache: Arc::new(DashMap::new()),
         }
@@ -711,7 +701,7 @@ impl SqlCatalog {
 
 #[derive(Debug)]
 pub struct SqlCatalogList {
-    connection: Arc<Mutex<AnyConnection>>,
+    pool: AnyPool,
     object_store: Arc<dyn ObjectStore>,
 }
 
@@ -719,7 +709,7 @@ impl SqlCatalogList {
     pub async fn new(url: &str, object_store: Arc<dyn ObjectStore>) -> Result<Self, Error> {
         install_default_drivers();
 
-        let mut connection = AnyConnection::connect(&url).await?;
+        let pool = AnyPoolOptions::connect(PoolOptions::new().max_connections(1), &url).await?;
 
         sqlx::query(
             "create table if not exists iceberg_tables (
@@ -731,7 +721,7 @@ impl SqlCatalogList {
                                 primary key (catalog_name, table_namespace, table_name)
                             );",
         )
-        .execute(&mut connection)
+        .execute(&pool)
         .await?;
 
         sqlx::query(
@@ -743,14 +733,11 @@ impl SqlCatalogList {
                                 primary key (catalog_name, namespace, property_key)
                             );",
         )
-        .execute(&mut connection)
+        .execute(&pool)
         .await
         .map_err(Error::from)?;
 
-        Ok(SqlCatalogList {
-            connection: Arc::new(Mutex::new(connection)),
-            object_store,
-        })
+        Ok(SqlCatalogList { pool, object_store })
     }
 }
 
@@ -759,16 +746,15 @@ impl CatalogList for SqlCatalogList {
     async fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
         Some(Arc::new(SqlCatalog {
             name: name.to_owned(),
-            connection: self.connection.clone(),
+            pool: self.pool.clone(),
             object_store: self.object_store.clone(),
             cache: Arc::new(DashMap::new()),
         }))
     }
     async fn list_catalogs(&self) -> Vec<String> {
         let rows = {
-            let mut connection = self.connection.lock().await;
             sqlx::query("select distinct catalog_name from iceberg_tables;")
-                .fetch_all(&mut *connection)
+                .fetch_all(&self.pool)
                 .await
                 .map_err(Error::from)
                 .unwrap_or_default()
