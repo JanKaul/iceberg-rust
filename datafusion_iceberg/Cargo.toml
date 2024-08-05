@@ -34,3 +34,4 @@ testcontainers = "0.20.0"
 tokio-stream = { version = "0.1.15", features = ["io-util"] }
 tempfile = "3.10.1"
 reqwest = "0.11"
+sqlx = { version = "0.7.4", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
