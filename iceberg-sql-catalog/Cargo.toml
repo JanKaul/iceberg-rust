@@ -16,11 +16,11 @@ futures.workspace = true
 iceberg-rust = { path = "../iceberg-rust", version = "0.5.1" }
 object_store.workspace = true
 serde_json.workspace = true
-sqlx = { version = "0.7.4", features = ["tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
+sqlx = { version = "0.8", features = ["tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 thiserror.workspace = true
 url.workspace = true
 uuid = { version = "1.7.0", features = ["v4"] }
 
 [dev-dependencies]
 tokio = "1"
-sqlx = { version = "0.7.4", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
