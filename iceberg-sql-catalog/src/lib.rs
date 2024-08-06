@@ -1,7 +1,9 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use async_trait::async_trait;
-use dashmap::DashMap;
 use iceberg_rust::{
     catalog::{
         bucket::Bucket,
@@ -42,7 +44,7 @@ pub struct SqlCatalog {
     name: String,
     pool: AnyPool,
     object_store: Arc<dyn ObjectStore>,
-    cache: Arc<DashMap<Identifier, (String, TabularMetadata)>>,
+    cache: Arc<RwLock<HashMap<Identifier, (String, TabularMetadata)>>>,
 }
 
 pub mod error;
@@ -89,14 +91,13 @@ impl SqlCatalog {
                 Ok(())
             })
         })
-        .connect(&url)
-        .await?;
+        .connect_lazy(&url)?;
 
         Ok(SqlCatalog {
             name: name.to_owned(),
             pool,
             object_store,
-            cache: Arc::new(DashMap::new()),
+            cache: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -292,6 +293,8 @@ impl Catalog for SqlCatalog {
             .await?;
         let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
         self.cache
+            .write()
+            .unwrap()
             .insert(identifier.clone(), (path.clone(), metadata.clone()));
         match metadata {
             TabularMetadata::Table(metadata) => Ok(Tabular::Table(
@@ -335,15 +338,11 @@ impl Catalog for SqlCatalog {
 
             sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?;
         }
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::Table(table) => Ok(table),
-                _ => Err(IcebergError::InvalidFormat(
-                    "Table update on an entity that is nor a table".to_owned(),
-                )),
-            })
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (metadata_location.clone(), metadata.clone().into()),
+        );
+        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn create_view(
@@ -375,15 +374,11 @@ impl Catalog for SqlCatalog {
 
             sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?;
         }
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::View(view) => Ok(view),
-                _ => Err(IcebergError::InvalidFormat(
-                    "Table update on an entity that is nor a table".to_owned(),
-                )),
-            })
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (metadata_location.clone(), metadata.clone().into()),
+        );
+        Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn create_materialized_view(
@@ -428,81 +423,71 @@ impl Catalog for SqlCatalog {
 
             sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut *transaction).await.map_err(Error::from)?;
 
-            let catalog_name = self.name.clone();
-            let namespace = table_identifier.namespace().to_string();
-            let name = table_identifier.name().to_string();
+            let table_catalog_name = self.name.clone();
+            let table_namespace = table_identifier.namespace().to_string();
+            let table_name = table_identifier.name().to_string();
             let table_metadata_location = table_metadata_location.to_string();
 
-            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, table_metadata_location)).execute(&mut *transaction).await.map_err(Error::from)?;
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",table_catalog_name,table_namespace,table_name, table_metadata_location)).execute(&mut *transaction).await.map_err(Error::from)?;
 
             transaction.commit().await.map_err(Error::from)?;
         }
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::MaterializedView(matview) => Ok(matview),
-                _ => Err(IcebergError::InvalidFormat(
-                    "Table update on an entity that is nor a table".to_owned(),
-                )),
-            })
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (metadata_location.clone(), metadata.clone().into()),
+        );
+        Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
         let identifier = commit.identifier;
-        match self.cache.get(&identifier) {
-            None => {
-                if !matches!(commit.requirements[0], TableRequirement::AssertCreate) {
-                    return Err(IcebergError::InvalidFormat(
-                        "Create table assertion".to_owned(),
-                    ));
-                } else {
-                    return Err(IcebergError::InvalidFormat(
-                        "Create table assertion".to_owned(),
-                    ));
-                }
+        let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
+            if !matches!(commit.requirements[0], TableRequirement::AssertCreate) {
+                return Err(IcebergError::InvalidFormat(
+                    "Create table assertion".to_owned(),
+                ));
+            } else {
+                return Err(IcebergError::InvalidFormat(
+                    "Create table assertion".to_owned(),
+                ));
             }
-            Some(entry) => {
-                let (previous_metadata_location, metadata) = entry.value();
+        };
+        let (previous_metadata_location, metadata) = entry;
 
-                let TabularMetadata::Table(mut metadata) = metadata.clone() else {
-                    return Err(IcebergError::InvalidFormat(
-                        "Table update on entity that is not a table".to_owned(),
-                    ));
-                };
-                if !check_table_requirements(&commit.requirements, &metadata) {
-                    return Err(IcebergError::InvalidFormat(
-                        "Table requirements not valid".to_owned(),
-                    ));
-                }
-                apply_table_updates(&mut metadata, commit.updates)?;
-                let metadata_location = new_metadata_location(&metadata);
-                self.object_store
-                    .put(
-                        &strip_prefix(&metadata_location).into(),
-                        serde_json::to_string(&metadata)?.into(),
-                    )
-                    .await?;
-                let catalog_name = self.name.clone();
-                let namespace = identifier.namespace().to_string();
-                let name = identifier.name().to_string();
-                let metadata_file_location = metadata_location.to_string();
-                let previous_metadata_file_location = previous_metadata_location.to_string();
-
-                {
-                    sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
-                };
-            }
+        let TabularMetadata::Table(mut metadata) = metadata else {
+            return Err(IcebergError::InvalidFormat(
+                "Table update on entity that is not a table".to_owned(),
+            ));
+        };
+        if !check_table_requirements(&commit.requirements, &metadata) {
+            return Err(IcebergError::InvalidFormat(
+                "Table requirements not valid".to_owned(),
+            ));
         }
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::Table(table) => Ok(table),
-                _ => Err(IcebergError::InvalidFormat(
-                    "Table update on an entity that is nor a table".to_owned(),
-                )),
-            })
+        apply_table_updates(&mut metadata, commit.updates)?;
+        let metadata_location = new_metadata_location(&metadata);
+        self.object_store
+            .put(
+                &strip_prefix(&metadata_location).into(),
+                serde_json::to_string(&metadata)?.into(),
+            )
+            .await?;
+        let catalog_name = self.name.clone();
+        let namespace = identifier.namespace().to_string();
+        let name = identifier.name().to_string();
+        let metadata_file_location = metadata_location.to_string();
+        let previous_metadata_file_location = previous_metadata_location.to_string();
+
+        {
+            sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
+        };
+
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (metadata_location.clone(), metadata.clone().into()),
+        );
+
+        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn update_view(
@@ -510,55 +495,54 @@ impl Catalog for SqlCatalog {
         commit: CommitView<Option<()>>,
     ) -> Result<View, IcebergError> {
         let identifier = commit.identifier;
-        match self.cache.get(&identifier) {
-            None => {
-                return Err(IcebergError::InvalidFormat(
-                    "Create table assertion".to_owned(),
-                ))
+        let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
+            return Err(IcebergError::InvalidFormat(
+                "Create table assertion".to_owned(),
+            ));
+        };
+        let (previous_metadata_location, mut metadata) = entry;
+        let metadata_location = match &mut metadata {
+            TabularMetadata::View(metadata) => {
+                if !check_view_requirements(&commit.requirements, metadata) {
+                    return Err(IcebergError::InvalidFormat(
+                        "View requirements not valid".to_owned(),
+                    ));
+                }
+                apply_view_updates(metadata, commit.updates)?;
+                let metadata_location = metadata.location.to_string()
+                    + "/metadata/"
+                    + &metadata.current_version_id.to_string()
+                    + "-"
+                    + &Uuid::new_v4().to_string()
+                    + ".metadata.json";
+                self.object_store
+                    .put(
+                        &strip_prefix(&metadata_location).into(),
+                        serde_json::to_string(&metadata)?.into(),
+                    )
+                    .await?;
+                Ok(metadata_location)
             }
-            Some(entry) => {
-                let (previous_metadata_location, metadata) = entry.value();
-                let mut metadata = metadata.clone();
-                let metadata_location = match &mut metadata {
-                    TabularMetadata::View(metadata) => {
-                        if !check_view_requirements(&commit.requirements, metadata) {
-                            return Err(IcebergError::InvalidFormat(
-                                "View requirements not valid".to_owned(),
-                            ));
-                        }
-                        apply_view_updates(metadata, commit.updates)?;
-                        let metadata_location = metadata.location.to_string()
-                            + "/metadata/"
-                            + &metadata.current_version_id.to_string()
-                            + "-"
-                            + &Uuid::new_v4().to_string()
-                            + ".metadata.json";
-                        self.object_store
-                            .put(
-                                &strip_prefix(&metadata_location).into(),
-                                serde_json::to_string(&metadata)?.into(),
-                            )
-                            .await?;
-                        Ok(metadata_location)
-                    }
-                    _ => Err(IcebergError::InvalidFormat(
-                        "View update on entity that is not a view".to_owned(),
-                    )),
-                }?;
+            _ => Err(IcebergError::InvalidFormat(
+                "View update on entity that is not a view".to_owned(),
+            )),
+        }?;
 
-                let catalog_name = self.name.clone();
-                let namespace = identifier.namespace().to_string();
-                let name = identifier.name().to_string();
-                let metadata_file_location = metadata_location.to_string();
-                let previous_metadata_file_location = previous_metadata_location.to_string();
+        let catalog_name = self.name.clone();
+        let namespace = identifier.namespace().to_string();
+        let name = identifier.name().to_string();
+        let metadata_file_location = metadata_location.to_string();
+        let previous_metadata_file_location = previous_metadata_location.to_string();
 
-                {
-                    sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
-                };
-            }
-        }
-        if let Tabular::View(view) = self.clone().load_tabular(&identifier).await? {
-            Ok(view)
+        {
+            sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
+        };
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (metadata_location.clone(), metadata.clone()),
+        );
+        if let TabularMetadata::View(metadata) = metadata {
+            Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a view".to_owned(),
@@ -570,56 +554,54 @@ impl Catalog for SqlCatalog {
         commit: CommitView<FullIdentifier>,
     ) -> Result<MaterializedView, IcebergError> {
         let identifier = commit.identifier;
-        match self.cache.get(&identifier) {
-            None => {
-                return Err(IcebergError::InvalidFormat(
-                    "Create table assertion".to_owned(),
-                ))
+        let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
+            return Err(IcebergError::InvalidFormat(
+                "Create table assertion".to_owned(),
+            ));
+        };
+        let (previous_metadata_location, mut metadata) = entry;
+        let metadata_location = match &mut metadata {
+            TabularMetadata::MaterializedView(metadata) => {
+                if !check_view_requirements(&commit.requirements, metadata) {
+                    return Err(IcebergError::InvalidFormat(
+                        "Materialized view requirements not valid".to_owned(),
+                    ));
+                }
+                apply_view_updates(metadata, commit.updates)?;
+                let metadata_location = metadata.location.to_string()
+                    + "/metadata/"
+                    + &metadata.current_version_id.to_string()
+                    + "-"
+                    + &Uuid::new_v4().to_string()
+                    + ".metadata.json";
+                self.object_store
+                    .put(
+                        &strip_prefix(&metadata_location).into(),
+                        serde_json::to_string(&metadata)?.into(),
+                    )
+                    .await?;
+                Ok(metadata_location)
             }
-            Some(entry) => {
-                let (previous_metadata_location, metadata) = entry.value();
-                let mut metadata = metadata.clone();
-                let metadata_location = match &mut metadata {
-                    TabularMetadata::MaterializedView(metadata) => {
-                        if !check_view_requirements(&commit.requirements, metadata) {
-                            return Err(IcebergError::InvalidFormat(
-                                "Materialized view requirements not valid".to_owned(),
-                            ));
-                        }
-                        apply_view_updates(metadata, commit.updates)?;
-                        let metadata_location = metadata.location.to_string()
-                            + "/metadata/"
-                            + &metadata.current_version_id.to_string()
-                            + "-"
-                            + &Uuid::new_v4().to_string()
-                            + ".metadata.json";
-                        self.object_store
-                            .put(
-                                &strip_prefix(&metadata_location).into(),
-                                serde_json::to_string(&metadata)?.into(),
-                            )
-                            .await?;
-                        Ok(metadata_location)
-                    }
-                    _ => Err(IcebergError::InvalidFormat(
-                        "Materialized view update on entity that is not a materialized view"
-                            .to_owned(),
-                    )),
-                }?;
+            _ => Err(IcebergError::InvalidFormat(
+                "Materialized view update on entity that is not a materialized view".to_owned(),
+            )),
+        }?;
 
-                let catalog_name = self.name.clone();
-                let namespace = identifier.namespace().to_string();
-                let name = identifier.name().to_string();
-                let metadata_file_location = metadata_location.to_string();
-                let previous_metadata_file_location = previous_metadata_location.to_string();
+        let catalog_name = self.name.clone();
+        let namespace = identifier.namespace().to_string();
+        let name = identifier.name().to_string();
+        let metadata_file_location = metadata_location.to_string();
+        let previous_metadata_file_location = previous_metadata_location.to_string();
 
-                {
-                    sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
-                };
-            }
-        }
-        if let Tabular::MaterializedView(matview) = self.clone().load_tabular(&identifier).await? {
-            Ok(matview)
+        {
+            sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
+        };
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (metadata_location.clone(), metadata.clone()),
+        );
+        if let TabularMetadata::MaterializedView(metadata) = metadata {
+            Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a materialized view".to_owned(),
@@ -643,28 +625,6 @@ impl Catalog for SqlCatalog {
                 .await?,
         )?;
 
-        // Create metadata
-        let location = metadata.location.to_string();
-
-        // Write metadata to object_store
-        let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
-
-        let uuid = Uuid::new_v4();
-        let version = &metadata.last_sequence_number;
-        let metadata_json = serde_json::to_string(&metadata)?;
-        let metadata_location = location
-            + "/metadata/"
-            + &version.to_string()
-            + "-"
-            + &uuid.to_string()
-            + ".metadata.json";
-        object_store
-            .put(
-                &strip_prefix(&metadata_location).into(),
-                metadata_json.into(),
-            )
-            .await?;
         {
             let catalog_name = self.name.clone();
             let namespace = identifier.namespace().to_string();
@@ -675,15 +635,11 @@ impl Catalog for SqlCatalog {
                 sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?
             };
         }
-        self.clone()
-            .load_tabular(&identifier)
-            .await
-            .and_then(|x| match x {
-                Tabular::Table(table) => Ok(table),
-                _ => Err(IcebergError::InvalidFormat(
-                    "Table update on an entity that is nor a table".to_owned(),
-                )),
-            })
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (metadata_location.to_string(), metadata.clone().into()),
+        );
+        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     fn object_store(&self, _: Bucket) -> Arc<dyn object_store::ObjectStore> {
@@ -697,7 +653,7 @@ impl SqlCatalog {
             name: name.to_owned(),
             pool: self.pool.clone(),
             object_store: self.object_store.clone(),
-            cache: Arc::new(DashMap::new()),
+            cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -760,7 +716,7 @@ impl CatalogList for SqlCatalogList {
             name: name.to_owned(),
             pool: self.pool.clone(),
             object_store: self.object_store.clone(),
-            cache: Arc::new(DashMap::new()),
+            cache: Arc::new(RwLock::new(HashMap::new())),
         }))
     }
     async fn list_catalogs(&self) -> Vec<String> {

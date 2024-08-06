@@ -2242,7 +2242,6 @@ name = "iceberg-sql-catalog"
 version = "0.5.1"
 dependencies = [
  "async-trait",
- "dashmap",
  "futures",
  "iceberg-rust",
  "object_store",

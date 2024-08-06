@@ -11,7 +11,6 @@ repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
 async-trait.workspace = true
-dashmap = "5.5.3"
 futures.workspace = true
 iceberg-rust = { path = "../iceberg-rust", version = "0.5.1" }
 object_store.workspace = true
