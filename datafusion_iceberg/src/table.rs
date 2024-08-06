@@ -302,13 +302,12 @@ async fn table_scan(
             filters
                 .iter()
                 .filter(|expr| {
-                    if let Ok(set) = expr.to_columns() {
-                        let set: HashSet<String> =
-                            set.into_iter().map(|x| x.name.clone()).collect();
-                        set.is_subset(&partition_column_names)
-                    } else {
-                        false
-                    }
+                    let set: HashSet<String> = expr
+                        .column_refs()
+                        .into_iter()
+                        .map(|x| x.name.clone())
+                        .collect();
+                    set.is_subset(&partition_column_names)
                 })
                 .cloned(),
         );

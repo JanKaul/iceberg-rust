@@ -1,6 +1,6 @@
 [package]
 name = "iceberg-rust-spec"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 
 license = "Apache-2.0"
@@ -10,7 +10,7 @@ description = "Unofficial implementation of the Iceberg table format specificati
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-apache-avro = "0.16.0"
+apache-avro = { workspace = true }
 arrow-schema = { workspace = true }
 chrono = { workspace = true }
 itertools = { workspace = true }

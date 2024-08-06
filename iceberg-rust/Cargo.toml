@@ -1,6 +1,6 @@
 [package]
 name = "iceberg-rust"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
 
 description = "Unofficial rust implementation of the Iceberg table format"
@@ -10,7 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
-apache-avro = "0.16.0"
+apache-avro = { workspace = true }
 arrow = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
@@ -29,5 +29,5 @@ sqlparser = { workspace = true }
 thrift = { version = "0.17.0", default-features = false }
 thiserror = { workspace = true }
 derive-getters = { workspace = true }
-iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.5.1" }
+iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.5.2" }
 
