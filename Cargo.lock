@@ -1185,11 +1185,15 @@ dependencies = [
 
 [[package]]
 name = "datafusion-iceberg-sql"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "arrow-schema",
  "datafusion-common",
+ "datafusion-execution",
  "datafusion-expr",
+ "datafusion-functions",
+ "datafusion-functions-aggregate",
+ "datafusion-functions-array",
  "datafusion-sql",
  "iceberg-rust",
 ]
@@ -1311,7 +1315,7 @@ dependencies = [
 
 [[package]]
 name = "datafusion_iceberg"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2182,7 +2186,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-rest-catalog"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "async-trait",
  "futures",
@@ -2205,7 +2209,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-rust"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "apache-avro",
  "arrow",
@@ -2231,7 +2235,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-rust-spec"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "apache-avro",
  "arrow-schema",
@@ -2256,7 +2260,7 @@ dependencies = [
 
 [[package]]
 name = "iceberg-sql-catalog"
-version = "0.5.3"
+version = "0.5.4"
 dependencies = [
  "async-trait",
  "futures",

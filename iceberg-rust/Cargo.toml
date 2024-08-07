@@ -1,6 +1,6 @@
 [package]
 name = "iceberg-rust"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 
 description = "Unofficial rust implementation of the Iceberg table format"
@@ -29,5 +29,5 @@ sqlparser = { workspace = true }
 thrift = { version = "0.17.0", default-features = false }
 thiserror = { workspace = true }
 derive-getters = { workspace = true }
-iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.5.3" }
+iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.5.4" }
 
