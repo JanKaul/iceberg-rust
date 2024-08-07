@@ -26,7 +26,7 @@ datafusion-sql = "40.0.0"
 datafusion-expr = "40.0.0"
 datafusion-common = "40.0.0"
 datafusion-execution = "40.0.0"
-datafusion-functions = { version = "40.0.0", features = ["sha2", "md-5"] }
+datafusion-functions = { version = "40.0.0", features = ["crypto_expressions"] }
 datafusion-functions-aggregate = "40.0.0"
 datafusion-functions-array = "40.0.0"
 parquet = { version = "52.1.0", features = ["async", "object_store"] }
