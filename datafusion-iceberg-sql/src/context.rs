@@ -96,14 +96,14 @@ impl ContextProvider for IcebergContext {
     }
 
     fn udf_names(&self) -> Vec<String> {
-        todo!()
+        Vec::new()
     }
 
     fn udaf_names(&self) -> Vec<String> {
-        todo!()
+        Vec::new()
     }
 
     fn udwf_names(&self) -> Vec<String> {
-        todo!()
+        Vec::new()
     }
 }
