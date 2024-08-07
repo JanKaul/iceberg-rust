@@ -1,6 +1,6 @@
 [package]
 name = "iceberg-rest-catalog"
-version = "0.5.4"
+version = "0.5.5"
 authors = ["Jan Kaul"]
 description = "REST catalog for the unofficial Iceberg table format implementation"
 license = "Apache-2.0"
@@ -14,7 +14,7 @@ serde_json.workspace = true
 url.workspace = true
 uuid.workspace = true
 reqwest-middleware = "0.2.0"
-iceberg-rust = { path = "../iceberg-rust", version = "0.5.4" }
+iceberg-rust = { path = "../iceberg-rust", version = "0.5.5" }
 object_store.workspace = true
 async-trait = "0.1.80"
 futures.workspace = true

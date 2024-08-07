@@ -1,6 +1,6 @@
 [package]
 name = "iceberg-sql-catalog"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2021"
 
 description = "Sql catalog for the unofficial Iceberg table format implementation"
@@ -12,7 +12,7 @@ repository = "https://github.com/JanKaul/iceberg-rust"
 [dependencies]
 async-trait.workspace = true
 futures.workspace = true
-iceberg-rust = { path = "../iceberg-rust", version = "0.5.4" }
+iceberg-rust = { path = "../iceberg-rust", version = "0.5.5" }
 object_store.workspace = true
 serde_json.workspace = true
 sqlx = { version = "0.8", features = ["tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
