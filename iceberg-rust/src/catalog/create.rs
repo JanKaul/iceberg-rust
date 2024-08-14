@@ -111,7 +111,7 @@ impl TryInto<TableMetadata> for CreateTable {
             last_updated_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_micros() as i64,
+                .as_millis() as i64,
             last_column_id,
             schemas: HashMap::from_iter(vec![(DEFAULT_SCHEMA_ID, self.schema)]),
             current_schema_id: DEFAULT_SCHEMA_ID,
