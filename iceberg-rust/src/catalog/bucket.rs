@@ -53,7 +53,7 @@ impl<'a> Bucket<'a> {
 }
 
 /// A wrapper for ObjectStore builders that can be used as a template to generate an ObjectStore given a particular bucket.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ObjectStoreBuilder {
     /// AWS s3 builder
     S3(AmazonS3Builder),

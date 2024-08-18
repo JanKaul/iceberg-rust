@@ -11,7 +11,7 @@ use iceberg_rust::{
         identifier::{self, Identifier},
         namespace::Namespace,
         tabular::Tabular,
-        Catalog,
+        Catalog, CatalogList,
     },
     error::Error,
     materialized_view::MaterializedView,
@@ -477,6 +477,35 @@ impl Catalog for RestCatalog {
     /// Return an object store for the desired bucket
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore> {
         self.object_store_builder.build(bucket).unwrap()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RestCatalogList {
+    configuration: Configuration,
+    object_store_builder: ObjectStoreBuilder,
+}
+
+impl RestCatalogList {
+    pub fn new(configuration: Configuration, object_store_builder: ObjectStoreBuilder) -> Self {
+        Self {
+            configuration,
+            object_store_builder,
+        }
+    }
+}
+
+#[async_trait]
+impl CatalogList for RestCatalogList {
+    async fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
+        Some(Arc::new(RestCatalog::new(
+            Some(name),
+            self.configuration.clone(),
+            self.object_store_builder.clone(),
+        )))
+    }
+    async fn list_catalogs(&self) -> Vec<String> {
+        Vec::new()
     }
 }
 
