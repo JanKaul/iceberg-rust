@@ -22,7 +22,7 @@ use crate::error::Error;
 use super::identifier::Identifier;
 
 /// Update metadata of a table
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitTable {
     /// Table identifier
     pub identifier: Identifier,
@@ -33,7 +33,7 @@ pub struct CommitTable {
 }
 
 /// Update metadata of a table
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitView<T: Materialization> {
     /// Table identifier
     pub identifier: Identifier,
@@ -44,7 +44,7 @@ pub struct CommitView<T: Materialization> {
 }
 
 /// Update the metadata of a table in the catalog
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "action",
     rename_all = "kebab-case",
@@ -133,7 +133,7 @@ pub enum TableUpdate {
 }
 
 /// Requirements on the table metadata to perform the updates
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "kebab-case",
@@ -183,7 +183,7 @@ pub enum TableRequirement {
 }
 
 /// Update the metadata of a view in the catalog
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "action",
     rename_all = "kebab-case",
@@ -235,7 +235,7 @@ pub enum ViewUpdate<T: Materialization> {
 }
 
 /// Requirements on the table metadata to perform the updates
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
     rename_all = "kebab-case",
