@@ -741,11 +741,9 @@ pub enum FormatVersion {
 impl TryFrom<u8> for FormatVersion {
     type Error = Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match char::from_u32(value as u32)
-            .ok_or_else(|| Error::Conversion("u8".to_string(), "char".to_string()))?
-        {
-            '1' => Ok(FormatVersion::V1),
-            '2' => Ok(FormatVersion::V2),
+        match value {
+            1 => Ok(FormatVersion::V1),
+            2 => Ok(FormatVersion::V2),
             _ => Err(Error::Conversion(
                 "u8".to_string(),
                 "format version".to_string(),
