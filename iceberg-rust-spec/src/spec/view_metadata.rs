@@ -242,6 +242,27 @@ pub enum FormatVersion {
     V1 = b'1',
 }
 
+impl TryFrom<u8> for FormatVersion {
+    type Error = Error;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(FormatVersion::V1),
+            _ => Err(Error::Conversion(
+                "u8".to_string(),
+                "format version".to_string(),
+            )),
+        }
+    }
+}
+
+impl From<FormatVersion> for u8 {
+    fn from(value: FormatVersion) -> Self {
+        match value {
+            FormatVersion::V1 => b'1',
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder, Getters)]
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the view metadata.
