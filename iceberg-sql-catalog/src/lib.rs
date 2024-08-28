@@ -711,7 +711,7 @@ impl SqlCatalogList {
 
 #[async_trait]
 impl CatalogList for SqlCatalogList {
-    async fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
+    fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
         Some(Arc::new(SqlCatalog {
             name: name.to_owned(),
             pool: self.pool.clone(),

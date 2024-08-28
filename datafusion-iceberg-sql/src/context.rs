@@ -28,7 +28,6 @@ impl IcebergContext {
         for (catalog_name, namespace, name) in tables {
             let catalog = catalogs
                 .catalog(catalog_name)
-                .await
                 .ok_or(DataFusionError::Internal(format!(
                     "Catalog {} was not provided",
                     &catalog_name

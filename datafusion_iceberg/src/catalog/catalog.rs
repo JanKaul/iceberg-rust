@@ -19,6 +19,12 @@ impl IcebergCatalog {
         })
     }
 
+    pub fn new_sync(catalog: Arc<dyn Catalog>, branch: Option<&str>) -> Self {
+        IcebergCatalog {
+            catalog: Arc::new(Mirror::new_sync(catalog, branch.map(ToOwned::to_owned))),
+        }
+    }
+
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.catalog()
     }

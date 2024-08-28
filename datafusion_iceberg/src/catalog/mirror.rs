@@ -1,7 +1,6 @@
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
 use futures::{executor::LocalPool, task::LocalSpawnExt};
-use std::ops::Deref;
 use std::{collections::HashSet, sync::Arc};
 
 use iceberg_rust::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
@@ -65,6 +64,15 @@ impl Mirror {
             catalog,
             branch,
         })
+    }
+    pub fn new_sync(catalog: Arc<dyn Catalog>, branch: Option<String>) -> Self {
+        let storage = DashMap::new();
+
+        Mirror {
+            storage,
+            catalog,
+            branch,
+        }
     }
     /// Lists all tables in the given namespace.
     pub fn table_names(&self, namespace: &Namespace) -> Result<Vec<Identifier>, DataFusionError> {

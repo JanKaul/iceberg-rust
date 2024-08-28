@@ -62,13 +62,10 @@ pub async fn refresh_materialized_view(
             async move {
                 let catalog_name = full_identifier.catalog().to_string();
                 let identifier: Identifier = full_identifier.into();
-                let catalog = catalog_list
-                    .catalog(&catalog_name)
-                    .await
-                    .ok_or(Error::NotFound(
-                        "Catalog".to_owned(),
-                        catalog_name.to_owned(),
-                    ))?;
+                let catalog = catalog_list.catalog(&catalog_name).ok_or(Error::NotFound(
+                    "Catalog".to_owned(),
+                    catalog_name.to_owned(),
+                ))?;
 
                 let tabular = match catalog.load_tabular(&identifier).await? {
                     Tabular::View(_) => {
@@ -243,7 +240,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let catalog = catalog_list.catalog("iceberg").await.unwrap();
+        let catalog = catalog_list.catalog("iceberg").unwrap();
 
         let schema = Schema::builder()
             .with_schema_id(0)

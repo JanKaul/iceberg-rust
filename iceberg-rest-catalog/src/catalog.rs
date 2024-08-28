@@ -497,7 +497,7 @@ impl RestCatalogList {
 
 #[async_trait]
 impl CatalogList for RestCatalogList {
-    async fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
+    fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
         Some(Arc::new(RestCatalog::new(
             Some(name),
             self.configuration.clone(),

@@ -109,7 +109,7 @@ pub trait Catalog: Send + Sync + Debug {
 #[async_trait::async_trait]
 pub trait CatalogList: Send + Sync + Debug {
     /// Get catalog from list by name
-    async fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>>;
+    fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>>;
     /// Get the list of available catalogs
     async fn list_catalogs(&self) -> Vec<String>;
 }

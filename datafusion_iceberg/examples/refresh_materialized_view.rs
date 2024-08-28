@@ -26,7 +26,7 @@ pub(crate) async fn main() {
             .unwrap(),
     );
 
-    let catalog = catalog_list.catalog("iceberg").await.unwrap();
+    let catalog = catalog_list.catalog("iceberg").unwrap();
 
     let schema = Schema::builder()
         .with_fields(
