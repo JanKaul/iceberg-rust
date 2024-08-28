@@ -1,6 +1,7 @@
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
 use futures::{executor::LocalPool, task::LocalSpawnExt};
+use std::ops::Deref;
 use std::{collections::HashSet, sync::Arc};
 
 use iceberg_rust::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
@@ -303,5 +304,9 @@ impl Mirror {
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         // Currently can't synchronously return a table which has to be fetched asynchronously
         Ok(None)
+    }
+
+    pub fn catalog(&self) -> Arc<dyn Catalog> {
+        self.catalog.clone()
     }
 }

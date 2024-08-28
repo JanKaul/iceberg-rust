@@ -18,6 +18,10 @@ impl IcebergCatalog {
             catalog: Arc::new(Mirror::new(catalog, branch.map(ToOwned::to_owned)).await?),
         })
     }
+
+    pub fn catalog(&self) -> Arc<dyn Catalog> {
+        self.catalog.catalog()
+    }
 }
 
 impl CatalogProvider for IcebergCatalog {
