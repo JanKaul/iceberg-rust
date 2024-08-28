@@ -1,6 +1,7 @@
 use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
+use datafusion_expr::CreateView;
 
 use crate::catalog::catalog::IcebergCatalog;
 use datafusion::{
@@ -17,6 +18,7 @@ use datafusion::{
 use iceberg_rust::{
     spec::{schema::Schema, types::StructType, view_metadata::FullIdentifier},
     table::Table,
+    view::View,
 };
 
 pub struct IcebergQueryPlanner {}
@@ -28,8 +30,10 @@ impl QueryPlanner for IcebergQueryPlanner {
         logical_plan: &LogicalPlan,
         session_state: &SessionState,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        let planner =
-            DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(IcebergPlanner {})]);
+        let planner = DefaultPhysicalPlanner::with_extension_planners(vec![
+            Arc::new(CreateIcebergTablePlanner {}),
+            Arc::new(CreateIcebergViewPlanner {}),
+        ]);
         planner
             .create_physical_plan(logical_plan, session_state)
             .await
@@ -37,25 +41,31 @@ impl QueryPlanner for IcebergQueryPlanner {
 }
 
 pub fn iceberg_transform(node: LogicalPlan) -> Result<Transformed<LogicalPlan>, DataFusionError> {
-    if let LogicalPlan::Ddl(DdlStatement::CreateExternalTable(table)) = node {
-        if table.file_type == "ICEBERG" {
-            Ok(Transformed::yes(LogicalPlan::Extension(Extension {
-                node: Arc::new(CreateIcebergTable(table)),
-            })))
-        } else {
-            Ok(Transformed::no(LogicalPlan::Ddl(
-                DdlStatement::CreateExternalTable(table),
-            )))
+    match node {
+        LogicalPlan::Ddl(DdlStatement::CreateExternalTable(table)) => {
+            if table.file_type == "ICEBERG" {
+                Ok(Transformed::yes(LogicalPlan::Extension(Extension {
+                    node: Arc::new(CreateIcebergTable(table)),
+                })))
+            } else {
+                Ok(Transformed::no(LogicalPlan::Ddl(
+                    DdlStatement::CreateExternalTable(table),
+                )))
+            }
         }
-    } else {
-        Ok(Transformed::no(node))
+        LogicalPlan::Ddl(DdlStatement::CreateView(view)) => {
+            Ok(Transformed::yes(LogicalPlan::Extension(Extension {
+                node: Arc::new(CreateIcebergView(view)),
+            })))
+        }
+        _ => Ok(Transformed::no(node)),
     }
 }
 
-pub struct IcebergPlanner {}
+pub struct CreateIcebergTablePlanner {}
 
 #[async_trait]
-impl ExtensionPlanner for IcebergPlanner {
+impl ExtensionPlanner for CreateIcebergTablePlanner {
     async fn plan_extension(
         &self,
         _planner: &dyn PhysicalPlanner,
@@ -105,6 +115,67 @@ impl ExtensionPlanner for IcebergPlanner {
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
             )
             .with_properties(node.0.options.clone())
+            .build(&[namespace_name[0].to_owned()], catalog)
+            .await
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+        Ok(Some(Arc::new(EmptyExec::new(Arc::new(
+            ArrowSchema::empty(),
+        )))))
+    }
+}
+
+pub struct CreateIcebergViewPlanner {}
+
+#[async_trait]
+impl ExtensionPlanner for CreateIcebergViewPlanner {
+    async fn plan_extension(
+        &self,
+        _planner: &dyn PhysicalPlanner,
+        node: &dyn UserDefinedLogicalNode,
+        _logical_inputs: &[&LogicalPlan],
+        _physical_inputs: &[Arc<dyn ExecutionPlan>],
+        session_state: &SessionState,
+    ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+        let Some(node) = node.as_any().downcast_ref::<CreateIcebergView>() else {
+            return Ok(None);
+        };
+
+        let table_ref = &node.0.name.to_string();
+
+        let identifier = FullIdentifier::parse(&table_ref, None, None)
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+        let catalog_list = session_state.catalog_list();
+        let catalog_name = identifier.catalog();
+        let namespace_name = identifier.namespace();
+        let table_name = identifier.name();
+        let datafusion_catalog =
+            catalog_list
+                .catalog(catalog_name)
+                .ok_or(DataFusionError::Plan(format!(
+                    "Catalog {catalog_name} does not exist."
+                )))?;
+        let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>()
+        else {
+            return Err(DataFusionError::Plan(format!(
+                "Catalog {catalog_name} is not an Iceberg catalog."
+            )));
+        };
+
+        let catalog = iceberg_catalog.catalog();
+
+        let schema = StructType::try_from(node.0.input.schema().as_arrow())
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+        View::builder()
+            .with_name(table_name)
+            .with_schema(
+                Schema::builder()
+                    .with_fields(schema)
+                    .build()
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
+            )
             .build(&[namespace_name[0].to_owned()], catalog)
             .await
             .map_err(|err| DataFusionError::External(Box::new(err)))?;
@@ -173,6 +244,64 @@ impl UserDefinedLogicalNode for CreateIcebergTable {
         }
     }
 }
+
+#[derive(Clone)]
+pub struct CreateIcebergView(pub CreateView);
+
+impl Debug for CreateIcebergView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = &self.0.name;
+        write!(f, "CreateIcebergView: {name:?}")
+    }
+}
+
+impl UserDefinedLogicalNode for CreateIcebergView {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        "CreateIcebergView"
+    }
+
+    fn inputs(&self) -> Vec<&datafusion::logical_expr::LogicalPlan> {
+        vec![]
+    }
+
+    fn schema(&self) -> &datafusion::common::DFSchemaRef {
+        &self.0.input.schema()
+    }
+
+    fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
+        vec![]
+    }
+
+    fn fmt_for_explain(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let name = &self.0.name;
+        write!(f, "CreateIcebergView: {name:?}")
+    }
+
+    fn with_exprs_and_inputs(
+        &self,
+        _exprs: Vec<datafusion::prelude::Expr>,
+        _inputs: Vec<datafusion::logical_expr::LogicalPlan>,
+    ) -> datafusion::error::Result<std::sync::Arc<dyn UserDefinedLogicalNode>> {
+        Ok(Arc::new(self.clone()))
+    }
+
+    fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
+        self.0.hash(&mut state)
+    }
+
+    fn dyn_eq(&self, other: &dyn UserDefinedLogicalNode) -> bool {
+        if let Some(other) = other.as_any().downcast_ref::<CreateIcebergView>() {
+            self.0.eq(&other.0)
+        } else {
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
