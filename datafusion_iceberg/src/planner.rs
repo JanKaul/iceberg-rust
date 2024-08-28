@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use crate::catalog::catalog::IcebergCatalog;
 use datafusion::{
-    arrow::datatypes::Schema,
+    arrow::datatypes::Schema as ArrowSchema,
     common::tree_node::Transformed,
     error::DataFusionError,
     execution::context::{QueryPlanner, SessionState},
@@ -14,7 +14,10 @@ use datafusion::{
     physical_plan::{empty::EmptyExec, ExecutionPlan},
     physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner},
 };
-use iceberg_rust::{spec::view_metadata::FullIdentifier, table::Table};
+use iceberg_rust::{
+    spec::{schema::Schema, types::StructType, view_metadata::FullIdentifier},
+    table::Table,
+};
 
 pub struct IcebergQueryPlanner {}
 
@@ -73,6 +76,7 @@ impl ExtensionPlanner for IcebergPlanner {
         let catalog_list = session_state.catalog_list();
         let catalog_name = identifier.catalog();
         let namespace_name = identifier.namespace();
+        let table_name = identifier.name();
         let datafusion_catalog =
             catalog_list
                 .catalog(catalog_name)
@@ -88,12 +92,26 @@ impl ExtensionPlanner for IcebergPlanner {
 
         let catalog = iceberg_catalog.catalog();
 
+        let schema = StructType::try_from(node.0.schema.as_arrow())
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
         Table::builder()
+            .with_name(table_name)
+            .with_location(&node.0.location)
+            .with_schema(
+                Schema::builder()
+                    .with_fields(schema)
+                    .build()
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
+            )
+            .with_properties(node.0.options.clone())
             .build(&[namespace_name[0].to_owned()], catalog)
             .await
             .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
-        Ok(Some(Arc::new(EmptyExec::new(Arc::new(Schema::empty())))))
+        Ok(Some(Arc::new(EmptyExec::new(Arc::new(
+            ArrowSchema::empty(),
+        )))))
     }
 }
 
@@ -160,7 +178,6 @@ mod tests {
     use std::sync::Arc;
 
     use datafusion::{
-        arrow::array::RecordBatch,
         common::tree_node::{TransformedResult, TreeNode},
         execution::{
             config::SessionConfig,
@@ -209,11 +226,8 @@ mod tests {
         let var_name = "CREATE EXTERNAL TABLE iceberg.public.test (
     c1  VARCHAR NOT NULL,
     c2  INT NOT NULL,
-    c3  SMALLINT NOT NULL,
-    c4  SMALLINT NOT NULL,
     c5  INT NOT NULL,
     c6  BIGINT NOT NULL,
-    c7  SMALLINT NOT NULL,
     c8  INT NOT NULL,
     c9  BIGINT NOT NULL,
     c10 VARCHAR NOT NULL,
@@ -222,7 +236,7 @@ mod tests {
     c13 VARCHAR NOT NULL
 )
 STORED AS ICEBERG
-LOCATION '/path/to/aggregate_test_100.csv'
+LOCATION '/path/to/'
 OPTIONS ('has_header' 'true');";
 
         let plan = ctx.state().create_logical_plan(&var_name).await.unwrap();
@@ -232,6 +246,6 @@ OPTIONS ('has_header' 'true');";
         let df = ctx.execute_logical_plan(transformed).await.unwrap();
 
         // execute the plan
-        let results: Vec<RecordBatch> = df.collect().await.expect("Failed to execute query plan.");
+        df.collect().await.expect("Failed to execute query plan.");
     }
 }
