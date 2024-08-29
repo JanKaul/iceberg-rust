@@ -16,7 +16,11 @@ use datafusion::{
     physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner},
 };
 use iceberg_rust::{
-    spec::{schema::Schema, types::StructType, view_metadata::FullIdentifier},
+    spec::{
+        schema::Schema,
+        types::StructType,
+        view_metadata::{FullIdentifier, Version, ViewRepresentation},
+    },
     table::Table,
     view::View,
 };
@@ -168,11 +172,21 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
         let schema = StructType::try_from(node.0.input.schema().as_arrow())
             .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
+        let lowercase = node.0.definition.as_ref().unwrap().to_lowercase();
+        let definition = lowercase.split_once(" as ").unwrap().1;
+
         View::builder()
             .with_name(table_name)
+            .with_location(catalog_name.to_string() + "/" + &namespace_name[0] + "/" + table_name)
             .with_schema(
                 Schema::builder()
                     .with_fields(schema)
+                    .build()
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
+            )
+            .with_view_version(
+                Version::builder()
+                    .with_representation(ViewRepresentation::sql(definition, None))
                     .build()
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
             )
@@ -353,7 +367,8 @@ mod tests {
         .with_query_planner(Arc::new(IcebergQueryPlanner {}));
 
         let ctx = SessionContext::new_with_state(state);
-        let var_name = "CREATE EXTERNAL TABLE iceberg.public.orders (
+
+        let sql = "CREATE EXTERNAL TABLE iceberg.public.orders (
       id BIGINT NOT NULL,
       order_date DATE NOT NULL,
       customer_id INTEGER NOT NULL,
@@ -364,7 +379,7 @@ STORED AS ICEBERG
 LOCATION '/path/to/'
 OPTIONS ('has_header' 'true');";
 
-        let plan = ctx.state().create_logical_plan(&var_name).await.unwrap();
+        let plan = ctx.state().create_logical_plan(&sql).await.unwrap();
 
         let transformed = plan.transform(iceberg_transform).data().unwrap();
 
@@ -390,8 +405,21 @@ OPTIONS ('has_header' 'true');";
         .await
         .expect("Failed to insert values into table");
 
+        let sql = "CREATE VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) from iceberg.public.orders group by product_id;";
+
+        let plan = ctx.state().create_logical_plan(&sql).await.unwrap();
+
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+        ctx.execute_logical_plan(transformed)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .expect("Failed to execute query plan.");
+
         let batches = ctx
-            .sql("select product_id, sum(quantity) from iceberg.public.orders group by product_id;")
+            .sql("select * from iceberg.public.quantities_by_product;")
             .await
             .expect("Failed to create plan for select")
             .collect()
