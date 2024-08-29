@@ -307,6 +307,7 @@ mod tests {
     use std::sync::Arc;
 
     use datafusion::{
+        arrow::array::{Int32Array, Int64Array},
         common::tree_node::{TransformedResult, TreeNode},
         execution::{
             config::SessionConfig,
@@ -352,17 +353,12 @@ mod tests {
         .with_query_planner(Arc::new(IcebergQueryPlanner {}));
 
         let ctx = SessionContext::new_with_state(state);
-        let var_name = "CREATE EXTERNAL TABLE iceberg.public.test (
-    c1  VARCHAR NOT NULL,
-    c2  INT NOT NULL,
-    c5  INT NOT NULL,
-    c6  BIGINT NOT NULL,
-    c8  INT NOT NULL,
-    c9  BIGINT NOT NULL,
-    c10 VARCHAR NOT NULL,
-    c11 FLOAT NOT NULL,
-    c12 DOUBLE NOT NULL,
-    c13 VARCHAR NOT NULL
+        let var_name = "CREATE EXTERNAL TABLE iceberg.public.orders (
+      id BIGINT NOT NULL,
+      order_date DATE NOT NULL,
+      customer_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      quantity INTEGER NOT NULL
 )
 STORED AS ICEBERG
 LOCATION '/path/to/'
@@ -372,9 +368,62 @@ OPTIONS ('has_header' 'true');";
 
         let transformed = plan.transform(iceberg_transform).data().unwrap();
 
-        let df = ctx.execute_logical_plan(transformed).await.unwrap();
+        ctx.execute_logical_plan(transformed)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .expect("Failed to execute query plan.");
 
-        // execute the plan
-        df.collect().await.expect("Failed to execute query plan.");
+        ctx.sql(
+            "INSERT INTO iceberg.public.orders (id, customer_id, product_id, order_date, quantity) VALUES 
+                (1, 1, 1, '2020-01-01', 1),
+                (2, 2, 1, '2020-01-01', 1),
+                (3, 3, 1, '2020-01-01', 3),
+                (4, 1, 2, '2020-02-02', 1),
+                (5, 1, 1, '2020-02-02', 2),
+                (6, 3, 3, '2020-02-02', 3);",
+        )
+        .await
+        .expect("Failed to create query plan for insert")
+        .collect()
+        .await
+        .expect("Failed to insert values into table");
+
+        let batches = ctx
+            .sql("select product_id, sum(quantity) from iceberg.public.orders group by product_id;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (product_ids, amounts) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int32Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (product_id, amount) in product_ids.iter().zip(amounts) {
+                    if product_id.unwrap() == 1 {
+                        assert_eq!(amount.unwrap(), 7)
+                    } else if product_id.unwrap() == 2 {
+                        assert_eq!(amount.unwrap(), 1)
+                    } else if product_id.unwrap() == 3 {
+                        assert_eq!(amount.unwrap(), 3)
+                    } else {
+                        panic!("Unexpected order id")
+                    }
+                }
+            }
+        }
     }
 }
