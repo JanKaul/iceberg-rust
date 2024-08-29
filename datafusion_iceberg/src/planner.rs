@@ -1,11 +1,11 @@
 use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
-use datafusion_expr::CreateView;
+use datafusion_expr::{ColumnarValue, CreateView, ScalarUDFImpl, Signature, Volatility};
 
-use crate::catalog::catalog::IcebergCatalog;
+use crate::{catalog::catalog::IcebergCatalog, materialized_view::refresh_materialized_view};
 use datafusion::{
-    arrow::datatypes::Schema as ArrowSchema,
+    arrow::datatypes::{DataType, Schema as ArrowSchema},
     common::tree_node::Transformed,
     error::DataFusionError,
     execution::context::{QueryPlanner, SessionState},
@@ -14,15 +14,17 @@ use datafusion::{
     },
     physical_plan::{empty::EmptyExec, ExecutionPlan},
     physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner},
+    scalar::ScalarValue,
 };
 use iceberg_rust::{
+    catalog::{tabular::Tabular, CatalogList},
+    materialized_view::MaterializedView,
     spec::{
         schema::Schema,
         types::StructType,
         view_metadata::{FullIdentifier, Version, ViewRepresentation},
     },
     table::Table,
-    view::View,
 };
 
 pub struct IcebergQueryPlanner {}
@@ -175,7 +177,7 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
         let lowercase = node.0.definition.as_ref().unwrap().to_lowercase();
         let definition = lowercase.split_once(" as ").unwrap().1;
 
-        View::builder()
+        MaterializedView::builder()
             .with_name(table_name)
             .with_location(catalog_name.to_string() + "/" + &namespace_name[0] + "/" + table_name)
             .with_schema(
@@ -316,9 +318,87 @@ impl UserDefinedLogicalNode for CreateIcebergView {
     }
 }
 
+#[derive(Debug)]
+pub struct RefreshMaterializedView {
+    pub catalog_list: Arc<dyn CatalogList>,
+    pub signature: Signature,
+}
+
+impl RefreshMaterializedView {
+    pub fn new(catalog_list: Arc<dyn CatalogList>) -> Self {
+        Self {
+            catalog_list,
+            signature: Signature::exact(vec![DataType::Utf8], Volatility::Volatile),
+        }
+    }
+}
+
+impl ScalarUDFImpl for RefreshMaterializedView {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        "refresh_materialized_view"
+    }
+
+    fn signature(&self) -> &datafusion_expr::Signature {
+        &self.signature
+    }
+
+    fn return_type(
+        &self,
+        _arg_types: &[datafusion::arrow::datatypes::DataType],
+    ) -> datafusion::error::Result<datafusion::arrow::datatypes::DataType> {
+        Ok(DataType::Utf8)
+    }
+
+    fn invoke(
+        &self,
+        args: &[datafusion_expr::ColumnarValue],
+    ) -> datafusion::error::Result<datafusion_expr::ColumnarValue> {
+        let ColumnarValue::Scalar(ScalarValue::Utf8(Some(name))) = &args[0] else {
+            return Err(DataFusionError::Execution(
+                "Refresh function only takes a scalar string input.".to_string(),
+            ));
+        };
+        let identifier = FullIdentifier::parse(name, None, None)
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+        let catalog_list = self.catalog_list.clone();
+
+        tokio::task::spawn(async move {
+            let catalog_name = identifier.catalog();
+            let catalog = catalog_list
+                .catalog(catalog_name)
+                .ok_or(DataFusionError::Execution(format!(
+                    "Catalog {catalog_name} not found."
+                )))
+                .unwrap();
+
+            let Tabular::MaterializedView(mut matview) = catalog
+                .load_tabular(&(&identifier).into())
+                .await
+                .map_err(|err| DataFusionError::External(Box::new(err)))
+                .unwrap()
+            else {
+                panic!("Failed to load table {identifier}");
+            };
+
+            refresh_materialized_view(&mut matview, catalog_list, None)
+                .await
+                .unwrap();
+        });
+
+        Ok(ColumnarValue::Scalar(ScalarValue::Utf8(Some(
+            "Refresh successful".to_string(),
+        ))))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
 
     use datafusion::{
         arrow::array::{Int32Array, Int64Array},
@@ -329,27 +409,30 @@ mod tests {
             runtime_env::RuntimeEnv,
         },
     };
+    use datafusion_expr::ScalarUDF;
     use iceberg_sql_catalog::SqlCatalogList;
     use object_store::{memory::InMemory, ObjectStore};
+    use tokio::time::sleep;
 
     use crate::{
         catalog::catalog_list::IcebergCatalogList,
-        planner::{iceberg_transform, IcebergQueryPlanner},
+        planner::{iceberg_transform, IcebergQueryPlanner, RefreshMaterializedView},
     };
 
     #[tokio::test]
     async fn test_planner() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let iceberg_catalog_list = Arc::new(
+            SqlCatalogList::new("sqlite://", object_store.clone())
+                .await
+                .unwrap(),
+        );
 
         let catalog_list = {
             Arc::new(
-                IcebergCatalogList::new(Arc::new(
-                    SqlCatalogList::new("sqlite://", object_store.clone())
-                        .await
-                        .unwrap(),
-                ))
-                .await
-                .unwrap(),
+                IcebergCatalogList::new(iceberg_catalog_list.clone())
+                    .await
+                    .unwrap(),
             )
         };
         let session_config = SessionConfig::from_env()
@@ -367,6 +450,10 @@ mod tests {
         .with_query_planner(Arc::new(IcebergQueryPlanner {}));
 
         let ctx = SessionContext::new_with_state(state);
+
+        ctx.register_udf(ScalarUDF::from(RefreshMaterializedView::new(
+            iceberg_catalog_list,
+        )));
 
         let sql = "CREATE EXTERNAL TABLE iceberg.public.orders (
       id BIGINT NOT NULL,
@@ -405,7 +492,7 @@ OPTIONS ('has_header' 'true');";
         .await
         .expect("Failed to insert values into table");
 
-        let sql = "CREATE VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) from iceberg.public.orders group by product_id;";
+        let sql = "CREATE MATERIALIZED VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) from iceberg.public.orders group by product_id;";
 
         let plan = ctx.state().create_logical_plan(&sql).await.unwrap();
 
@@ -425,6 +512,27 @@ OPTIONS ('has_header' 'true');";
             .collect()
             .await
             .expect("Failed to execute select query");
+
+        assert!(batches.iter().all(|batch| batch.num_rows() == 0));
+
+        ctx.sql("select refresh_materialized_view('iceberg.public.quantities_by_product');")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        sleep(Duration::from_millis(1_000)).await;
+
+        let batches = ctx
+            .sql("select * from iceberg.public.quantities_by_product;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        let mut once = false;
 
         for batch in batches {
             if batch.num_rows() != 0 {
@@ -451,7 +559,10 @@ OPTIONS ('has_header' 'true');";
                         panic!("Unexpected order id")
                     }
                 }
+                once = true
             }
         }
+
+        assert!(once);
     }
 }
