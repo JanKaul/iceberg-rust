@@ -103,6 +103,7 @@ pub enum TableUpdate {
         /// Name of the snapshot refrence
         ref_name: String,
         /// Snapshot refernce to set
+        #[serde(flatten)]
         snapshot_reference: SnapshotReference,
     },
     /// Remove snapshots with certain snapshot ids
