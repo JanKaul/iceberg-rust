@@ -175,22 +175,21 @@ impl Operation {
                 };
 
                 let snapshot_id = generate_snapshot_id();
+                let snapshot_uuid = &uuid::Uuid::new_v4().to_string();
                 let new_manifest_list_location = table_metadata.location.to_string()
                     + "/metadata/snap-"
                     + &snapshot_id.to_string()
-                    + &uuid::Uuid::new_v4().to_string()
+                    + snapshot_uuid
                     + ".avro";
 
                 let new_manifest_iter = stream::iter(datafiles.iter().enumerate()).filter_map(
                     |(i, (partition_value, _))| {
                         let existing_partitions = existing_partitions.clone();
-                        let new_manifest_list_location = new_manifest_list_location.clone();
                         async move {
                             if !existing_partitions.lock().await.contains(partition_value) {
-                                let manifest_location = new_manifest_list_location
-                                    .to_string()
-                                    .trim_end_matches(".avro")
-                                    .to_owned()
+                                let manifest_location = table_metadata.location.to_string()
+                                    + "/metadata/"
+                                    + snapshot_uuid
                                     + "-m"
                                     + &(manifest_count + i).to_string()
                                     + ".avro";
@@ -353,18 +352,18 @@ impl Operation {
                 )?);
 
                 let snapshot_id = generate_snapshot_id();
+                let snapshot_uuid = &uuid::Uuid::new_v4().to_string();
                 let manifest_list_location = table_metadata.location.to_string()
                     + "/metadata/snap-"
                     + &snapshot_id.to_string()
                     + "-"
-                    + &uuid::Uuid::new_v4().to_string()
+                    + snapshot_uuid
                     + ".avro";
 
                 let manifest_iter = datafiles.keys().enumerate().map(|(i, partition_value)| {
-                    let manifest_location = manifest_list_location
-                        .to_string()
-                        .trim_end_matches(".avro")
-                        .to_owned()
+                    let manifest_location = table_metadata.location.to_string()
+                        + "/metadata/"
+                        + snapshot_uuid
                         + "-m"
                         + &(i).to_string()
                         + ".avro";

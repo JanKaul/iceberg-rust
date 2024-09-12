@@ -154,6 +154,11 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
         )?;
 
         avro_writer.add_user_metadata(
+            "schema-id".to_string(),
+            serde_json::to_string(&table_metadata.current_schema(branch)?.schema_id())?,
+        )?;
+
+        avro_writer.add_user_metadata(
             "partition-spec".to_string(),
             serde_json::to_string(&table_metadata.default_partition_spec()?.fields())?,
         )?;
@@ -162,6 +167,8 @@ impl<'a, W: std::io::Write> ManifestWriter<'a, W> {
             "partition-spec-id".to_string(),
             serde_json::to_string(&table_metadata.default_partition_spec()?.spec_id())?,
         )?;
+
+        avro_writer.add_user_metadata("content".to_string(), "data".to_string())?;
 
         Ok(ManifestWriter(avro_writer))
     }
