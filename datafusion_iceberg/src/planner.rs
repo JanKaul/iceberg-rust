@@ -177,9 +177,16 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
         let lowercase = node.0.definition.as_ref().unwrap().to_lowercase();
         let definition = lowercase.split_once(" as ").unwrap().1;
 
+        #[cfg(test)]
+        let location = catalog_name.to_string() + "/" + &namespace_name[0] + "/" + table_name;
+
+        #[cfg(not(test))]
+        let location =
+            "s3://".to_string() + catalog_name + "/" + &namespace_name[0] + "/" + table_name;
+
         MaterializedView::builder()
             .with_name(table_name)
-            .with_location(catalog_name.to_string() + "/" + &namespace_name[0] + "/" + table_name)
+            .with_location(location)
             .with_schema(
                 Schema::builder()
                     .with_fields(schema)
