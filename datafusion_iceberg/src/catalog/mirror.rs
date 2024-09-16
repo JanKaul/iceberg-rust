@@ -92,8 +92,8 @@ impl Mirror {
             .filter_map(|r| {
                 let r = &self.storage.get(r)?;
                 match &r.value() {
-                    &Node::Relation(ident) => Some(ident.clone()),
-                    &Node::Namespace(_) => None,
+                    Node::Relation(ident) => Some(ident.clone()),
+                    Node::Namespace(_) => None,
                 }
             })
             .collect())

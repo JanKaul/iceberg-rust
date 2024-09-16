@@ -522,7 +522,10 @@ impl Lineage {
     pub fn new() -> Self {
         Lineage(HashMap::new())
     }
-    pub fn from_iter<T: IntoIterator<Item = (FullIdentifier, String)>>(iter: T) -> Self {
+}
+
+impl FromIterator<(FullIdentifier, String)> for Lineage {
+    fn from_iter<T: IntoIterator<Item = (FullIdentifier, String)>>(iter: T) -> Self {
         Lineage(HashMap::from_iter(iter))
     }
 }
