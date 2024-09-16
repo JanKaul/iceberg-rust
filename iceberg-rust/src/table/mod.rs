@@ -6,7 +6,7 @@ use std::{io::Cursor, iter::repeat, sync::Arc};
 
 use object_store::{path::Path, ObjectStore};
 
-use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{channel::mpsc::unbounded, stream, SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::spec::{
     manifest::{Content, ManifestEntry, ManifestReader},
     manifest_list::ManifestListEntry,
@@ -175,10 +175,14 @@ async fn datafiles(
                 filter_manifest as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
             ),
     };
+
+    let (sender, reciever) = unbounded();
     // Collect a vector of data files by creating a stream over the manifst files, fetch their content and return a flatten stream over their entries.
     stream::iter(iter)
-        .map(|file| {
+        .map(Ok::<_, Error>)
+        .try_for_each_concurrent(None, |file| {
             let object_store = object_store.clone();
+            let mut sender = sender.clone();
             async move {
                 let path: Path = util::strip_prefix(&file.manifest_path).into();
                 let bytes = Cursor::new(Vec::from(
@@ -188,13 +192,13 @@ async fn datafiles(
                         .await?,
                 ));
                 let reader = ManifestReader::new(bytes)?;
-                Ok(stream::iter(reader))
+                sender.send(stream::iter(reader)).await?;
+                Ok(())
             }
         })
-        .flat_map(|reader| reader.try_flatten_stream())
-        .try_collect()
-        .await
-        .map_err(Error::from)
+        .await?;
+    sender.close_channel();
+    reciever.flatten().try_collect().await.map_err(Error::from)
 }
 
 /// delete all datafiles, manifests and metadata files, does not remove table from catalog
