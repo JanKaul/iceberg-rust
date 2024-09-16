@@ -45,7 +45,7 @@ impl IcebergContext {
             let table_source = IcebergTableSource::new(tabular, branch);
 
             sources.insert(
-                catalog_name.to_owned() + "." + &namespace + "." + &name,
+                catalog_name.to_owned() + "." + namespace + "." + name,
                 Arc::new(table_source) as Arc<dyn TableSource>,
             );
         }

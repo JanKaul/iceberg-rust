@@ -304,11 +304,7 @@ impl Operation {
                     )
                     .with_summary(Summary {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
-                        other: if let Some(additional_summary) = additional_summary {
-                            additional_summary
-                        } else {
-                            HashMap::new()
-                        },
+                        other: additional_summary.unwrap_or_default(),
                     })
                     .with_schema_id(*schema.schema_id());
                 let snapshot = snapshot_builder
@@ -445,11 +441,7 @@ impl Operation {
                     .with_manifest_list(manifest_list_location)
                     .with_summary(Summary {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
-                        other: if let Some(additional_summary) = additional_summary {
-                            additional_summary
-                        } else {
-                            HashMap::new()
-                        },
+                        other: additional_summary.unwrap_or_default(),
                     });
                 let snapshot = snapshot_builder
                     .build()

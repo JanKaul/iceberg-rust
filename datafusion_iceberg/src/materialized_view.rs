@@ -155,7 +155,7 @@ pub async fn refresh_materialized_view(
             ]
         })
         .map(|(identifier, snapshot_id, table)| {
-            ctx.register_table(&transform_name(&identifier.to_string()), table)?;
+            ctx.register_table(transform_name(&identifier.to_string()), table)?;
             Ok::<_, Error>((identifier, snapshot_id))
         })
         .filter_ok(|(identifier, _)| !identifier.name().ends_with("__delta__"))
@@ -183,7 +183,7 @@ pub async fn refresh_materialized_view(
 
     // Write arrow record batches to datafiles
     let files = write_parquet_partitioned(
-        &storage_table.metadata(),
+        storage_table.metadata(),
         batches,
         matview.object_store(),
         branch.as_deref(),

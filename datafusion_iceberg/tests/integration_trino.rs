@@ -29,7 +29,7 @@ use testcontainers_modules::postgres::Postgres;
 
 fn configuration(host: &str, port: u16) -> Configuration {
     Configuration {
-        base_path: format!("http://{}:{}", host, port.to_string()),
+        base_path: format!("http://{}:{}", host, port),
         user_agent: None,
         client: reqwest::Client::new().into(),
         basic_auth: None,

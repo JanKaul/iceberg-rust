@@ -125,7 +125,7 @@ impl<'view> Transaction<'view> {
             for operation in self.storage_table_operations.into_values() {
                 let (requirement, update) = operation
                     .execute(
-                        &storage_table.metadata(),
+                        storage_table.metadata(),
                         self.materialized_view.object_store(),
                     )
                     .await?;

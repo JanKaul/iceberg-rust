@@ -332,7 +332,7 @@ async fn table_scan(
                 .map_err(Error::from)?;
             let manifests_to_prune = pruning_predicate.prune(&PruneManifests::new(
                 &schema,
-                &partition_spec,
+                partition_spec,
                 &manifests,
             ))?;
 

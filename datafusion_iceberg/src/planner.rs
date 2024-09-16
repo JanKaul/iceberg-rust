@@ -86,7 +86,7 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
 
         let table_ref = &node.0.name.to_string();
 
-        let identifier = FullIdentifier::parse(&table_ref, None, None)
+        let identifier = FullIdentifier::parse(table_ref, None, None)
             .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
         let catalog_list = session_state.catalog_list();
@@ -149,7 +149,7 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
 
         let table_ref = &node.0.name.to_string();
 
-        let identifier = FullIdentifier::parse(&table_ref, None, None)
+        let identifier = FullIdentifier::parse(table_ref, None, None)
             .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
         let catalog_list = session_state.catalog_list();
@@ -292,7 +292,7 @@ impl UserDefinedLogicalNode for CreateIcebergView {
     }
 
     fn schema(&self) -> &datafusion::common::DFSchemaRef {
-        &self.0.input.schema()
+        self.0.input.schema()
     }
 
     fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
@@ -473,7 +473,7 @@ STORED AS ICEBERG
 LOCATION '/path/to/'
 OPTIONS ('has_header' 'true');";
 
-        let plan = ctx.state().create_logical_plan(&sql).await.unwrap();
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
         let transformed = plan.transform(iceberg_transform).data().unwrap();
 
@@ -501,7 +501,7 @@ OPTIONS ('has_header' 'true');";
 
         let sql = "CREATE MATERIALIZED VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) from iceberg.public.orders group by product_id;";
 
-        let plan = ctx.state().create_logical_plan(&sql).await.unwrap();
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
         let transformed = plan.transform(iceberg_transform).data().unwrap();
 

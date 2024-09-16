@@ -494,7 +494,7 @@ pub async fn commit_transaction(
     prefix: Option<&str>,
     commit_transaction_request: models::CommitTransactionRequest,
 ) -> Result<(), Error<CommitTransactionError>> {
-    let uri_str = format!("transactions/commit");
+    let uri_str = "transactions/commit".to_string();
     let method = reqwest::Method::POST;
 
     fetch_empty(
@@ -515,7 +515,7 @@ pub async fn create_namespace(
     prefix: Option<&str>,
     create_namespace_request: models::CreateNamespaceRequest,
 ) -> Result<models::CreateNamespaceResponse, Error<CreateNamespaceError>> {
-    let uri_str = format!("namespaces",);
+    let uri_str = "namespaces".to_string();
     let method = reqwest::Method::POST;
 
     fetch(
@@ -672,7 +672,7 @@ pub async fn list_namespaces(
         query_params.insert("parent".to_owned(), parent.to_string());
     }
 
-    let uri_str = format!("namespaces",);
+    let uri_str = "namespaces".to_string();
 
     let method = reqwest::Method::GET;
 
@@ -876,7 +876,7 @@ pub async fn rename_table(
     prefix: Option<&str>,
     rename_table_request: models::RenameTableRequest,
 ) -> Result<(), Error<RenameTableError>> {
-    let uri_str = format!("tables/rename",);
+    let uri_str = "tables/rename".to_string();
     let method = reqwest::Method::POST;
 
     fetch_empty(
@@ -897,7 +897,7 @@ pub async fn rename_view(
     prefix: Option<&str>,
     rename_table_request: models::RenameTableRequest,
 ) -> Result<(), Error<RenameViewError>> {
-    let uri_str = format!("views/rename",);
+    let uri_str = "views/rename".to_string();
     let method = reqwest::Method::POST;
 
     fetch_empty(

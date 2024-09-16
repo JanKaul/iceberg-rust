@@ -168,7 +168,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
                 .iter()
                 .map(|manifest| match &manifest.data_file().lower_bounds() {
                     Some(map) => map
-                        .get(&(column_id as i32))
+                        .get(&{ column_id })
                         .map(|value| value.clone().into_any()),
                     None => None,
                 });
@@ -186,7 +186,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
                 .iter()
                 .map(|manifest| match &manifest.data_file().upper_bounds() {
                     Some(map) => map
-                        .get(&(column_id as i32))
+                        .get(&{ column_id })
                         .map(|value| value.clone().into_any()),
                     None => None,
                 });
@@ -201,7 +201,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             self.files
                 .iter()
                 .map(|manifest| match &manifest.data_file().null_value_counts() {
-                    Some(map) => map.get(&(column_id as i32)).copied(),
+                    Some(map) => map.get(&{ column_id }).copied(),
                     None => None,
                 });
         ScalarValue::iter_to_array(null_counts.map(ScalarValue::Int64)).ok()
@@ -220,7 +220,7 @@ impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests
             self.files
                 .iter()
                 .map(|manifest| match &manifest.data_file().value_counts() {
-                    Some(map) => map.get(&(column_id as i32)).copied(),
+                    Some(map) => map.get(&{ column_id }).copied(),
                     None => None,
                 });
         ScalarValue::iter_to_array(null_counts.map(ScalarValue::Int64)).ok()

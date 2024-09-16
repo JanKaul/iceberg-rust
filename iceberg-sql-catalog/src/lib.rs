@@ -91,7 +91,7 @@ impl SqlCatalog {
                 Ok(())
             })
         })
-        .connect_lazy(&url)?;
+        .connect_lazy(url)?;
 
         Ok(SqlCatalog {
             name: name.to_owned(),
@@ -236,11 +236,9 @@ impl Catalog for SqlCatalog {
         let namespace = identifier.namespace().to_string();
         let name = identifier.name().to_string();
 
-        {
-            sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
+        sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
                 &namespace,
-                &name)).execute(&self.pool).await.map_err(Error::from)?
-        };
+                &name)).execute(&self.pool).await.map_err(Error::from)?;
         Ok(())
     }
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
@@ -248,11 +246,9 @@ impl Catalog for SqlCatalog {
         let namespace = identifier.namespace().to_string();
         let name = identifier.name().to_string();
 
-        {
-            sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
+        sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
                 &namespace,
-                &name)).execute(&self.pool).await.map_err(Error::from)?
-        };
+                &name)).execute(&self.pool).await.map_err(Error::from)?;
         Ok(())
     }
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
@@ -260,11 +256,9 @@ impl Catalog for SqlCatalog {
         let namespace = identifier.namespace().to_string();
         let name = identifier.name().to_string();
 
-        {
-            sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
+        sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
                 &namespace,
-                &name)).execute(&self.pool).await.map_err(Error::from)?
-        };
+                &name)).execute(&self.pool).await.map_err(Error::from)?;
         Ok(())
     }
     async fn load_tabular(
@@ -478,9 +472,7 @@ impl Catalog for SqlCatalog {
         let metadata_file_location = metadata_location.to_string();
         let previous_metadata_file_location = previous_metadata_location.to_string();
 
-        {
-            sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
-        };
+        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
 
         self.cache.write().unwrap().insert(
             identifier.clone(),
@@ -534,9 +526,7 @@ impl Catalog for SqlCatalog {
         let metadata_file_location = metadata_location.to_string();
         let previous_metadata_file_location = previous_metadata_location.to_string();
 
-        {
-            sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
-        };
+        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone()),
@@ -593,9 +583,7 @@ impl Catalog for SqlCatalog {
         let metadata_file_location = metadata_location.to_string();
         let previous_metadata_file_location = previous_metadata_location.to_string();
 
-        {
-            sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?
-        };
+        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone()),
@@ -631,9 +619,7 @@ impl Catalog for SqlCatalog {
             let name = identifier.name().to_string();
             let metadata_location = metadata_location.to_string();
 
-            {
-                sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?
-            };
+            sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?;
         }
         self.cache.write().unwrap().insert(
             identifier.clone(),
@@ -702,7 +688,7 @@ impl SqlCatalogList {
                 Ok(())
             })
         })
-        .connect(&url)
+        .connect(url)
         .await?;
 
         Ok(SqlCatalogList { pool, object_store })
@@ -788,7 +774,7 @@ pub mod tests {
             .with_name(identifier.name())
             .with_location("/")
             .with_schema(schema)
-            .build(&identifier.namespace(), catalog.clone())
+            .build(identifier.namespace(), catalog.clone())
             .await
             .expect("Failed to create table");
 

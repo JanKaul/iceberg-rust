@@ -589,7 +589,7 @@ pub mod tests {
             .with_name(identifier.name())
             .with_location("/tmp/warehouse/test")
             .with_schema(schema)
-            .build(&identifier.namespace(), catalog.clone())
+            .build(identifier.namespace(), catalog.clone())
             .await
             .expect("Failed to create table");
 

@@ -316,25 +316,25 @@ impl CreateMaterializedViewBuilder {
     }
 }
 
-impl Into<(CreateView<FullIdentifier>, CreateTable)> for CreateMaterializedView {
-    fn into(self) -> (CreateView<FullIdentifier>, CreateTable) {
-        let storage_table = self.view_version.storage_table.name().clone();
+impl From<CreateMaterializedView> for (CreateView<FullIdentifier>, CreateTable) {
+    fn from(val: CreateMaterializedView) -> Self {
+        let storage_table = val.view_version.storage_table.name().clone();
         (
             CreateView {
-                name: self.name.clone(),
-                location: self.location.clone(),
-                schema: self.schema.clone(),
-                view_version: self.view_version,
-                properties: self.properties,
+                name: val.name.clone(),
+                location: val.location.clone(),
+                schema: val.schema.clone(),
+                view_version: val.view_version,
+                properties: val.properties,
             },
             CreateTable {
                 name: storage_table,
-                location: self.location,
-                schema: self.schema,
-                partition_spec: self.partition_spec,
-                write_order: self.write_order,
-                stage_create: self.stage_create,
-                properties: self.table_properties,
+                location: val.location,
+                schema: val.schema,
+                partition_spec: val.partition_spec,
+                write_order: val.write_order,
+                stage_create: val.stage_create,
+                properties: val.table_properties,
             },
         )
     }

@@ -6,9 +6,9 @@ use crate::apis::{self, catalog_api_api::CreateNamespaceError};
 Error conversion
 */
 
-impl<T> Into<Error> for apis::Error<T> {
-    fn into(self) -> Error {
-        match self {
+impl<T> From<apis::Error<T>> for Error {
+    fn from(val: apis::Error<T>) -> Self {
+        match val {
             apis::Error::Reqwest(err) => Error::InvalidFormat(err.to_string()),
             apis::Error::ReqwestMiddleware(err) => Error::InvalidFormat(err.to_string()),
             apis::Error::Serde(err) => Error::JSONSerde(err),

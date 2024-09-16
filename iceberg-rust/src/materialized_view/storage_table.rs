@@ -36,7 +36,7 @@ impl StorageTable {
         let current_snapshot = self.metadata().current_snapshot(branch.as_deref())?;
         let refresh_state = current_snapshot
             .and_then(|snapshot| snapshot.summary().other.get(REFRESH_STATE))
-            .map(|x| serde_json::from_str::<RefreshState>(&x))
+            .map(|x| serde_json::from_str::<RefreshState>(x))
             .transpose()?;
         let Some(refresh_state) = refresh_state else {
             return Ok(None);

@@ -147,7 +147,7 @@ impl Mirror {
                             .and_then(|branch| {
                                 view.metadata()
                                     .properties
-                                    .get(&(REF_PREFIX.to_string() + &branch))
+                                    .get(&(REF_PREFIX.to_string() + branch))
                             })
                             .map(|x| x.parse::<i64>().unwrap());
                         Arc::new(DataFusionTable::new(
@@ -165,7 +165,7 @@ impl Mirror {
                                 matview
                                     .metadata()
                                     .properties
-                                    .get(&(REF_PREFIX.to_string() + &branch))
+                                    .get(&(REF_PREFIX.to_string() + branch))
                             })
                             .map(|x| x.parse::<i64>().unwrap());
                         Arc::new(DataFusionTable::new(
