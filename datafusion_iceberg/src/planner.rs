@@ -15,14 +15,16 @@ use datafusion::{
     physical_plan::{empty::EmptyExec, ExecutionPlan},
     physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner},
     scalar::ScalarValue,
+    sql::TableReference,
 };
 use iceberg_rust::{
     catalog::{tabular::Tabular, CatalogList},
     materialized_view::MaterializedView,
     spec::{
+        identifier::Identifier,
         schema::Schema,
         types::StructType,
-        view_metadata::{FullIdentifier, Version, ViewRepresentation},
+        view_metadata::{Version, ViewRepresentation},
     },
     table::Table,
 };
@@ -86,13 +88,12 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
 
         let table_ref = &node.0.name.to_string();
 
-        let identifier = FullIdentifier::parse(table_ref, None, None)
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+        let identifier = TableReference::parse_str(&table_ref).resolve("datafusion", "public");
 
         let catalog_list = session_state.catalog_list();
-        let catalog_name = identifier.catalog();
-        let namespace_name = identifier.namespace();
-        let table_name = identifier.name();
+        let catalog_name = &identifier.catalog;
+        let namespace_name = &identifier.schema;
+        let table_name: &str = &identifier.table;
         let datafusion_catalog =
             catalog_list
                 .catalog(catalog_name)
@@ -121,7 +122,7 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
             )
             .with_properties(node.0.options.clone())
-            .build(&[namespace_name[0].to_owned()], catalog)
+            .build(&[namespace_name.as_ref().to_owned()], catalog)
             .await
             .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
@@ -149,13 +150,12 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
 
         let table_ref = &node.0.name.to_string();
 
-        let identifier = FullIdentifier::parse(table_ref, None, None)
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+        let identifier = TableReference::parse_str(&table_ref).resolve("datafusion", "public");
 
         let catalog_list = session_state.catalog_list();
-        let catalog_name = identifier.catalog();
-        let namespace_name = identifier.namespace();
-        let table_name = identifier.name();
+        let catalog_name = &identifier.catalog;
+        let namespace_name = &identifier.schema;
+        let table_name: &str = &identifier.table;
         let datafusion_catalog =
             catalog_list
                 .catalog(catalog_name)
@@ -178,11 +178,11 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
         let definition = lowercase.split_once(" as ").unwrap().1;
 
         #[cfg(test)]
-        let location = catalog_name.to_string() + "/" + &namespace_name[0] + "/" + table_name;
+        let location = catalog_name.to_string() + "/" + &namespace_name + "/" + table_name;
 
         #[cfg(not(test))]
         let location =
-            "s3://".to_string() + catalog_name + "/" + &namespace_name[0] + "/" + table_name;
+            "s3://".to_string() + catalog_name + "/" + &namespace_name + "/" + table_name;
 
         MaterializedView::builder()
             .with_name(table_name)
@@ -199,7 +199,7 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
                     .build()
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
             )
-            .build(&[namespace_name[0].to_owned()], catalog)
+            .build(&[namespace_name.as_ref().to_owned()], catalog)
             .await
             .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
@@ -369,13 +369,13 @@ impl ScalarUDFImpl for RefreshMaterializedView {
                 "Refresh function only takes a scalar string input.".to_string(),
             ));
         };
-        let identifier = FullIdentifier::parse(name, None, None)
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+        let identifier = TableReference::parse_str(&name).resolve("datafusion", "public");
 
         let catalog_list = self.catalog_list.clone();
 
         tokio::task::spawn(async move {
-            let catalog_name = identifier.catalog();
+            let catalog_name = &identifier.catalog;
             let catalog = catalog_list
                 .catalog(catalog_name)
                 .ok_or(DataFusionError::Execution(format!(
@@ -384,7 +384,10 @@ impl ScalarUDFImpl for RefreshMaterializedView {
                 .unwrap();
 
             let Tabular::MaterializedView(mut matview) = catalog
-                .load_tabular(&(&identifier).into())
+                .load_tabular(&Identifier::new(
+                    &[identifier.schema.to_string()],
+                    &identifier.table,
+                ))
                 .await
                 .map_err(|err| DataFusionError::External(Box::new(err)))
                 .unwrap()

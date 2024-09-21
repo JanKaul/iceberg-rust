@@ -4,18 +4,21 @@ use datafusion::{
     arrow::error::ArrowError,
     datasource::{empty::EmptyTable, TableProvider},
     prelude::SessionContext,
+    sql::{ResolvedTableReference, TableReference},
 };
 use futures::{stream, StreamExt, TryStreamExt};
-use iceberg_rust::spec::{
-    materialized_view_metadata::RefreshState,
-    view_metadata::{FullIdentifier, ViewRepresentation},
-};
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned,
     catalog::{identifier::Identifier, tabular::Tabular, CatalogList},
     materialized_view::{MaterializedView, StorageTableState},
+    spec::materialized_view_metadata::{SourceTables, SourceViews},
+};
+use iceberg_rust::{
+    spec::{materialized_view_metadata::RefreshState, view_metadata::ViewRepresentation},
+    sql::find_relations,
 };
 use itertools::Itertools;
+use uuid::Uuid;
 
 use crate::{
     error::Error,
@@ -30,38 +33,40 @@ pub async fn refresh_materialized_view(
 ) -> Result<(), Error> {
     let ctx = SessionContext::new();
 
-    let sql = match &matview.metadata().current_version(branch)?.representations[0] {
+    let version = matview.metadata().current_version(branch)?;
+
+    let sql = match &version.representations[0] {
         ViewRepresentation::Sql { sql, dialect: _ } => sql,
     };
 
     let storage_table = matview.storage_table().await?;
-    let lineage = matview
-        .metadata()
-        .current_version(branch)?
-        .lineage()
-        .as_ref()
-        .ok_or(Error::NotFound(
-            "Lineage".to_owned(),
-            "in materialized view".to_owned(),
-        ))?;
+
+    let relations = find_relations(&sql)?;
 
     let branch = branch.map(ToString::to_string);
 
     let old_refresh_state = Arc::new(
         storage_table
-            .refresh_tables(matview.metadata().current_version_id, branch.clone())
+            .refresh_state(matview.metadata().current_version_id, branch.clone())
             .await?,
     );
 
     // Load source tables
-    let source_tables = stream::iter(lineage.iter())
-        .then(|(full_identifier, id)| {
+    let source_tables = stream::iter(relations.iter())
+        .then(|relation| {
             let catalog_list = catalog_list.clone();
             let branch = branch.clone();
             let old_refresh_state = old_refresh_state.clone();
             async move {
-                let catalog_name = full_identifier.catalog().to_string();
-                let identifier: Identifier = full_identifier.into();
+                let reference = TableReference::parse_str(&relation).resolve(
+                    version.default_catalog().as_deref().unwrap_or("datafusion"),
+                    &version.default_namespace()[0],
+                );
+                let catalog_name = reference.catalog.to_string();
+                let identifier = Identifier::new(
+                    &[reference.schema.to_string()],
+                    &reference.table.to_string(),
+                );
                 let catalog = catalog_list.catalog(&catalog_name).ok_or(Error::NotFound(
                     "Catalog".to_owned(),
                     catalog_name.to_owned(),
@@ -100,8 +105,10 @@ pub async fn refresh_materialized_view(
                     _ => Err(Error::InvalidFormat("storage table".to_string())),
                 }?;
 
+                let uuid = *tabular.metadata().as_ref().uuid();
+
                 let table_state = if let Some(old_refresh_state) = old_refresh_state.as_ref() {
-                    let revision_id = old_refresh_state.get(id);
+                    let revision_id = old_refresh_state.source_table_states.get(&(uuid, None));
                     if Some(&current_snapshot_id) == revision_id {
                         StorageTableState::Fresh
                     } else if Some(&-1) == revision_id {
@@ -115,7 +122,7 @@ pub async fn refresh_materialized_view(
                     StorageTableState::Invalid
                 };
 
-                Ok((full_identifier, tabular, table_state, current_snapshot_id))
+                Ok((reference, tabular, table_state, uuid, current_snapshot_id))
             }
         })
         .try_collect::<Vec<_>>()
@@ -131,7 +138,7 @@ pub async fn refresh_materialized_view(
     // Register source tables in datafusion context and return lineage information
     let source_table_states = source_tables
         .into_iter()
-        .flat_map(|(identifier, source_table, _, last_snapshot_id)| {
+        .flat_map(|(identifier, source_table, _, uuid, snapshot_id)| {
             let table = Arc::new(DataFusionTable::new(
                 source_table,
                 None,
@@ -141,33 +148,29 @@ pub async fn refresh_materialized_view(
             let schema = table.schema().clone();
 
             vec![
-                (identifier.clone(), last_snapshot_id, table),
+                (identifier.clone(), uuid, snapshot_id, table),
                 (
-                    FullIdentifier::new(
-                        identifier.catalog(),
-                        identifier.namespace(),
-                        &(identifier.name().to_owned() + "__delta__"),
-                        None,
-                    ),
-                    last_snapshot_id,
+                    ResolvedTableReference {
+                        catalog: identifier.catalog.clone(),
+                        schema: identifier.schema.clone(),
+                        table: (identifier.table.to_string() + "__delta__").as_str().into(),
+                    },
+                    uuid,
+                    snapshot_id,
                     Arc::new(EmptyTable::new(schema)) as Arc<dyn TableProvider>,
                 ),
             ]
         })
-        .map(|(identifier, snapshot_id, table)| {
+        .map(|(identifier, uuid, snapshot_id, table)| {
             ctx.register_table(transform_name(&identifier.to_string()), table)?;
-            Ok::<_, Error>((identifier, snapshot_id))
+            Ok::<_, Error>((identifier, uuid, snapshot_id))
         })
-        .filter_ok(|(identifier, _)| !identifier.name().ends_with("__delta__"))
+        .filter_ok(|(identifier, _, _)| !identifier.table.ends_with("__delta__"))
         .map(|x| {
-            let (identifer, snapshot_id) = x?;
-            let sequence_id = lineage.get(&identifer).ok_or(Error::NotFound(
-                "Lineage entry".to_owned(),
-                identifer.to_string(),
-            ))?;
-            Ok((sequence_id.clone(), snapshot_id))
+            let (_, uuid, snapshot_id) = x?;
+            Ok(((uuid, None), snapshot_id))
         })
-        .collect::<Result<HashMap<String, i64>, Error>>()?;
+        .collect::<Result<HashMap<(Uuid, Option<String>), i64>, Error>>()?;
 
     let sql_statements = transform_relations(sql)?;
 
@@ -194,8 +197,8 @@ pub async fn refresh_materialized_view(
 
     let refresh_state = RefreshState {
         refresh_version_id,
-        source_table_states,
-        source_view_states: HashMap::new(),
+        source_table_states: SourceTables(source_table_states),
+        source_view_states: SourceViews(HashMap::new()),
     };
     matview
         .new_transaction(branch.as_deref())

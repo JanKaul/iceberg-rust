@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    ops::{Deref, DerefMut},
-};
+use std::ops::{Deref, DerefMut};
 
 use iceberg_rust_spec::materialized_view_metadata::{RefreshState, REFRESH_STATE};
 
@@ -28,11 +25,11 @@ impl StorageTable {
     }
 
     #[inline]
-    pub async fn refresh_tables(
+    pub async fn refresh_state(
         &self,
         version_id: i64,
         branch: Option<String>,
-    ) -> Result<Option<HashMap<String, i64>>, Error> {
+    ) -> Result<Option<RefreshState>, Error> {
         let current_snapshot = self.metadata().current_snapshot(branch.as_deref())?;
         let refresh_state = current_snapshot
             .and_then(|snapshot| snapshot.summary().other.get(REFRESH_STATE))
@@ -42,7 +39,7 @@ impl StorageTable {
             return Ok(None);
         };
         if version_id == refresh_state.refresh_version_id {
-            Ok(Some(refresh_state.source_table_states))
+            Ok(Some(refresh_state))
         } else {
             Ok(None)
         }

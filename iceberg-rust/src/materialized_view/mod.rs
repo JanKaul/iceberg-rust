@@ -95,11 +95,7 @@ impl MaterializedView {
     }
     /// Get the storage table of the materialized view
     pub async fn storage_table(&self) -> Result<StorageTable, Error> {
-        let identifier: Identifier = self
-            .metadata()
-            .current_version(None)?
-            .storage_table()
-            .into();
+        let identifier = self.metadata().current_version(None)?.storage_table();
         if let Tabular::Table(table) = self.catalog().load_tabular(&identifier).await? {
             Ok(StorageTable::new(table))
         } else {

@@ -19,7 +19,7 @@ use iceberg_rust::{
         materialized_view_metadata::MaterializedViewMetadata,
         table_metadata::TableMetadata,
         tabular::TabularMetadata,
-        view_metadata::{self, FullIdentifier, ViewMetadata},
+        view_metadata::{self, ViewMetadata},
     },
     table::Table,
     view::View,
@@ -190,7 +190,8 @@ impl Catalog for RestCatalog {
             .ok_or(Error::NotFound("Namespaces".to_string(), "".to_owned()))?
             .into_iter()
             .map(|x| Namespace::try_new(&x))
-            .collect()
+            .collect::<Result<Vec<_>, iceberg_rust::spec::error::Error>>()
+            .map_err(Error::from)
     }
     /// Check if a table exists
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error> {
@@ -423,7 +424,7 @@ impl Catalog for RestCatalog {
     }
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView<FullIdentifier>,
+        commit: CommitView<Identifier>,
     ) -> Result<MaterializedView, Error> {
         let identifier = commit.identifier.clone();
         catalog_api_api::replace_view(
@@ -540,7 +541,7 @@ pub mod tests {
     }
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        let container = GenericImage::new("tabulario/iceberg-rest", "latest")
+        let container = GenericImage::new("tabulario/iceberg-rest", "1.6.0")
             .with_wait_for(WaitFor::StdOutMessage {
                 message: "INFO  [org.eclipse.jetty.server.Server] - Started ".to_owned(),
             })
@@ -558,7 +559,7 @@ pub mod tests {
             .await
             .expect("Failed to create namespace");
 
-        let identifier = Identifier::parse("public.test").unwrap();
+        let identifier = Identifier::parse("public.test", None).unwrap();
 
         let schema = Schema::builder()
             .with_schema_id(1)

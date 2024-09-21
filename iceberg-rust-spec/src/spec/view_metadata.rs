@@ -4,9 +4,7 @@
 
 use std::{
     collections::HashMap,
-    fmt::{self, Display},
-    iter::once,
-    ops::{Deref, DerefMut},
+    fmt::{self},
     str,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -17,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use crate::error::Error;
+use crate::{error::Error, identifier::Identifier};
 
 use super::schema::{Schema, DEFAULT_SCHEMA_ID};
 
@@ -289,18 +287,13 @@ pub struct Version<T: Materialization> {
     /// A string specifying the catalog to use when the table or view references in the view definition do not contain an explicit catalog.
     pub default_catalog: Option<String>,
     #[builder(setter(strip_option), default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
     /// The namespace to use when the table or view references in the view definition do not contain an explicit namespace.
     /// Since the namespace may contain multiple parts, it is serialized as a list of strings.
-    pub default_namespace: Option<Vec<String>>,
+    pub default_namespace: Vec<String>,
     /// Full identifier record of the storage table
     #[builder(default)]
     #[serde(skip_serializing_if = "Materialization::is_none")]
     pub storage_table: T,
-    /// Lineage as a list of Source table records
-    #[builder(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lineage: Option<Lineage>,
 }
 
 pub trait Materialization: Clone + Default {
@@ -313,7 +306,7 @@ impl Materialization for Option<()> {
     }
 }
 
-impl Materialization for FullIdentifier {
+impl Materialization for Identifier {
     fn is_none(&self) -> bool {
         false
     }
@@ -430,137 +423,6 @@ impl ViewRepresentation {
             sql: sql.to_owned(),
             dialect: dialect.unwrap_or("ansi").to_owned(),
         }
-    }
-}
-
-/// Full table identifier
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Getters)]
-pub struct FullIdentifier {
-    catalog: String,
-    namespace: Vec<String>,
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    r#ref: Option<String>,
-}
-
-impl FullIdentifier {
-    /// Create a new Full identifier
-    pub fn new(catalog: &str, namespace: &[String], name: &str, r#ref: Option<&str>) -> Self {
-        Self {
-            catalog: catalog.to_string(),
-            namespace: namespace.iter().map(ToOwned::to_owned).collect(),
-            name: name.to_string(),
-            r#ref: r#ref.map(ToString::to_string),
-        }
-    }
-    pub fn parse(
-        input: &str,
-        default_namespace: Option<&[String]>,
-        default_catalog: Option<&str>,
-    ) -> Result<Self, Error> {
-        let mut parts = input.split(".").collect::<Vec<_>>().into_iter().rev();
-        let table_name = parts.next().ok_or(Error::InvalidFormat(format!(
-            "Identifier {:?} is empty",
-            input
-        )))?;
-        let namespace_name = parts.next();
-        let mut parts = parts.rev();
-        let catalog_name = parts
-            .next()
-            .or(default_catalog)
-            .ok_or(Error::InvalidFormat(format!(
-                "Identifier {:?} is empty",
-                input
-            )))?;
-        let namespace = if let Some(namespace_name) = namespace_name {
-            parts
-                .chain(once(namespace_name))
-                .map(ToOwned::to_owned)
-                .collect()
-        } else {
-            default_namespace
-                .ok_or(Error::NotFound(
-                    "Default".to_owned(),
-                    "namespace".to_owned(),
-                ))?
-                .iter()
-                .map(ToOwned::to_owned)
-                .collect()
-        };
-        Ok(FullIdentifier {
-            catalog: catalog_name.to_owned(),
-            namespace,
-            name: table_name.to_owned(),
-            r#ref: None,
-        })
-    }
-}
-
-impl Display for FullIdentifier {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.catalog.to_owned() + "." + &self.namespace.join(".") + "." + &self.name
-        )
-    }
-}
-
-/// Source table record
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Getters)]
-#[serde(rename_all = "kebab-case")]
-pub struct SourceTable {
-    identifier: FullIdentifier,
-    sequence_id: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(from = "Vec<SourceTable>", into = "Vec<SourceTable>")]
-pub struct Lineage(HashMap<FullIdentifier, String>);
-
-impl Lineage {
-    pub fn new() -> Self {
-        Lineage(HashMap::new())
-    }
-}
-
-impl FromIterator<(FullIdentifier, String)> for Lineage {
-    fn from_iter<T: IntoIterator<Item = (FullIdentifier, String)>>(iter: T) -> Self {
-        Lineage(HashMap::from_iter(iter))
-    }
-}
-
-impl From<Vec<SourceTable>> for Lineage {
-    fn from(value: Vec<SourceTable>) -> Self {
-        Lineage(HashMap::from_iter(
-            value.into_iter().map(|x| (x.identifier, x.sequence_id)),
-        ))
-    }
-}
-
-impl From<Lineage> for Vec<SourceTable> {
-    fn from(value: Lineage) -> Self {
-        value
-            .0
-            .into_iter()
-            .map(|(identifier, sequence_id)| SourceTable {
-                identifier,
-                sequence_id,
-            })
-            .collect()
-    }
-}
-
-impl Deref for Lineage {
-    type Target = HashMap<FullIdentifier, String>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Lineage {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

@@ -621,7 +621,7 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let identifier = Identifier::parse("test.table1").unwrap();
+        let identifier = Identifier::parse("test.table1", None).unwrap();
 
         catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
 

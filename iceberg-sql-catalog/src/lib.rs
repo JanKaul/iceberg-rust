@@ -24,7 +24,7 @@ use iceberg_rust::{
         table_metadata::{new_metadata_location, TableMetadata},
         tabular::TabularMetadata,
         util::strip_prefix,
-        view_metadata::{FullIdentifier, ViewMetadata},
+        view_metadata::ViewMetadata,
     },
     table::Table,
     view::View,
@@ -186,7 +186,7 @@ impl Catalog for SqlCatalog {
         Ok(iter
             .map(|x| {
                 x.and_then(|y| {
-                    Identifier::parse(&(y.table_namespace.to_string() + "." + &y.table_name))
+                    Identifier::parse(&(y.table_namespace.to_string() + "." + &y.table_name), None)
                         .map_err(|err| sqlx::Error::Decode(Box::new(err)))
                 })
             })
@@ -395,7 +395,7 @@ impl Catalog for SqlCatalog {
 
         let table_metadata_json = serde_json::to_string(&table_metadata)?;
         let table_metadata_location = new_metadata_location(&table_metadata);
-        let table_identifier: Identifier = (metadata.current_version(None)?.storage_table()).into();
+        let table_identifier = metadata.current_version(None)?.storage_table();
         object_store
             .put(
                 &strip_prefix(&metadata_location).into(),
@@ -541,7 +541,7 @@ impl Catalog for SqlCatalog {
     }
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView<FullIdentifier>,
+        commit: CommitView<Identifier>,
     ) -> Result<MaterializedView, IcebergError> {
         let identifier = commit.identifier;
         let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
@@ -744,7 +744,7 @@ pub mod tests {
                 .await
                 .unwrap(),
         );
-        let identifier = Identifier::parse("load_table.table3").unwrap();
+        let identifier = Identifier::parse("load_table.table3", None).unwrap();
         let schema = Schema::builder()
             .with_schema_id(0)
             .with_identifier_field_ids(vec![1, 2])

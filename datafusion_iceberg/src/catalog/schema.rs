@@ -35,14 +35,15 @@ impl SchemaProvider for IcebergSchema {
     async fn table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
         self.catalog
             .table(
-                Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat())
+                Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat(), None)
                     .map_err(Error::from)?,
             )
             .await
     }
     fn table_exist(&self, name: &str) -> bool {
         self.catalog.table_exists(
-            Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat()).unwrap(),
+            Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat(), None)
+                .unwrap(),
         )
     }
 
@@ -53,14 +54,14 @@ impl SchemaProvider for IcebergSchema {
     ) -> Result<Option<Arc<dyn TableProvider>>> {
         let mut full_name = self.schema.to_vec();
         full_name.push(name.to_owned());
-        let identifier = Identifier::try_new(&full_name)
+        let identifier = Identifier::try_new(&full_name, None)
             .map_err(|err| DataFusionError::Internal(err.to_string()))?;
         self.catalog.register_table(identifier, table)
     }
     fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
         let mut full_name = self.schema.to_vec();
         full_name.push(name.to_owned());
-        let identifier = Identifier::try_new(&full_name)
+        let identifier = Identifier::try_new(&full_name, None)
             .map_err(|err| DataFusionError::Internal(err.to_string()))?;
         self.catalog.deregister_table(identifier)
     }

@@ -65,7 +65,7 @@ async fn integration_trino_rest() {
     let localstack_host = localstack.get_host().await.unwrap();
     let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
 
-    let rest = GenericImage::new("tabulario/iceberg-rest", "latest")
+    let rest = GenericImage::new("tabulario/iceberg-rest", "1.6.0")
         .with_wait_for(WaitFor::Log(LogWaitStrategy::stdout(
             "INFO  [org.eclipse.jetty.server.Server] - Started ",
         )))

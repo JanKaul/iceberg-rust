@@ -13,7 +13,6 @@ use iceberg_rust::{
         tabular::Tabular,
         Catalog,
     },
-    error::Error as IcebergError,
     spec::table_metadata::new_metadata_location,
     spec::util::strip_prefix,
 };
@@ -114,7 +113,7 @@ impl Mirror {
                         .as_slice(),
                 )
             })
-            .collect::<Result<_, IcebergError>>()
+            .collect::<Result<_, iceberg_rust::spec::error::Error>>()
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))
     }
     pub async fn table(

@@ -17,7 +17,7 @@ use iceberg_rust_spec::{
         table_metadata::TableMetadata,
         view_metadata::{Version, ViewMetadata, DEFAULT_VERSION_ID},
     },
-    view_metadata::{FullIdentifier, Lineage, Materialization, ViewRepresentation},
+    view_metadata::Materialization,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -25,7 +25,6 @@ use uuid::Uuid;
 use crate::{
     error::Error,
     materialized_view::{MaterializedView, STORAGE_TABLE_POSTFIX},
-    sql::find_relations,
     table::Table,
     view::View,
 };
@@ -170,6 +169,15 @@ impl CreateViewBuilder<Option<()>> {
             .ok_or(Error::NotFound("View".to_owned(), "name".to_owned()))?;
         let identifier = Identifier::new(namespace, name);
 
+        if let Some(version) = &mut self.view_version {
+            if version.default_namespace().is_empty() {
+                version.default_namespace = namespace.to_vec()
+            }
+            if version.default_catalog().is_none() {
+                version.default_catalog = Some(catalog.name().to_string())
+            }
+        }
+
         let create = self.create()?;
 
         // Register table in catalog
@@ -195,7 +203,7 @@ impl TryInto<ViewMetadata> for CreateView<Option<()>> {
     }
 }
 
-impl TryInto<MaterializedViewMetadata> for CreateView<FullIdentifier> {
+impl TryInto<MaterializedViewMetadata> for CreateView<Identifier> {
     type Error = Error;
     fn try_into(self) -> Result<MaterializedViewMetadata, Self::Error> {
         Ok(MaterializedViewMetadata {
@@ -228,7 +236,7 @@ pub struct CreateMaterializedView {
     /// Schema of the view
     pub schema: Schema,
     /// Viersion of the view
-    pub view_version: Version<FullIdentifier>,
+    pub view_version: Version<Identifier>,
     /// View properties
     #[builder(setter(each(name = "with_property")), default)]
     pub properties: HashMap<String, String>,
@@ -263,31 +271,16 @@ impl CreateMaterializedViewBuilder {
             .ok_or(Error::NotFound("View".to_owned(), "name".to_owned()))?;
         let identifier = Identifier::new(namespace, name);
 
+        if let Some(version) = &mut self.view_version {
+            if version.default_namespace().is_empty() {
+                version.default_namespace = namespace.to_vec()
+            }
+            if version.default_catalog().is_none() {
+                version.default_catalog = Some(catalog.name().to_string())
+            }
+        }
+
         let mut create = self.create()?;
-
-        let relations = find_relations(match &create.view_version.representations()[0] {
-            ViewRepresentation::Sql {
-                sql,
-                dialect: _dialect,
-            } => sql,
-        })?;
-
-        let lineage = Lineage::from_iter(
-            relations
-                .into_iter()
-                .enumerate()
-                .map(|(i, name)| {
-                    Ok::<_, Error>((
-                        FullIdentifier::parse(
-                            &name,
-                            create.view_version.default_namespace().as_deref(),
-                            create.view_version.default_catalog().as_deref(),
-                        )?,
-                        i.to_string(),
-                    ))
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-        );
 
         let version = Version {
             version_id: create.view_version.version_id,
@@ -297,13 +290,10 @@ impl CreateMaterializedViewBuilder {
             representations: create.view_version.representations.clone(),
             default_catalog: create.view_version.default_catalog,
             default_namespace: create.view_version.default_namespace,
-            storage_table: FullIdentifier::new(
-                catalog.name(),
+            storage_table: Identifier::new(
                 identifier.namespace(),
                 &(identifier.name().to_string() + STORAGE_TABLE_POSTFIX),
-                None,
             ),
-            lineage: Some(lineage),
         };
 
         create.view_version = version;
@@ -316,9 +306,9 @@ impl CreateMaterializedViewBuilder {
     }
 }
 
-impl From<CreateMaterializedView> for (CreateView<FullIdentifier>, CreateTable) {
+impl From<CreateMaterializedView> for (CreateView<Identifier>, CreateTable) {
     fn from(val: CreateMaterializedView) -> Self {
-        let storage_table = val.view_version.storage_table.name().clone();
+        let storage_table = val.view_version.storage_table.name().to_owned();
         (
             CreateView {
                 name: val.name.clone(),

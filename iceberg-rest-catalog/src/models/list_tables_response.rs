@@ -43,8 +43,8 @@ mod tests {
     #[test]
     fn test_list_tables_response_serialization() {
         let identifiers = vec![
-            Identifier::parse("db.table1").unwrap(),
-            Identifier::parse("db.table2").unwrap(),
+            Identifier::parse("db.table1", None).unwrap(),
+            Identifier::parse("db.table2", None).unwrap(),
         ];
 
         let response = ListTablesResponse {
@@ -87,8 +87,8 @@ mod tests {
         let expected_response = ListTablesResponse {
             next_page_token: None,
             identifiers: Some(vec![
-                Identifier::parse("db.table1").unwrap(),
-                Identifier::parse("db.table2").unwrap(),
+                Identifier::parse("db.table1", None).unwrap(),
+                Identifier::parse("db.table2", None).unwrap(),
             ]),
         };
 

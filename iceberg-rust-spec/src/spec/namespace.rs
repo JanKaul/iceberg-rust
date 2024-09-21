@@ -7,7 +7,7 @@ use itertools::Itertools;
 use serde_derive::{Deserialize, Serialize};
 use std::ops::Deref;
 
-use crate::{catalog::identifier::SEPARATOR, error::Error};
+use crate::{error::Error, identifier::SEPARATOR};
 
 /// Namespace struct for iceberg catalogs
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]

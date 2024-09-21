@@ -36,7 +36,7 @@ impl IcebergContext {
             let tabular = catalog
                 .clone()
                 .load_tabular(
-                    &Identifier::try_new(&[namespace.to_owned(), name.to_owned()])
+                    &Identifier::try_new(&[namespace.to_owned(), name.to_owned()], None)
                         .map_err(|err| DataFusionError::Internal(err.to_string()))?,
                 )
                 .await
