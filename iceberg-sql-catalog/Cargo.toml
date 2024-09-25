@@ -10,6 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/JanKaul/iceberg-rust"
 
 [features]
+default = ["runtime-tokio"]
 runtime-tokio = ["sqlx/runtime-tokio"]
 runtime-async-std = ["sqlx/runtime-async-std"]
 
