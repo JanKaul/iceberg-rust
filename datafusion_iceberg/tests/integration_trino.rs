@@ -1,5 +1,7 @@
+use core::str;
 use std::io::Write;
 use std::sync::Arc;
+use std::time::Instant;
 use std::{fs::File, time::Duration};
 
 use datafusion::arrow::array::{Float64Array, RecordBatch};
@@ -17,8 +19,8 @@ use iceberg_rust::table::Table;
 use iceberg_sql_catalog::SqlCatalog;
 use object_store::aws::AmazonS3Builder;
 use tempfile::TempDir;
-use testcontainers::core::wait::HttpWaitStrategy;
-use testcontainers::core::{CmdWaitFor, ContainerPort};
+use testcontainers::core::CmdWaitFor;
+use testcontainers::ContainerAsync;
 use testcontainers::{
     core::{wait::LogWaitStrategy, AccessMode, ExecCommand, Mount, WaitFor},
     runners::AsyncRunner,
@@ -37,6 +39,32 @@ fn configuration(host: &str, port: u16) -> Configuration {
         bearer_access_token: None,
         api_key: None,
     }
+}
+
+/// Even when Trino returns that it is started (logs or /v1/info endpoint),
+/// queries might fail with "No nodes available to run query" (see
+/// https://github.com/testcontainers/testcontainers-java/issues/6310)
+async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        let res = trino_container
+            .exec(
+                ExecCommand::new(vec![
+                    "trino",
+                    "--catalog",
+                    "iceberg",
+                    "--execute",
+                    "select count(*) from tpch.tiny.lineitem",
+                ])
+                .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
+            )
+            .await;
+        if res.is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    panic!("Trino still not queryable after {:?}", timeout);
 }
 
 #[tokio::test]
@@ -105,15 +133,16 @@ async fn integration_trino_rest() {
     .unwrap();
     writeln!(tmp_file, "iceberg.rest-catalog.warehouse=s3://warehouse/").unwrap();
     writeln!(tmp_file, "iceberg.file-format=PARQUET").unwrap();
+    writeln!(tmp_file, "fs.native-s3.enabled=true").unwrap();
     writeln!(
         tmp_file,
-        "hive.s3.endpoint=http://{}:{}",
+        "s3.endpoint=http://{}:{}",
         docker_host, localstack_port
     )
     .unwrap();
-    writeln!(tmp_file, "hive.s3.path-style-access=true").unwrap();
-    writeln!(tmp_file, "hive.s3.aws-access-key=user").unwrap();
-    writeln!(tmp_file, "hive.s3.aws-secret-key=password").unwrap();
+    writeln!(tmp_file, "s3.path-style-access=true").unwrap();
+    writeln!(tmp_file, "s3.aws-access-key=user").unwrap();
+    writeln!(tmp_file, "s3.aws-secret-key=password").unwrap();
 
     let catalog_mount = Mount::bind_mount(
         file_path.as_os_str().to_str().unwrap(),
@@ -125,22 +154,17 @@ async fn integration_trino_rest() {
         .with_access_mode(AccessMode::ReadOnly);
 
     let trino = GenericImage::new("trinodb/trino", "latest")
-        .with_wait_for(WaitFor::Http(
-            HttpWaitStrategy::new("/v1/info")
-                .with_port(ContainerPort::Tcp(8080))
-                .with_response_matcher_async(|response| async move {
-                    response.json::<serde_json::Value>().await.unwrap()["starting"] == false
-                }),
-        ))
         .with_env_var("AWS_REGION", "us-east-1")
         .with_env_var("AWS_ACCESS_KEY_ID", "user")
         .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
         .with_mount(catalog_mount)
         .with_mount(sql_mount)
-        .with_startup_timeout(Duration::from_secs(240))
+        .with_startup_timeout(Duration::from_secs(120))
         .start()
         .await
         .unwrap();
+
+    wait_for_worker(&trino, Duration::from_secs(180)).await;
 
     let trino_port = trino.get_host_port_ipv4(8080).await.unwrap();
 
@@ -285,14 +309,14 @@ async fn integration_trino_sql() {
     writeln!(tmp_file, "iceberg.file-format=PARQUET").unwrap();
     writeln!(
         tmp_file,
-        "hive.s3.endpoint=http://{}:{}",
+        "s3.endpoint=http://{}:{}",
         docker_host, localstack_port
     )
     .unwrap();
-    writeln!(tmp_file, "hive.s3.path-style-access=true").unwrap();
-    writeln!(tmp_file, "hive.s3.aws-access-key=user").unwrap();
-    writeln!(tmp_file, "hive.s3.aws-secret-key=password").unwrap();
-    writeln!(tmp_file, "hive.s3.ssl.enabled=false").unwrap();
+    writeln!(tmp_file, "fs.native-s3.enabled=true").unwrap();
+    writeln!(tmp_file, "s3.path-style-access=true").unwrap();
+    writeln!(tmp_file, "s3.aws-access-key=user").unwrap();
+    writeln!(tmp_file, "s3.aws-secret-key=password").unwrap();
 
     let catalog_mount = Mount::bind_mount(
         file_path.as_os_str().to_str().unwrap(),
@@ -304,13 +328,6 @@ async fn integration_trino_sql() {
         .with_access_mode(AccessMode::ReadOnly);
 
     let trino = GenericImage::new("trinodb/trino", "latest")
-        .with_wait_for(WaitFor::Http(
-            HttpWaitStrategy::new("/v1/info")
-                .with_port(ContainerPort::Tcp(8080))
-                .with_response_matcher_async(|response| async move {
-                    response.json::<serde_json::Value>().await.unwrap()["starting"] == false
-                }),
-        ))
         .with_env_var("AWS_REGION", "us-east-1")
         .with_env_var("AWS_ACCESS_KEY_ID", "user")
         .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
@@ -320,6 +337,8 @@ async fn integration_trino_sql() {
         .start()
         .await
         .unwrap();
+
+    wait_for_worker(&trino, Duration::from_secs(120)).await;
 
     let trino_port = trino.get_host_port_ipv4(8080).await.unwrap();
 
