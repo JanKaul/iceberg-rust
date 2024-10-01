@@ -137,7 +137,7 @@ async fn integration_trino_rest() {
         .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
         .with_mount(catalog_mount)
         .with_mount(sql_mount)
-        .with_startup_timeout(Duration::from_secs(180))
+        .with_startup_timeout(Duration::from_secs(240))
         .start()
         .await
         .unwrap();
@@ -316,7 +316,7 @@ async fn integration_trino_sql() {
         .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
         .with_mount(catalog_mount)
         .with_mount(sql_mount)
-        .with_startup_timeout(Duration::from_secs(180))
+        .with_startup_timeout(Duration::from_secs(240))
         .start()
         .await
         .unwrap();
