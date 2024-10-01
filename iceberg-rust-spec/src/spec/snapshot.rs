@@ -79,7 +79,7 @@ impl Snapshot {
 pub fn generate_snapshot_id() -> i64 {
     let mut bytes: [u8; 8] = [0u8; 8];
     getrandom::getrandom(&mut bytes).unwrap();
-    u64::from_le_bytes(bytes) as i64
+    i64::from_le_bytes(bytes).abs()
 }
 
 impl fmt::Display for Snapshot {
