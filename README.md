@@ -4,6 +4,17 @@ Apache Iceberg is Open Table Format that brings ACID quarantees to large analyti
 This repository contains a Rust implementation of Apache Iceberg that focuses on the interoperability with the Arrow ecosystem.
 It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org/datafusion/) query engine.
 
+[![Crates.io][crates-badge]][crates-url]
+[![Apache V2.0 licensed][apache-badge]][apache-url]
+[![Build Status][actions-badge]][actions-url]
+
+[crates-badge]: https://img.shields.io/crates/v/iceberg-rust
+[crates-url]: https://crates.io/crates/iceberg-rust
+[apache-badge]: https://img.shields.io/badge/License-Apache_2.0-blue.svg
+[apache-url]: https://github.com/JanKaul/iceberg-rust/blob/main/LICENSE
+[actions-badge]: https://github.com/JanKaul/iceberg-rust/actions/workflows/rust.yml/badge.svg?branch=main
+[actions-url]: https://github.com/JanKaul/iceberg-rust/actions/workflows/rust.yml
+
 ## Features
 
 ### Iceberg tables
