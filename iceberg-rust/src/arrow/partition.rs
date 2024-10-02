@@ -48,7 +48,8 @@ pub async fn partition_record_batches(
     )>,
     ArrowError,
 > {
-    let (partition_sender, partition_reciever): (
+    #[allow(clippy::type_complexity)]
+    let (partition_sender, partition_receiver): (
         UnboundedSender<(Vec<Value>, SendableRecordBatchStream)>,
         UnboundedReceiver<(Vec<Value>, SendableRecordBatchStream)>,
     ) = unbounded();
@@ -165,8 +166,8 @@ pub async fn partition_record_batches(
         .into_values()
         .for_each(|sender| sender.close_channel());
     partition_sender.close_channel();
-    let recievers = partition_reciever.collect().await;
-    Ok(recievers)
+    let receivers = partition_receiver.collect().await;
+    Ok(receivers)
 }
 
 fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
