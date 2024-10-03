@@ -21,6 +21,7 @@ use iceberg_rust_spec::{
         manifest::DataFile, partition::PartitionSpec, schema::Schema,
         table_metadata::TableMetadata, values::Value,
     },
+    table_metadata::WRITE_OBJECT_STORAGE_ENABLED,
     util::strip_prefix,
 };
 use parquet::{
@@ -53,12 +54,21 @@ pub async fn write_parquet_partitioned(
     let (mut sender, reciever) = unbounded();
 
     if partition_spec.fields().is_empty() {
+        let partition_path = if metadata
+            .properties
+            .get(WRITE_OBJECT_STORAGE_ENABLED)
+            .is_some_and(|x| x == "true")
+        {
+            Some("".to_owned())
+        } else {
+            None
+        };
         let files = write_parquet_files(
             data_location,
             schema,
             &arrow_schema,
             partition_spec,
-            &Vec::new(),
+            partition_path,
             batches,
             object_store.clone(),
         )
@@ -74,12 +84,21 @@ pub async fn write_parquet_partitioned(
                 let object_store = object_store.clone();
                 let mut sender = sender.clone();
                 async move {
+                    let partition_path = if metadata
+                        .properties
+                        .get(WRITE_OBJECT_STORAGE_ENABLED)
+                        .is_some_and(|x| x == "true")
+                    {
+                        Some(generate_partition_path(partition_spec, &partition_values)?)
+                    } else {
+                        None
+                    };
                     let files = write_parquet_files(
                         data_location,
                         schema,
                         &arrow_schema,
                         partition_spec,
-                        &partition_values,
+                        partition_path,
                         batches,
                         object_store.clone(),
                     )
@@ -111,7 +130,7 @@ async fn write_parquet_files(
     schema: &Schema,
     arrow_schema: &ArrowSchema,
     partition_spec: &PartitionSpec,
-    partiton_values: &[Value],
+    partition_path: Option<String>,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<Vec<DataFile>, ArrowError> {
@@ -119,7 +138,7 @@ async fn write_parquet_files(
     let current_writer = Arc::new(Mutex::new(
         create_arrow_writer(
             data_location,
-            &generate_partition_path(partition_spec, partiton_values)?,
+            partition_path.clone(),
             arrow_schema,
             object_store.clone(),
         )
@@ -136,6 +155,7 @@ async fn write_parquet_files(
             let mut writer_sender = writer_sender.clone();
             let num_bytes = num_bytes.clone();
             let object_store = object_store.clone();
+            let partition_path = partition_path.clone();
             async move {
                 let mut current_writer = current_writer.lock().await;
                 let current =
@@ -151,7 +171,7 @@ async fn write_parquet_files(
                         &mut *current_writer,
                         create_arrow_writer(
                             data_location,
-                            &generate_partition_path(partition_spec, partiton_values)?,
+                            partition_path,
                             arrow_schema,
                             object_store,
                         )
@@ -218,7 +238,7 @@ fn generate_partition_path(
 
 async fn create_arrow_writer(
     data_location: &str,
-    partition_path: &str,
+    partition_path: Option<String>,
     schema: &arrow::datatypes::Schema,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<(String, AsyncArrowWriter<BufWriter>), ArrowError> {
@@ -227,19 +247,18 @@ async fn create_arrow_writer(
         .map_err(|err| ArrowError::ExternalError(Box::new(err)))
         .unwrap();
 
-    let prefix = rand[0..3]
-        .iter()
-        .fold(String::with_capacity(8), |mut acc, x| {
-            write!(&mut acc, "{:02x}", x).unwrap();
-            acc
-        });
+    let path = partition_path.unwrap_or_else(|| {
+        rand[0..3]
+            .iter()
+            .fold(String::with_capacity(8), |mut acc, x| {
+                write!(&mut acc, "{:x}", x).unwrap();
+                acc
+            })
+            + "/"
+    });
 
-    let parquet_path = strip_prefix(data_location)
-        + &prefix
-        + "/"
-        + partition_path
-        + &Uuid::now_v1(&rand).to_string()
-        + ".parquet";
+    let parquet_path =
+        strip_prefix(data_location) + &path + &Uuid::now_v1(&rand).to_string() + ".parquet";
 
     let writer = BufWriter::new(object_store.clone(), parquet_path.clone().into());
 

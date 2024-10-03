@@ -33,6 +33,12 @@ pub static MAIN_BRANCH: &str = "main";
 static DEFAULT_SORT_ORDER_ID: i32 = 0;
 static DEFAULT_SPEC_ID: i32 = 0;
 
+// Properties
+
+pub const WRITE_PARQUET_COMPRESSION_CODEC: &str = "write.parquet.compression-codec";
+pub const WRITE_PARQUET_COMPRESSION_LEVEL: &str = "write.parquet.compression-level";
+pub const WRITE_OBJECT_STORAGE_ENABLED: &str = "write.object-storage.enabled";
+
 pub use _serde::{TableMetadataV1, TableMetadataV2};
 
 use _serde::TableMetadataEnum;
