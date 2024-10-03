@@ -108,14 +108,11 @@ impl<'view> Transaction<'view> {
             let storage_table = self.materialized_view.storage_table().await?;
 
             // Save old metadata to be able to remove old data after a rewrite operation
-            let delete_data = if self.storage_table_operations.values().any(|x| match x {
-                TableOperation::Rewrite {
-                    branch: _,
-                    files: _,
-                    additional_summary: _,
-                } => true,
-                _ => false,
-            }) {
+            let delete_data = if self
+                .storage_table_operations
+                .values()
+                .any(|x| matches!(x, TableOperation::Rewrite { .. }))
+            {
                 Some(storage_table.metadata().clone())
             } else {
                 None

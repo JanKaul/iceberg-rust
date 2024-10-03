@@ -390,7 +390,7 @@ impl Catalog for RestCatalog {
         create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, Error> {
         let (create_view, mut create_table) = create_view.into();
-        create_table.name = create_view.name.clone();
+        create_table.name.clone_from(&create_view.name);
         catalog_api_api::create_table(
             &self.configuration,
             self.name.as_deref(),

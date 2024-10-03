@@ -64,9 +64,10 @@ impl From<Vec<SourceTable>> for SourceTables {
     }
 }
 
-impl Into<Vec<SourceTable>> for SourceTables {
-    fn into(self) -> Vec<SourceTable> {
-        self.0
+impl From<SourceTables> for Vec<SourceTable> {
+    fn from(value: SourceTables) -> Self {
+        value
+            .0
             .into_iter()
             .map(|((uuid, r#ref), snapshot_id)| SourceTable {
                 uuid,
@@ -88,9 +89,10 @@ impl From<Vec<SourceView>> for SourceViews {
     }
 }
 
-impl Into<Vec<SourceView>> for SourceViews {
-    fn into(self) -> Vec<SourceView> {
-        self.0
+impl From<SourceViews> for Vec<SourceView> {
+    fn from(value: SourceViews) -> Self {
+        value
+            .0
             .into_iter()
             .map(|((uuid, _), version_id)| SourceView { uuid, version_id })
             .collect()

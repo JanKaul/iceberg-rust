@@ -41,7 +41,7 @@ pub async fn refresh_materialized_view(
 
     let storage_table = matview.storage_table().await?;
 
-    let relations = find_relations(&sql)?;
+    let relations = find_relations(sql)?;
 
     let branch = branch.map(ToString::to_string);
 
@@ -58,15 +58,12 @@ pub async fn refresh_materialized_view(
             let branch = branch.clone();
             let old_refresh_state = old_refresh_state.clone();
             async move {
-                let reference = TableReference::parse_str(&relation).resolve(
+                let reference = TableReference::parse_str(relation).resolve(
                     version.default_catalog().as_deref().unwrap_or("datafusion"),
                     &version.default_namespace()[0],
                 );
                 let catalog_name = reference.catalog.to_string();
-                let identifier = Identifier::new(
-                    &[reference.schema.to_string()],
-                    &reference.table.to_string(),
-                );
+                let identifier = Identifier::new(&[reference.schema.to_string()], &reference.table);
                 let catalog = catalog_list.catalog(&catalog_name).ok_or(Error::NotFound(
                     "Catalog".to_owned(),
                     catalog_name.to_owned(),

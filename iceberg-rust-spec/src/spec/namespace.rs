@@ -40,7 +40,7 @@ impl Namespace {
                     namespace
                 )))?
                 .0
-                .split("\u{1F}")
+                .split('\u{1F}')
                 .map(ToString::to_string)
                 .collect(),
         ))

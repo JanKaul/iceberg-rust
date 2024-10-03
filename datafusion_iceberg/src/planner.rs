@@ -88,7 +88,7 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
 
         let table_ref = &node.0.name.to_string();
 
-        let identifier = TableReference::parse_str(&table_ref).resolve("datafusion", "public");
+        let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
 
         let catalog_list = session_state.catalog_list();
         let catalog_name = &identifier.catalog;
@@ -150,7 +150,7 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
 
         let table_ref = &node.0.name.to_string();
 
-        let identifier = TableReference::parse_str(&table_ref).resolve("datafusion", "public");
+        let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
 
         let catalog_list = session_state.catalog_list();
         let catalog_name = &identifier.catalog;
@@ -178,11 +178,10 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
         let definition = lowercase.split_once(" as ").unwrap().1;
 
         #[cfg(test)]
-        let location = catalog_name.to_string() + "/" + &namespace_name + "/" + table_name;
+        let location = catalog_name.to_string() + "/" + namespace_name + "/" + table_name;
 
         #[cfg(not(test))]
-        let location =
-            "s3://".to_string() + catalog_name + "/" + &namespace_name + "/" + table_name;
+        let location = "s3://".to_string() + catalog_name + "/" + namespace_name + "/" + table_name;
 
         MaterializedView::builder()
             .with_name(table_name)
@@ -370,7 +369,7 @@ impl ScalarUDFImpl for RefreshMaterializedView {
             ));
         };
 
-        let identifier = TableReference::parse_str(&name).resolve("datafusion", "public");
+        let identifier = TableReference::parse_str(name).resolve("datafusion", "public");
 
         let catalog_list = self.catalog_list.clone();
 

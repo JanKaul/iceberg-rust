@@ -36,7 +36,7 @@ impl Identifier {
             "Identifier {:?} is empty",
             names
         )))?;
-        if table_name == "" {
+        if table_name.is_empty() {
             return Err(Error::InvalidFormat(format!(
                 "Table name {:?} is empty",
                 table_name

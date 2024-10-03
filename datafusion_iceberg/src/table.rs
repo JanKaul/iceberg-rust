@@ -999,14 +999,10 @@ mod tests {
                         .unwrap(),
                 );
                 for (product_id, amount) in product_ids.iter().zip(amounts) {
-                    if product_id.unwrap() == 1 {
-                        assert_eq!(amount.unwrap(), 3)
-                    } else if product_id.unwrap() == 2 {
-                        assert_eq!(amount.unwrap(), 1)
-                    } else if product_id.unwrap() == 3 {
-                        assert_eq!(amount.unwrap(), 1)
-                    } else {
-                        panic!("Unexpected order id")
+                    match product_id.unwrap() {
+                        1 => assert_eq!(amount.unwrap(), 3),
+                        2 | 3 => assert_eq!(amount.unwrap(), 1),
+                        _ => panic!("Unexpected order id"),
                     }
                 }
             }

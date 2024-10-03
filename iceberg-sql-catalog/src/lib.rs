@@ -436,6 +436,7 @@ impl Catalog for SqlCatalog {
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
         let identifier = commit.identifier;
         let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
+            #[allow(clippy::if_same_then_else)]
             if !matches!(commit.requirements[0], TableRequirement::AssertCreate) {
                 return Err(IcebergError::InvalidFormat(
                     "Create table assertion".to_owned(),
