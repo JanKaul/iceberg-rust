@@ -42,10 +42,12 @@ pub async fn partition_record_batches(
     partition_spec: &PartitionSpec,
     schema: &Schema,
 ) -> Result<
-    Vec<(
-        Vec<Value>,
-        impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
-    )>,
+    impl Stream<
+        Item = (
+            Vec<Value>,
+            impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
+        ),
+    >,
     ArrowError,
 > {
     #[allow(clippy::type_complexity)]
@@ -166,8 +168,7 @@ pub async fn partition_record_batches(
         .into_values()
         .for_each(|sender| sender.close_channel());
     partition_sender.close_channel();
-    let receivers = partition_receiver.collect().await;
-    Ok(receivers)
+    Ok(partition_receiver)
 }
 
 fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
@@ -310,7 +311,7 @@ mod tests {
         let streams = partition_record_batches(record_batches, &partition_spec, &schema)
             .await
             .unwrap();
-        let output = stream::iter(streams.into_iter())
+        let output = streams
             .then(|s| async move { s.1.collect::<Vec<_>>().await })
             .collect::<Vec<_>>()
             .await;
