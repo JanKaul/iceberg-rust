@@ -21,7 +21,7 @@ use iceberg_rust_spec::{
         manifest::DataFile, partition::PartitionSpec, schema::Schema,
         table_metadata::TableMetadata, values::Value,
     },
-    table_metadata::WRITE_OBJECT_STORAGE_ENABLED,
+    table_metadata::{WRITE_DATA_PATH, WRITE_OBJECT_STORAGE_ENABLED},
     util::strip_prefix,
 };
 use parquet::{
@@ -44,9 +44,14 @@ pub async fn write_parquet_partitioned(
     object_store: Arc<dyn ObjectStore>,
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, ArrowError> {
-    let data_location = &(metadata.location.clone() + "/data/");
     let schema = metadata.current_schema(branch).map_err(Error::from)?;
     let partition_spec = metadata.default_partition_spec().map_err(Error::from)?;
+
+    let data_location = &metadata
+        .properties
+        .get(WRITE_DATA_PATH)
+        .map(ToOwned::to_owned)
+        .unwrap_or(metadata.location.clone() + "/data/");
 
     let arrow_schema: Arc<ArrowSchema> =
         Arc::new((schema.fields()).try_into().map_err(Error::from)?);

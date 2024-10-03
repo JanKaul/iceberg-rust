@@ -38,6 +38,7 @@ static DEFAULT_SPEC_ID: i32 = 0;
 pub const WRITE_PARQUET_COMPRESSION_CODEC: &str = "write.parquet.compression-codec";
 pub const WRITE_PARQUET_COMPRESSION_LEVEL: &str = "write.parquet.compression-level";
 pub const WRITE_OBJECT_STORAGE_ENABLED: &str = "write.object-storage.enabled";
+pub const WRITE_DATA_PATH: &str = "write.data.path";
 
 pub use _serde::{TableMetadataV1, TableMetadataV2};
 
