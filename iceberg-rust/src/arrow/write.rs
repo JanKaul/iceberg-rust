@@ -5,7 +5,7 @@
 use futures::{
     channel::mpsc::{channel, unbounded, Receiver, Sender},
     lock::Mutex,
-    stream, SinkExt, StreamExt, TryStreamExt,
+    SinkExt, StreamExt, TryStreamExt,
 };
 use object_store::{buffered::BufWriter, ObjectStore};
 use std::sync::{
@@ -66,7 +66,7 @@ pub async fn write_parquet_partitioned(
     } else {
         let streams = partition_record_batches(batches, partition_spec, schema).await?;
 
-        stream::iter(streams.into_iter())
+        streams
             .map(Ok::<_, ArrowError>)
             .try_for_each_concurrent(None, |(partition_values, batches)| {
                 let arrow_schema = arrow_schema.clone();
