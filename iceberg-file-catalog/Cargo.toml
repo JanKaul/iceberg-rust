@@ -1,0 +1,23 @@
+[package]
+name = "iceberg-file-catalog"
+version = "0.5.7"
+edition = "2021"
+
+description = "Filesystem catalog for the unofficial Iceberg table format implementation"
+
+license = "Apache-2.0"
+
+repository = "https://github.com/JanKaul/iceberg-rust"
+
+[dependencies]
+async-trait.workspace = true
+futures.workspace = true
+iceberg-rust = { path = "../iceberg-rust", version = "0.5.7" }
+object_store.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+url.workspace = true
+uuid = { version = "1.7.0", features = ["v4"] }
+
+[dev-dependencies]
+tokio = "1"

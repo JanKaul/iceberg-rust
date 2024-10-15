@@ -6,6 +6,7 @@ members = [
   "datafusion-iceberg-sql",
   "iceberg-sql-catalog",
   "iceberg-rest-catalog",
+  "iceberg-file-catalog",
 ]
 
 resolver = "2"
