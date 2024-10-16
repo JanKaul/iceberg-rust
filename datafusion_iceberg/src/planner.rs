@@ -121,7 +121,7 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
             .iter()
             .enumerate()
             .map(|(i, x)| {
-                let (column, transform) = parse_transform(&x)?;
+                let (column, transform) = parse_transform(x)?;
                 Ok::<_, Error>(PartitionField::new(
                     schema
                         .get_name(&column)
