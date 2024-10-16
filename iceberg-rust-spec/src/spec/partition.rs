@@ -2,7 +2,10 @@
  * Partitioning
 */
 
-use std::{fmt, str};
+use std::{
+    fmt::{self, Display},
+    str,
+};
 
 use derive_getters::Getters;
 use serde::{
@@ -111,6 +114,21 @@ where
     S: Serializer,
 {
     serializer.serialize_str(&format!("truncate[{value}]"))
+}
+
+impl Display for Transform {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Transform::Identity => write!(f, "identity"),
+            Transform::Year => write!(f, "year"),
+            Transform::Month => write!(f, "month"),
+            Transform::Day => write!(f, "day"),
+            Transform::Hour => write!(f, "hour"),
+            Transform::Bucket(i) => write!(f, "bucket[{}]", i),
+            Transform::Truncate(i) => write!(f, "truncate[{}]", i),
+            Transform::Void => write!(f, "void"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Getters)]

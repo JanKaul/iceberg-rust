@@ -2,6 +2,7 @@ use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
 use datafusion_expr::{ColumnarValue, CreateView, ScalarUDFImpl, Signature, Volatility};
+use regex::Regex;
 
 use crate::{catalog::catalog::IcebergCatalog, materialized_view::refresh_materialized_view};
 use datafusion::{
@@ -19,9 +20,11 @@ use datafusion::{
 };
 use iceberg_rust::{
     catalog::{tabular::Tabular, CatalogList},
+    error::Error,
     materialized_view::MaterializedView,
     spec::{
         identifier::Identifier,
+        partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         types::StructType,
         view_metadata::{Version, ViewRepresentation},
@@ -112,6 +115,31 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
         let schema = StructType::try_from(node.0.schema.as_arrow())
             .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
+        let pacrtition_spec = node
+            .0
+            .table_partition_cols
+            .iter()
+            .enumerate()
+            .map(|(i, x)| {
+                let (column, transform) = parse_transform(&x)?;
+                Ok::<_, Error>(PartitionField::new(
+                    schema
+                        .get_name(&column)
+                        .ok_or(Error::NotFound("Column".to_owned(), column.clone()))?
+                        .id,
+                    1000 + i as i32,
+                    &(column + "_" + &transform.to_string()),
+                    transform,
+                ))
+            })
+            .collect::<Result<Vec<_>, Error>>()
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+        let partition_spec = PartitionSpec::builder()
+            .with_spec_id(0)
+            .with_fields(pacrtition_spec)
+            .build()
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
         Table::builder()
             .with_name(table_name)
             .with_location(&node.0.location)
@@ -121,6 +149,7 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
                     .build()
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
             )
+            .with_partition_spec(partition_spec)
             .with_properties(node.0.options.clone())
             .build(&[namespace_name.as_ref().to_owned()], catalog)
             .await
@@ -402,6 +431,36 @@ impl ScalarUDFImpl for RefreshMaterializedView {
         Ok(ColumnarValue::Scalar(ScalarValue::Utf8(Some(
             "Refresh successful".to_string(),
         ))))
+    }
+}
+
+fn parse_transform(input: &str) -> Result<(String, Transform), Error> {
+    let re = Regex::new(r"(\w+)\((.*)\)").unwrap();
+    let caps = re
+        .captures(input)
+        .ok_or(Error::InvalidFormat("Partition transform".to_owned()))?;
+    let transform_name = caps
+        .get(1)
+        .ok_or(Error::InvalidFormat("Partition transform".to_owned()))?
+        .as_str()
+        .to_string();
+    let args = caps
+        .get(2)
+        .ok_or(Error::InvalidFormat("Partition column".to_owned()))?
+        .as_str();
+    let mut args = args.split(",").map(|s| s.to_string());
+    let column = args
+        .next()
+        .ok_or(Error::InvalidFormat("Partition column".to_owned()))?;
+    let arg = args.next();
+    match (transform_name.as_str(), column, arg) {
+        ("year", column, None) => Ok((column, Transform::Year)),
+        ("month", column, None) => Ok((column, Transform::Month)),
+        ("day", column, None) => Ok((column, Transform::Day)),
+        ("hour", column, None) => Ok((column, Transform::Hour)),
+        ("bucket", column, Some(m)) => Ok((column, Transform::Bucket(m.parse()?))),
+        ("truncate", column, Some(m)) => Ok((column, Transform::Truncate(m.parse()?))),
+        _ => Err(Error::InvalidFormat("Partition transform".to_owned())),
     }
 }
 

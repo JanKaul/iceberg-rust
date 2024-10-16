@@ -720,7 +720,7 @@ mod tests {
             .unwrap();
 
         let partition_spec = PartitionSpec::builder()
-            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
+            .with_partition_field(PartitionField::new(4, 1000, "date_day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
