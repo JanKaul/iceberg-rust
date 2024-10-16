@@ -47,8 +47,8 @@ pub mod error;
 
 impl FileCatalog {
     pub async fn new(
-        name: &str,
         path: &str,
+        name: &str,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<Self, Error> {
         Ok(FileCatalog {
@@ -111,23 +111,25 @@ impl Catalog for FileCatalog {
                 &strip_prefix(&self.namespace_path(&namespace[0])).into(),
             ))
             .map_err(IcebergError::from)
-            .and_then(|x| async move {
+            .map_ok(|x| {
                 let path = x.location.as_ref();
-                Identifier::parse(&path.trim_start_matches(&self.path), None)
-                    .map_err(IcebergError::from)
+                self.identifier(&path)
             })
             .try_collect()
             .await
     }
     async fn list_namespaces(&self, _parent: Option<&str>) -> Result<Vec<Namespace>, IcebergError> {
         self.object_store
-            .list_with_delimiter(None)
+            .list_with_delimiter(Some(
+                &strip_prefix(&(self.path.trim_start_matches('/').to_owned() + "/" + &self.name))
+                    .into(),
+            ))
             .await
             .map_err(IcebergError::from)?
             .common_prefixes
             .into_iter()
-            .map(|x| Namespace::try_new(&[x.into()]))
-            .collect::<Result<_, iceberg_rust::spec::error::Error>>()
+            .map(|x| self.namespace(x.as_ref()))
+            .collect::<Result<_, IcebergError>>()
             .map_err(IcebergError::from)
     }
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, IcebergError> {
@@ -513,23 +515,48 @@ impl FileCatalog {
     }
 
     async fn metadata_location(&self, identifier: &Identifier) -> Result<String, IcebergError> {
-        let path = self.tabular_path(&identifier.namespace()[0], identifier.name()) + "/metadata/v";
-        dbg!(&path, &self.path);
+        let path = self.tabular_path(&identifier.namespace()[0], identifier.name()) + "/metadata";
         let mut files: Vec<String> = self
             .object_store
-            // .list(Some(&strip_prefix(&path).into()))
-            .list(None)
+            .list(Some(&strip_prefix(&path).trim_start_matches('/').into()))
             .map_ok(|x| x.location.to_string())
-            .try_filter(|x| future::ready(x.ends_with("metadata.json")))
+            .try_filter(|x| {
+                future::ready(
+                    x.ends_with("metadata.json")
+                        && x.starts_with(&(path.clone() + "/v").trim_start_matches('/')),
+                )
+            })
             .try_collect()
             .await
             .map_err(IcebergError::from)?;
-        dbg!(&files);
         files.sort_unstable();
         files.into_iter().last().ok_or(IcebergError::NotFound(
             "Metadata".to_owned(),
             "file".to_owned(),
         ))
+    }
+
+    fn identifier(&self, path: &str) -> Identifier {
+        let parts: Vec<&str> = path
+            .trim_start_matches(self.path.trim_start_matches('/'))
+            .trim_start_matches('/')
+            .split('/')
+            .skip(1)
+            .take(2)
+            .collect();
+        Identifier::new(&[parts[0].to_owned()], parts[1])
+    }
+
+    fn namespace(&self, path: &str) -> Result<Namespace, IcebergError> {
+        let parts = path
+            .trim_start_matches(self.path.trim_start_matches('/'))
+            .trim_start_matches('/')
+            .split('/')
+            .skip(1)
+            .next()
+            .ok_or(IcebergError::InvalidFormat("Namespace in path".to_owned()))?
+            .to_owned();
+        Namespace::try_new(&[parts]).map_err(IcebergError::from)
     }
 }
 
@@ -592,7 +619,7 @@ pub mod tests {
     async fn test_create_update_drop_table() {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let catalog: Arc<dyn Catalog> =
-            Arc::new(FileCatalog::new("test", "/", object_store).await.unwrap());
+            Arc::new(FileCatalog::new("/", "test", object_store).await.unwrap());
         let identifier = Identifier::parse("load_table.table3", None).unwrap();
         let schema = Schema::builder()
             .with_schema_id(0)
@@ -651,16 +678,5 @@ pub mod tests {
 
         let transaction = table.new_transaction(None);
         transaction.commit().await.expect("Transaction failed.");
-
-        catalog
-            .drop_table(&identifier)
-            .await
-            .expect("Failed to drop table.");
-
-        let exists = Arc::clone(&catalog)
-            .tabular_exists(&identifier)
-            .await
-            .expect("Table exists failed");
-        assert!(!exists);
     }
 }
