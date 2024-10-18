@@ -94,9 +94,9 @@ pub async fn write_parquet_partitioned(
                         .get(WRITE_OBJECT_STORAGE_ENABLED)
                         .is_some_and(|x| x == "true")
                     {
-                        Some(generate_partition_path(partition_spec, &partition_values)?)
-                    } else {
                         None
+                    } else {
+                        Some(generate_partition_path(partition_spec, &partition_values)?)
                     };
                     let files = write_parquet_files(
                         data_location,

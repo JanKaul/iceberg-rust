@@ -9,13 +9,19 @@ use object_store::{path::Path, ObjectStore};
 use futures::{
     channel::mpsc::unbounded, stream, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt,
 };
-use iceberg_rust_spec::spec::{
-    manifest::{Content, ManifestEntry, ManifestReader},
-    manifest_list::ManifestListEntry,
-    schema::Schema,
-    table_metadata::TableMetadata,
-};
 use iceberg_rust_spec::util::{self};
+use iceberg_rust_spec::{
+    spec::{
+        manifest::{Content, ManifestEntry, ManifestReader},
+        manifest_list::ManifestListEntry,
+        schema::Schema,
+        table_metadata::TableMetadata,
+    },
+    table_metadata::{
+        WRITE_OBJECT_STORAGE_ENABLED, WRITE_PARQUET_COMPRESSION_CODEC,
+        WRITE_PARQUET_COMPRESSION_LEVEL,
+    },
+};
 
 use crate::{
     catalog::{bucket::Bucket, create::CreateTableBuilder, identifier::Identifier, Catalog},
@@ -37,7 +43,15 @@ pub struct Table {
 impl Table {
     /// Build a new table
     pub fn builder() -> CreateTableBuilder {
-        CreateTableBuilder::default()
+        let mut builder = CreateTableBuilder::default();
+        builder
+            .with_property((
+                WRITE_PARQUET_COMPRESSION_CODEC.to_owned(),
+                "zstd".to_owned(),
+            ))
+            .with_property((WRITE_PARQUET_COMPRESSION_LEVEL.to_owned(), 1.to_string()))
+            .with_property((WRITE_OBJECT_STORAGE_ENABLED.to_owned(), "true".to_owned()));
+        builder
     }
 
     /// Create a new metastore Table

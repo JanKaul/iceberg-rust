@@ -17,10 +17,6 @@ use iceberg_rust_spec::{
         table_metadata::TableMetadata,
         view_metadata::{Version, ViewMetadata, DEFAULT_VERSION_ID},
     },
-    table_metadata::{
-        WRITE_OBJECT_STORAGE_ENABLED, WRITE_PARQUET_COMPRESSION_CODEC,
-        WRITE_PARQUET_COMPRESSION_LEVEL,
-    },
     view_metadata::Materialization,
 };
 use serde::{Deserialize, Serialize};
@@ -80,14 +76,7 @@ impl CreateTableBuilder {
             .ok_or(Error::NotFound("Table".to_owned(), "name".to_owned()))?;
         let identifier = Identifier::new(namespace, name);
 
-        let create = self
-            .with_property((
-                WRITE_PARQUET_COMPRESSION_CODEC.to_owned(),
-                "zstd".to_owned(),
-            ))
-            .with_property((WRITE_PARQUET_COMPRESSION_LEVEL.to_owned(), 1.to_string()))
-            .with_property((WRITE_OBJECT_STORAGE_ENABLED.to_owned(), "true".to_owned()))
-            .create()?;
+        let create = self.create()?;
 
         // Register table in catalog
         catalog.clone().create_table(identifier, create).await
