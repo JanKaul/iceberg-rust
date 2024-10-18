@@ -5,6 +5,7 @@ use datafusion::{
     physical_plan::{ColumnStatistics, Statistics},
     scalar::ScalarValue,
 };
+use futures::{future, TryFutureExt, TryStreamExt};
 use iceberg_rust::spec::{
     manifest::{ManifestEntry, Status},
     schema::Schema,
@@ -33,16 +34,15 @@ pub(crate) async fn table_statistics(
     table: &Table,
     snapshot_range: &(Option<i64>, Option<i64>),
 ) -> Result<Statistics, Error> {
-    let schema = snapshot_range
+    let schema = &snapshot_range
         .1
         .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
         .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
     let manifests = table.manifests(snapshot_range.0, snapshot_range.1).await?;
     let datafiles = table.datafiles(&manifests, None).await?;
-    Ok(datafiles
-        .iter()
-        .filter(|manifest| !matches!(manifest.status(), Status::Deleted))
-        .fold(
+    datafiles
+        .try_filter(|manifest| future::ready(!matches!(manifest.status(), Status::Deleted)))
+        .try_fold(
             Statistics {
                 num_rows: Precision::Exact(0),
                 total_byte_size: Precision::Exact(0),
@@ -56,9 +56,9 @@ pub(crate) async fn table_statistics(
                     schema.fields().len()
                 ],
             },
-            |acc, manifest| {
-                let column_stats = column_statistics(&schema, manifest);
-                Statistics {
+            |acc, manifest| async move {
+                let column_stats = column_statistics(schema, &manifest);
+                Ok(Statistics {
                     num_rows: acc.num_rows.add(&Precision::Exact(
                         *manifest.data_file().record_count() as usize,
                     )),
@@ -76,9 +76,11 @@ pub(crate) async fn table_statistics(
                             distinct_count: acc.distinct_count.add(&x.distinct_count),
                         })
                         .collect(),
-                }
+                })
             },
-        ))
+        )
+        .map_err(Error::from)
+        .await
 }
 
 fn column_statistics<'a>(

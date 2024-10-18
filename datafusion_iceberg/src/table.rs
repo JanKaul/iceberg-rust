@@ -46,7 +46,10 @@ use crate::{
     statistics::manifest_statistics,
 };
 
-use iceberg_rust::spec::{manifest::Status, util};
+use iceberg_rust::spec::{
+    manifest::{ManifestEntry, Status},
+    util,
+};
 use iceberg_rust::spec::{
     schema::Schema,
     types::{StructField, StructType},
@@ -318,7 +321,7 @@ async fn table_scan(
             .map_err(Into::<Error>::into)?;
 
         // If there is a filter expression on the partition column, the manifest files to read are pruned.
-        let data_files = if let Some(predicate) = partition_predicates {
+        let data_files: Vec<ManifestEntry> = if let Some(predicate) = partition_predicates {
             let physical_partition_predicate = create_physical_expr(
                 &predicate,
                 &arrow_schema.as_ref().clone().try_into()?,
@@ -340,11 +343,17 @@ async fn table_scan(
                 .datafiles(&manifests, Some(manifests_to_prune))
                 .await
                 .map_err(Into::<Error>::into)?
+                .try_collect()
+                .await
+                .map_err(Error::from)?
         } else {
             table
                 .datafiles(&manifests, None)
                 .await
                 .map_err(Into::<Error>::into)?
+                .try_collect()
+                .await
+                .map_err(Error::from)?
         };
 
         let pruning_predicate =
@@ -398,10 +407,13 @@ async fn table_scan(
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
             .map_err(Into::<Error>::into)?;
-        let data_files = table
+        let data_files: Vec<ManifestEntry> = table
             .datafiles(&manifests, None)
             .await
-            .map_err(Into::<Error>::into)?;
+            .map_err(Into::<Error>::into)?
+            .try_collect()
+            .await
+            .map_err(Error::from)?;
         data_files.into_iter().for_each(|manifest| {
             if *manifest.status() != Status::Deleted {
                 let partition_values = manifest

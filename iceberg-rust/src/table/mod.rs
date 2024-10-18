@@ -6,7 +6,9 @@ use std::{io::Cursor, iter::repeat, sync::Arc};
 
 use object_store::{path::Path, ObjectStore};
 
-use futures::{channel::mpsc::unbounded, stream, SinkExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{
+    channel::mpsc::unbounded, stream, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt,
+};
 use iceberg_rust_spec::spec::{
     manifest::{Content, ManifestEntry, ManifestReader},
     manifest_list::ManifestListEntry,
@@ -134,7 +136,7 @@ impl Table {
         &self,
         manifests: &[ManifestListEntry],
         filter: Option<Vec<bool>>,
-    ) -> Result<Vec<ManifestEntry>, Error> {
+    ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
         datafiles(self.object_store(), manifests, filter).await
     }
     /// Check if datafiles contain deletes
@@ -145,9 +147,9 @@ impl Table {
     ) -> Result<bool, Error> {
         let manifests = self.manifests(start, end).await?;
         let datafiles = self.datafiles(&manifests, None).await?;
-        Ok(datafiles
-            .iter()
-            .any(|entry| !matches!(entry.data_file().content(), Content::Data)))
+        datafiles
+            .try_any(|entry| async move { !matches!(entry.data_file().content(), Content::Data) })
+            .await
     }
     /// Create a new transaction for this table
     pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction {
@@ -159,7 +161,7 @@ async fn datafiles(
     object_store: Arc<dyn ObjectStore>,
     manifests: &[ManifestListEntry],
     filter: Option<Vec<bool>>,
-) -> Result<Vec<ManifestEntry>, Error> {
+) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
     // filter manifest files according to filter vector
     let iter = match filter {
         Some(predicate) => manifests
@@ -198,7 +200,7 @@ async fn datafiles(
         })
         .await?;
     sender.close_channel();
-    reciever.flatten().try_collect().await.map_err(Error::from)
+    Ok(reciever.flatten().map_err(Error::from))
 }
 
 /// delete all datafiles, manifests and metadata files, does not remove table from catalog
@@ -216,8 +218,8 @@ pub(crate) async fn delete_files(
     let datafiles = datafiles(object_store.clone(), &manifests, None).await?;
     let snapshots = &metadata.snapshots;
 
-    stream::iter(datafiles.into_iter())
-        .map(Ok::<_, Error>)
+    // stream::iter(datafiles.into_iter())
+    datafiles
         .try_for_each_concurrent(None, |datafile| {
             let object_store = object_store.clone();
             async move {

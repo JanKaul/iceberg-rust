@@ -121,7 +121,7 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
             .iter()
             .enumerate()
             .map(|(i, x)| {
-                let (column, transform) = parse_transform(&x)?;
+                let (column, transform) = parse_transform(x)?;
                 Ok::<_, Error>(PartitionField::new(
                     schema
                         .get_name(&column)
@@ -454,6 +454,8 @@ fn parse_transform(input: &str) -> Result<(String, Transform), Error> {
         .ok_or(Error::InvalidFormat("Partition column".to_owned()))?;
     let arg = args.next();
     match (transform_name.as_str(), column, arg) {
+        ("identity", column, None) => Ok((column, Transform::Identity)),
+        ("void", column, None) => Ok((column, Transform::Void)),
         ("year", column, None) => Ok((column, Transform::Year)),
         ("month", column, None) => Ok((column, Transform::Month)),
         ("day", column, None) => Ok((column, Transform::Day)),

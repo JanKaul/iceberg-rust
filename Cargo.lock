@@ -2397,6 +2397,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "iceberg-file-catalog"
+version = "0.5.7"
+dependencies = [
+ "async-trait",
+ "futures",
+ "iceberg-rust",
+ "object_store",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "iceberg-rest-catalog"
 version = "0.5.7"
 dependencies = [
