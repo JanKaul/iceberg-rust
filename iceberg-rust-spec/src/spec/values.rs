@@ -520,7 +520,7 @@ impl Value {
                         |field| {
                             (
                                 field.name.clone(),
-                                object.remove(&field.id.to_string()).and_then(|value| {
+                                object.remove(&field.name).and_then(|value| {
                                     Value::try_from_json(value, &field.field_type)
                                         .and_then(|value| {
                                             value.ok_or(Error::InvalidFormat(
@@ -804,5 +804,305 @@ mod datetime {
                 .unwrap()
                 .naive_utc(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::{
+        spec::types::{ListType, MapType, StructType},
+        types::StructField,
+    };
+
+    use super::*;
+
+    fn check_json_serde(json: &str, expected_literal: Value, expected_type: &Type) {
+        let raw_json_value = serde_json::from_str::<JsonValue>(json).unwrap();
+        let desered_literal = Value::try_from_json(raw_json_value.clone(), expected_type).unwrap();
+        assert_eq!(desered_literal, Some(expected_literal.clone()));
+
+        let expected_json_value: JsonValue = (&expected_literal).into();
+        let sered_json = serde_json::to_string(&expected_json_value).unwrap();
+        let parsed_json_value = serde_json::from_str::<JsonValue>(&sered_json).unwrap();
+
+        assert_eq!(parsed_json_value, raw_json_value);
+    }
+
+    fn check_avro_bytes_serde(input: Vec<u8>, expected_literal: Value, expected_type: &Type) {
+        let raw_schema = r#""bytes""#;
+        let schema = apache_avro::Schema::parse_str(raw_schema).unwrap();
+
+        let bytes = ByteBuf::from(input);
+        let literal = Value::try_from_bytes(&bytes, expected_type).unwrap();
+        assert_eq!(literal, expected_literal);
+
+        let mut writer = apache_avro::Writer::new(&schema, Vec::new());
+        writer.append_ser(bytes).unwrap();
+        let encoded = writer.into_inner().unwrap();
+        let reader = apache_avro::Reader::new(&*encoded).unwrap();
+
+        for record in reader {
+            let result = apache_avro::from_value::<ByteBuf>(&record.unwrap()).unwrap();
+            let desered_literal = Value::try_from_bytes(&result, expected_type).unwrap();
+            assert_eq!(desered_literal, expected_literal);
+        }
+    }
+
+    #[test]
+    fn json_boolean() {
+        let record = r#"true"#;
+
+        check_json_serde(
+            record,
+            Value::Boolean(true),
+            &Type::Primitive(PrimitiveType::Boolean),
+        );
+    }
+
+    #[test]
+    fn json_int() {
+        let record = r#"32"#;
+
+        check_json_serde(record, Value::Int(32), &Type::Primitive(PrimitiveType::Int));
+    }
+
+    #[test]
+    fn json_long() {
+        let record = r#"32"#;
+
+        check_json_serde(
+            record,
+            Value::LongInt(32),
+            &Type::Primitive(PrimitiveType::Long),
+        );
+    }
+
+    #[test]
+    fn json_float() {
+        let record = r#"1.0"#;
+
+        check_json_serde(
+            record,
+            Value::Float(OrderedFloat(1.0)),
+            &Type::Primitive(PrimitiveType::Float),
+        );
+    }
+
+    #[test]
+    fn json_double() {
+        let record = r#"1.0"#;
+
+        check_json_serde(
+            record,
+            Value::Double(OrderedFloat(1.0)),
+            &Type::Primitive(PrimitiveType::Double),
+        );
+    }
+
+    #[test]
+    fn json_date() {
+        let record = r#""2017-11-16""#;
+
+        check_json_serde(
+            record,
+            Value::Date(17486),
+            &Type::Primitive(PrimitiveType::Date),
+        );
+    }
+
+    #[test]
+    fn json_time() {
+        let record = r#""22:31:08.123456""#;
+
+        check_json_serde(
+            record,
+            Value::Time(81068123456),
+            &Type::Primitive(PrimitiveType::Time),
+        );
+    }
+
+    #[test]
+    fn json_timestamp() {
+        let record = r#""2017-11-16T22:31:08.123456""#;
+
+        check_json_serde(
+            record,
+            Value::Timestamp(1510871468123456),
+            &Type::Primitive(PrimitiveType::Timestamp),
+        );
+    }
+
+    #[test]
+    fn json_timestamptz() {
+        let record = r#""2017-11-16T22:31:08.123456+00:00""#;
+
+        check_json_serde(
+            record,
+            Value::TimestampTZ(1510871468123456),
+            &Type::Primitive(PrimitiveType::Timestamptz),
+        );
+    }
+
+    #[test]
+    fn json_string() {
+        let record = r#""iceberg""#;
+
+        check_json_serde(
+            record,
+            Value::String("iceberg".to_string()),
+            &Type::Primitive(PrimitiveType::String),
+        );
+    }
+
+    #[test]
+    fn json_uuid() {
+        let record = r#""f79c3e09-677c-4bbd-a479-3f349cb785e7""#;
+
+        check_json_serde(
+            record,
+            Value::UUID(Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap()),
+            &Type::Primitive(PrimitiveType::Uuid),
+        );
+    }
+
+    #[test]
+    fn json_struct() {
+        let record = r#"{"id": 1, "name": "bar", "address": null}"#;
+
+        check_json_serde(
+            record,
+            Value::Struct(Struct::from_iter(vec![
+                ("id".to_string(), Some(Value::Int(1))),
+                ("name".to_string(), Some(Value::String("bar".to_string()))),
+                ("address".to_string(), None),
+            ])),
+            &Type::Struct(StructType::new(vec![
+                StructField {
+                    id: 1,
+                    name: "id".to_string(),
+                    required: true,
+                    field_type: Type::Primitive(PrimitiveType::Int),
+                    doc: None,
+                },
+                StructField {
+                    id: 2,
+                    name: "name".to_string(),
+                    required: false,
+                    field_type: Type::Primitive(PrimitiveType::String),
+                    doc: None,
+                },
+                StructField {
+                    id: 3,
+                    name: "address".to_string(),
+                    required: false,
+                    field_type: Type::Primitive(PrimitiveType::String),
+                    doc: None,
+                },
+            ])),
+        );
+    }
+
+    #[test]
+    fn json_list() {
+        let record = r#"[1, 2, 3, null]"#;
+
+        check_json_serde(
+            record,
+            Value::List(vec![
+                Some(Value::Int(1)),
+                Some(Value::Int(2)),
+                Some(Value::Int(3)),
+                None,
+            ]),
+            &Type::List(ListType {
+                element_id: 0,
+                element_required: true,
+                element: Box::new(Type::Primitive(PrimitiveType::Int)),
+            }),
+        );
+    }
+
+    #[test]
+    fn json_map() {
+        let record = r#"{ "keys": ["a", "b", "c"], "values": [1, 2, null] }"#;
+
+        check_json_serde(
+            record,
+            Value::Map(BTreeMap::from([
+                (Value::String("a".to_string()), Some(Value::Int(1))),
+                (Value::String("b".to_string()), Some(Value::Int(2))),
+                (Value::String("c".to_string()), None),
+            ])),
+            &Type::Map(MapType {
+                key_id: 0,
+                key: Box::new(Type::Primitive(PrimitiveType::String)),
+                value_id: 1,
+                value: Box::new(Type::Primitive(PrimitiveType::Int)),
+                value_required: true,
+            }),
+        );
+    }
+
+    #[test]
+    fn avro_bytes_boolean() {
+        let bytes = vec![1u8];
+
+        check_avro_bytes_serde(
+            bytes,
+            Value::Boolean(true),
+            &Type::Primitive(PrimitiveType::Boolean),
+        );
+    }
+
+    #[test]
+    fn avro_bytes_int() {
+        let bytes = vec![32u8, 0u8, 0u8, 0u8];
+
+        check_avro_bytes_serde(bytes, Value::Int(32), &Type::Primitive(PrimitiveType::Int));
+    }
+
+    #[test]
+    fn avro_bytes_long() {
+        let bytes = vec![32u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8];
+
+        check_avro_bytes_serde(
+            bytes,
+            Value::LongInt(32),
+            &Type::Primitive(PrimitiveType::Long),
+        );
+    }
+
+    #[test]
+    fn avro_bytes_float() {
+        let bytes = vec![0u8, 0u8, 128u8, 63u8];
+
+        check_avro_bytes_serde(
+            bytes,
+            Value::Float(OrderedFloat(1.0)),
+            &Type::Primitive(PrimitiveType::Float),
+        );
+    }
+
+    #[test]
+    fn avro_bytes_double() {
+        let bytes = vec![0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 240u8, 63u8];
+
+        check_avro_bytes_serde(
+            bytes,
+            Value::Double(OrderedFloat(1.0)),
+            &Type::Primitive(PrimitiveType::Double),
+        );
+    }
+
+    #[test]
+    fn avro_bytes_string() {
+        let bytes = vec![105u8, 99u8, 101u8, 98u8, 101u8, 114u8, 103u8];
+
+        check_avro_bytes_serde(
+            bytes,
+            Value::String("iceberg".to_string()),
+            &Type::Primitive(PrimitiveType::String),
+        );
     }
 }
