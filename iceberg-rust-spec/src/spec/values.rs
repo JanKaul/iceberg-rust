@@ -4,7 +4,7 @@
 
 use std::{
     any::Any,
-    collections::{BTreeMap, HashMap},
+    collections::{btree_map::Keys, BTreeMap, HashMap},
     fmt,
     io::Cursor,
     slice::Iter,
@@ -128,7 +128,7 @@ impl fmt::Display for Value {
 /// The partition struct stores the tuple of partition values for each file.
 /// Its type is derived from the partition fields of the partition spec used to write the manifest file.
 /// In v2, the partition struct’s field ids must match the ids from the partition spec.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, Hash, PartialOrd, Ord)]
 pub struct Struct {
     /// Vector to store the field values
     pub fields: Vec<Option<Value>>,
@@ -148,6 +148,10 @@ impl Struct {
 
     pub fn iter(&self) -> Iter<'_, Option<Value>> {
         self.fields.iter()
+    }
+
+    pub fn keys(&self) -> Keys<'_, String, usize> {
+        self.lookup.keys()
     }
 
     pub(crate) fn cast(
@@ -260,6 +264,12 @@ impl<'de> Deserialize<'de> for Struct {
             Box::leak(vec![].into_boxed_slice()),
             PartitionStructVisitor,
         )
+    }
+}
+
+impl PartialEq for Struct {
+    fn eq(&self, other: &Self) -> bool {
+        self.keys().all(|key| self.get(key).eq(&other.get(key)))
     }
 }
 
