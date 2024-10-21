@@ -3,6 +3,7 @@
 */
 
 use std::{
+    cmp::Ordering,
     collections::{HashMap, HashSet},
     sync::Arc,
 };
@@ -22,10 +23,12 @@ use iceberg_rust_spec::spec::{
 use iceberg_rust_spec::util::strip_prefix;
 use iceberg_rust_spec::{error::Error as SpecError, spec::table_metadata::TableMetadata};
 use object_store::ObjectStore;
+use smallvec::SmallVec;
 
 use crate::{
     catalog::commit::{TableRequirement, TableUpdate},
     error::Error,
+    util::{struct_to_smallvec, summary_to_rectangle, Rectangle},
 };
 
 #[derive(Debug)]
@@ -92,87 +95,221 @@ impl Operation {
                 let schema = table_metadata.current_schema(branch.as_deref())?;
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
 
-                let datafiles = Arc::new(files.into_iter().map(Ok::<_, Error>).try_fold(
-                    HashMap::<Struct, Vec<DataFile>>::new(),
-                    |mut acc, x| {
-                        let x = x?;
-                        let partition_value = x.partition().clone();
-                        acc.entry(partition_value).or_default().push(x);
-                        Ok::<_, Error>(acc)
-                    },
-                )?);
+                let partition_column_names = table_metadata
+                    .default_partition_spec()?
+                    .fields()
+                    .iter()
+                    .map(|x| schema.get(*x.source_id() as usize).map(|x| x.name.as_str()))
+                    .collect::<Option<SmallVec<[_; 4]>>>()
+                    .ok_or(Error::InvalidFormat("Partition columns".to_owned()))?;
+
+                let bounding_partition_values = files
+                    .iter()
+                    .fold(Ok::<_, Error>(None), |acc, x| {
+                        let acc = acc?;
+                        let node = struct_to_smallvec(x.partition(), &partition_column_names)?;
+                        let Some(mut acc) = acc else {
+                            return Ok(Some(Rectangle::new(node.clone(), node)));
+                        };
+                        acc.expand_with_node(node);
+                        Ok(Some(acc))
+                    })?
+                    .ok_or(Error::NotFound(
+                        "Bounding".to_owned(),
+                        "rectangle".to_owned(),
+                    ))?;
 
                 let manifest_list_schema =
                     ManifestListEntry::schema(&table_metadata.format_version)?;
 
-                let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
-                    &manifest_list_schema,
-                    Vec::new(),
-                )));
-
-                let existing_partitions = Arc::new(Mutex::new(HashSet::new()));
+                let mut manifest_list_writer =
+                    apache_avro::Writer::new(&manifest_list_schema, Vec::new());
 
                 let old_manifest_list_location = old_snapshot.map(|x| x.manifest_list()).cloned();
 
-                let manifest_list_bytes = match old_manifest_list_location {
-                    Some(old_manifest_list_location) => Some(
-                        object_store
-                            .get(&strip_prefix(&old_manifest_list_location).as_str().into())
-                            .await?
-                            .bytes()
-                            .await?,
-                    ),
-                    None => None,
-                };
-                // Check if file has content "null", if so manifest_list file is empty
-                let existing_manifest_iter = if let Some(manifest_list_bytes) = &manifest_list_bytes
+                // Find a manifest to add the new datafiles
+                let manifest = if let Some(old_manifest_list_location) = &old_manifest_list_location
                 {
+                    let old_manifest_list_bytes = object_store
+                        .get(&strip_prefix(&old_manifest_list_location).as_str().into())
+                        .await?
+                        .bytes()
+                        .await?;
+
                     let manifest_list_reader =
-                        apache_avro::Reader::new(manifest_list_bytes.as_ref())?;
+                        apache_avro::Reader::new(old_manifest_list_bytes.as_ref())?;
 
-                    Some(stream::iter(manifest_list_reader).filter_map(|manifest| {
-                        let datafiles = datafiles.clone();
-                        let existing_partitions = existing_partitions.clone();
-                        let partition_spec = partition_spec.clone();
-                        async move {
-                            let manifest = manifest
-                                .map_err(Into::into)
-                                .and_then(|value| {
-                                    ManifestListEntry::try_from_enum(
-                                        from_value::<ManifestListEntryEnum>(&value)?,
-                                        table_metadata,
-                                    )
-                                })
-                                .unwrap();
+                    let manifest = if partition_column_names.is_empty() {
+                        // Find the manifest with the lowest row count
+                        manifest_list_reader
+                            .fold(Ok::<_, Error>(None), |acc, x| {
+                                let acc = acc?;
 
-                            if let Some(summary) = &manifest.partitions {
-                                let partition_values = partition_values_in_bounds(
-                                    summary,
-                                    datafiles.keys(),
-                                    partition_spec.fields(),
-                                );
-                                if !partition_values.is_empty() {
-                                    for file in &partition_values {
-                                        existing_partitions.lock().await.insert(file.clone());
-                                    }
-                                    Some((ManifestStatus::Existing(manifest), partition_values))
+                                let manifest = x
+                                    .map_err(Into::into)
+                                    .and_then(|value| {
+                                        ManifestListEntry::try_from_enum(
+                                            from_value::<ManifestListEntryEnum>(&value)?,
+                                            table_metadata,
+                                        )
+                                    })
+                                    .unwrap();
+
+                                let row_count = manifest.added_rows_count;
+
+                                let Some((old_row_count, old_manifest)) = acc else {
+                                    return Ok(Some((row_count, manifest)));
+                                };
+
+                                let Some(row_count) = row_count else {
+                                    return Ok(Some((old_row_count, old_manifest)));
+                                };
+
+                                if old_row_count.is_none()
+                                    || old_row_count.is_some_and(|x| x > row_count)
+                                {
+                                    manifest_list_writer.append_ser(old_manifest)?;
+                                    Ok(Some((Some(row_count), manifest)))
                                 } else {
-                                    Some((ManifestStatus::Existing(manifest), vec![]))
+                                    manifest_list_writer.append_ser(manifest)?;
+                                    Ok(Some((old_row_count, old_manifest)))
                                 }
-                            } else {
-                                Some((ManifestStatus::Existing(manifest), vec![]))
-                            }
-                        }
-                    }))
+                            })?
+                            .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))?
+                            .1
+                    } else {
+                        // Find the manifest with the smallest bounding partition values
+                        manifest_list_reader
+                            .fold(Ok::<_, Error>(None), |acc, x| {
+                                let acc = acc?;
+
+                                let manifest = x
+                                    .map_err(Into::into)
+                                    .and_then(|value| {
+                                        ManifestListEntry::try_from_enum(
+                                            from_value::<ManifestListEntryEnum>(&value)?,
+                                            table_metadata,
+                                        )
+                                    })
+                                    .unwrap();
+
+                                let mut bounds = summary_to_rectangle(
+                                    manifest.partitions.as_ref().ok_or(Error::NotFound(
+                                        "Partition".to_owned(),
+                                        "struct".to_owned(),
+                                    ))?,
+                                )?;
+
+                                bounds.expand(&bounding_partition_values);
+
+                                let Some((old_bounds, old_manifest)) = acc else {
+                                    return Ok(Some((bounds, manifest)));
+                                };
+
+                                match old_bounds.cmp_with_priority(&bounds)? {
+                                    Ordering::Greater => {
+                                        manifest_list_writer.append_ser(old_manifest)?;
+                                        Ok(Some((bounds, manifest)))
+                                    }
+                                    _ => {
+                                        manifest_list_writer.append_ser(manifest)?;
+                                        Ok(Some((old_bounds, old_manifest)))
+                                    }
+                                }
+                            })?
+                            .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))?
+                            .1
+                    };
+                    Some(manifest)
                 } else {
                     None
                 };
 
-                let manifest_count = if let Some(manifest_list_bytes) = &manifest_list_bytes {
-                    apache_avro::Reader::new(manifest_list_bytes.as_ref())?.count()
-                } else {
-                    0
-                };
+                let manifest_schema = ManifestEntry::schema(
+                    &partition_value_schema(partition_spec.fields(), schema)?,
+                    &table_metadata.format_version,
+                )?;
+
+                let mut manifest_writer = ManifestWriter::new(
+                    Vec::new(),
+                    &manifest_schema,
+                    table_metadata,
+                    branch.as_deref(),
+                )?;
+
+                if let Some(manifest) = manifest {
+                    let manifest_bytes: Vec<u8> = object_store
+                        .get(&strip_prefix(&manifest.manifest_path).as_str().into())
+                        .await?
+                        .bytes()
+                        .await?
+                        .into();
+
+                    let manifest_reader = apache_avro::Reader::new(&*manifest_bytes)?;
+                    manifest_writer.extend(manifest_reader.filter_map(Result::ok))?;
+                }
+
+                // let datafiles = Arc::new(files.into_iter().map(Ok::<_, Error>).try_fold(
+                //     HashMap::<Struct, Vec<DataFile>>::new(),
+                //     |mut acc, x| {
+                //         let x = x?;
+                //         let partition_value = x.partition().clone();
+                //         acc.entry(partition_value).or_default().push(x);
+                //         Ok::<_, Error>(acc)
+                //     },
+                // )?);
+
+                // let existing_partitions = Arc::new(Mutex::new(HashSet::new()));
+
+                // // Check if file has content "null", if so manifest_list file is empty
+                // let existing_manifest_iter = if let Some(manifest_list_bytes) = &manifest_list_bytes
+                // {
+                //     let manifest_list_reader =
+                //         apache_avro::Reader::new(manifest_list_bytes.as_ref())?;
+
+                //     Some(stream::iter(manifest_list_reader).filter_map(|manifest| {
+                //         let datafiles = datafiles.clone();
+                //         let existing_partitions = existing_partitions.clone();
+                //         let partition_spec = partition_spec.clone();
+                //         async move {
+                //             let manifest = manifest
+                //                 .map_err(Into::into)
+                //                 .and_then(|value| {
+                //                     ManifestListEntry::try_from_enum(
+                //                         from_value::<ManifestListEntryEnum>(&value)?,
+                //                         table_metadata,
+                //                     )
+                //                 })
+                //                 .unwrap();
+
+                //             if let Some(summary) = &manifest.partitions {
+                //                 let partition_values = partition_values_in_bounds(
+                //                     summary,
+                //                     datafiles.keys(),
+                //                     partition_spec.fields(),
+                //                 );
+                //                 if !partition_values.is_empty() {
+                //                     for file in &partition_values {
+                //                         existing_partitions.lock().await.insert(file.clone());
+                //                     }
+                //                     Some((ManifestStatus::Existing(manifest), partition_values))
+                //                 } else {
+                //                     Some((ManifestStatus::Existing(manifest), vec![]))
+                //                 }
+                //             } else {
+                //                 Some((ManifestStatus::Existing(manifest), vec![]))
+                //             }
+                //         }
+                //     }))
+                // } else {
+                //     None
+                // };
+
+                // let manifest_count = if let Some(manifest_list_bytes) = &manifest_list_bytes {
+                //     apache_avro::Reader::new(manifest_list_bytes.as_ref())?.count()
+                // } else {
+                //     0
+                // };
 
                 let snapshot_id = generate_snapshot_id();
                 let snapshot_uuid = &uuid::Uuid::new_v4().to_string();
@@ -182,116 +319,116 @@ impl Operation {
                     + snapshot_uuid
                     + ".avro";
 
-                let new_manifest_iter = stream::iter(datafiles.iter().enumerate()).filter_map(
-                    |(i, (partition_value, _))| {
-                        let existing_partitions = existing_partitions.clone();
-                        async move {
-                            if !existing_partitions.lock().await.contains(partition_value) {
-                                let manifest_location = table_metadata.location.to_string()
-                                    + "/metadata/"
-                                    + snapshot_uuid
-                                    + "-m"
-                                    + &(manifest_count + i).to_string()
-                                    + ".avro";
-                                let manifest = ManifestListEntry {
-                                    format_version: table_metadata.format_version.clone(),
-                                    manifest_path: manifest_location,
-                                    manifest_length: 0,
-                                    partition_spec_id: table_metadata.default_spec_id,
-                                    content: Content::Data,
-                                    sequence_number: table_metadata.last_sequence_number,
-                                    min_sequence_number: 0,
-                                    added_snapshot_id: snapshot_id,
-                                    added_files_count: Some(0),
-                                    existing_files_count: Some(0),
-                                    deleted_files_count: Some(0),
-                                    added_rows_count: Some(0),
-                                    existing_rows_count: Some(0),
-                                    deleted_rows_count: Some(0),
-                                    partitions: None,
-                                    key_metadata: None,
-                                };
-                                Some((ManifestStatus::New(manifest), vec![partition_value.clone()]))
-                            } else {
-                                None
-                            }
-                        }
-                    },
-                );
+                // let new_manifest_iter = stream::iter(datafiles.iter().enumerate()).filter_map(
+                //     |(i, (partition_value, _))| {
+                //         let existing_partitions = existing_partitions.clone();
+                //         async move {
+                //             if !existing_partitions.lock().await.contains(partition_value) {
+                //                 let manifest_location = table_metadata.location.to_string()
+                //                     + "/metadata/"
+                //                     + snapshot_uuid
+                //                     + "-m"
+                //                     + &(manifest_count + i).to_string()
+                //                     + ".avro";
+                //                 let manifest = ManifestListEntry {
+                //                     format_version: table_metadata.format_version.clone(),
+                //                     manifest_path: manifest_location,
+                //                     manifest_length: 0,
+                //                     partition_spec_id: table_metadata.default_spec_id,
+                //                     content: Content::Data,
+                //                     sequence_number: table_metadata.last_sequence_number,
+                //                     min_sequence_number: 0,
+                //                     added_snapshot_id: snapshot_id,
+                //                     added_files_count: Some(0),
+                //                     existing_files_count: Some(0),
+                //                     deleted_files_count: Some(0),
+                //                     added_rows_count: Some(0),
+                //                     existing_rows_count: Some(0),
+                //                     deleted_rows_count: Some(0),
+                //                     partitions: None,
+                //                     key_metadata: None,
+                //                 };
+                //                 Some((ManifestStatus::New(manifest), vec![partition_value.clone()]))
+                //             } else {
+                //                 None
+                //             }
+                //         }
+                //     },
+                // );
 
-                match existing_manifest_iter {
-                    Some(existing_manifest_iter) => {
-                        let manifest_iter =
-                            Box::new(existing_manifest_iter.chain(new_manifest_iter));
+                // match existing_manifest_iter {
+                //     Some(existing_manifest_iter) => {
+                //         let manifest_iter =
+                //             Box::new(existing_manifest_iter.chain(new_manifest_iter));
 
-                        manifest_iter
-                            .then(|(manifest, files): (ManifestStatus, Vec<Struct>)| {
-                                let object_store = object_store.clone();
-                                let datafiles = datafiles.clone();
-                                let branch = branch.clone();
-                                async move {
-                                    write_manifest(
-                                        table_metadata,
-                                        manifest,
-                                        files,
-                                        datafiles,
-                                        schema,
-                                        object_store,
-                                        branch,
-                                    )
-                                    .await
-                                }
-                            })
-                            .try_for_each_concurrent(None, |manifest| {
-                                let manifest_list_writer = manifest_list_writer.clone();
-                                async move {
-                                    manifest_list_writer.lock().await.append_ser(manifest)?;
-                                    Ok(())
-                                }
-                            })
-                            .await?;
-                    }
-                    None => {
-                        new_manifest_iter
-                            .then(|(manifest, files): (ManifestStatus, Vec<Struct>)| {
-                                let object_store = object_store.clone();
-                                let datafiles = datafiles.clone();
-                                let branch = branch.clone();
-                                async move {
-                                    write_manifest(
-                                        table_metadata,
-                                        manifest,
-                                        files,
-                                        datafiles,
-                                        schema,
-                                        object_store,
-                                        branch,
-                                    )
-                                    .await
-                                }
-                            })
-                            .try_for_each_concurrent(None, |manifest| {
-                                let manifest_list_writer = manifest_list_writer.clone();
-                                async move {
-                                    manifest_list_writer.lock().await.append_ser(manifest)?;
-                                    Ok(())
-                                }
-                            })
-                            .await?;
-                    }
-                }
+                //         manifest_iter
+                //             .then(|(manifest, files): (ManifestStatus, Vec<Struct>)| {
+                //                 let object_store = object_store.clone();
+                //                 let datafiles = datafiles.clone();
+                //                 let branch = branch.clone();
+                //                 async move {
+                //                     write_manifest(
+                //                         table_metadata,
+                //                         manifest,
+                //                         files,
+                //                         datafiles,
+                //                         schema,
+                //                         object_store,
+                //                         branch,
+                //                     )
+                //                     .await
+                //                 }
+                //             })
+                //             .try_for_each_concurrent(None, |manifest| {
+                //                 let manifest_list_writer = manifest_list_writer.clone();
+                //                 async move {
+                //                     manifest_list_writer.lock().await.append_ser(manifest)?;
+                //                     Ok(())
+                //                 }
+                //             })
+                //             .await?;
+                //     }
+                //     None => {
+                //         new_manifest_iter
+                //             .then(|(manifest, files): (ManifestStatus, Vec<Struct>)| {
+                //                 let object_store = object_store.clone();
+                //                 let datafiles = datafiles.clone();
+                //                 let branch = branch.clone();
+                //                 async move {
+                //                     write_manifest(
+                //                         table_metadata,
+                //                         manifest,
+                //                         files,
+                //                         datafiles,
+                //                         schema,
+                //                         object_store,
+                //                         branch,
+                //                     )
+                //                     .await
+                //                 }
+                //             })
+                //             .try_for_each_concurrent(None, |manifest| {
+                //                 let manifest_list_writer = manifest_list_writer.clone();
+                //                 async move {
+                //                     manifest_list_writer.lock().await.append_ser(manifest)?;
+                //                     Ok(())
+                //                 }
+                //             })
+                //             .await?;
+                //     }
+                // }
 
-                let manifest_list_bytes = Arc::into_inner(manifest_list_writer)
-                    .unwrap()
-                    .into_inner()
-                    .into_inner()?;
+                // let manifest_list_bytes = Arc::into_inner(manifest_list_writer)
+                //     .unwrap()
+                //     .into_inner()
+                //     .into_inner()?;
 
-                object_store
-                    .put(
-                        &strip_prefix(&new_manifest_list_location).into(),
-                        manifest_list_bytes.into(),
-                    )
-                    .await?;
+                // object_store
+                //     .put(
+                //         &strip_prefix(&new_manifest_list_location).into(),
+                //         manifest_list_bytes.into(),
+                //     )
+                //     .await?;
 
                 let mut snapshot_builder = SnapshotBuilder::default();
                 snapshot_builder
