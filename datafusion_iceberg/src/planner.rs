@@ -122,13 +122,18 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
             .enumerate()
             .map(|(i, x)| {
                 let (column, transform) = parse_transform(x)?;
+                let name = if let Transform::Identity = &transform {
+                    column.clone()
+                } else {
+                    column.clone() + "_" + &transform.to_string()
+                };
                 Ok::<_, Error>(PartitionField::new(
                     schema
                         .get_name(&column)
                         .ok_or(Error::NotFound("Column".to_owned(), column.clone()))?
                         .id,
                     1000 + i as i32,
-                    &(column + "_" + &transform.to_string()),
+                    &name,
                     transform,
                 ))
             })

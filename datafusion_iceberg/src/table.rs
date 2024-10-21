@@ -463,7 +463,7 @@ async fn table_scan(
         .map(|field| {
             let struct_field = schema.fields().get(*field.source_id() as usize).unwrap();
             Ok(Field::new(
-                field.name().clone(),
+                field.name().clone() + "__partition",
                 (&struct_field
                     .field_type
                     .tranform(field.transform())
@@ -484,7 +484,7 @@ async fn table_scan(
     for partition_field in table.metadata().default_partition_spec().unwrap().fields() {
         schema_builder.with_struct_field(StructField {
             id: *partition_field.field_id(),
-            name: partition_field.name().clone(),
+            name: partition_field.name().clone() + "__partition",
             field_type: schema
                 .fields()
                 .get(*partition_field.source_id() as usize)
