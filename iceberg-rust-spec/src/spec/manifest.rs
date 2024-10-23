@@ -189,8 +189,10 @@ pub struct ManifestEntry {
     status: Status,
     /// Snapshot id where the file was added, or deleted if status is 2.
     /// Inherited when null.
+    #[builder(setter(strip_option), default)]
     snapshot_id: Option<i64>,
     /// Sequence number when the file was added. Inherited when null.
+    #[builder(setter(strip_option), default)]
     sequence_number: Option<i64>,
     /// File path, partition tuple, metrics, …
     data_file: DataFile,

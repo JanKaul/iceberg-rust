@@ -16,7 +16,7 @@ pub(crate) struct Rectangle<C> {
 
 impl<C> Rectangle<C>
 where
-    C: PartialOrd + Clone + TryAdd + TrySub,
+    C: PartialOrd + Ord + Clone + TryAdd + TrySub,
 {
     pub(crate) fn new(min: SmallVec<[C; 4]>, max: SmallVec<[C; 4]>) -> Self {
         Self { min, max }
@@ -84,18 +84,6 @@ where
         }
         true
     }
-
-    pub(crate) fn intersects(&self, rect: &Rectangle<C>) -> bool {
-        if self.min.len() == 0 {
-            return false;
-        }
-        for i in 0..self.min.len() {
-            if rect.min[i] > self.max[i] || rect.max[i] < self.min[i] {
-                return false;
-            }
-        }
-        true
-    }
 }
 
 pub(crate) fn struct_to_smallvec(
@@ -121,15 +109,35 @@ pub(crate) fn summary_to_rectangle(summaries: &[FieldSummary]) -> Result<Rectang
             summary
                 .upper_bound
                 .clone()
-                .ok_or(Error::NotFound("Partition".to_owned(), "struct".to_owned()))?,
+                .ok_or(Error::NotFound("Upper".to_owned(), "bounds".to_owned()))?,
         );
         min.push(
             summary
                 .lower_bound
                 .clone()
-                .ok_or(Error::NotFound("Partition".to_owned(), "struct".to_owned()))?,
+                .ok_or(Error::NotFound("Lower".to_owned(), "bounds".to_owned()))?,
         );
     }
 
     Ok(Rectangle::new(min, max))
+}
+
+pub(crate) fn cmp_dist<C: PartialOrd>(left: &[C], right: &[C]) -> Result<Ordering, Error> {
+    while let (Some(own), Some(other)) = (left.iter().next(), right.iter().next()) {
+        let ordering = own
+            .partial_cmp(&other)
+            .ok_or(Error::InvalidFormat("Types for Partial Order".to_owned()))?;
+        let Ordering::Equal = ordering else {
+            return Ok(ordering);
+        };
+    }
+    Ok(Ordering::Equal)
+}
+
+pub(crate) fn sub<C: TrySub>(left: &[C], right: &[C]) -> Result<SmallVec<[C; 4]>, Error> {
+    let mut v = SmallVec::with_capacity(left.len());
+    for i in 0..left.len() {
+        v[i] = left[i].try_sub(&right[i])?
+    }
+    Ok(v)
 }
