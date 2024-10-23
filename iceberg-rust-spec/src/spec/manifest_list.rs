@@ -5,6 +5,7 @@
 use std::{
     io::Read,
     iter::{repeat, Map, Repeat, Zip},
+    sync::OnceLock,
 };
 
 use apache_avro::{types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema};
@@ -42,12 +43,13 @@ impl<'a, 'metadata, R: Read> Iterator for ManifestListReader<'a, 'metadata, R> {
 
 impl<'a, 'metadata, R: Read> ManifestListReader<'a, 'metadata, R> {
     /// Create a new ManifestFile reader
-    pub fn new(
-        reader: R,
-        table_metadata: &'metadata TableMetadata,
-    ) -> Result<Self, apache_avro::Error> {
+    pub fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
+        let schema: &AvroSchema = match table_metadata.format_version {
+            FormatVersion::V1 => manifest_list_schema_v1(),
+            FormatVersion::V2 => manifest_list_schema_v2(),
+        };
         Ok(Self {
-            reader: AvroReader::new(reader)?
+            reader: AvroReader::with_schema(&schema, reader)?
                 .zip(repeat(table_metadata))
                 .map(avro_value_to_manifest_file),
         })
@@ -404,11 +406,11 @@ impl FieldSummary {
     }
 }
 
-impl ManifestListEntry {
-    /// Get schema of the manifest list
-    pub fn schema(format_version: &FormatVersion) -> Result<AvroSchema, Error> {
-        let schema = match format_version {
-            FormatVersion::V1 => r#"
+pub fn manifest_list_schema_v1() -> &'static AvroSchema {
+    static MANIFEST_LIST_SCHEMA_V1: OnceLock<AvroSchema> = OnceLock::new();
+    MANIFEST_LIST_SCHEMA_V1.get_or_init(|| {
+        AvroSchema::parse_str(
+            r#"
         {
             "type": "record",
             "name": "manifest_file",
@@ -544,9 +546,16 @@ impl ManifestListEntry {
                 }
             ]
         }
-        "#
-            .to_owned(),
-            &FormatVersion::V2 => r#"
+        "#,
+        )
+        .unwrap()
+    })
+}
+pub fn manifest_list_schema_v2() -> &'static AvroSchema {
+    static MANIFEST_LIST_SCHEMA_V2: OnceLock<AvroSchema> = OnceLock::new();
+    MANIFEST_LIST_SCHEMA_V2.get_or_init(|| {
+        AvroSchema::parse_str(
+            r#"
         {
             "type": "record",
             "name": "manifest_file",
@@ -673,11 +682,10 @@ impl ManifestListEntry {
                 }
             ]
         }
-        "#
-            .to_owned(),
-        };
-        AvroSchema::parse_str(&schema).map_err(Into::into)
-    }
+        "#,
+        )
+        .unwrap()
+    })
 }
 
 /// Convert an avro value to a [ManifestFile] according to the provided format version
@@ -771,7 +779,7 @@ mod tests {
             key_metadata: None,
         };
 
-        let schema = ManifestListEntry::schema(&FormatVersion::V2).unwrap();
+        let schema = manifest_list_schema_v2();
 
         let mut writer = apache_avro::Writer::new(&schema, Vec::new());
 
@@ -851,7 +859,7 @@ mod tests {
             key_metadata: None,
         };
 
-        let schema = ManifestListEntry::schema(&FormatVersion::V1).unwrap();
+        let schema = manifest_list_schema_v1();
 
         let mut writer = apache_avro::Writer::new(&schema, Vec::new());
 
