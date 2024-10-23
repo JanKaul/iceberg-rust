@@ -4,15 +4,18 @@
 
 use std::{cmp::Ordering, collections::HashMap, sync::Arc};
 
-use apache_avro::from_value;
 use futures::{lock::Mutex, stream, StreamExt, TryStreamExt};
+use iceberg_rust_spec::manifest_list::{
+    manifest_list_schema_v1, manifest_list_schema_v2, ManifestListReader,
+};
+use iceberg_rust_spec::table_metadata::FormatVersion;
 use iceberg_rust_spec::util::strip_prefix;
 use iceberg_rust_spec::{error::Error as SpecError, spec::table_metadata::TableMetadata};
 use iceberg_rust_spec::{
     manifest::ManifestReader,
     spec::{
         manifest::{partition_value_schema, DataFile, ManifestEntry, ManifestWriter, Status},
-        manifest_list::{Content, FieldSummary, ManifestListEntry, ManifestListEntryEnum},
+        manifest_list::{Content, FieldSummary, ManifestListEntry},
         partition::PartitionField,
         schema::Schema,
         snapshot::{
@@ -121,8 +124,10 @@ impl Operation {
                         "rectangle".to_owned(),
                     ))?;
 
-                let manifest_list_schema =
-                    ManifestListEntry::schema(&table_metadata.format_version)?;
+                let manifest_list_schema = match table_metadata.format_version {
+                    FormatVersion::V1 => manifest_list_schema_v1(),
+                    FormatVersion::V2 => manifest_list_schema_v2(),
+                };
 
                 let mut manifest_list_writer =
                     apache_avro::Writer::new(&manifest_list_schema, Vec::new());
@@ -141,7 +146,7 @@ impl Operation {
                         .await?;
 
                     let manifest_list_reader =
-                        apache_avro::Reader::new(old_manifest_list_bytes.as_ref())?;
+                        ManifestListReader::new(old_manifest_list_bytes.as_ref(), table_metadata)?;
 
                     // Check if table is partitioned
                     let manifest = if partition_column_names.is_empty() {
@@ -150,15 +155,7 @@ impl Operation {
                             .fold(Ok::<_, Error>(None), |acc, x| {
                                 let acc = acc?;
 
-                                let manifest = x
-                                    .map_err(Into::into)
-                                    .and_then(|value| {
-                                        ManifestListEntry::try_from_enum(
-                                            from_value::<ManifestListEntryEnum>(&value)?,
-                                            table_metadata,
-                                        )
-                                    })
-                                    .unwrap();
+                                let manifest = x?;
 
                                 let row_count = manifest.added_rows_count;
 
@@ -190,15 +187,7 @@ impl Operation {
                             .fold(Ok::<_, Error>(None), |acc, x| {
                                 let acc = acc?;
 
-                                let manifest = x
-                                    .map_err(Into::into)
-                                    .and_then(|value| {
-                                        ManifestListEntry::try_from_enum(
-                                            from_value::<ManifestListEntryEnum>(&value)?,
-                                            table_metadata,
-                                        )
-                                    })
-                                    .unwrap();
+                                let manifest = x?;
 
                                 let mut bounds = summary_to_rectangle(
                                     manifest.partitions.as_ref().ok_or(Error::NotFound(
@@ -614,8 +603,10 @@ impl Operation {
                     (ManifestStatus::New(manifest), vec![partition_value.clone()])
                 });
 
-                let manifest_list_schema =
-                    ManifestListEntry::schema(&table_metadata.format_version)?;
+                let manifest_list_schema = match table_metadata.format_version {
+                    FormatVersion::V1 => manifest_list_schema_v1(),
+                    FormatVersion::V2 => manifest_list_schema_v2(),
+                };
 
                 let manifest_list_writer = Arc::new(Mutex::new(apache_avro::Writer::new(
                     &manifest_list_schema,
@@ -846,10 +837,12 @@ fn update_partitions(
     partition_values: &Struct,
     partition_columns: &[PartitionField],
 ) -> Result<(), Error> {
-    for (field, summary) in partition_columns.iter().zip(partitions.iter_mut()) {
-        let value = &partition_values.get(field.name()).and_then(|x| x.as_ref());
+    for (field, summary) in partition_columns.into_iter().zip(partitions.iter_mut()) {
+        let value = partition_values.get(field.name()).and_then(|x| x.as_ref());
         if let Some(value) = value {
-            if let Some(lower_bound) = &mut summary.lower_bound {
+            if summary.lower_bound.is_none() {
+                summary.lower_bound = Some(value.clone());
+            } else if let Some(lower_bound) = &mut summary.lower_bound {
                 match (value, lower_bound) {
                     (Value::Int(val), Value::Int(current)) => {
                         if *current > *val {
@@ -894,7 +887,9 @@ fn update_partitions(
                     _ => {}
                 }
             }
-            if let Some(upper_bound) = &mut summary.upper_bound {
+            if summary.upper_bound.is_none() {
+                summary.upper_bound = Some(value.clone());
+            } else if let Some(upper_bound) = &mut summary.upper_bound {
                 match (value, upper_bound) {
                     (Value::Int(val), Value::Int(current)) => {
                         if *current < *val {
