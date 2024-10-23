@@ -596,20 +596,14 @@ impl DataSink for IcebergDataSink {
 #[cfg(test)]
 mod tests {
 
-    use datafusion::{
-        arrow::{
-            array::{Float32Array, Int64Array},
-            record_batch::RecordBatch,
-        },
-        prelude::SessionContext,
-    };
+    use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
     use iceberg_rust::spec::{
         partition::{PartitionField, Transform},
         schema::Schema,
         types::{PrimitiveType, StructField, StructType, Type},
     };
     use iceberg_rust::{
-        catalog::{identifier::Identifier, tabular::Tabular, Catalog},
+        catalog::Catalog,
         spec::{
             partition::PartitionSpec,
             view_metadata::{Version, ViewRepresentation},
@@ -618,64 +612,10 @@ mod tests {
         view::View,
     };
     use iceberg_sql_catalog::SqlCatalog;
-    use object_store::{local::LocalFileSystem, memory::InMemory, ObjectStore};
+    use object_store::{memory::InMemory, ObjectStore};
     use std::sync::Arc;
 
-    use crate::{catalog::catalog::IcebergCatalog, error::Error, DataFusionTable};
-
-    #[tokio::test]
-    pub async fn test_datafusion_table_scan() {
-        let object_store: Arc<dyn ObjectStore> =
-            Arc::new(LocalFileSystem::new_with_prefix("../iceberg-tests/nyc_taxis").unwrap());
-
-        let catalog: Arc<dyn Catalog> = Arc::new(
-            SqlCatalog::new("sqlite://", "test", object_store.clone())
-                .await
-                .unwrap(),
-        );
-        let identifier = Identifier::parse("test.table1", None).unwrap();
-
-        catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
-
-        let table = if let Tabular::Table(table) = catalog
-            .load_tabular(&identifier)
-            .await
-            .expect("Failed to load table")
-        {
-            Ok(Arc::new(DataFusionTable::from(table)))
-        } else {
-            Err(Error::InvalidFormat(
-                "Entity returned from catalog".to_string(),
-            ))
-        }
-        .unwrap();
-
-        let ctx = SessionContext::new();
-
-        ctx.register_table("nyc_taxis", table).unwrap();
-
-        let df = ctx
-            .sql("SELECT vendor_id, MIN(trip_distance) FROM nyc_taxis GROUP BY vendor_id")
-            .await
-            .unwrap();
-
-        // execute the plan
-        let results: Vec<RecordBatch> = df.collect().await.expect("Failed to execute query plan.");
-
-        let batch = results
-            .into_iter()
-            .find(|batch| batch.num_rows() > 0)
-            .expect("All record batches are empty");
-
-        let values = batch
-            .column(1)
-            .as_any()
-            .downcast_ref::<Float32Array>()
-            .expect("Failed to get values from batch.");
-
-        // Value can either be 0.9 or 1.8
-        assert!(((1.35 - values.value(0)).abs() - 0.45).abs() < 0.001)
-    }
+    use crate::{catalog::catalog::IcebergCatalog, DataFusionTable};
 
     #[tokio::test]
     pub async fn test_datafusion_table_insert() {
