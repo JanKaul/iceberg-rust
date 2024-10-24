@@ -8,6 +8,7 @@ use std::{
     fmt,
     hash::Hash,
     io::Cursor,
+    ops::{Add, Sub},
     slice::Iter,
 };
 
@@ -833,6 +834,18 @@ pub trait TryAdd: Sized {
 }
 pub trait TrySub: Sized {
     fn try_sub(&self, other: &Self) -> Result<Self, Error>;
+}
+
+impl<T: Add<Output = T> + Copy> TryAdd for T {
+    fn try_add(&self, other: &Self) -> Result<Self, Error> {
+        Ok(*self + *other)
+    }
+}
+
+impl<T: Sub<Output = T> + Copy> TrySub for T {
+    fn try_sub(&self, other: &Self) -> Result<Self, Error> {
+        Ok(*self - *other)
+    }
 }
 
 impl TryAdd for Value {

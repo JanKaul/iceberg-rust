@@ -142,6 +142,7 @@ pub(crate) fn sub<C: TrySub>(left: &[C], right: &[C]) -> Result<SmallVec<[C; 4]>
 #[cfg(test)]
 mod tests {
     use iceberg_rust_spec::values::Value;
+    use smallvec::smallvec;
 
     use super::*;
 
@@ -218,5 +219,69 @@ mod tests {
         let right = vec![1.0, 2.0];
         let result = cmp_dist(&left, &right);
         assert!(matches!(result, Err(Error::InvalidFormat(_))));
+    }
+    #[test]
+    fn test_rectangle_contains_empty() {
+        let container = Rectangle::<i32> {
+            min: smallvec![],
+            max: smallvec![],
+        };
+        let rect = Rectangle::<i32> {
+            min: smallvec![1, 2],
+            max: smallvec![3, 4],
+        };
+        assert!(!container.contains(&rect));
+    }
+
+    #[test]
+    fn test_rectangle_contains_true() {
+        let container = Rectangle::<i32> {
+            min: smallvec![0, 0],
+            max: smallvec![10, 10],
+        };
+        let rect = Rectangle::<i32> {
+            min: smallvec![2, 2],
+            max: smallvec![8, 8],
+        };
+        assert!(container.contains(&rect));
+    }
+
+    #[test]
+    fn test_rectangle_contains_false_min_boundary() {
+        let container = Rectangle::<i32> {
+            min: smallvec![1, 1],
+            max: smallvec![10, 10],
+        };
+        let rect = Rectangle::<i32> {
+            min: smallvec![0, 5],
+            max: smallvec![5, 8],
+        };
+        assert!(!container.contains(&rect));
+    }
+
+    #[test]
+    fn test_rectangle_contains_false_max_boundary() {
+        let container = Rectangle::<i32> {
+            min: smallvec![0, 0],
+            max: smallvec![10, 10],
+        };
+        let rect = Rectangle::<i32> {
+            min: smallvec![5, 5],
+            max: smallvec![11, 8],
+        };
+        assert!(!container.contains(&rect));
+    }
+
+    #[test]
+    fn test_rectangle_contains_higher_dimensions() {
+        let container = Rectangle::<i32> {
+            min: smallvec![0, 0, 0],
+            max: smallvec![10, 10, 10],
+        };
+        let rect = Rectangle::<i32> {
+            min: smallvec![1, 1, 1],
+            max: smallvec![9, 9, 9],
+        };
+        assert!(container.contains(&rect));
     }
 }
