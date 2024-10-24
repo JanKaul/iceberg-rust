@@ -275,4 +275,75 @@ mod tests {
         assert_eq!(bounds.min, smallvec![5, 5, 5] as SmallVec<[i32; 4]>);
         assert_eq!(bounds.max, smallvec![10, 10, 10] as SmallVec<[i32; 4]>);
     }
+    #[test]
+    fn test_rectangle_expand() {
+        let mut rect1 = Rectangle {
+            min: smallvec![0, 0],
+            max: smallvec![5, 5],
+        };
+
+        let rect2 = Rectangle {
+            min: smallvec![-1, -1],
+            max: smallvec![3, 6],
+        };
+
+        rect1.expand(&rect2);
+
+        assert_eq!(rect1.min, smallvec![-1, -1] as SmallVec<[i32; 4]>);
+        assert_eq!(rect1.max, smallvec![5, 6] as SmallVec<[i32; 4]>);
+    }
+
+    #[test]
+    fn test_rectangle_expand_no_change() {
+        let mut rect1 = Rectangle {
+            min: smallvec![0, 0],
+            max: smallvec![10, 10],
+        };
+
+        let rect2 = Rectangle {
+            min: smallvec![2, 2],
+            max: smallvec![8, 8],
+        };
+
+        rect1.expand(&rect2);
+
+        assert_eq!(rect1.min, smallvec![0, 0] as SmallVec<[i32; 4]>);
+        assert_eq!(rect1.max, smallvec![10, 10] as SmallVec<[i32; 4]>);
+    }
+
+    #[test]
+    fn test_rectangle_expand_single_dimension() {
+        let mut rect1 = Rectangle {
+            min: smallvec![5],
+            max: smallvec![10],
+        };
+
+        let rect2 = Rectangle {
+            min: smallvec![3],
+            max: smallvec![12],
+        };
+
+        rect1.expand(&rect2);
+
+        assert_eq!(rect1.min, smallvec![3] as SmallVec<[i32; 4]>);
+        assert_eq!(rect1.max, smallvec![12] as SmallVec<[i32; 4]>);
+    }
+
+    #[test]
+    fn test_rectangle_expand_empty() {
+        let mut rect1: Rectangle<i32> = Rectangle {
+            min: smallvec![],
+            max: smallvec![],
+        };
+
+        let rect2 = Rectangle {
+            min: smallvec![],
+            max: smallvec![],
+        };
+
+        rect1.expand(&rect2);
+
+        assert_eq!(rect1.min, smallvec![] as SmallVec<[i32; 4]>);
+        assert_eq!(rect1.max, smallvec![] as SmallVec<[i32; 4]>);
+    }
 }
