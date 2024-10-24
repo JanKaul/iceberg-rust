@@ -49,7 +49,7 @@ impl<'a, 'metadata, R: Read> ManifestListReader<'a, 'metadata, R> {
             FormatVersion::V2 => manifest_list_schema_v2(),
         };
         Ok(Self {
-            reader: AvroReader::with_schema(&schema, reader)?
+            reader: AvroReader::with_schema(schema, reader)?
                 .zip(repeat(table_metadata))
                 .map(avro_value_to_manifest_file),
         })
@@ -781,7 +781,7 @@ mod tests {
 
         let schema = manifest_list_schema_v2();
 
-        let mut writer = apache_avro::Writer::new(&schema, Vec::new());
+        let mut writer = apache_avro::Writer::new(schema, Vec::new());
 
         writer.append_ser(manifest_file.clone()).unwrap();
 
@@ -861,7 +861,7 @@ mod tests {
 
         let schema = manifest_list_schema_v1();
 
-        let mut writer = apache_avro::Writer::new(&schema, Vec::new());
+        let mut writer = apache_avro::Writer::new(schema, Vec::new());
 
         writer.append_ser(manifest_file.clone()).unwrap();
 

@@ -6,11 +6,13 @@ use std::{
     any::Any,
     collections::{btree_map::Keys, BTreeMap, HashMap},
     fmt,
+    hash::Hash,
     io::Cursor,
     slice::Iter,
 };
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
 use serde::{
@@ -128,7 +130,7 @@ impl fmt::Display for Value {
 /// The partition struct stores the tuple of partition values for each file.
 /// Its type is derived from the partition fields of the partition spec used to write the manifest file.
 /// In v2, the partition struct’s field ids must match the ids from the partition spec.
-#[derive(Debug, Clone, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialOrd, Ord)]
 pub struct Struct {
     /// Vector to store the field values
     pub fields: Vec<Option<Value>>,
@@ -270,6 +272,15 @@ impl<'de> Deserialize<'de> for Struct {
 impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
         self.keys().all(|key| self.get(key).eq(&other.get(key)))
+    }
+}
+
+impl Hash for Struct {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for key in self.keys().sorted() {
+            key.hash(state);
+            self.get(&key).hash(state);
+        }
     }
 }
 
@@ -814,6 +825,55 @@ mod datetime {
                 .unwrap()
                 .naive_utc(),
         )
+    }
+}
+
+pub trait TryAdd: Sized {
+    fn try_add(&self, other: &Self) -> Result<Self, Error>;
+}
+pub trait TrySub: Sized {
+    fn try_sub(&self, other: &Self) -> Result<Self, Error>;
+}
+
+impl TryAdd for Value {
+    fn try_add(&self, other: &Self) -> Result<Self, Error> {
+        match (self, other) {
+            (Value::Int(own), Value::Int(other)) => Ok(Value::Int(own + other)),
+            (Value::LongInt(own), Value::LongInt(other)) => Ok(Value::LongInt(own + other)),
+            (Value::Float(own), Value::Float(other)) => Ok(Value::Float(*own + *other)),
+            (Value::Double(own), Value::Double(other)) => Ok(Value::Double(*own + *other)),
+            (Value::Date(own), Value::Date(other)) => Ok(Value::Date(own + other)),
+            (Value::Time(own), Value::Time(other)) => Ok(Value::Time(own + other)),
+            (Value::Timestamp(own), Value::Timestamp(other)) => Ok(Value::Timestamp(own + other)),
+            (Value::TimestampTZ(own), Value::TimestampTZ(other)) => {
+                Ok(Value::TimestampTZ(own + other))
+            }
+            (x, y) => Err(Error::Type(
+                x.datatype().to_string(),
+                y.datatype().to_string(),
+            )),
+        }
+    }
+}
+
+impl TrySub for Value {
+    fn try_sub(&self, other: &Self) -> Result<Self, Error> {
+        match (self, other) {
+            (Value::Int(own), Value::Int(other)) => Ok(Value::Int(own - other)),
+            (Value::LongInt(own), Value::LongInt(other)) => Ok(Value::LongInt(own - other)),
+            (Value::Float(own), Value::Float(other)) => Ok(Value::Float(*own - *other)),
+            (Value::Double(own), Value::Double(other)) => Ok(Value::Double(*own - *other)),
+            (Value::Date(own), Value::Date(other)) => Ok(Value::Date(own - other)),
+            (Value::Time(own), Value::Time(other)) => Ok(Value::Time(own - other)),
+            (Value::Timestamp(own), Value::Timestamp(other)) => Ok(Value::Timestamp(own - other)),
+            (Value::TimestampTZ(own), Value::TimestampTZ(other)) => {
+                Ok(Value::TimestampTZ(own - other))
+            }
+            (x, y) => Err(Error::Type(
+                x.datatype().to_string(),
+                y.datatype().to_string(),
+            )),
+        }
     }
 }
 

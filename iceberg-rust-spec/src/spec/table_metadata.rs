@@ -733,7 +733,7 @@ pub struct SnapshotLog {
     pub timestamp_ms: i64,
 }
 
-#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 /// Iceberg format version
 #[derive(Default)]
