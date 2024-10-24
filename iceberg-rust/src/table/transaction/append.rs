@@ -1,20 +1,20 @@
 use std::cmp::Ordering;
 
-use iceberg_rust_spec::{manifest::ManifestEntry, values::Value};
+use iceberg_rust_spec::manifest::ManifestEntry;
 use smallvec::{smallvec, SmallVec};
 
 use crate::{
     error::Error,
-    util::{cmp_dist, struct_to_smallvec, sub, Rectangle},
+    util::{cmp_with_priority, struct_to_smallvec, sub, Rectangle},
 };
 
 /// Split sets of datafiles depending on their partition_values
 #[allow(clippy::type_complexity)]
 pub(crate) fn split_datafiles_once(
     files: impl Iterator<Item = Result<ManifestEntry, Error>>,
-    rect: Rectangle<Value>,
-    names: &SmallVec<[&str; 4]>,
-) -> Result<[(Vec<ManifestEntry>, Rectangle<Value>); 2], Error> {
+    rect: Rectangle,
+    names: &[&str],
+) -> Result<[(Vec<ManifestEntry>, Rectangle); 2], Error> {
     let mut smaller = Vec::new();
     let mut larger = Vec::new();
     let mut smaller_rect = None;
@@ -25,7 +25,7 @@ pub(crate) fn split_datafiles_once(
         let position = struct_to_smallvec(manifest_entry.data_file().partition(), names)?;
         // Check distance to upper and lower bound
         if let Ordering::Greater =
-            cmp_dist(&sub(&position, &rect.min)?, &sub(&rect.max, &position)?)?
+            cmp_with_priority(&sub(&position, &rect.min)?, &sub(&rect.max, &position)?)?
         {
             // if closer to upper bound
             larger.push(manifest_entry);
@@ -60,7 +60,7 @@ pub(crate) fn split_datafiles_once(
 
 pub(crate) fn split_datafiles(
     files: impl Iterator<Item = Result<ManifestEntry, Error>>,
-    rect: Rectangle<Value>,
+    rect: Rectangle,
     names: &SmallVec<[&str; 4]>,
     n_split: u32,
 ) -> Result<SmallVec<[Vec<ManifestEntry>; 2]>, Error> {
