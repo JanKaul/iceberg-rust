@@ -46,43 +46,25 @@ where
 
     /// Determine of one rectangle is larger than the other
     pub(crate) fn cmp_with_priority(&self, other: &Rectangle<C>) -> Result<Ordering, Error> {
-        if self.contains(other) {
-            Ok(Ordering::Greater)
-        } else if other.contains(self) {
-            Ok(Ordering::Less)
-        } else {
-            let mut self_iter = self
-                .max
-                .iter()
-                .zip(self.min.iter())
-                .map(|(max, min)| max.try_sub(min));
-            let mut other_iter = other
-                .max
-                .iter()
-                .zip(other.min.iter())
-                .map(|(max, min)| max.try_sub(min));
-            while let (Some(own), Some(other)) = (self_iter.next(), other_iter.next()) {
-                let ordering = own?
-                    .partial_cmp(&other?)
-                    .ok_or(Error::InvalidFormat("Types for Partial Order".to_owned()))?;
-                let Ordering::Equal = ordering else {
-                    return Ok(ordering);
-                };
-            }
-            Ok(Ordering::Equal)
+        let self_iter = self
+            .max
+            .iter()
+            .zip(self.min.iter())
+            .map(|(max, min)| max.try_sub(min));
+        let other_iter = other
+            .max
+            .iter()
+            .zip(other.min.iter())
+            .map(|(max, min)| max.try_sub(min));
+        for (own, other) in self_iter.zip(other_iter) {
+            let ordering = own?
+                .partial_cmp(&other?)
+                .ok_or(Error::InvalidFormat("Types for Partial Order".to_owned()))?;
+            let Ordering::Equal = ordering else {
+                return Ok(ordering);
+            };
         }
-    }
-
-    pub(crate) fn contains(&self, rect: &Rectangle<C>) -> bool {
-        if self.min.is_empty() {
-            return false;
-        }
-        for i in 0..self.min.len() {
-            if rect.min[i] < self.min[i] || rect.max[i] > self.max[i] {
-                return false;
-            }
-        }
-        true
+        Ok(Ordering::Equal)
     }
 }
 
@@ -220,68 +202,42 @@ mod tests {
         let result = cmp_dist(&left, &right);
         assert!(matches!(result, Err(Error::InvalidFormat(_))));
     }
+
     #[test]
-    fn test_rectangle_contains_empty() {
-        let container = Rectangle::<i32> {
-            min: smallvec![],
-            max: smallvec![],
-        };
-        let rect = Rectangle::<i32> {
-            min: smallvec![1, 2],
-            max: smallvec![3, 4],
-        };
-        assert!(!container.contains(&rect));
+    fn test_rectangle_cmp_with_priority_greater() {
+        let larger = Rectangle::new(smallvec![0, 0], smallvec![10, 10]);
+        let smaller = Rectangle::new(smallvec![1, 1], smallvec![8, 8]);
+        assert_eq!(
+            larger.cmp_with_priority(&smaller).unwrap(),
+            Ordering::Greater
+        );
     }
 
     #[test]
-    fn test_rectangle_contains_true() {
-        let container = Rectangle::<i32> {
-            min: smallvec![0, 0],
-            max: smallvec![10, 10],
-        };
-        let rect = Rectangle::<i32> {
-            min: smallvec![2, 2],
-            max: smallvec![8, 8],
-        };
-        assert!(container.contains(&rect));
+    fn test_rectangle_cmp_with_priority_less() {
+        let larger = Rectangle::new(smallvec![0, 0], smallvec![10, 10]);
+        let smaller = Rectangle::new(smallvec![1, 1], smallvec![8, 8]);
+        assert_eq!(smaller.cmp_with_priority(&larger).unwrap(), Ordering::Less);
     }
 
     #[test]
-    fn test_rectangle_contains_false_min_boundary() {
-        let container = Rectangle::<i32> {
-            min: smallvec![1, 1],
-            max: smallvec![10, 10],
-        };
-        let rect = Rectangle::<i32> {
-            min: smallvec![0, 5],
-            max: smallvec![5, 8],
-        };
-        assert!(!container.contains(&rect));
+    fn test_rectangle_cmp_with_priority_equal() {
+        let rect1 = Rectangle::new(smallvec![0, 0], smallvec![5, 5]);
+        let rect2 = Rectangle::new(smallvec![0, 0], smallvec![5, 5]);
+        assert_eq!(rect1.cmp_with_priority(&rect2).unwrap(), Ordering::Equal);
     }
 
     #[test]
-    fn test_rectangle_contains_false_max_boundary() {
-        let container = Rectangle::<i32> {
-            min: smallvec![0, 0],
-            max: smallvec![10, 10],
-        };
-        let rect = Rectangle::<i32> {
-            min: smallvec![5, 5],
-            max: smallvec![11, 8],
-        };
-        assert!(!container.contains(&rect));
+    fn test_rectangle_cmp_with_priority_partial_dimensions() {
+        let rect1 = Rectangle::new(smallvec![0, 0], smallvec![6, 4]);
+        let rect2 = Rectangle::new(smallvec![0, 0], smallvec![4, 6]);
+        assert!(rect1.cmp_with_priority(&rect2).is_ok());
     }
 
     #[test]
-    fn test_rectangle_contains_higher_dimensions() {
-        let container = Rectangle::<i32> {
-            min: smallvec![0, 0, 0],
-            max: smallvec![10, 10, 10],
-        };
-        let rect = Rectangle::<i32> {
-            min: smallvec![1, 1, 1],
-            max: smallvec![9, 9, 9],
-        };
-        assert!(container.contains(&rect));
+    fn test_rectangle_cmp_with_priority_overlapping() {
+        let rect1 = Rectangle::new(smallvec![2, 0], smallvec![8, 4]);
+        let rect2 = Rectangle::new(smallvec![0, 2], smallvec![6, 6]);
+        assert!(rect1.cmp_with_priority(&rect2).is_ok());
     }
 }
