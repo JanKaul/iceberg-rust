@@ -74,7 +74,7 @@ where
     }
 
     pub(crate) fn contains(&self, rect: &Rectangle<C>) -> bool {
-        if self.min.len() == 0 {
+        if self.min.is_empty() {
             return false;
         }
         for i in 0..self.min.len() {
@@ -93,8 +93,8 @@ pub(crate) fn struct_to_smallvec(
     names
         .iter()
         .map(|x| {
-            s.get(*x)
-                .and_then(|x| identity(x).as_ref().map(Clone::clone))
+            s.get(x)
+                .and_then(|x| identity(x).clone())
         })
         .collect::<Option<SmallVec<_>>>()
         .ok_or(Error::InvalidFormat("Partition struct".to_owned()))
@@ -125,7 +125,7 @@ pub(crate) fn summary_to_rectangle(summaries: &[FieldSummary]) -> Result<Rectang
 pub(crate) fn cmp_dist<C: PartialOrd>(left: &[C], right: &[C]) -> Result<Ordering, Error> {
     while let (Some(own), Some(other)) = (left.iter().next(), right.iter().next()) {
         let ordering = own
-            .partial_cmp(&other)
+            .partial_cmp(other)
             .ok_or(Error::InvalidFormat("Types for Partial Order".to_owned()))?;
         let Ordering::Equal = ordering else {
             return Ok(ordering);

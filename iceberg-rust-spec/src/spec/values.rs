@@ -6,11 +6,13 @@ use std::{
     any::Any,
     collections::{btree_map::Keys, BTreeMap, HashMap},
     fmt,
+    hash::Hash,
     io::Cursor,
     slice::Iter,
 };
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
 use serde::{
@@ -128,7 +130,7 @@ impl fmt::Display for Value {
 /// The partition struct stores the tuple of partition values for each file.
 /// Its type is derived from the partition fields of the partition spec used to write the manifest file.
 /// In v2, the partition struct’s field ids must match the ids from the partition spec.
-#[derive(Debug, Clone, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialOrd, Ord)]
 pub struct Struct {
     /// Vector to store the field values
     pub fields: Vec<Option<Value>>,
@@ -270,6 +272,15 @@ impl<'de> Deserialize<'de> for Struct {
 impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
         self.keys().all(|key| self.get(key).eq(&other.get(key)))
+    }
+}
+
+impl Hash for Struct {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for key in self.keys().sorted() {
+            key.hash(state);
+            self.get(&key).hash(state);
+        }
     }
 }
 

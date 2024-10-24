@@ -109,11 +109,10 @@ impl Operation {
 
                 let bounding_partition_values = files
                     .iter()
-                    .fold(Ok::<_, Error>(None), |acc, x| {
-                        let acc = acc?;
+                    .try_fold(None, |acc, x| {
                         let node = struct_to_smallvec(x.partition(), &partition_column_names)?;
                         let Some(mut acc) = acc else {
-                            return Ok(Some(Rectangle::new(node.clone(), node)));
+                            return Ok::<_, Error>(Some(Rectangle::new(node.clone(), node)));
                         };
                         acc.expand_with_node(node);
                         Ok(Some(acc))
@@ -129,7 +128,7 @@ impl Operation {
                 };
 
                 let mut manifest_list_writer =
-                    apache_avro::Writer::new(&manifest_list_schema, Vec::new());
+                    apache_avro::Writer::new(manifest_list_schema, Vec::new());
 
                 let old_manifest_list_location = old_snapshot.map(|x| x.manifest_list()).cloned();
 
@@ -139,21 +138,19 @@ impl Operation {
                 let manifest = if let Some(old_manifest_list_location) = &old_manifest_list_location
                 {
                     let old_manifest_list_bytes = object_store
-                        .get(&strip_prefix(&old_manifest_list_location).as_str().into())
+                        .get(&strip_prefix(old_manifest_list_location).as_str().into())
                         .await?
                         .bytes()
                         .await?;
 
-                    let manifest_list_reader =
+                    let mut manifest_list_reader =
                         ManifestListReader::new(old_manifest_list_bytes.as_ref(), table_metadata)?;
 
                     // Check if table is partitioned
                     let manifest = if partition_column_names.is_empty() {
                         // Find the manifest with the lowest row count
                         manifest_list_reader
-                            .fold(Ok::<_, Error>(None), |acc, x| {
-                                let acc = acc?;
-
+                            .try_fold(None, |acc, x| {
                                 let manifest = x?;
 
                                 let row_count = manifest.added_rows_count;
@@ -161,7 +158,7 @@ impl Operation {
                                 file_count += manifest.added_files_count.unwrap_or(0) as usize;
 
                                 let Some((old_row_count, old_manifest)) = acc else {
-                                    return Ok(Some((row_count, manifest)));
+                                    return Ok::<_, Error>(Some((row_count, manifest)));
                                 };
 
                                 let Some(row_count) = row_count else {
@@ -183,9 +180,7 @@ impl Operation {
                     } else {
                         // Find the manifest with the smallest bounding partition values
                         manifest_list_reader
-                            .fold(Ok::<_, Error>(None), |acc, x| {
-                                let acc = acc?;
-
+                            .try_fold(None, |acc, x| {
                                 let manifest = x?;
 
                                 let mut bounds = summary_to_rectangle(
@@ -200,7 +195,7 @@ impl Operation {
                                 file_count += manifest.added_files_count.unwrap_or(0) as usize;
 
                                 let Some((old_bounds, old_manifest)) = acc else {
-                                    return Ok(Some((bounds, manifest)));
+                                    return Ok::<_, Error>(Some((bounds, manifest)));
                                 };
 
                                 match old_bounds.cmp_with_priority(&bounds)? {
@@ -307,8 +302,9 @@ impl Operation {
                             + "-m"
                             + &0.to_string()
                             + ".avro";
-                        let manifest = ManifestListEntry {
-                            format_version: table_metadata.format_version.clone(),
+
+                        ManifestListEntry {
+                            format_version: table_metadata.format_version,
                             manifest_path: manifest_location,
                             manifest_length: 0,
                             partition_spec_id: table_metadata.default_spec_id,
@@ -324,8 +320,7 @@ impl Operation {
                             deleted_rows_count: Some(0),
                             partitions: None,
                             key_metadata: None,
-                        };
-                        manifest
+                        }
                     });
 
                     for manifest_entry in new_datafile_iter {
@@ -427,7 +422,7 @@ impl Operation {
                             + &i.to_string()
                             + ".avro";
                         let mut manifest = ManifestListEntry {
-                            format_version: table_metadata.format_version.clone(),
+                            format_version: table_metadata.format_version,
                             manifest_path: manifest_location,
                             manifest_length: 0,
                             partition_spec_id: table_metadata.default_spec_id,
@@ -564,11 +559,10 @@ impl Operation {
 
                 let bounding_partition_values = files
                     .iter()
-                    .fold(Ok::<_, Error>(None), |acc, x| {
-                        let acc = acc?;
+                    .try_fold(None, |acc, x| {
                         let node = struct_to_smallvec(x.partition(), &partition_column_names)?;
                         let Some(mut acc) = acc else {
-                            return Ok(Some(Rectangle::new(node.clone(), node)));
+                            return Ok::<_, Error>(Some(Rectangle::new(node.clone(), node)));
                         };
                         acc.expand_with_node(node);
                         Ok(Some(acc))
@@ -584,7 +578,7 @@ impl Operation {
                 };
 
                 let mut manifest_list_writer =
-                    apache_avro::Writer::new(&manifest_list_schema, Vec::new());
+                    apache_avro::Writer::new(manifest_list_schema, Vec::new());
 
                 let new_file_count = files.len();
 
@@ -641,7 +635,7 @@ impl Operation {
                         + &0.to_string()
                         + ".avro";
                     let mut manifest = ManifestListEntry {
-                        format_version: table_metadata.format_version.clone(),
+                        format_version: table_metadata.format_version,
                         manifest_path: manifest_location,
                         manifest_length: 0,
                         partition_spec_id: table_metadata.default_spec_id,
@@ -739,7 +733,7 @@ impl Operation {
                             + &i.to_string()
                             + ".avro";
                         let mut manifest = ManifestListEntry {
-                            format_version: table_metadata.format_version.clone(),
+                            format_version: table_metadata.format_version,
                             manifest_path: manifest_location,
                             manifest_length: 0,
                             partition_spec_id: table_metadata.default_spec_id,
@@ -901,7 +895,7 @@ fn update_partitions(
     partition_values: &Struct,
     partition_columns: &[PartitionField],
 ) -> Result<(), Error> {
-    for (field, summary) in partition_columns.into_iter().zip(partitions.iter_mut()) {
+    for (field, summary) in partition_columns.iter().zip(partitions.iter_mut()) {
         let value = partition_values.get(field.name()).and_then(|x| x.as_ref());
         if let Some(value) = value {
             if summary.lower_bound.is_none() {

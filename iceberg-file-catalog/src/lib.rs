@@ -113,7 +113,7 @@ impl Catalog for FileCatalog {
             .map_err(IcebergError::from)
             .map_ok(|x| {
                 let path = x.location.as_ref();
-                self.identifier(&path)
+                self.identifier(path)
             })
             .try_collect()
             .await
@@ -501,7 +501,7 @@ impl Catalog for FileCatalog {
 
 impl FileCatalog {
     fn namespace_path(&self, namespace: &str) -> String {
-        self.path.as_str().trim_end_matches('/').to_owned() + "/" + &self.name + "/" + &namespace
+        self.path.as_str().trim_end_matches('/').to_owned() + "/" + &self.name + "/" + namespace
     }
 
     fn tabular_path(&self, namespace: &str, name: &str) -> String {
@@ -509,7 +509,7 @@ impl FileCatalog {
             + "/"
             + &self.name
             + "/"
-            + &namespace
+            + namespace
             + "/"
             + name
     }
@@ -523,7 +523,7 @@ impl FileCatalog {
             .try_filter(|x| {
                 future::ready(
                     x.ends_with("metadata.json")
-                        && x.starts_with(&(path.clone() + "/v").trim_start_matches('/')),
+                        && x.starts_with((path.clone() + "/v").trim_start_matches('/')),
                 )
             })
             .try_collect()
@@ -551,9 +551,7 @@ impl FileCatalog {
         let parts = path
             .trim_start_matches(self.path.trim_start_matches('/'))
             .trim_start_matches('/')
-            .split('/')
-            .skip(1)
-            .next()
+            .split('/').nth(1)
             .ok_or(IcebergError::InvalidFormat("Namespace in path".to_owned()))?
             .to_owned();
         Namespace::try_new(&[parts]).map_err(IcebergError::from)
