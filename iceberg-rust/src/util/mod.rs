@@ -240,4 +240,39 @@ mod tests {
         let rect2 = Rectangle::new(smallvec![0, 2], smallvec![6, 6]);
         assert!(rect1.cmp_with_priority(&rect2).is_ok());
     }
+    #[test]
+    fn test_expand_with_node_smaller_values() {
+        let mut bounds = Rectangle::new(smallvec![5, 5, 5], smallvec![10, 10, 10]);
+        let node: SmallVec<[i32; 4]> = smallvec![3, 4, 2];
+        bounds.expand_with_node(node);
+        assert_eq!(bounds.min, smallvec![3, 4, 2] as SmallVec<[i32; 4]>);
+        assert_eq!(bounds.max, smallvec![10, 10, 10] as SmallVec<[i32; 4]>);
+    }
+
+    #[test]
+    fn test_expand_with_node_larger_values() {
+        let mut bounds = Rectangle::new(smallvec![5, 5, 5], smallvec![10, 10, 10]);
+        let node: SmallVec<[i32; 4]> = smallvec![6, 12, 11];
+        bounds.expand_with_node(node);
+        assert_eq!(bounds.min, smallvec![5, 5, 5] as SmallVec<[i32; 4]>);
+        assert_eq!(bounds.max, smallvec![10, 12, 11] as SmallVec<[i32; 4]>);
+    }
+
+    #[test]
+    fn test_expand_with_node_mixed_values() {
+        let mut bounds = Rectangle::new(smallvec![5, 5, 5], smallvec![10, 10, 10]);
+        let node: SmallVec<[i32; 4]> = smallvec![3, 15, 7];
+        bounds.expand_with_node(node);
+        assert_eq!(bounds.min, smallvec![3, 5, 5] as SmallVec<[i32; 4]>);
+        assert_eq!(bounds.max, smallvec![10, 15, 10] as SmallVec<[i32; 4]>);
+    }
+
+    #[test]
+    fn test_expand_with_node_equal_values() {
+        let mut bounds = Rectangle::new(smallvec![5, 5, 5], smallvec![10, 10, 10]);
+        let node: SmallVec<[i32; 4]> = smallvec![5, 10, 7];
+        bounds.expand_with_node(node);
+        assert_eq!(bounds.min, smallvec![5, 5, 5] as SmallVec<[i32; 4]>);
+        assert_eq!(bounds.max, smallvec![10, 10, 10] as SmallVec<[i32; 4]>);
+    }
 }
