@@ -120,7 +120,7 @@ pub(crate) fn summary_to_rectangle(summaries: &[FieldSummary]) -> Result<Rectang
 }
 
 pub(crate) fn cmp_dist<C: PartialOrd>(left: &[C], right: &[C]) -> Result<Ordering, Error> {
-    while let (Some(own), Some(other)) = (left.iter().next(), right.iter().next()) {
+    for (own, other) in left.iter().zip(right.iter()) {
         let ordering = own
             .partial_cmp(other)
             .ok_or(Error::InvalidFormat("Types for Partial Order".to_owned()))?;
@@ -143,7 +143,7 @@ pub(crate) fn sub<C: TrySub>(left: &[C], right: &[C]) -> Result<SmallVec<[C; 4]>
 mod tests {
     use iceberg_rust_spec::values::Value;
 
-    use crate::util::sub;
+    use super::*;
 
     #[test]
     fn test_sub_valid() {
@@ -172,5 +172,51 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], Value::Int(0));
         assert_eq!(result[1], Value::Int(0));
+    }
+    #[test]
+
+    fn test_cmp_dist_empty_slices() {
+        let result = cmp_dist::<i32>(&[], &[]);
+        assert_eq!(result.unwrap(), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_cmp_dist_equal_slices() {
+        let left = vec![1, 2, 3];
+        let right = vec![1, 2, 3];
+        let result = cmp_dist(&left, &right);
+        assert_eq!(result.unwrap(), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_cmp_dist_less_than() {
+        let left = vec![1, 2];
+        let right = vec![1, 3];
+        let result = cmp_dist(&left, &right);
+        assert_eq!(result.unwrap(), Ordering::Less);
+    }
+
+    #[test]
+    fn test_cmp_dist_greater_than() {
+        let left = vec![1, 4];
+        let right = vec![1, 3];
+        let result = cmp_dist(&left, &right);
+        assert_eq!(result.unwrap(), Ordering::Greater);
+    }
+
+    #[test]
+    fn test_cmp_dist_with_floats() {
+        let left = vec![1.0, 2.0];
+        let right = vec![1.0, 2.0];
+        let result = cmp_dist(&left, &right);
+        assert_eq!(result.unwrap(), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_cmp_dist_with_nan() {
+        let left = vec![1.0, f64::NAN];
+        let right = vec![1.0, 2.0];
+        let result = cmp_dist(&left, &right);
+        assert!(matches!(result, Err(Error::InvalidFormat(_))));
     }
 }
