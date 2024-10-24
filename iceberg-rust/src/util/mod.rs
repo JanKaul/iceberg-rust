@@ -92,10 +92,7 @@ pub(crate) fn struct_to_smallvec(
 ) -> Result<SmallVec<[Value; 4]>, Error> {
     names
         .iter()
-        .map(|x| {
-            s.get(x)
-                .and_then(|x| identity(x).clone())
-        })
+        .map(|x| s.get(x).and_then(|x| identity(x).clone()))
         .collect::<Option<SmallVec<_>>>()
         .ok_or(Error::InvalidFormat("Partition struct".to_owned()))
 }
@@ -137,7 +134,43 @@ pub(crate) fn cmp_dist<C: PartialOrd>(left: &[C], right: &[C]) -> Result<Orderin
 pub(crate) fn sub<C: TrySub>(left: &[C], right: &[C]) -> Result<SmallVec<[C; 4]>, Error> {
     let mut v = SmallVec::with_capacity(left.len());
     for i in 0..left.len() {
-        v[i] = left[i].try_sub(&right[i])?
+        v.push(left[i].try_sub(&right[i])?);
     }
     Ok(v)
+}
+
+#[cfg(test)]
+mod tests {
+    use iceberg_rust_spec::values::Value;
+
+    use crate::util::sub;
+
+    #[test]
+    fn test_sub_valid() {
+        let left = vec![Value::Int(5), Value::Int(10), Value::Int(15)];
+        let right = vec![Value::Int(2), Value::Int(3), Value::Int(5)];
+        let result = sub(&left, &right).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], Value::Int(3));
+        assert_eq!(result[1], Value::Int(7));
+        assert_eq!(result[2], Value::Int(10));
+    }
+
+    #[test]
+    fn test_sub_empty() {
+        let left: Vec<Value> = vec![];
+        let right: Vec<Value> = vec![];
+        let result = sub(&left, &right).unwrap();
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_sub_same_numbers() {
+        let left = vec![Value::Int(5), Value::Int(5)];
+        let right = vec![Value::Int(5), Value::Int(5)];
+        let result = sub(&left, &right).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], Value::Int(0));
+        assert_eq!(result[1], Value::Int(0));
+    }
 }
