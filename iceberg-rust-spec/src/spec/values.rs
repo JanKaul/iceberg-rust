@@ -280,7 +280,7 @@ impl Hash for Struct {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         for key in self.keys().sorted() {
             key.hash(state);
-            self.get(&key).hash(state);
+            self.get(key).hash(state);
         }
     }
 }
@@ -883,7 +883,7 @@ impl TrySub for Value {
                 Ok(Value::TimestampTZ(own - other))
             }
             (Value::String(own), Value::String(other)) => {
-                Ok(Value::LongInt(sub_string(&own, &other) as i64))
+                Ok(Value::LongInt(sub_string(own, other) as i64))
             }
             (x, y) => Err(Error::Type(
                 x.datatype().to_string(),
