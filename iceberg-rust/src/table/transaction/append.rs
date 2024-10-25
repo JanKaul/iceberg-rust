@@ -10,7 +10,7 @@ use crate::{
 
 /// Split sets of datafiles depending on their partition_values
 #[allow(clippy::type_complexity)]
-pub(crate) fn split_datafiles_once(
+pub fn split_datafiles_once(
     files: impl Iterator<Item = Result<ManifestEntry, Error>>,
     rect: Rectangle,
     names: &[&str],
