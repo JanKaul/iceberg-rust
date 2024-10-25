@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, convert::identity};
+use std::cmp::Ordering;
 
 use iceberg_rust_spec::{
     manifest_list::FieldSummary,
@@ -70,7 +70,7 @@ impl Rectangle {
 pub(crate) fn struct_to_smallvec(s: &Struct, names: &[&str]) -> Result<Vec4<Value>, Error> {
     names
         .iter()
-        .map(|x| s.get(x).and_then(|x| identity(x).clone()))
+        .map(|x| s.get(x).and_then(Clone::clone))
         .collect::<Option<SmallVec<_>>>()
         .ok_or(Error::InvalidFormat("Partition struct".to_owned()))
 }
