@@ -920,7 +920,13 @@ mod tests {
             "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES 
                 (7, 1, 3, '2020-01-03', 1),
                 (8, 2, 1, '2020-01-03', 2),
-                (9, 2, 2, '2020-01-03', 1);",
+                (9, 2, 2, '2020-01-03', 1),
+                (10, 1, 2, '2020-01-04', 3),
+                (11, 3, 1, '2020-01-04', 2),
+                (12, 2, 3, '2020-01-04', 1),
+                (13, 1, 1, '2020-01-05', 4),
+                (14, 3, 2, '2020-01-05', 2),
+                (15, 2, 3, '2020-01-05', 3);",
         )
         .await
         .expect("Failed to create query plan for insert")
@@ -952,8 +958,9 @@ mod tests {
                 );
                 for (product_id, amount) in product_ids.iter().zip(amounts) {
                     match product_id.unwrap() {
-                        1 => assert_eq!(amount.unwrap(), 3),
-                        2 | 3 => assert_eq!(amount.unwrap(), 1),
+                        1 => assert_eq!(amount.unwrap(), 7),
+                        2 => assert_eq!(amount.unwrap(), 4),
+                        3 => assert_eq!(amount.unwrap(), 1),
                         _ => panic!("Unexpected order id"),
                     }
                 }

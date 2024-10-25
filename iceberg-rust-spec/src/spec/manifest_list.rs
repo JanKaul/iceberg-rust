@@ -773,8 +773,8 @@ mod tests {
             partitions: Some(vec![FieldSummary {
                 contains_null: true,
                 contains_nan: Some(false),
-                lower_bound: Some(Value::Date(1234)),
-                upper_bound: Some(Value::Date(76890)),
+                lower_bound: Some(Value::Int(1234)),
+                upper_bound: Some(Value::Int(76890)),
             }]),
             key_metadata: None,
         };
@@ -853,8 +853,8 @@ mod tests {
             partitions: Some(vec![FieldSummary {
                 contains_null: true,
                 contains_nan: Some(false),
-                lower_bound: Some(Value::Date(1234)),
-                upper_bound: Some(Value::Date(76890)),
+                lower_bound: Some(Value::Int(1234)),
+                upper_bound: Some(Value::Int(76890)),
             }]),
             key_metadata: None,
         };

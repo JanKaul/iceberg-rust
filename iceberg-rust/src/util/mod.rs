@@ -10,7 +10,7 @@ use crate::error::Error;
 
 type Vec4<T> = SmallVec<[T; 4]>;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rectangle {
     pub min: Vec4<Value>,
     pub max: Vec4<Value>,
