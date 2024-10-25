@@ -6,7 +6,7 @@ use std::{
     any::Any,
     collections::{btree_map::Keys, BTreeMap, HashMap},
     fmt,
-    hash::Hash,
+    hash::{DefaultHasher, Hash, Hasher},
     io::Cursor,
     ops::{Add, Sub},
     slice::Iter,
@@ -882,11 +882,39 @@ impl TrySub for Value {
             (Value::TimestampTZ(own), Value::TimestampTZ(other)) => {
                 Ok(Value::TimestampTZ(own - other))
             }
+            (Value::String(own), Value::String(other)) => {
+                Ok(Value::LongInt(sub_string(&own, &other) as i64))
+            }
             (x, y) => Err(Error::Type(
                 x.datatype().to_string(),
                 y.datatype().to_string(),
             )),
         }
+    }
+}
+
+fn sub_string(left: &str, right: &str) -> u64 {
+    if let Some(distance) = left
+        .chars()
+        .zip(right.chars())
+        .take(256)
+        .skip_while(|(l, r)| l == r)
+        .try_fold(0, |acc, (l, r)| {
+            if let (Some(l), Some(r)) = (l.to_digit(36), r.to_digit(36)) {
+                Some(acc + (l - r).pow(2))
+            } else {
+                None
+            }
+        })
+    {
+        distance as u64
+    } else {
+        let mut hasher = DefaultHasher::new();
+        hasher.write(left.as_bytes());
+        let left = hasher.finish();
+        hasher.write(right.as_bytes());
+        let right = hasher.finish();
+        left - right
     }
 }
 
