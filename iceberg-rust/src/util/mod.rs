@@ -67,7 +67,8 @@ impl Rectangle {
     }
 }
 
-pub(crate) fn struct_to_smallvec(s: &Struct, names: &[&str]) -> Result<Vec4<Value>, Error> {
+/// Converts the values of a partition struct into a vector in the order that the columns appear in the partition spec
+pub(crate) fn partition_struct_to_vec(s: &Struct, names: &[&str]) -> Result<Vec4<Value>, Error> {
     names
         .iter()
         .map(|x| s.get(x).and_then(Clone::clone))

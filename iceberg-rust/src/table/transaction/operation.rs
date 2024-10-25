@@ -29,7 +29,7 @@ use smallvec::SmallVec;
 use crate::{
     catalog::commit::{TableRequirement, TableUpdate},
     error::Error,
-    util::{struct_to_smallvec, summary_to_rectangle, Rectangle},
+    util::{partition_struct_to_vec, summary_to_rectangle, Rectangle},
 };
 
 use super::append::split_datafiles;
@@ -110,7 +110,7 @@ impl Operation {
                 let bounding_partition_values = files
                     .iter()
                     .try_fold(None, |acc, x| {
-                        let node = struct_to_smallvec(x.partition(), &partition_column_names)?;
+                        let node = partition_struct_to_vec(x.partition(), &partition_column_names)?;
                         let Some(mut acc) = acc else {
                             return Ok::<_, Error>(Some(Rectangle::new(node.clone(), node)));
                         };
@@ -560,7 +560,7 @@ impl Operation {
                 let bounding_partition_values = files
                     .iter()
                     .try_fold(None, |acc, x| {
-                        let node = struct_to_smallvec(x.partition(), &partition_column_names)?;
+                        let node = partition_struct_to_vec(x.partition(), &partition_column_names)?;
                         let Some(mut acc) = acc else {
                             return Ok::<_, Error>(Some(Rectangle::new(node.clone(), node)));
                         };

@@ -5,7 +5,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::{
     error::Error,
-    util::{cmp_with_priority, struct_to_smallvec, sub, Rectangle},
+    util::{cmp_with_priority, partition_struct_to_vec, sub, Rectangle},
 };
 
 /// Split sets of datafiles depending on their partition_values
@@ -22,7 +22,7 @@ pub fn split_datafiles_once(
 
     for manifest_entry in files {
         let manifest_entry = manifest_entry?;
-        let position = struct_to_smallvec(manifest_entry.data_file().partition(), names)?;
+        let position = partition_struct_to_vec(manifest_entry.data_file().partition(), names)?;
         // Check distance to upper and lower bound
         if let Ordering::Greater =
             cmp_with_priority(&sub(&position, &rect.min)?, &sub(&rect.max, &position)?)?
