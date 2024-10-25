@@ -21,6 +21,10 @@ impl Rectangle {
         Self { min, max }
     }
 
+    /// Expands the rectangle to include the given rectangle.
+    ///
+    /// This method updates the minimum and maximum values of the rectangle to include
+    /// the values in the given `rect` rectangle.
     pub(crate) fn expand(&mut self, rect: &Rectangle) {
         for i in 0..self.min.len() {
             if rect.min[i] < self.min[i] {
@@ -32,6 +36,10 @@ impl Rectangle {
         }
     }
 
+    /// Expands the rectangle to include the given node.
+    ///
+    /// This method updates the minimum and maximum values of the rectangle to include
+    /// the values in the given `node` vector.
     pub(crate) fn expand_with_node(&mut self, node: Vec4<Value>) {
         for i in 0..self.min.len() {
             if node[i] < self.min[i] {
@@ -43,7 +51,7 @@ impl Rectangle {
         }
     }
 
-    /// Determine of one rectangle is larger than the other
+    /// Determine of one rectangle is larger than the other. Values the earlier columns more than the later.
     pub(crate) fn cmp_with_priority(&self, other: &Rectangle) -> Result<Ordering, Error> {
         let self_iter = self
             .max
@@ -68,10 +76,13 @@ impl Rectangle {
 }
 
 /// Converts the values of a partition struct into a vector in the order that the columns appear in the partition spec
-pub(crate) fn partition_struct_to_vec(s: &Struct, names: &[&str]) -> Result<Vec4<Value>, Error> {
+pub(crate) fn partition_struct_to_vec(
+    partition_struct: &Struct,
+    names: &[&str],
+) -> Result<Vec4<Value>, Error> {
     names
         .iter()
-        .map(|x| s.get(x).and_then(Clone::clone))
+        .map(|x| partition_struct.get(x).and_then(Clone::clone))
         .collect::<Option<SmallVec<_>>>()
         .ok_or(Error::InvalidFormat("Partition struct".to_owned()))
 }
@@ -98,6 +109,7 @@ pub(crate) fn summary_to_rectangle(summaries: &[FieldSummary]) -> Result<Rectang
     Ok(Rectangle::new(min, max))
 }
 
+/// Compares two vectors by giving a higher priority to the earlier dimensions compared to later dimensions
 pub(crate) fn cmp_with_priority(left: &[Value], right: &[Value]) -> Result<Ordering, Error> {
     for (own, other) in left.iter().zip(right.iter()) {
         let ordering = own
@@ -110,7 +122,8 @@ pub(crate) fn cmp_with_priority(left: &[Value], right: &[Value]) -> Result<Order
     Ok(Ordering::Equal)
 }
 
-pub(crate) fn sub(left: &[Value], right: &[Value]) -> Result<Vec4<Value>, Error> {
+/// Try to subtract a value vector from another
+pub(crate) fn try_sub(left: &[Value], right: &[Value]) -> Result<Vec4<Value>, Error> {
     let mut v = SmallVec::with_capacity(left.len());
     for i in 0..left.len() {
         v.push(left[i].try_sub(&right[i])?);
@@ -129,7 +142,7 @@ mod tests {
     fn test_sub_valid() {
         let left = vec![Value::Int(5), Value::Int(10), Value::Int(15)];
         let right = vec![Value::Int(2), Value::Int(3), Value::Int(5)];
-        let result = sub(&left, &right).unwrap();
+        let result = try_sub(&left, &right).unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], Value::Int(3));
         assert_eq!(result[1], Value::Int(7));
@@ -140,7 +153,7 @@ mod tests {
     fn test_sub_empty() {
         let left: Vec<Value> = vec![];
         let right: Vec<Value> = vec![];
-        let result = sub(&left, &right).unwrap();
+        let result = try_sub(&left, &right).unwrap();
         assert_eq!(result.len(), 0);
     }
 
@@ -148,7 +161,7 @@ mod tests {
     fn test_sub_same_numbers() {
         let left = vec![Value::Int(5), Value::Int(5)];
         let right = vec![Value::Int(5), Value::Int(5)];
-        let result = sub(&left, &right).unwrap();
+        let result = try_sub(&left, &right).unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], Value::Int(0));
         assert_eq!(result[1], Value::Int(0));
