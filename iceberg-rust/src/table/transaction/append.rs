@@ -59,10 +59,11 @@ pub fn split_datafiles_once(
     ])
 }
 
+/// Splits the datafiles *n_split* times to decrease the number of datafiles per maniefst. 1 split returns 2 outputs vectors, 2 splits return 4, 3 splits return 8 and so on.
 pub(crate) fn split_datafiles(
     files: impl Iterator<Item = Result<ManifestEntry, Error>>,
     rect: Rectangle,
-    names: &SmallVec<[&str; 4]>,
+    names: &[&str],
     n_split: u32,
 ) -> Result<SmallVec<[Vec<ManifestEntry>; 2]>, Error> {
     let [(smaller, smaller_rect), (larger, larger_rect)] =

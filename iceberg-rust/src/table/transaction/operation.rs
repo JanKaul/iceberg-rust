@@ -226,7 +226,9 @@ impl Operation {
                     .unwrap_or(0) as usize
                     + files.len();
 
-                // How many times do the files need to be split to give at most *limit* files per manifest
+                // To achieve fast lookups of the datafiles, the maniest tree should be somewhat balanced, meaning that manifest files should contain a similar number of datafiles.
+                // This means that maniest files might need to be split up when they get too large. Since the number of datafiles being added by a append operation might be really large,
+                // it might even be required to split the manifest file multiple times. *N_splits* stores how many times a manifest file needs to be split to give at most *limit* datafiles per manifest
                 let n_splits = match new_file_count / limit {
                     0 => 0,
                     x => x.ilog2() + 1,
