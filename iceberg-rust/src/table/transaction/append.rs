@@ -23,7 +23,8 @@ pub fn split_datafiles_once(
     for manifest_entry in files {
         let manifest_entry = manifest_entry?;
         let position = partition_struct_to_vec(manifest_entry.data_file().partition(), names)?;
-        // Check distance to upper and lower bound
+        // Compare distance to upper and lower bound. Since you can't compute a "norm" for a multidimensional vector where the dimensions have different datatypes,
+        // the dimensions are compared individually and the norm is computed by weighing the earlier columns more than the later.
         if let Ordering::Greater = cmp_with_priority(
             &try_sub(&position, &rect.min)?,
             &try_sub(&rect.max, &position)?,
