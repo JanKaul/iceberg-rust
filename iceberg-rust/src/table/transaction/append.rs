@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 
 use iceberg_rust_spec::manifest::ManifestEntry;
-use smallvec::{smallvec, SmallVec};
 
 use crate::{
     error::Error,
@@ -60,17 +59,17 @@ fn split_datafiles_once(
     ])
 }
 
-/// Splits the datafiles *n_split* times to decrease the number of datafiles per maniefst. 1 split returns 2 outputs vectors, 2 splits return 4, 3 splits return 8 and so on.
+/// Splits the datafiles *n_split* times to decrease the number of datafiles per maniefst. Returns *2^n_splits* lists of manifest entries.
 pub(crate) fn split_datafiles(
     files: impl Iterator<Item = Result<ManifestEntry, Error>>,
     rect: Rectangle,
     names: &[&str],
     n_split: u32,
-) -> Result<SmallVec<[Vec<ManifestEntry>; 2]>, Error> {
+) -> Result<Vec<Vec<ManifestEntry>>, Error> {
     let [(smaller, smaller_rect), (larger, larger_rect)] =
         split_datafiles_once(files, rect, names)?;
     if n_split == 1 {
-        Ok(smallvec![smaller, larger])
+        Ok(vec![smaller, larger])
     } else {
         let mut smaller = split_datafiles(
             smaller.into_iter().map(Ok),
