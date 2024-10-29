@@ -597,10 +597,13 @@ impl DataSink for IcebergDataSink {
 mod tests {
 
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
-    use iceberg_rust::spec::{
-        partition::{PartitionField, Transform},
-        schema::Schema,
-        types::{PrimitiveType, StructField, StructType, Type},
+    use iceberg_rust::{
+        catalog::tabular::Tabular,
+        spec::{
+            partition::{PartitionField, Transform},
+            schema::Schema,
+            types::{PrimitiveType, StructField, StructType, Type},
+        },
     };
     use iceberg_rust::{
         catalog::Catalog,
@@ -613,7 +616,7 @@ mod tests {
     };
     use iceberg_sql_catalog::SqlCatalog;
     use object_store::{memory::InMemory, ObjectStore};
-    use std::sync::Arc;
+    use std::{ops::Deref, sync::Arc};
 
     use crate::{catalog::catalog::IcebergCatalog, DataFusionTable};
 
@@ -863,7 +866,7 @@ mod tests {
 
         let ctx = SessionContext::new();
 
-        ctx.register_table("orders", table).unwrap();
+        ctx.register_table("orders", table.clone()).unwrap();
 
         ctx.sql(
             "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES 
@@ -966,6 +969,13 @@ mod tests {
                 }
             }
         }
+
+        match table.tabular.read().await.deref() {
+            Tabular::Table(table) => {
+                assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
+            }
+            _ => (),
+        };
     }
 
     #[tokio::test]
