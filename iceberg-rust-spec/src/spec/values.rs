@@ -2,13 +2,14 @@
  * Value in iceberg
  */
 
+use core::panic;
 use std::{
     any::Any,
     collections::{btree_map::Keys, BTreeMap, HashMap},
     fmt,
     hash::{DefaultHasher, Hash, Hasher},
     io::Cursor,
-    ops::{Add, Sub},
+    ops::Sub,
     slice::Iter,
 };
 
@@ -855,6 +856,33 @@ impl TrySub for Value {
             (Value::String(own), Value::String(other)) => {
                 Ok(Value::LongInt(sub_string(own, other) as i64))
             }
+            (Value::UUID(own), Value::UUID(other)) => {
+                let (own1, own2, own3, own4) = own.to_fields_le();
+                let (other1, other2, other3, other4) = other.to_fields_le();
+                let mut sub4 = [0; 8];
+                for i in 0..own4.len() {
+                    sub4[i] = own4[i] - other4[i];
+                }
+                Ok(Value::UUID(Uuid::from_fields_le(
+                    own1 - other1,
+                    own2 - other2,
+                    own3 - other3,
+                    &sub4,
+                )))
+            }
+            (Value::Fixed(own_size, own), Value::Fixed(other_size, other)) => Ok(Value::Fixed(
+                if own_size <= other_size {
+                    *own_size
+                } else if own_size > other_size {
+                    *other_size
+                } else {
+                    panic!("Size must be either smaller, equal or larger");
+                },
+                own.iter()
+                    .zip(other.iter())
+                    .map(|(own, other)| own - other)
+                    .collect(),
+            )),
             (x, y) => Err(Error::Type(
                 x.datatype().to_string(),
                 y.datatype().to_string(),

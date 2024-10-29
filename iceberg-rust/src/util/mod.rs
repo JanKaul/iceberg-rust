@@ -51,7 +51,9 @@ impl Rectangle {
         }
     }
 
-    /// Determine of one rectangle is larger than the other. Values the earlier columns more than the later.
+    /// Determine if one rectangle is larger than the other.
+    ///
+    ///Values the earlier columns more than the later.
     pub(crate) fn cmp_with_priority(&self, other: &Rectangle) -> Result<Ordering, Error> {
         let self_iter = self
             .max
