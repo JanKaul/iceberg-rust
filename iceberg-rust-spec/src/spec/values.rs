@@ -829,43 +829,13 @@ mod datetime {
     }
 }
 
-pub trait TryAdd: Sized {
-    fn try_add(&self, other: &Self) -> Result<Self, Error>;
-}
 pub trait TrySub: Sized {
     fn try_sub(&self, other: &Self) -> Result<Self, Error>;
-}
-
-impl<T: Add<Output = T> + Copy> TryAdd for T {
-    fn try_add(&self, other: &Self) -> Result<Self, Error> {
-        Ok(*self + *other)
-    }
 }
 
 impl<T: Sub<Output = T> + Copy> TrySub for T {
     fn try_sub(&self, other: &Self) -> Result<Self, Error> {
         Ok(*self - *other)
-    }
-}
-
-impl TryAdd for Value {
-    fn try_add(&self, other: &Self) -> Result<Self, Error> {
-        match (self, other) {
-            (Value::Int(own), Value::Int(other)) => Ok(Value::Int(own + other)),
-            (Value::LongInt(own), Value::LongInt(other)) => Ok(Value::LongInt(own + other)),
-            (Value::Float(own), Value::Float(other)) => Ok(Value::Float(*own + *other)),
-            (Value::Double(own), Value::Double(other)) => Ok(Value::Double(*own + *other)),
-            (Value::Date(own), Value::Date(other)) => Ok(Value::Date(own + other)),
-            (Value::Time(own), Value::Time(other)) => Ok(Value::Time(own + other)),
-            (Value::Timestamp(own), Value::Timestamp(other)) => Ok(Value::Timestamp(own + other)),
-            (Value::TimestampTZ(own), Value::TimestampTZ(other)) => {
-                Ok(Value::TimestampTZ(own + other))
-            }
-            (x, y) => Err(Error::Type(
-                x.datatype().to_string(),
-                y.datatype().to_string(),
-            )),
-        }
     }
 }
 
