@@ -2,7 +2,7 @@
  * Defines the different [Operation]s on a [Table].
 */
 
-use std::{cmp::Ordering, collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use iceberg_rust_spec::manifest_list::{
     manifest_list_schema_v1, manifest_list_schema_v2, ManifestListReader,
@@ -32,7 +32,7 @@ use crate::{
     util::{partition_struct_to_vec, summary_to_rectangle, Rectangle},
 };
 
-use super::append::split_datafiles;
+use super::append::{select_manifest, split_datafiles};
 
 static MIN_DATAFILES: usize = 4;
 
@@ -143,75 +143,16 @@ impl Operation {
                         .bytes()
                         .await?;
 
-                    let mut manifest_list_reader =
+                    let manifest_list_reader =
                         ManifestListReader::new(old_manifest_list_bytes.as_ref(), table_metadata)?;
 
-                    // Check if table is partitioned
-                    let manifest = if partition_column_names.is_empty() {
-                        // Find the manifest with the lowest row count
-                        manifest_list_reader
-                            .try_fold(None, |acc, x| {
-                                let manifest = x?;
-
-                                let row_count = manifest.added_rows_count;
-
-                                file_count += manifest.added_files_count.unwrap_or(0) as usize;
-
-                                let Some((old_row_count, old_manifest)) = acc else {
-                                    return Ok::<_, Error>(Some((row_count, manifest)));
-                                };
-
-                                let Some(row_count) = row_count else {
-                                    return Ok(Some((old_row_count, old_manifest)));
-                                };
-
-                                if old_row_count.is_none()
-                                    || old_row_count.is_some_and(|x| x > row_count)
-                                {
-                                    manifest_list_writer.append_ser(old_manifest)?;
-                                    Ok(Some((Some(row_count), manifest)))
-                                } else {
-                                    manifest_list_writer.append_ser(manifest)?;
-                                    Ok(Some((old_row_count, old_manifest)))
-                                }
-                            })?
-                            .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))?
-                            .1
-                    } else {
-                        // Find the manifest with the smallest bounding partition values
-                        manifest_list_reader
-                            .try_fold(None, |acc, x| {
-                                let manifest = x?;
-
-                                let mut bounds = summary_to_rectangle(
-                                    manifest.partitions.as_ref().ok_or(Error::NotFound(
-                                        "Partition".to_owned(),
-                                        "struct".to_owned(),
-                                    ))?,
-                                )?;
-
-                                bounds.expand(&bounding_partition_values);
-
-                                file_count += manifest.added_files_count.unwrap_or(0) as usize;
-
-                                let Some((old_bounds, old_manifest)) = acc else {
-                                    return Ok::<_, Error>(Some((bounds, manifest)));
-                                };
-
-                                match old_bounds.cmp_with_priority(&bounds)? {
-                                    Ordering::Greater => {
-                                        manifest_list_writer.append_ser(old_manifest)?;
-                                        Ok(Some((bounds, manifest)))
-                                    }
-                                    _ => {
-                                        manifest_list_writer.append_ser(manifest)?;
-                                        Ok(Some((old_bounds, old_manifest)))
-                                    }
-                                }
-                            })?
-                            .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))?
-                            .1
-                    };
+                    let manifest = select_manifest(
+                        &partition_column_names,
+                        manifest_list_reader,
+                        &mut file_count,
+                        &mut manifest_list_writer,
+                        &bounding_partition_values,
+                    )?;
                     Some(manifest)
                 } else {
                     // If manifest list doesn't exist, there is no manifest
