@@ -980,11 +980,8 @@ mod tests {
             }
         }
 
-        match table.tabular.read().await.deref() {
-            Tabular::Table(table) => {
-                assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
-            }
-            _ => (),
+        if let Tabular::Table(table) = table.tabular.read().await.deref() {
+            assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
         };
     }
 
