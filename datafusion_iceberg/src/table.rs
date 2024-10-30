@@ -929,7 +929,17 @@ mod tests {
                 (12, 2, 3, '2020-01-04', 1),
                 (13, 1, 1, '2020-01-05', 4),
                 (14, 3, 2, '2020-01-05', 2),
-                (15, 2, 3, '2020-01-05', 3);",
+                (15, 2, 3, '2020-01-05', 3),
+                (16, 2, 3, '2020-01-05', 3),
+                (17, 1, 3, '2020-01-06', 1),
+                (18, 2, 1, '2020-01-06', 2),
+                (19, 2, 2, '2020-01-06', 1),
+                (20, 1, 2, '2020-01-07', 3),
+                (21, 3, 1, '2020-01-07', 2),
+                (22, 2, 3, '2020-01-07', 1),
+                (23, 1, 1, '2020-01-08', 4),
+                (24, 3, 2, '2020-01-08', 2),
+                (25, 2, 3, '2020-01-08', 3);",
         )
         .await
         .expect("Failed to create query plan for insert")
@@ -961,9 +971,9 @@ mod tests {
                 );
                 for (product_id, amount) in product_ids.iter().zip(amounts) {
                     match product_id.unwrap() {
-                        1 => assert_eq!(amount.unwrap(), 7),
-                        2 => assert_eq!(amount.unwrap(), 4),
-                        3 => assert_eq!(amount.unwrap(), 1),
+                        1 => assert_eq!(amount.unwrap(), 11),
+                        2 => assert_eq!(amount.unwrap(), 7),
+                        3 => assert_eq!(amount.unwrap(), 2),
                         _ => panic!("Unexpected order id"),
                     }
                 }

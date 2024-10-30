@@ -2,21 +2,105 @@
  * Helpers to deal with manifest files
 */
 
-use std::sync::Arc;
+use std::{
+    io::Read,
+    iter::{repeat, Map, Repeat, Zip},
+    sync::Arc,
+};
 
-use apache_avro::{Schema as AvroSchema, Writer as AvroWriter};
+use apache_avro::{
+    types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
+};
 use iceberg_rust_spec::{
-    manifest::ManifestEntry,
+    manifest::{ManifestEntry, ManifestEntryV1, ManifestEntryV2},
     manifest_list::{self, FieldSummary, ManifestListEntry},
-    partition::PartitionField,
-    schema::{SchemaV1, SchemaV2},
+    partition::{PartitionField, PartitionSpec},
+    schema::{Schema, SchemaV1, SchemaV2},
     table_metadata::{FormatVersion, TableMetadata},
     util::strip_prefix,
     values::{Struct, Value},
 };
 use object_store::ObjectStore;
 
-use crate::error::Error;
+use crate::{error::Error, spec};
+
+type ReaderZip<'a, R> = Zip<AvroReader<'a, R>, Repeat<Arc<(Schema, PartitionSpec, FormatVersion)>>>;
+type ReaderMap<'a, R> = Map<
+    ReaderZip<'a, R>,
+    fn(
+        (
+            Result<AvroValue, apache_avro::Error>,
+            Arc<(Schema, PartitionSpec, FormatVersion)>,
+        ),
+    ) -> Result<ManifestEntry, Error>,
+>;
+
+/// Iterator of ManifestFileEntries
+pub struct ManifestReader<'a, R: Read> {
+    reader: ReaderMap<'a, R>,
+}
+
+impl<'a, R: Read> Iterator for ManifestReader<'a, R> {
+    type Item = Result<ManifestEntry, Error>;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.reader.next()
+    }
+}
+
+impl<'a, R: Read> ManifestReader<'a, R> {
+    /// Create a new ManifestFile reader
+    pub fn new(reader: R) -> Result<Self, Error> {
+        let reader = AvroReader::new(reader)?;
+        let metadata = reader.user_metadata();
+
+        let format_version: FormatVersion = match metadata
+            .get("format-version")
+            .map(|bytes| String::from_utf8(bytes.clone()))
+            .transpose()?
+            .unwrap_or("1".to_string())
+            .as_str()
+        {
+            "1" => Ok(FormatVersion::V1),
+            "2" => Ok(FormatVersion::V2),
+            _ => Err(Error::InvalidFormat("format version".to_string())),
+        }?;
+
+        let schema: Schema = match format_version {
+            FormatVersion::V1 => TryFrom::<SchemaV1>::try_from(serde_json::from_slice(
+                metadata
+                    .get("schema")
+                    .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
+            )?)?,
+            FormatVersion::V2 => TryFrom::<SchemaV2>::try_from(serde_json::from_slice(
+                metadata
+                    .get("schema")
+                    .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
+            )?)?,
+        };
+
+        let partition_fields: Vec<PartitionField> = serde_json::from_slice(
+            metadata
+                .get("partition-spec")
+                .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
+        )?;
+        let spec_id: i32 = metadata
+            .get("partition-spec-id")
+            .map(|x| String::from_utf8(x.clone()))
+            .transpose()?
+            .unwrap_or("0".to_string())
+            .parse()?;
+        let partition_spec = PartitionSpec::builder()
+            .with_spec_id(spec_id)
+            .with_fields(partition_fields)
+            .build()
+            .map_err(spec::error::Error::from)?;
+        Ok(Self {
+            reader: reader
+                .zip(repeat(Arc::new((schema, partition_spec, format_version))))
+                .map(avro_value_to_manifest_entry),
+        })
+    }
+}
 
 /// A helper to write entries into a manifest
 pub struct ManifestWriter<'schema, 'metadata> {
@@ -199,7 +283,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     }
 
     /// Write the manifest to object storage and return the manifest-list-entry
-    pub async fn write(
+    pub async fn finish(
         mut self,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<ManifestListEntry, Error> {
@@ -216,6 +300,34 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             )
             .await?;
         Ok(self.manifest)
+    }
+}
+
+#[allow(clippy::type_complexity)]
+/// Convert avro value to ManifestEntry based on the format version of the table.
+pub fn avro_value_to_manifest_entry(
+    value: (
+        Result<AvroValue, apache_avro::Error>,
+        Arc<(Schema, PartitionSpec, FormatVersion)>,
+    ),
+) -> Result<ManifestEntry, Error> {
+    let entry = value.0?;
+    let schema = &value.1 .0;
+    let partition_spec = &value.1 .1;
+    let format_version = &value.1 .2;
+    match format_version {
+        FormatVersion::V2 => ManifestEntry::try_from_v2(
+            apache_avro::from_value::<ManifestEntryV2>(&entry)?,
+            schema,
+            partition_spec,
+        )
+        .map_err(Error::from),
+        FormatVersion::V1 => ManifestEntry::try_from_v1(
+            apache_avro::from_value::<ManifestEntryV1>(&entry)?,
+            schema,
+            partition_spec,
+        )
+        .map_err(Error::from),
     }
 }
 
