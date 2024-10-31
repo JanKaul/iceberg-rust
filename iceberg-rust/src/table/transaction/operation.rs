@@ -27,7 +27,7 @@ use crate::{
     util::{partition_struct_to_vec, summary_to_rectangle, Rectangle},
 };
 
-use super::append::{select_manifest, split_datafiles};
+use super::append::{select_manifest_partitioned, select_manifest_unpartitioned, split_datafiles};
 
 static MIN_DATAFILES: usize = 4;
 
@@ -127,6 +127,7 @@ impl Operation {
 
                 let old_manifest_list_location = old_snapshot.map(|x| x.manifest_list()).cloned();
 
+                // TO DISCUSS: What is this?
                 let mut file_count = 0;
 
                 // Find a manifest to add the new datafiles
@@ -141,19 +142,27 @@ impl Operation {
                     let manifest_list_reader =
                         ManifestListReader::new(old_manifest_list_bytes.as_ref(), table_metadata)?;
 
-                    let manifest = select_manifest(
-                        &partition_column_names,
-                        manifest_list_reader,
-                        &mut file_count,
-                        &mut manifest_list_writer,
-                        &bounding_partition_values,
-                    )?;
+                    let manifest = if partition_column_names.is_empty() {
+                        select_manifest_unpartitioned(
+                            manifest_list_reader,
+                            &mut file_count,
+                            &mut manifest_list_writer,
+                        )?
+                    } else {
+                        select_manifest_partitioned(
+                            manifest_list_reader,
+                            &mut file_count,
+                            &mut manifest_list_writer,
+                            &bounding_partition_values,
+                        )?
+                    };
                     Some(manifest)
                 } else {
                     // If manifest list doesn't exist, there is no manifest
                     None
                 };
 
+                // TO DISCUSS: What is this rule?
                 let limit = MIN_DATAFILES + ((file_count + files.len()) as f64).sqrt() as usize;
 
                 let new_file_count = manifest
