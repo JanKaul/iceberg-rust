@@ -27,9 +27,35 @@ use crate::{
     util::{partition_struct_to_vec, summary_to_rectangle, Rectangle},
 };
 
-use super::append::{select_manifest_partitioned, select_manifest_unpartitioned, split_datafiles};
+use super::append::{
+    select_manifest_partitioned, select_manifest_unpartitioned, split_datafiles, SelectedManifest,
+};
 
-static MIN_DATAFILES: usize = 4;
+/// The target number of datafiles per manifest is dynamic, but we don't want to go below this number.
+static MIN_DATAFILES_PER_MANIFEST: usize = 4;
+
+/// To achieve fast lookups of the datafiles, the manifest tree should be somewhat balanced, meaning that manifest files should contain a similar number of datafiles.
+/// This means that manifest files might need to be split up when they get too large. Since the number of datafiles being added by a append operation might be really large,
+/// it might even be required to split the manifest file multiple times. *n_splits* stores how many times a manifest file needs to be split to give at most *limit* datafiles per manifest.
+fn compute_n_splits(
+    existing_file_count: usize,
+    new_file_count: usize,
+    selected_manifest_file_count: usize,
+) -> u32 {
+    // We want:
+    //   nb manifests per manifest list ~= nb data files per manifest
+    // Since:
+    //   total number of data files = nb manifests per manifest list * nb data files per manifest
+    // We shall have:
+    //   limit = sqrt(total number of data files)
+    let limit = MIN_DATAFILES_PER_MANIFEST
+        + ((existing_file_count + new_file_count) as f64).sqrt() as usize;
+    let new_manifest_file_count = selected_manifest_file_count + new_file_count;
+    match new_manifest_file_count / limit {
+        0 => 0,
+        x => x.ilog2() + 1,
+    }
+}
 
 #[derive(Debug)]
 ///Table operations
@@ -88,7 +114,7 @@ impl Operation {
         match self {
             Operation::Append {
                 branch,
-                files,
+                files: new_files,
                 additional_summary,
             } => {
                 let partition_spec = table_metadata.default_partition_spec()?;
@@ -102,7 +128,7 @@ impl Operation {
                     .map(|x| x.name().as_str())
                     .collect::<SmallVec<[_; 4]>>();
 
-                let bounding_partition_values = files
+                let bounding_partition_values = new_files
                     .iter()
                     .try_fold(None, |acc, x| {
                         let node = partition_struct_to_vec(x.partition(), &partition_column_names)?;
@@ -127,11 +153,10 @@ impl Operation {
 
                 let old_manifest_list_location = old_snapshot.map(|x| x.manifest_list()).cloned();
 
-                // TO DISCUSS: What is this?
-                let mut file_count = 0;
-
                 // Find a manifest to add the new datafiles
-                let manifest = if let Some(old_manifest_list_location) = &old_manifest_list_location
+                let mut existing_file_count = 0;
+                let selected_manifest_opt = if let Some(old_manifest_list_location) =
+                    &old_manifest_list_location
                 {
                     let old_manifest_list_bytes = object_store
                         .get(&strip_prefix(old_manifest_list_location).as_str().into())
@@ -142,44 +167,40 @@ impl Operation {
                     let manifest_list_reader =
                         ManifestListReader::new(old_manifest_list_bytes.as_ref(), table_metadata)?;
 
-                    let manifest = if partition_column_names.is_empty() {
+                    let SelectedManifest {
+                        manifest,
+                        file_count_all_entries,
+                    } = if partition_column_names.is_empty() {
                         select_manifest_unpartitioned(
                             manifest_list_reader,
-                            &mut file_count,
                             &mut manifest_list_writer,
                         )?
                     } else {
                         select_manifest_partitioned(
                             manifest_list_reader,
-                            &mut file_count,
                             &mut manifest_list_writer,
                             &bounding_partition_values,
                         )?
                     };
+                    existing_file_count = file_count_all_entries;
                     Some(manifest)
                 } else {
                     // If manifest list doesn't exist, there is no manifest
                     None
                 };
 
-                // TO DISCUSS: What is this rule?
-                let limit = MIN_DATAFILES + ((file_count + files.len()) as f64).sqrt() as usize;
-
-                let new_file_count = manifest
+                let selected_manifest_file_count = selected_manifest_opt
                     .as_ref()
-                    .and_then(|x| x.added_files_count)
-                    .unwrap_or(0) as usize
-                    + files.len();
+                    // TODO: should this also account for existing_files_count?
+                    .and_then(|selected_manifest| selected_manifest.added_files_count)
+                    .unwrap_or(0) as usize;
+                let n_splits = compute_n_splits(
+                    existing_file_count,
+                    new_files.len(),
+                    selected_manifest_file_count,
+                );
 
-                // To achieve fast lookups of the datafiles, the maniest tree should be somewhat balanced, meaning that manifest files should contain a similar number of datafiles.
-                // This means that maniest files might need to be split up when they get too large. Since the number of datafiles being added by a append operation might be really large,
-                // it might even be required to split the manifest file multiple times. *N_splits* stores how many times a manifest file needs to be split to give at most *limit* datafiles per manifest
-                let n_splits = match new_file_count / limit {
-                    0 => 0,
-                    x => x.ilog2() + 1,
-                };
-
-                let bounds = manifest
+                let bounds = selected_manifest_opt
                     .as_ref()
                     .and_then(|x| x.partitions.as_deref())
                     .map(summary_to_rectangle)
@@ -193,7 +214,7 @@ impl Operation {
                 let snapshot_id = generate_snapshot_id();
                 let sequence_number = table_metadata.last_sequence_number + 1;
 
-                let new_datafile_iter = files.into_iter().map(|data_file| {
+                let new_datafile_iter = new_files.into_iter().map(|data_file| {
                     ManifestEntry::builder()
                         .with_format_version(table_metadata.format_version)
                         .with_status(Status::Added)
@@ -220,7 +241,7 @@ impl Operation {
                 // Write manifest files
                 // Split manifest file if limit is exceeded
                 if n_splits == 0 {
-                    let mut manifest_writer = if let Some(manifest) = manifest {
+                    let mut manifest_writer = if let Some(manifest) = selected_manifest_opt {
                         let manifest_bytes: Vec<u8> = object_store
                             .get(&strip_prefix(&manifest.manifest_path).as_str().into())
                             .await?
@@ -261,7 +282,7 @@ impl Operation {
                     manifest_list_writer.append_ser(manifest)?;
                 } else {
                     // Split datafiles
-                    let splits = if let Some(manifest) = manifest {
+                    let splits = if let Some(manifest) = selected_manifest_opt {
                         let manifest_bytes: Vec<u8> = object_store
                             .get(&strip_prefix(&manifest.manifest_path).as_str().into())
                             .await?
@@ -396,15 +417,7 @@ impl Operation {
                 let mut manifest_list_writer =
                     apache_avro::Writer::new(manifest_list_schema, Vec::new());
 
-                let new_file_count = files.len();
-
-                let limit = MIN_DATAFILES + ((new_file_count) as f64).sqrt() as usize;
-
-                // How many times do the files need to be split to give at most *limit* files per manifest
-                let n_splits = match new_file_count / limit {
-                    0 => 0,
-                    x => x.ilog2() + 1,
-                };
+                let n_splits = compute_n_splits(0, files.len(), 0);
 
                 let snapshot_id = generate_snapshot_id();
                 let sequence_number = table_metadata.last_sequence_number + 1;

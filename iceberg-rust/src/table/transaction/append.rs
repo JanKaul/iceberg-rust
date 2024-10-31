@@ -88,15 +88,20 @@ pub(crate) fn split_datafiles(
     }
 }
 
+pub(crate) struct SelectedManifest {
+    pub manifest: ManifestListEntry,
+    pub file_count_all_entries: usize,
+}
+
 /// Select the manifest that yields the smallest bounding rectangle after the
 /// bounding rectangle of the new values has been added.
 pub(crate) fn select_manifest_partitioned(
     manifest_list_reader: ManifestListReader<&[u8]>,
-    file_count: &mut usize,
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
     bounding_partition_values: &Rectangle,
-) -> Result<ManifestListEntry, Error> {
+) -> Result<SelectedManifest, Error> {
     let mut selected_state = None;
+    let mut file_count_all_entries = 0;
     for manifest_res in manifest_list_reader {
         let manifest = manifest_res?;
 
@@ -109,7 +114,7 @@ pub(crate) fn select_manifest_partitioned(
 
         bounds.expand(bounding_partition_values);
 
-        *file_count += manifest.added_files_count.unwrap_or(0) as usize;
+        file_count_all_entries += manifest.added_files_count.unwrap_or(0) as usize;
 
         let Some((selected_bounds, selected_manifest)) = &selected_state else {
             selected_state = Some((bounds, manifest));
@@ -129,22 +134,25 @@ pub(crate) fn select_manifest_partitioned(
         }
     }
     selected_state
-        .map(|(_, manifest)| manifest)
+        .map(|(_, entry)| SelectedManifest {
+            manifest: entry,
+            file_count_all_entries,
+        })
         .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))
 }
 
 /// Select the manifest with the smallest number of rows.
 pub(crate) fn select_manifest_unpartitioned(
     manifest_list_reader: ManifestListReader<&[u8]>,
-    file_count: &mut usize,
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
-) -> Result<ManifestListEntry, Error> {
+) -> Result<SelectedManifest, Error> {
     let mut selected_state = None;
+    let mut file_count_all_entries = 0;
     for manifest_res in manifest_list_reader {
         let manifest = manifest_res?;
         // TODO: should this also account for existing_rows_count / existing_files_count?
         let row_count = manifest.added_rows_count;
-        *file_count += manifest.added_files_count.unwrap_or(0) as usize;
+        file_count_all_entries += manifest.added_files_count.unwrap_or(0) as usize;
 
         let Some((selected_row_count, selected_manifest)) = &selected_state else {
             selected_state = Some((row_count, manifest));
@@ -167,6 +175,9 @@ pub(crate) fn select_manifest_unpartitioned(
         }
     }
     selected_state
-        .map(|(_, manifest)| manifest)
+        .map(|(_, entry)| SelectedManifest {
+            manifest: entry,
+            file_count_all_entries,
+        })
         .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))
 }
