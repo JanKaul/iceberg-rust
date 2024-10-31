@@ -4,7 +4,6 @@ use iceberg_rust_spec::{
     manifest::ManifestEntry,
     manifest_list::{ManifestListEntry, ManifestListReader},
 };
-use smallvec::SmallVec;
 
 use crate::{
     error::Error,
@@ -89,75 +88,96 @@ pub(crate) fn split_datafiles(
     }
 }
 
-/// Select the manifest that yields the smallest bounding rectangle after the bounding rectangle of the new values has been added.
-pub(crate) fn select_manifest(
-    partition_column_names: &SmallVec<[&str; 4]>,
-    mut manifest_list_reader: ManifestListReader<&[u8]>,
-    file_count: &mut usize,
+pub(crate) struct SelectedManifest {
+    pub manifest: ManifestListEntry,
+    pub file_count_all_entries: usize,
+}
+
+/// Select the manifest that yields the smallest bounding rectangle after the
+/// bounding rectangle of the new values has been added.
+pub(crate) fn select_manifest_partitioned(
+    manifest_list_reader: ManifestListReader<&[u8]>,
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
     bounding_partition_values: &Rectangle,
-) -> Result<ManifestListEntry, Error> {
-    let manifest =
-        if partition_column_names.is_empty() {
-            // Find the manifest with the lowest row count
-            manifest_list_reader
-                .try_fold(None, |acc, x| {
-                    let manifest = x?;
+) -> Result<SelectedManifest, Error> {
+    let mut selected_state = None;
+    let mut file_count_all_entries = 0;
+    for manifest_res in manifest_list_reader {
+        let manifest = manifest_res?;
 
-                    let row_count = manifest.added_rows_count;
+        let mut bounds = summary_to_rectangle(
+            manifest
+                .partitions
+                .as_ref()
+                .ok_or(Error::NotFound("Partition".to_owned(), "struct".to_owned()))?,
+        )?;
 
-                    *file_count += manifest.added_files_count.unwrap_or(0) as usize;
+        bounds.expand(bounding_partition_values);
 
-                    let Some((old_row_count, old_manifest)) = acc else {
-                        return Ok::<_, Error>(Some((row_count, manifest)));
-                    };
+        file_count_all_entries += manifest.added_files_count.unwrap_or(0) as usize;
 
-                    let Some(row_count) = row_count else {
-                        return Ok(Some((old_row_count, old_manifest)));
-                    };
-
-                    if old_row_count.is_none() || old_row_count.is_some_and(|x| x > row_count) {
-                        manifest_list_writer.append_ser(old_manifest)?;
-                        Ok(Some((Some(row_count), manifest)))
-                    } else {
-                        manifest_list_writer.append_ser(manifest)?;
-                        Ok(Some((old_row_count, old_manifest)))
-                    }
-                })?
-                .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))?
-                .1
-        } else {
-            // Find the manifest with the smallest bounding partition values
-            manifest_list_reader
-                .try_fold(None, |acc, x| {
-                    let manifest = x?;
-
-                    let mut bounds =
-                        summary_to_rectangle(manifest.partitions.as_ref().ok_or(
-                            Error::NotFound("Partition".to_owned(), "struct".to_owned()),
-                        )?)?;
-
-                    bounds.expand(bounding_partition_values);
-
-                    *file_count += manifest.added_files_count.unwrap_or(0) as usize;
-
-                    let Some((old_bounds, old_manifest)) = acc else {
-                        return Ok::<_, Error>(Some((bounds, manifest)));
-                    };
-
-                    match old_bounds.cmp_with_priority(&bounds)? {
-                        Ordering::Greater => {
-                            manifest_list_writer.append_ser(old_manifest)?;
-                            Ok(Some((bounds, manifest)))
-                        }
-                        _ => {
-                            manifest_list_writer.append_ser(manifest)?;
-                            Ok(Some((old_bounds, old_manifest)))
-                        }
-                    }
-                })?
-                .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))?
-                .1
+        let Some((selected_bounds, selected_manifest)) = &selected_state else {
+            selected_state = Some((bounds, manifest));
+            continue;
         };
-    Ok(manifest)
+
+        match selected_bounds.cmp_with_priority(&bounds)? {
+            Ordering::Greater => {
+                manifest_list_writer.append_ser(selected_manifest)?;
+                selected_state = Some((bounds, manifest));
+                continue;
+            }
+            _ => {
+                manifest_list_writer.append_ser(manifest)?;
+                continue;
+            }
+        }
+    }
+    selected_state
+        .map(|(_, entry)| SelectedManifest {
+            manifest: entry,
+            file_count_all_entries,
+        })
+        .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))
+}
+
+/// Select the manifest with the smallest number of rows.
+pub(crate) fn select_manifest_unpartitioned(
+    manifest_list_reader: ManifestListReader<&[u8]>,
+    manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
+) -> Result<SelectedManifest, Error> {
+    let mut selected_state = None;
+    let mut file_count_all_entries = 0;
+    for manifest_res in manifest_list_reader {
+        let manifest = manifest_res?;
+        // TODO: should this also account for existing_rows_count / existing_files_count?
+        let row_count = manifest.added_rows_count;
+        file_count_all_entries += manifest.added_files_count.unwrap_or(0) as usize;
+
+        let Some((selected_row_count, selected_manifest)) = &selected_state else {
+            selected_state = Some((row_count, manifest));
+            continue;
+        };
+
+        // If the file doesn't have any rows, we select it
+        let Some(row_count) = row_count else {
+            selected_state = Some((row_count, manifest));
+            continue;
+        };
+
+        if selected_row_count.is_some_and(|x| x > row_count) {
+            manifest_list_writer.append_ser(selected_manifest)?;
+            selected_state = Some((Some(row_count), manifest));
+            continue;
+        } else {
+            manifest_list_writer.append_ser(manifest)?;
+            continue;
+        }
+    }
+    selected_state
+        .map(|(_, entry)| SelectedManifest {
+            manifest: entry,
+            file_count_all_entries,
+        })
+        .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))
 }
