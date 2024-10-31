@@ -2,15 +2,19 @@
  * Value in iceberg
  */
 
+use core::panic;
 use std::{
     any::Any,
     collections::{btree_map::Keys, BTreeMap, HashMap},
     fmt,
+    hash::{DefaultHasher, Hash, Hasher},
     io::Cursor,
+    ops::Sub,
     slice::Iter,
 };
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
 use serde::{
@@ -128,7 +132,7 @@ impl fmt::Display for Value {
 /// The partition struct stores the tuple of partition values for each file.
 /// Its type is derived from the partition fields of the partition spec used to write the manifest file.
 /// In v2, the partition struct’s field ids must match the ids from the partition spec.
-#[derive(Debug, Clone, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialOrd, Ord)]
 pub struct Struct {
     /// Vector to store the field values
     pub fields: Vec<Option<Value>>,
@@ -270,6 +274,15 @@ impl<'de> Deserialize<'de> for Struct {
 impl PartialEq for Struct {
     fn eq(&self, other: &Self) -> bool {
         self.keys().all(|key| self.get(key).eq(&other.get(key)))
+    }
+}
+
+impl Hash for Struct {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for key in self.keys().sorted() {
+            key.hash(state);
+            self.get(key).hash(state);
+        }
     }
 }
 
@@ -814,6 +827,92 @@ mod datetime {
                 .unwrap()
                 .naive_utc(),
         )
+    }
+}
+
+pub trait TrySub: Sized {
+    fn try_sub(&self, other: &Self) -> Result<Self, Error>;
+}
+
+impl<T: Sub<Output = T> + Copy> TrySub for T {
+    fn try_sub(&self, other: &Self) -> Result<Self, Error> {
+        Ok(*self - *other)
+    }
+}
+
+impl TrySub for Value {
+    fn try_sub(&self, other: &Self) -> Result<Self, Error> {
+        match (self, other) {
+            (Value::Int(own), Value::Int(other)) => Ok(Value::Int(own - other)),
+            (Value::LongInt(own), Value::LongInt(other)) => Ok(Value::LongInt(own - other)),
+            (Value::Float(own), Value::Float(other)) => Ok(Value::Float(*own - *other)),
+            (Value::Double(own), Value::Double(other)) => Ok(Value::Double(*own - *other)),
+            (Value::Date(own), Value::Date(other)) => Ok(Value::Date(own - other)),
+            (Value::Time(own), Value::Time(other)) => Ok(Value::Time(own - other)),
+            (Value::Timestamp(own), Value::Timestamp(other)) => Ok(Value::Timestamp(own - other)),
+            (Value::TimestampTZ(own), Value::TimestampTZ(other)) => {
+                Ok(Value::TimestampTZ(own - other))
+            }
+            (Value::String(own), Value::String(other)) => {
+                Ok(Value::LongInt(sub_string(own, other) as i64))
+            }
+            (Value::UUID(own), Value::UUID(other)) => {
+                let (own1, own2, own3, own4) = own.to_fields_le();
+                let (other1, other2, other3, other4) = other.to_fields_le();
+                let mut sub4 = [0; 8];
+                for i in 0..own4.len() {
+                    sub4[i] = own4[i] - other4[i];
+                }
+                Ok(Value::UUID(Uuid::from_fields_le(
+                    own1 - other1,
+                    own2 - other2,
+                    own3 - other3,
+                    &sub4,
+                )))
+            }
+            (Value::Fixed(own_size, own), Value::Fixed(other_size, other)) => Ok(Value::Fixed(
+                if own_size <= other_size {
+                    *own_size
+                } else if own_size > other_size {
+                    *other_size
+                } else {
+                    panic!("Size must be either smaller, equal or larger");
+                },
+                own.iter()
+                    .zip(other.iter())
+                    .map(|(own, other)| own - other)
+                    .collect(),
+            )),
+            (x, y) => Err(Error::Type(
+                x.datatype().to_string(),
+                y.datatype().to_string(),
+            )),
+        }
+    }
+}
+
+fn sub_string(left: &str, right: &str) -> u64 {
+    if let Some(distance) = left
+        .chars()
+        .zip(right.chars())
+        .take(256)
+        .skip_while(|(l, r)| l == r)
+        .try_fold(0, |acc, (l, r)| {
+            if let (Some(l), Some(r)) = (l.to_digit(36), r.to_digit(36)) {
+                Some(acc + (l - r).pow(2))
+            } else {
+                None
+            }
+        })
+    {
+        distance as u64
+    } else {
+        let mut hasher = DefaultHasher::new();
+        hasher.write(left.as_bytes());
+        let left = hasher.finish();
+        hasher.write(right.as_bytes());
+        let right = hasher.finish();
+        left - right
     }
 }
 

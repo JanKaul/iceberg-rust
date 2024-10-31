@@ -11,6 +11,7 @@ use self::operation::Operation;
 
 use super::delete_files;
 
+pub(crate) mod append;
 pub(crate) mod operation;
 
 pub(crate) static APPEND_KEY: &str = "append";
@@ -55,7 +56,7 @@ impl<'table> TableTransaction<'table> {
         self.operations
             .entry(APPEND_KEY.to_owned())
             .and_modify(|mut x| {
-                if let Operation::NewAppend {
+                if let Operation::Append {
                     branch: _,
                     files: old,
                     additional_summary: None,
@@ -64,7 +65,7 @@ impl<'table> TableTransaction<'table> {
                     old.extend_from_slice(&files)
                 }
             })
-            .or_insert(Operation::NewAppend {
+            .or_insert(Operation::Append {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: None,
