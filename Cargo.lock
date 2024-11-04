@@ -2473,7 +2473,6 @@ dependencies = [
  "getrandom",
  "itertools 0.10.5",
  "murmur3",
- "object_store",
  "ordered-float 4.2.0",
  "rust_decimal",
  "serde",
