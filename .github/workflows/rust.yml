@@ -10,10 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
     - name: Build
@@ -24,3 +22,12 @@ jobs:
       run: cargo test -p iceberg-rust --lib --verbose
     - name: Run datafusion-iceberg tests
       run: cargo test -p datafusion_iceberg --tests --verbose -j 2
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install Clippy
+      run: rustup component add clippy
+    - name: Run Clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
