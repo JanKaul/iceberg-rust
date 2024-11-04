@@ -3,24 +3,15 @@
 */
 use std::{
     collections::HashMap,
-    fmt,
-    io::Cursor,
-    str,
-    sync::Arc,
+    fmt, str,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use derive_builder::Builder;
 use derive_getters::Getters;
-use object_store::ObjectStore;
 use serde::{Deserialize, Serialize};
 
-use crate::{error::Error, util};
-
-use super::{
-    manifest_list::{ManifestListEntry, ManifestListReader},
-    table_metadata::TableMetadata,
-};
+use crate::error::Error;
 
 use _serde::SnapshotEnum;
 
@@ -54,26 +45,6 @@ pub struct Snapshot {
     /// ID of the table’s current schema when the snapshot was created.
     #[builder(setter(strip_option), default)]
     schema_id: Option<i32>,
-}
-
-impl Snapshot {
-    // Return all manifest files associated to the latest table snapshot. Reads the related manifest_list file and returns its entries.
-    // If the manifest list file is empty returns an empty vector.
-    pub async fn manifests<'metadata>(
-        &self,
-        table_metadata: &'metadata TableMetadata,
-        object_store: Arc<dyn ObjectStore>,
-    ) -> Result<impl Iterator<Item = Result<ManifestListEntry, Error>> + 'metadata, Error> {
-        let bytes: Cursor<Vec<u8>> = Cursor::new(
-            object_store
-                .get(&util::strip_prefix(&self.manifest_list).into())
-                .await?
-                .bytes()
-                .await?
-                .into(),
-        );
-        ManifestListReader::new(bytes, table_metadata).map_err(Into::into)
-    }
 }
 
 pub fn generate_snapshot_id() -> i64 {

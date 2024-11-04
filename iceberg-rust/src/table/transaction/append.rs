@@ -1,12 +1,10 @@
 use std::cmp::Ordering;
 
-use iceberg_rust_spec::{
-    manifest::ManifestEntry,
-    manifest_list::{ManifestListEntry, ManifestListReader},
-};
+use iceberg_rust_spec::{manifest::ManifestEntry, manifest_list::ManifestListEntry};
 
 use crate::{
     error::Error,
+    table::manifest_list::ManifestListReader,
     util::{cmp_with_priority, partition_struct_to_vec, summary_to_rectangle, try_sub, Rectangle},
 };
 

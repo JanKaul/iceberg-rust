@@ -4,7 +4,8 @@ Defining the [Table] struct that represents an iceberg table.
 
 use std::{io::Cursor, iter::repeat, sync::Arc};
 
-use manifest::ManifestReader;
+use manifest_file::ManifestFileReader;
+use manifest_list::read_snapshot;
 use object_store::{path::Path, ObjectStore};
 
 use futures::{
@@ -30,7 +31,8 @@ use crate::{
     table::transaction::TableTransaction,
 };
 
-pub mod manifest;
+pub mod manifest_file;
+pub mod manifest_list;
 pub mod transaction;
 
 #[derive(Debug)]
@@ -127,9 +129,7 @@ impl Table {
                         Some(sequence_number)
                     }
                 });
-        let iter = end_snapshot
-            .manifests(metadata, self.object_store().clone())
-            .await?;
+        let iter = read_snapshot(end_snapshot, metadata, self.object_store().clone()).await?;
         match start_sequence_number {
             Some(start) => iter
                 .filter(|manifest| {
@@ -139,11 +139,8 @@ impl Table {
                         true
                     }
                 })
-                .collect::<Result<_, iceberg_rust_spec::error::Error>>()
-                .map_err(Error::from),
-            None => iter
-                .collect::<Result<_, iceberg_rust_spec::error::Error>>()
-                .map_err(Error::from),
+                .collect(),
+            None => iter.collect(),
         }
     }
     /// Get list of datafiles corresponding to the given manifest files
@@ -209,7 +206,7 @@ async fn datafiles(
                         .and_then(|file| file.bytes())
                         .await?,
                 ));
-                let reader = ManifestReader::new(bytes)?;
+                let reader = ManifestFileReader::new(bytes)?;
                 sender.send(stream::iter(reader)).await?;
                 Ok(())
             }
@@ -227,10 +224,10 @@ pub(crate) async fn delete_files(
     let Some(snapshot) = metadata.current_snapshot(None)? else {
         return Ok(());
     };
-    let manifests = snapshot
-        .manifests(metadata, object_store.clone())
+    let manifests: Vec<ManifestListEntry> = read_snapshot(snapshot, metadata, object_store.clone())
         .await?
-        .collect::<Result<Vec<_>, iceberg_rust_spec::error::Error>>()?;
+        .collect::<Result<_, _>>()?;
+
     let datafiles = datafiles(object_store.clone(), &manifests, None).await?;
     let snapshots = &metadata.snapshots;
 
