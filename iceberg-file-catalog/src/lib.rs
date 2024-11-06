@@ -551,7 +551,8 @@ impl FileCatalog {
         let parts = path
             .trim_start_matches(self.path.trim_start_matches('/'))
             .trim_start_matches('/')
-            .split('/').nth(1)
+            .split('/')
+            .nth(1)
             .ok_or(IcebergError::InvalidFormat("Namespace in path".to_owned()))?
             .to_owned();
         Namespace::try_new(&[parts]).map_err(IcebergError::from)
@@ -562,7 +563,7 @@ fn parse_version(path: &str) -> Result<u64, IcebergError> {
     path.split('/')
         .last()
         .ok_or(IcebergError::InvalidFormat("Metadata location".to_owned()))?
-        .trim_start_matches("v")
+        .trim_start_matches('v')
         .trim_end_matches(".metadata.json")
         .parse()
         .map_err(IcebergError::from)

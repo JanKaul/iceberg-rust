@@ -463,7 +463,7 @@ fn parse_transform(input: &str) -> Result<(String, Transform), Error> {
             .get(2)
             .ok_or(Error::InvalidFormat("Partition column".to_owned()))?
             .as_str();
-        let mut args = args.split(",").map(|s| s.to_string());
+        let mut args = args.split(',').map(|s| s.to_string());
         let column = args
             .next()
             .ok_or(Error::InvalidFormat("Partition column".to_owned()))?;
