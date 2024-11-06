@@ -1,38 +1,97 @@
-use datafusion::arrow::array::Float32Array;
+use datafusion::arrow::array::{ArrayRef, Int32Array, Int64Array};
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::prelude::SessionContext;
-use datafusion_expr::{col, min};
-use datafusion_iceberg::DataFusionTable;
+use datafusion_iceberg::catalog::catalog::IcebergCatalog;
 use iceberg_rust::catalog::identifier::Identifier;
 use iceberg_rust::catalog::Catalog;
+use iceberg_rust::spec::schema::Schema;
+use iceberg_rust::spec::types::{StructField, StructType};
+use iceberg_rust::table::Table;
 use iceberg_sql_catalog::SqlCatalog;
-use object_store::local::LocalFileSystem;
+use object_store::memory::InMemory;
 use object_store::ObjectStore;
 
 use std::sync::Arc;
 
 #[tokio::main]
 pub(crate) async fn main() {
-    let object_store: Arc<dyn ObjectStore> =
-        Arc::new(LocalFileSystem::new_with_prefix("iceberg-tests/nyc_taxis").unwrap());
+    let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
     let catalog: Arc<dyn Catalog> = Arc::new(
         SqlCatalog::new("sqlite://", "test", object_store.clone())
             .await
             .unwrap(),
     );
-    let identifier = Identifier::parse("test.table1", None).unwrap();
 
-    let table = catalog.clone().register_table(identifier.clone(), "/home/iceberg/warehouse/nyc/taxis/metadata/fb072c92-a02b-11e9-ae9c-1bb7bc9eca94.metadata.json").await.expect("Failed to register table.");
+    let identifier = Identifier::new(&["public".to_string()], "bank_account");
+
+    // Create iceberg table in the catalog
+    Table::builder()
+        .with_name("bank_account")
+        .with_location("/bank_account")
+        .with_schema(
+            Schema::builder()
+                .with_fields(
+                    StructType::builder()
+                        .with_struct_field(StructField {
+                            id: 0,
+                            name: "id".to_owned(),
+                            required: true,
+                            field_type: iceberg_rust::spec::types::Type::Primitive(
+                                iceberg_rust::spec::types::PrimitiveType::Int,
+                            ),
+                            doc: None,
+                        })
+                        .with_struct_field(StructField {
+                            id: 1,
+                            name: "bank_account".to_owned(),
+                            required: false,
+                            field_type: iceberg_rust::spec::types::Type::Primitive(
+                                iceberg_rust::spec::types::PrimitiveType::Int,
+                            ),
+                            doc: None,
+                        })
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .build(identifier.namespace(), catalog.clone())
+        .await
+        .unwrap();
 
     let ctx = SessionContext::new();
 
+    ctx.register_catalog(
+        "warehouse",
+        Arc::new(IcebergCatalog::new(catalog, None).await.unwrap()),
+    );
+
+    let data = RecordBatch::try_from_iter(vec![
+        ("id", Arc::new(Int32Array::from(vec![1, 2, 3])) as ArrayRef),
+        (
+            "bank_account",
+            Arc::new(Int32Array::from(vec![9000, 8000, 7000])),
+        ),
+    ])
+    .unwrap();
+
+    let input = ctx.read_batch(data).unwrap();
+
+    // Write the data from the input dataframe to the table
+    input
+        .write_table(
+            "warehouse.public.bank_account",
+            DataFrameWriteOptions::default(),
+        )
+        .await
+        .unwrap();
+
     let df = ctx
-        .read_table(Arc::new(DataFusionTable::from(table)))
-        .expect("Failed to read table")
-        .select(vec![col("vendor_id"), col("trip_distance")])
-        .unwrap()
-        .aggregate(vec![col("vendor_id")], vec![min(col("trip_distance"))])
+        .sql("Select sum(bank_account) from warehouse.public.bank_account")
+        .await
         .unwrap();
 
     // execute the plan
@@ -44,11 +103,10 @@ pub(crate) async fn main() {
         .expect("All record batches are empty");
 
     let values = batch
-        .column(1)
+        .column(0)
         .as_any()
-        .downcast_ref::<Float32Array>()
+        .downcast_ref::<Int64Array>()
         .expect("Failed to get values from batch.");
 
-    // Value can either be 0.9 or 1.8
-    assert!(((1.35 - values.value(0)).abs() - 0.45).abs() < 0.001)
+    assert_eq!(values.value(0), 24000);
 }
