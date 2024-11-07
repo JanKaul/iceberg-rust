@@ -5,7 +5,10 @@ use std::{
 
 use async_trait::async_trait;
 use aws_config::{BehaviorVersion, SdkConfig};
-use aws_sdk_glue::Client;
+use aws_sdk_glue::{
+    types::{StorageDescriptor, TableInput},
+    Client,
+};
 use iceberg_rust::{
     catalog::{
         bucket::Bucket,
@@ -33,6 +36,7 @@ use iceberg_rust::{
     view::View,
 };
 use object_store::ObjectStore;
+use schema::schema_to_glue;
 use uuid::Uuid;
 
 use crate::error::Error;
@@ -46,6 +50,7 @@ pub struct GlueCatalog {
 }
 
 pub mod error;
+pub mod schema;
 
 impl GlueCatalog {
     pub async fn new(
@@ -154,8 +159,10 @@ impl Catalog for GlueCatalog {
         //     .map_err(Error::from)?)
         unimplemented!()
     }
-    async fn list_namespaces(&self, _parent: Option<&str>) -> Result<Vec<Namespace>, IcebergError> {
-        let name = self.name.clone();
+    async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, IcebergError> {
+        if parent.is_some() {
+            return Ok(Vec::new());
+        }
 
         let result = self
             .client
@@ -165,26 +172,6 @@ impl Catalog for GlueCatalog {
             .map_err(Error::from)
             .unwrap();
 
-        // let rows = {
-        //     sqlx::query(&format!(
-        //         "select distinct table_namespace from iceberg_tables where catalog_name = '{}';",
-        //         &name
-        //     ))
-        //     .fetch_all(&self.pool)
-        //     .await
-        //     .map_err(Error::from)?
-        // };
-        // let iter = rows.iter().map(|row| row.try_get::<String, _>(0));
-
-        // Ok(iter
-        //     .map(|x| {
-        //         x.and_then(|y| {
-        //             Namespace::try_new(&y.split('.').map(ToString::to_string).collect::<Vec<_>>())
-        //                 .map_err(|err| sqlx::Error::Decode(Box::new(err)))
-        //         })
-        //     })
-        //     .collect::<Result<_, sqlx::Error>>()
-        //     .map_err(Error::from)?)
         Ok(result
             .database_list
             .into_iter()
@@ -287,36 +274,49 @@ impl Catalog for GlueCatalog {
         identifier: Identifier,
         create_table: CreateTable,
     ) -> Result<Table, IcebergError> {
-        // let metadata: TableMetadata = create_table.try_into()?;
-        // // Create metadata
-        // let location = metadata.location.to_string();
+        let metadata: TableMetadata = create_table.try_into()?;
+        // Create metadata
+        let location = metadata.location.to_string();
 
-        // // Write metadata to object_store
-        // let bucket = Bucket::from_path(&location)?;
-        // let object_store = self.object_store(bucket);
+        // Write metadata to object_store
+        let bucket = Bucket::from_path(&location)?;
+        let object_store = self.object_store(bucket);
 
-        // let metadata_json = serde_json::to_string(&metadata)?;
-        // let metadata_location = new_metadata_location(&metadata);
-        // object_store
-        //     .put(
-        //         &strip_prefix(&metadata_location).into(),
-        //         metadata_json.into(),
-        //     )
-        //     .await?;
-        // {
-        //     let catalog_name = self.name.clone();
-        //     let namespace = identifier.namespace().to_string();
-        //     let name = identifier.name().to_string();
-        //     let metadata_location = metadata_location.to_string();
+        let metadata_json = serde_json::to_string(&metadata)?;
+        let metadata_location = new_metadata_location(&metadata);
+        object_store
+            .put(
+                &strip_prefix(&metadata_location).into(),
+                metadata_json.into(),
+            )
+            .await?;
 
-        //     sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?;
-        // }
-        // self.cache.write().unwrap().insert(
-        //     identifier.clone(),
-        //     (metadata_location.clone(), metadata.clone().into()),
-        // );
-        // Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
-        unimplemented!()
+        let schema = metadata.current_schema(None)?;
+
+        self.client
+            .create_table()
+            .database_name(&identifier.namespace().to_string())
+            .table_input(
+                TableInput::builder()
+                    .name(identifier.name())
+                    .storage_descriptor(
+                        StorageDescriptor::builder()
+                            .location(&metadata_location)
+                            .set_columns(schema_to_glue(schema.fields()).ok())
+                            .build(),
+                    )
+                    .build()
+                    .map_err(Error::from)?,
+            )
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (metadata_location.clone(), metadata.clone().into()),
+        );
+        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn create_view(
@@ -741,38 +741,38 @@ pub mod tests {
         );
         let identifier = Identifier::parse("public.test", None).unwrap();
 
-        // let schema = Schema::builder()
-        //     .with_schema_id(0)
-        //     .with_identifier_field_ids(vec![1, 2])
-        //     .with_fields(
-        //         StructType::builder()
-        //             .with_struct_field(StructField {
-        //                 id: 1,
-        //                 name: "one".to_string(),
-        //                 required: false,
-        //                 field_type: Type::Primitive(PrimitiveType::String),
-        //                 doc: None,
-        //             })
-        //             .with_struct_field(StructField {
-        //                 id: 2,
-        //                 name: "two".to_string(),
-        //                 required: false,
-        //                 field_type: Type::Primitive(PrimitiveType::String),
-        //                 doc: None,
-        //             })
-        //             .build()
-        //             .unwrap(),
-        //     )
-        //     .build()
-        //     .unwrap();
+        let schema = Schema::builder()
+            .with_schema_id(0)
+            .with_identifier_field_ids(vec![1, 2])
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "one".to_string(),
+                        required: false,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "two".to_string(),
+                        required: false,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
 
-        // let mut table = Table::builder()
-        //     .with_name(identifier.name())
-        //     .with_location("/")
-        //     .with_schema(schema)
-        //     .build(identifier.namespace(), catalog.clone())
-        //     .await
-        //     .expect("Failed to create table");
+        let mut table = Table::builder()
+            .with_name(identifier.name())
+            .with_location("/")
+            .with_schema(schema)
+            .build(identifier.namespace(), catalog.clone())
+            .await
+            .expect("Failed to create table");
 
         // let exists = Arc::clone(&catalog)
         //     .tabular_exists(&identifier)
