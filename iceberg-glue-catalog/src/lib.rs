@@ -60,7 +60,7 @@ impl GlueCatalog {
     ) -> Result<Self, Error> {
         Ok(GlueCatalog {
             name: name.to_owned(),
-            client: Client::new(&config),
+            client: Client::new(config),
             object_store,
             cache: Arc::new(RwLock::new(HashMap::new())),
         })
@@ -129,7 +129,7 @@ impl Catalog for GlueCatalog {
             if let Some(new) = result.table_list {
                 let new = new
                     .into_iter()
-                    .map(|x| Identifier::new(&namespace, x.name()));
+                    .map(|x| Identifier::new(namespace, x.name()));
                 tabulars.extend(new);
             }
             token = result.next_token;
@@ -178,7 +178,7 @@ impl Catalog for GlueCatalog {
         Ok(self
             .client
             .get_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -188,7 +188,7 @@ impl Catalog for GlueCatalog {
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), IcebergError> {
         self.client
             .delete_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -199,7 +199,7 @@ impl Catalog for GlueCatalog {
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
         self.client
             .delete_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -210,7 +210,7 @@ impl Catalog for GlueCatalog {
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
         self.client
             .delete_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -225,7 +225,7 @@ impl Catalog for GlueCatalog {
         let table = self
             .client
             .get_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -249,7 +249,7 @@ impl Catalog for GlueCatalog {
 
         let bytes = &self
             .object_store
-            .get(&strip_prefix(&metadata_location).as_str().into())
+            .get(&strip_prefix(metadata_location).as_str().into())
             .await?
             .bytes()
             .await?;
@@ -299,7 +299,7 @@ impl Catalog for GlueCatalog {
 
         self.client
             .create_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
@@ -319,7 +319,7 @@ impl Catalog for GlueCatalog {
         let table = self
             .client
             .get_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -370,7 +370,7 @@ impl Catalog for GlueCatalog {
 
         self.client
             .create_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
@@ -390,7 +390,7 @@ impl Catalog for GlueCatalog {
         let table = self
             .client
             .get_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -456,7 +456,7 @@ impl Catalog for GlueCatalog {
         // Create view
         self.client
             .create_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
@@ -476,7 +476,7 @@ impl Catalog for GlueCatalog {
         // Create storage table
         self.client
             .create_table()
-            .database_name(&table_identifier.namespace().to_string())
+            .database_name(table_identifier.namespace().to_string())
             .table_input(
                 TableInput::builder()
                     .name(table_identifier.name())
@@ -496,7 +496,7 @@ impl Catalog for GlueCatalog {
         let table = self
             .client
             .get_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -560,7 +560,7 @@ impl Catalog for GlueCatalog {
 
         self.client
             .update_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .version_id(version_id)
             .table_input(
                 TableInput::builder()
@@ -578,7 +578,7 @@ impl Catalog for GlueCatalog {
         let table = self
             .client
             .get_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -608,7 +608,7 @@ impl Catalog for GlueCatalog {
         } else {
             let bytes = &self
                 .object_store
-                .get(&strip_prefix(&new_metadata_location).as_str().into())
+                .get(&strip_prefix(new_metadata_location).as_str().into())
                 .await?
                 .bytes()
                 .await?;
@@ -667,7 +667,7 @@ impl Catalog for GlueCatalog {
 
         self.client
             .update_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .version_id(version_id)
             .table_input(
                 TableInput::builder()
@@ -685,7 +685,7 @@ impl Catalog for GlueCatalog {
         let table = self
             .client
             .get_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -715,7 +715,7 @@ impl Catalog for GlueCatalog {
         } else {
             let bytes = &self
                 .object_store
-                .get(&strip_prefix(&new_metadata_location).as_str().into())
+                .get(&strip_prefix(new_metadata_location).as_str().into())
                 .await?
                 .bytes()
                 .await?;
@@ -726,7 +726,7 @@ impl Catalog for GlueCatalog {
         self.cache
             .write()
             .unwrap()
-            .insert(identifier.clone(), (version_id, metadata.clone().into()));
+            .insert(identifier.clone(), (version_id, metadata.clone()));
 
         if let TabularMetadata::View(metadata) = metadata {
             Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
@@ -779,7 +779,7 @@ impl Catalog for GlueCatalog {
 
         self.client
             .update_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .version_id(version_id)
             .table_input(
                 TableInput::builder()
@@ -797,7 +797,7 @@ impl Catalog for GlueCatalog {
         let table = self
             .client
             .get_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -827,7 +827,7 @@ impl Catalog for GlueCatalog {
         } else {
             let bytes = &self
                 .object_store
-                .get(&strip_prefix(&new_metadata_location).as_str().into())
+                .get(&strip_prefix(new_metadata_location).as_str().into())
                 .await?
                 .bytes()
                 .await?;
@@ -838,7 +838,7 @@ impl Catalog for GlueCatalog {
         self.cache
             .write()
             .unwrap()
-            .insert(identifier.clone(), (version_id, metadata.clone().into()));
+            .insert(identifier.clone(), (version_id, metadata.clone()));
         if let TabularMetadata::MaterializedView(metadata) = metadata {
             Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
         } else {
@@ -868,7 +868,7 @@ impl Catalog for GlueCatalog {
 
         self.client
             .create_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
@@ -888,7 +888,7 @@ impl Catalog for GlueCatalog {
         let table = self
             .client
             .get_table()
-            .database_name(&identifier.namespace().to_string())
+            .database_name(identifier.namespace().to_string())
             .name(identifier.name())
             .send()
             .await
@@ -926,7 +926,7 @@ pub struct GlueCatalogList {
 
 impl GlueCatalogList {
     pub fn new(config: &SdkConfig, object_store: Arc<dyn ObjectStore>) -> Result<Self, Error> {
-        let client = Client::new(&config);
+        let client = Client::new(config);
 
         Ok(GlueCatalogList {
             client,
