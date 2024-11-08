@@ -853,31 +853,64 @@ impl Catalog for GlueCatalog {
         identifier: Identifier,
         metadata_location: &str,
     ) -> Result<Table, IcebergError> {
-        // let bucket = Bucket::from_path(metadata_location)?;
-        // let object_store = self.object_store(bucket);
+        let bucket = Bucket::from_path(metadata_location)?;
+        let object_store = self.object_store(bucket);
 
-        // let metadata: TableMetadata = serde_json::from_slice(
-        //     &object_store
-        //         .get(&metadata_location.into())
-        //         .await?
-        //         .bytes()
-        //         .await?,
-        // )?;
+        let metadata: TableMetadata = serde_json::from_slice(
+            &object_store
+                .get(&metadata_location.into())
+                .await?
+                .bytes()
+                .await?,
+        )?;
 
-        // {
-        //     let catalog_name = self.name.clone();
-        //     let namespace = identifier.namespace().to_string();
-        //     let name = identifier.name().to_string();
-        //     let metadata_location = metadata_location.to_string();
+        let schema = metadata.current_schema(None)?;
 
-        //     sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?;
-        // }
-        // self.cache.write().unwrap().insert(
-        //     identifier.clone(),
-        //     (metadata_location.to_string(), metadata.clone().into()),
-        // );
-        // Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
-        unimplemented!()
+        self.client
+            .create_table()
+            .database_name(&identifier.namespace().to_string())
+            .table_input(
+                TableInput::builder()
+                    .name(identifier.name())
+                    .storage_descriptor(
+                        StorageDescriptor::builder()
+                            .location(metadata_location)
+                            .set_columns(schema_to_glue(schema.fields()).ok())
+                            .build(),
+                    )
+                    .build()
+                    .map_err(Error::from)?,
+            )
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        let table = self
+            .client
+            .get_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?
+            .table
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?;
+
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (
+                table
+                    .version_id()
+                    .ok_or(Error::Text(
+                        "Glue create table didn't return a table.".to_owned(),
+                    ))?
+                    .to_string(),
+                metadata.clone().into(),
+            ),
+        );
+        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     fn object_store(&self, _: Bucket) -> Arc<dyn object_store::ObjectStore> {
