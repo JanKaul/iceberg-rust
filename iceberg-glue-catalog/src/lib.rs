@@ -53,7 +53,7 @@ pub mod error;
 pub mod schema;
 
 impl GlueCatalog {
-    pub async fn new(
+    pub fn new(
         config: &SdkConfig,
         name: &str,
         object_store: Arc<dyn ObjectStore>,
@@ -896,10 +896,7 @@ pub struct GlueCatalogList {
 }
 
 impl GlueCatalogList {
-    pub async fn new(
-        config: &SdkConfig,
-        object_store: Arc<dyn ObjectStore>,
-    ) -> Result<Self, Error> {
+    pub fn new(config: &SdkConfig, object_store: Arc<dyn ObjectStore>) -> Result<Self, Error> {
         let client = Client::new(&config);
 
         Ok(GlueCatalogList {
@@ -988,11 +985,8 @@ pub mod tests {
             .unwrap();
 
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        let catalog: Arc<dyn Catalog> = Arc::new(
-            GlueCatalog::new(&config, "warehouse", object_store)
-                .await
-                .unwrap(),
-        );
+        let catalog: Arc<dyn Catalog> =
+            Arc::new(GlueCatalog::new(&config, "warehouse", object_store).unwrap());
         let identifier = Identifier::parse("public.test", None).unwrap();
 
         let schema = Schema::builder()
