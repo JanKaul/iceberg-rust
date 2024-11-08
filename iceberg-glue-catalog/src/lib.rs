@@ -175,19 +175,15 @@ impl Catalog for GlueCatalog {
         Ok(namespaces)
     }
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, IcebergError> {
-        let catalog_name = self.name.clone();
-        let namespace = identifier.namespace().to_string();
-        let name = identifier.name().to_string();
-
-        // let rows = {
-        //     sqlx::query(&format!("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
-        //         &namespace,
-        //         &name)).fetch_all(&self.pool).await.map_err(Error::from)?
-        // };
-        // let mut iter = rows.iter().map(query_map);
-
-        // Ok(iter.next().is_some())
-        unimplemented!()
+        Ok(self
+            .client
+            .get_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)
+            .is_ok())
     }
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), IcebergError> {
         let catalog_name = self.name.clone();
@@ -1022,11 +1018,11 @@ pub mod tests {
             .await
             .expect("Failed to create table");
 
-        // let exists = Arc::clone(&catalog)
-        //     .tabular_exists(&identifier)
-        //     .await
-        //     .expect("Table doesn't exist");
-        // assert!(exists);
+        let exists = Arc::clone(&catalog)
+            .tabular_exists(&identifier)
+            .await
+            .expect("Table doesn't exist");
+        assert!(exists);
 
         let tables = catalog
             .clone()
