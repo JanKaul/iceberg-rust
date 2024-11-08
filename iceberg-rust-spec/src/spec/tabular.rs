@@ -6,7 +6,7 @@ use std::{fmt, str};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::error::Error;
+use crate::{error::Error, schema::Schema};
 
 use super::{
     materialized_view_metadata::MaterializedViewMetadata, table_metadata::TableMetadata,
@@ -104,6 +104,13 @@ impl<'a> TabularMetadataRef<'a> {
             TabularMetadataRef::Table(table) => table.last_sequence_number,
             TabularMetadataRef::View(view) => view.current_version_id,
             TabularMetadataRef::MaterializedView(matview) => matview.current_version_id,
+        }
+    }
+    pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
+        match self {
+            TabularMetadataRef::Table(table) => table.current_schema(branch),
+            TabularMetadataRef::View(view) => view.current_schema(branch),
+            TabularMetadataRef::MaterializedView(matview) => matview.current_schema(branch),
         }
     }
 }
