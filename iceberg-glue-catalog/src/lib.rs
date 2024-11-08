@@ -330,36 +330,70 @@ impl Catalog for GlueCatalog {
         identifier: Identifier,
         create_view: CreateView<Option<()>>,
     ) -> Result<View, IcebergError> {
-        // let metadata: ViewMetadata = create_view.try_into()?;
-        // // Create metadata
-        // let location = metadata.location.to_string();
+        let metadata: ViewMetadata = create_view.try_into()?;
+        // Create metadata
+        let location = metadata.location.to_string();
 
-        // // Write metadata to object_store
-        // let bucket = Bucket::from_path(&location)?;
-        // let object_store = self.object_store(bucket);
+        // Write metadata to object_store
+        let bucket = Bucket::from_path(&location)?;
+        let object_store = self.object_store(bucket);
 
-        // let metadata_json = serde_json::to_string(&metadata)?;
-        // let metadata_location = new_metadata_location(&metadata);
-        // object_store
-        //     .put(
-        //         &strip_prefix(&metadata_location).into(),
-        //         metadata_json.into(),
-        //     )
-        //     .await?;
-        // {
-        //     let catalog_name = self.name.clone();
-        //     let namespace = identifier.namespace().to_string();
-        //     let name = identifier.name().to_string();
-        //     let metadata_location = metadata_location.to_string();
+        let metadata_json = serde_json::to_string(&metadata)?;
+        let metadata_location = new_metadata_location(&metadata);
+        object_store
+            .put(
+                &strip_prefix(&metadata_location).into(),
+                metadata_json.into(),
+            )
+            .await?;
 
-        //     sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&self.pool).await.map_err(Error::from)?;
-        // }
-        // self.cache.write().unwrap().insert(
-        //     identifier.clone(),
-        //     (metadata_location.clone(), metadata.clone().into()),
-        // );
-        // Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
-        unimplemented!()
+        let schema = metadata.current_schema(None)?;
+
+        self.client
+            .create_table()
+            .database_name(&identifier.namespace().to_string())
+            .table_input(
+                TableInput::builder()
+                    .name(identifier.name())
+                    .storage_descriptor(
+                        StorageDescriptor::builder()
+                            .location(&metadata_location)
+                            .set_columns(schema_to_glue(schema.fields()).ok())
+                            .build(),
+                    )
+                    .build()
+                    .map_err(Error::from)?,
+            )
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        let table = self
+            .client
+            .get_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?
+            .table
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?;
+
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (
+                table
+                    .version_id()
+                    .ok_or(Error::Text(
+                        "Glue create table didn't return a table.".to_owned(),
+                    ))?
+                    .to_string(),
+                metadata.clone().into(),
+            ),
+        );
+        Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn create_materialized_view(
@@ -367,58 +401,105 @@ impl Catalog for GlueCatalog {
         identifier: Identifier,
         create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, IcebergError> {
-        // let (create_view, create_table) = create_view.into();
-        // let metadata: MaterializedViewMetadata = create_view.try_into()?;
-        // let table_metadata: TableMetadata = create_table.try_into()?;
-        // // Create metadata
-        // let location = metadata.location.to_string();
+        let (create_view, create_table) = create_view.into();
+        let metadata: MaterializedViewMetadata = create_view.try_into()?;
+        let table_metadata: TableMetadata = create_table.try_into()?;
+        // Create metadata
+        let location = metadata.location.to_string();
 
-        // // Write metadata to object_store
-        // let bucket = Bucket::from_path(&location)?;
-        // let object_store = self.object_store(bucket);
+        // Write metadata to object_store
+        let bucket = Bucket::from_path(&location)?;
+        let object_store = self.object_store(bucket);
 
-        // let metadata_json = serde_json::to_string(&metadata)?;
-        // let metadata_location = new_metadata_location(&metadata);
+        let metadata_json = serde_json::to_string(&metadata)?;
+        let metadata_location = new_metadata_location(&metadata);
 
-        // let table_metadata_json = serde_json::to_string(&table_metadata)?;
-        // let table_metadata_location = new_metadata_location(&table_metadata);
-        // let table_identifier = metadata.current_version(None)?.storage_table();
-        // object_store
-        //     .put(
-        //         &strip_prefix(&metadata_location).into(),
-        //         metadata_json.into(),
-        //     )
-        //     .await?;
-        // object_store
-        //     .put(
-        //         &strip_prefix(&table_metadata_location).into(),
-        //         table_metadata_json.into(),
-        //     )
-        //     .await?;
-        // {
-        //     let mut transaction = self.pool.begin().await.map_err(Error::from)?;
-        //     let catalog_name = self.name.clone();
-        //     let namespace = identifier.namespace().to_string();
-        //     let name = identifier.name().to_string();
-        //     let metadata_location = metadata_location.to_string();
+        let table_metadata_json = serde_json::to_string(&table_metadata)?;
+        let table_metadata_location = new_metadata_location(&table_metadata);
+        let table_identifier = metadata.current_version(None)?.storage_table();
+        object_store
+            .put(
+                &strip_prefix(&metadata_location).into(),
+                metadata_json.into(),
+            )
+            .await?;
+        object_store
+            .put(
+                &strip_prefix(&table_metadata_location).into(),
+                table_metadata_json.into(),
+            )
+            .await?;
 
-        //     sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",catalog_name,namespace,name, metadata_location)).execute(&mut *transaction).await.map_err(Error::from)?;
+        let schema = metadata.current_schema(None)?;
 
-        //     let table_catalog_name = self.name.clone();
-        //     let table_namespace = table_identifier.namespace().to_string();
-        //     let table_name = table_identifier.name().to_string();
-        //     let table_metadata_location = table_metadata_location.to_string();
+        let table_schema = table_metadata.current_schema(None)?;
 
-        //     sqlx::query(&format!("insert into iceberg_tables (catalog_name, table_namespace, table_name, metadata_location) values ('{}', '{}', '{}', '{}');",table_catalog_name,table_namespace,table_name, table_metadata_location)).execute(&mut *transaction).await.map_err(Error::from)?;
+        // Create view
+        self.client
+            .create_table()
+            .database_name(&identifier.namespace().to_string())
+            .table_input(
+                TableInput::builder()
+                    .name(identifier.name())
+                    .storage_descriptor(
+                        StorageDescriptor::builder()
+                            .location(&metadata_location)
+                            .set_columns(schema_to_glue(schema.fields()).ok())
+                            .build(),
+                    )
+                    .build()
+                    .map_err(Error::from)?,
+            )
+            .send()
+            .await
+            .map_err(Error::from)?;
 
-        //     transaction.commit().await.map_err(Error::from)?;
-        // }
-        // self.cache.write().unwrap().insert(
-        //     identifier.clone(),
-        //     (metadata_location.clone(), metadata.clone().into()),
-        // );
-        // Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
-        unimplemented!()
+        // Create storage table
+        self.client
+            .create_table()
+            .database_name(&table_identifier.namespace().to_string())
+            .table_input(
+                TableInput::builder()
+                    .name(table_identifier.name())
+                    .storage_descriptor(
+                        StorageDescriptor::builder()
+                            .location(&table_metadata_location)
+                            .set_columns(schema_to_glue(table_schema.fields()).ok())
+                            .build(),
+                    )
+                    .build()
+                    .map_err(Error::from)?,
+            )
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        let table = self
+            .client
+            .get_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?
+            .table
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?;
+
+        self.cache.write().unwrap().insert(
+            identifier.clone(),
+            (
+                table
+                    .version_id()
+                    .ok_or(Error::Text(
+                        "Glue create table didn't return a table.".to_owned(),
+                    ))?
+                    .to_string(),
+                metadata.clone().into(),
+            ),
+        );
+        Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
