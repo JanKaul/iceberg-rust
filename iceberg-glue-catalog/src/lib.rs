@@ -312,9 +312,27 @@ impl Catalog for GlueCatalog {
             .await
             .map_err(Error::from)?;
 
+        let table = self
+            .client
+            .get_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?;
+
         self.cache.write().unwrap().insert(
             identifier.clone(),
-            (metadata_location.clone(), metadata.clone().into()),
+            (
+                table
+                    .table()
+                    .and_then(|x| x.version_id())
+                    .ok_or(Error::Text(
+                        "Glue create table didn't return a table.".to_owned(),
+                    ))?
+                    .to_string(),
+                metadata.clone().into(),
+            ),
         );
         Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
     }

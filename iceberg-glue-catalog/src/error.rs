@@ -1,6 +1,8 @@
 use aws_sdk_glue::{
     config::http::HttpResponse,
-    operation::{create_table::CreateTableError, get_databases::GetDatabasesError},
+    operation::{
+        create_table::CreateTableError, get_databases::GetDatabasesError, get_table::GetTableError,
+    },
 };
 use iceberg_rust::error::Error as IcebergError;
 use thiserror::Error;
@@ -15,6 +17,8 @@ pub enum Error {
     GetDatabaseError(#[from] aws_sdk_glue::error::SdkError<GetDatabasesError, HttpResponse>),
     #[error(transparent)]
     CreateTableError(#[from] aws_sdk_glue::error::SdkError<CreateTableError, HttpResponse>),
+    #[error(transparent)]
+    GetTableError(#[from] aws_sdk_glue::error::SdkError<GetTableError, HttpResponse>),
     #[error(transparent)]
     BuildError(#[from] aws_sdk_glue::error::BuildError),
 }
