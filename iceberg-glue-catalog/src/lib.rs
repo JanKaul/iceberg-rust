@@ -74,33 +74,6 @@ impl GlueCatalog {
     }
 }
 
-#[derive(Debug)]
-struct TableRef {
-    table_namespace: String,
-    table_name: String,
-    metadata_location: String,
-    _previous_metadata_location: Option<String>,
-}
-
-// fn query_map(row: &AnyRow) -> Result<TableRef, sqlx::Error> {
-//     Ok(TableRef {
-//         table_namespace: row.try_get(0)?,
-//         table_name: row.try_get(1)?,
-//         metadata_location: row.try_get(2)?,
-//         _previous_metadata_location: row.try_get::<String, _>(3).map(Some).or_else(|err| {
-//             if let sqlx::Error::ColumnDecode {
-//                 index: _,
-//                 source: _,
-//             } = err
-//             {
-//                 Ok(None)
-//             } else {
-//                 Err(err)
-//             }
-//         })?,
-//     })
-// }
-
 #[async_trait]
 impl Catalog for GlueCatalog {
     /// Catalog name
@@ -319,14 +292,17 @@ impl Catalog for GlueCatalog {
             .name(identifier.name())
             .send()
             .await
-            .map_err(Error::from)?;
+            .map_err(Error::from)?
+            .table
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?;
 
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (
                 table
-                    .table()
-                    .and_then(|x| x.version_id())
+                    .version_id()
                     .ok_or(Error::Text(
                         "Glue create table didn't return a table.".to_owned(),
                     ))?
@@ -434,54 +410,106 @@ impl Catalog for GlueCatalog {
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
-        // let identifier = commit.identifier;
-        // let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
-        //     #[allow(clippy::if_same_then_else)]
-        //     if !matches!(commit.requirements[0], TableRequirement::AssertCreate) {
-        //         return Err(IcebergError::InvalidFormat(
-        //             "Create table assertion".to_owned(),
-        //         ));
-        //     } else {
-        //         return Err(IcebergError::InvalidFormat(
-        //             "Create table assertion".to_owned(),
-        //         ));
-        //     }
-        // };
-        // let (previous_metadata_location, metadata) = entry;
+        let identifier = commit.identifier;
+        let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
+            #[allow(clippy::if_same_then_else)]
+            if !matches!(commit.requirements[0], TableRequirement::AssertCreate) {
+                return Err(IcebergError::InvalidFormat(
+                    "Create table assertion".to_owned(),
+                ));
+            } else {
+                return Err(IcebergError::InvalidFormat(
+                    "Create table assertion".to_owned(),
+                ));
+            }
+        };
+        let (version_id, metadata) = entry;
 
-        // let TabularMetadata::Table(mut metadata) = metadata else {
-        //     return Err(IcebergError::InvalidFormat(
-        //         "Table update on entity that is not a table".to_owned(),
-        //     ));
-        // };
-        // if !check_table_requirements(&commit.requirements, &metadata) {
-        //     return Err(IcebergError::InvalidFormat(
-        //         "Table requirements not valid".to_owned(),
-        //     ));
-        // }
-        // apply_table_updates(&mut metadata, commit.updates)?;
-        // let metadata_location = new_metadata_location(&metadata);
-        // self.object_store
-        //     .put(
-        //         &strip_prefix(&metadata_location).into(),
-        //         serde_json::to_string(&metadata)?.into(),
-        //     )
-        //     .await?;
-        // let catalog_name = self.name.clone();
-        // let namespace = identifier.namespace().to_string();
-        // let name = identifier.name().to_string();
-        // let metadata_file_location = metadata_location.to_string();
-        // let previous_metadata_file_location = previous_metadata_location.to_string();
+        let TabularMetadata::Table(mut metadata) = metadata else {
+            return Err(IcebergError::InvalidFormat(
+                "Table update on entity that is not a table".to_owned(),
+            ));
+        };
+        if !check_table_requirements(&commit.requirements, &metadata) {
+            return Err(IcebergError::InvalidFormat(
+                "Table requirements not valid".to_owned(),
+            ));
+        }
+        apply_table_updates(&mut metadata, commit.updates)?;
+        let metadata_location = new_metadata_location(&metadata);
+        self.object_store
+            .put(
+                &strip_prefix(&metadata_location).into(),
+                serde_json::to_string(&metadata)?.into(),
+            )
+            .await?;
 
-        // sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
+        let schema = metadata.current_schema(None)?;
 
-        // self.cache.write().unwrap().insert(
-        //     identifier.clone(),
-        //     (metadata_location.clone(), metadata.clone().into()),
-        // );
+        self.client
+            .update_table()
+            .database_name(&identifier.namespace().to_string())
+            .version_id(version_id)
+            .table_input(
+                TableInput::builder()
+                    .name(identifier.name())
+                    .storage_descriptor(
+                        StorageDescriptor::builder()
+                            .location(&metadata_location)
+                            .set_columns(schema_to_glue(schema.fields()).ok())
+                            .build(),
+                    )
+                    .build()
+                    .map_err(Error::from)?,
+            );
 
-        // Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
-        unimplemented!()
+        let table = self
+            .client
+            .get_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?
+            .table
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?;
+
+        let version_id = table
+            .version_id()
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?
+            .to_string();
+
+        let new_metadata_location = table
+            .storage_descriptor()
+            .and_then(|x| x.location())
+            .ok_or(Error::Text(format!(
+                "Location for table {} not found.",
+                identifier.name()
+            )))?;
+
+        let metadata = if new_metadata_location == metadata_location {
+            metadata
+        } else {
+            let bytes = &self
+                .object_store
+                .get(&strip_prefix(&new_metadata_location).as_str().into())
+                .await?
+                .bytes()
+                .await?;
+            let metadata: TableMetadata = serde_json::from_slice(bytes)?;
+            metadata
+        };
+
+        self.cache
+            .write()
+            .unwrap()
+            .insert(identifier.clone(), (version_id, metadata.clone().into()));
+
+        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn update_view(
@@ -815,8 +843,8 @@ pub mod tests {
             .expect("Failed to list namespaces");
         assert_eq!(namespaces[0].to_string(), "public");
 
-        // let transaction = table.new_transaction(None);
-        // transaction.commit().await.expect("Transaction failed.");
+        let transaction = table.new_transaction(None);
+        transaction.commit().await.expect("Transaction failed.");
 
         // catalog
         //     .drop_table(&identifier)
