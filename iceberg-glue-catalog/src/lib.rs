@@ -721,59 +721,112 @@ impl Catalog for GlueCatalog {
         self: Arc<Self>,
         commit: CommitView<Identifier>,
     ) -> Result<MaterializedView, IcebergError> {
-        // let identifier = commit.identifier;
-        // let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
-        //     return Err(IcebergError::InvalidFormat(
-        //         "Create table assertion".to_owned(),
-        //     ));
-        // };
-        // let (previous_metadata_location, mut metadata) = entry;
-        // let metadata_location = match &mut metadata {
-        //     TabularMetadata::MaterializedView(metadata) => {
-        //         if !check_view_requirements(&commit.requirements, metadata) {
-        //             return Err(IcebergError::InvalidFormat(
-        //                 "Materialized view requirements not valid".to_owned(),
-        //             ));
-        //         }
-        //         apply_view_updates(metadata, commit.updates)?;
-        //         let metadata_location = metadata.location.to_string()
-        //             + "/metadata/"
-        //             + &metadata.current_version_id.to_string()
-        //             + "-"
-        //             + &Uuid::new_v4().to_string()
-        //             + ".metadata.json";
-        //         self.object_store
-        //             .put(
-        //                 &strip_prefix(&metadata_location).into(),
-        //                 serde_json::to_string(&metadata)?.into(),
-        //             )
-        //             .await?;
-        //         Ok(metadata_location)
-        //     }
-        //     _ => Err(IcebergError::InvalidFormat(
-        //         "Materialized view update on entity that is not a materialized view".to_owned(),
-        //     )),
-        // }?;
+        let identifier = commit.identifier;
+        let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
+            return Err(IcebergError::InvalidFormat(
+                "Create table assertion".to_owned(),
+            ));
+        };
+        let (version_id, mut metadata) = entry;
+        let metadata_location = match &mut metadata {
+            TabularMetadata::MaterializedView(metadata) => {
+                if !check_view_requirements(&commit.requirements, metadata) {
+                    return Err(IcebergError::InvalidFormat(
+                        "Materialized view requirements not valid".to_owned(),
+                    ));
+                }
+                apply_view_updates(metadata, commit.updates)?;
+                let metadata_location = metadata.location.to_string()
+                    + "/metadata/"
+                    + &metadata.current_version_id.to_string()
+                    + "-"
+                    + &Uuid::new_v4().to_string()
+                    + ".metadata.json";
+                self.object_store
+                    .put(
+                        &strip_prefix(&metadata_location).into(),
+                        serde_json::to_string(&metadata)?.into(),
+                    )
+                    .await?;
+                Ok(metadata_location)
+            }
+            _ => Err(IcebergError::InvalidFormat(
+                "Materialized view update on entity that is not a materialized view".to_owned(),
+            )),
+        }?;
 
-        // let catalog_name = self.name.clone();
-        // let namespace = identifier.namespace().to_string();
-        // let name = identifier.name().to_string();
-        // let metadata_file_location = metadata_location.to_string();
-        // let previous_metadata_file_location = previous_metadata_location.to_string();
+        let metadata_ref = metadata.as_ref();
+        let schema = metadata_ref.current_schema(None)?;
 
-        // sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
-        // self.cache.write().unwrap().insert(
-        //     identifier.clone(),
-        //     (metadata_location.clone(), metadata.clone()),
-        // );
-        // if let TabularMetadata::MaterializedView(metadata) = metadata {
-        //     Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
-        // } else {
-        //     Err(IcebergError::InvalidFormat(
-        //         "Entity is not a materialized view".to_owned(),
-        //     ))
-        // }
-        unimplemented!()
+        self.client
+            .update_table()
+            .database_name(&identifier.namespace().to_string())
+            .version_id(version_id)
+            .table_input(
+                TableInput::builder()
+                    .name(identifier.name())
+                    .storage_descriptor(
+                        StorageDescriptor::builder()
+                            .location(&metadata_location)
+                            .set_columns(schema_to_glue(schema.fields()).ok())
+                            .build(),
+                    )
+                    .build()
+                    .map_err(Error::from)?,
+            );
+
+        let table = self
+            .client
+            .get_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?
+            .table
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?;
+
+        let version_id = table
+            .version_id()
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?
+            .to_string();
+
+        let new_metadata_location = table
+            .storage_descriptor()
+            .and_then(|x| x.location())
+            .ok_or(Error::Text(format!(
+                "Location for table {} not found.",
+                identifier.name()
+            )))?;
+
+        let metadata = if new_metadata_location == metadata_location {
+            metadata
+        } else {
+            let bytes = &self
+                .object_store
+                .get(&strip_prefix(&new_metadata_location).as_str().into())
+                .await?
+                .bytes()
+                .await?;
+            let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
+            metadata
+        };
+
+        self.cache
+            .write()
+            .unwrap()
+            .insert(identifier.clone(), (version_id, metadata.clone().into()));
+        if let TabularMetadata::MaterializedView(metadata) = metadata {
+            Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
+        } else {
+            Err(IcebergError::InvalidFormat(
+                "Entity is not a materialized view".to_owned(),
+            ))
+        }
     }
 
     async fn register_table(
@@ -884,16 +937,12 @@ pub mod tests {
         table::Table,
     };
     use object_store::{memory::InMemory, ObjectStore};
-    use std::{sync::Arc, time::Duration};
+    use std::sync::Arc;
     use testcontainers::{
-        core::{
-            wait::{HttpWaitStrategy, LogWaitStrategy},
-            ContainerPort, ExecCommand, WaitFor,
-        },
+        core::{wait::LogWaitStrategy, ContainerPort, WaitFor},
         runners::AsyncRunner,
-        GenericImage, ImageExt,
+        GenericImage,
     };
-    use testcontainers_modules::localstack::LocalStack;
 
     use crate::GlueCatalog;
 
