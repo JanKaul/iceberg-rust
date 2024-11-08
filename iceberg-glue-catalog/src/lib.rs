@@ -203,43 +203,55 @@ impl Catalog for GlueCatalog {
         self: Arc<Self>,
         identifier: &Identifier,
     ) -> Result<Tabular, IcebergError> {
-        // let path = {
-        //     let catalog_name = self.name.clone();
-        //     let namespace = identifier.namespace().to_string();
-        //     let name = identifier.name().to_string();
+        let table = self
+            .client
+            .get_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?
+            .table
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?;
 
-        //     let row = {
-        //         sqlx::query(&format!("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
-        //             &namespace,
-        //             &name)).fetch_one(&self.pool).await.map_err(Error::from)?
-        //     };
-        //     let row = query_map(&row).map_err(Error::from)?;
+        let metadata_location = table
+            .storage_descriptor()
+            .and_then(|x| x.location())
+            .ok_or(Error::Text(format!("Table {} not found.", table.name())))?;
 
-        //     row.metadata_location
-        // };
-        // let bytes = &self
-        //     .object_store
-        //     .get(&strip_prefix(&path).as_str().into())
-        //     .await?
-        //     .bytes()
-        //     .await?;
-        // let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
-        // self.cache
-        //     .write()
-        //     .unwrap()
-        //     .insert(identifier.clone(), (path.clone(), metadata.clone()));
-        // match metadata {
-        //     TabularMetadata::Table(metadata) => Ok(Tabular::Table(
-        //         Table::new(identifier.clone(), self.clone(), metadata).await?,
-        //     )),
-        //     TabularMetadata::View(metadata) => Ok(Tabular::View(
-        //         View::new(identifier.clone(), self.clone(), metadata).await?,
-        //     )),
-        //     TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
-        //         MaterializedView::new(identifier.clone(), self.clone(), metadata).await?,
-        //     )),
-        // }
-        unimplemented!()
+        let version_id = table
+            .version_id()
+            .ok_or(Error::Text(
+                "Glue create table didn't return a table.".to_owned(),
+            ))?
+            .to_string();
+
+        let bytes = &self
+            .object_store
+            .get(&strip_prefix(&metadata_location).as_str().into())
+            .await?
+            .bytes()
+            .await?;
+        let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
+
+        self.cache
+            .write()
+            .unwrap()
+            .insert(identifier.clone(), (version_id, metadata.clone()));
+
+        match metadata {
+            TabularMetadata::Table(metadata) => Ok(Tabular::Table(
+                Table::new(identifier.clone(), self.clone(), metadata).await?,
+            )),
+            TabularMetadata::View(metadata) => Ok(Tabular::View(
+                View::new(identifier.clone(), self.clone(), metadata).await?,
+            )),
+            TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
+                MaterializedView::new(identifier.clone(), self.clone(), metadata).await?,
+            )),
+        }
     }
 
     async fn create_table(
