@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use aws_config::{BehaviorVersion, SdkConfig};
+use aws_config::SdkConfig;
 use aws_sdk_glue::{
     types::{StorageDescriptor, TableInput},
     Client,
@@ -113,43 +113,66 @@ impl Catalog for GlueCatalog {
         todo!()
     }
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, IcebergError> {
-        let name = self.name.clone();
-        let namespace = namespace.to_string();
+        let mut tabulars = Vec::new();
+        let mut token = None;
 
-        // let rows = {
-        //     sqlx::query(&format!("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = '{}' and table_namespace = '{}';",&name, &namespace)).fetch_all(&self.pool).await.map_err(Error::from)?
-        // };
-        // let iter = rows.iter().map(query_map);
+        loop {
+            let result = self
+                .client
+                .get_tables()
+                .database_name(&namespace[0])
+                .set_next_token(token)
+                .send()
+                .await
+                .map_err(Error::from)?;
 
-        // Ok(iter
-        //     .map(|x| {
-        //         x.and_then(|y| {
-        //             Identifier::parse(&(y.table_namespace.to_string() + "." + &y.table_name), None)
-        //                 .map_err(|err| sqlx::Error::Decode(Box::new(err)))
-        //         })
-        //     })
-        //     .collect::<Result<_, sqlx::Error>>()
-        //     .map_err(Error::from)?)
-        unimplemented!()
+            if let Some(new) = result.table_list {
+                let new = new
+                    .into_iter()
+                    .map(|x| Identifier::new(&namespace, x.name()));
+                tabulars.extend(new);
+            }
+            token = result.next_token;
+
+            if token.is_none() {
+                break;
+            }
+        }
+
+        Ok(tabulars)
     }
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, IcebergError> {
         if parent.is_some() {
             return Ok(Vec::new());
         }
 
-        let result = self
-            .client
-            .get_databases()
-            .send()
-            .await
-            .map_err(Error::from)
-            .unwrap();
+        let mut namespaces = Vec::new();
+        let mut token = None;
 
-        Ok(result
-            .database_list
-            .into_iter()
-            .map(|x| Namespace::try_new(&[x.name; 1]))
-            .collect::<Result<_, spec::error::Error>>()?)
+        loop {
+            let result = self
+                .client
+                .get_databases()
+                .set_next_token(token)
+                .send()
+                .await
+                .map_err(Error::from)?;
+
+            let new = result
+                .database_list
+                .into_iter()
+                .map(|x| Namespace::try_new(&[x.name; 1]))
+                .collect::<Result<Vec<_>, spec::error::Error>>()?;
+            namespaces.extend(new.into_iter());
+
+            token = result.next_token;
+
+            if token.is_none() {
+                break;
+            }
+        }
+
+        Ok(namespaces)
     }
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, IcebergError> {
         let catalog_name = self.name.clone();
@@ -866,17 +889,6 @@ impl Catalog for GlueCatalog {
     }
 }
 
-impl GlueCatalog {
-    pub fn duplicate(&self, name: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            client: self.client.clone(),
-            object_store: self.object_store.clone(),
-            cache: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct GlueCatalogList {
     client: Client,
@@ -1022,15 +1034,14 @@ pub mod tests {
         //     .expect("Table doesn't exist");
         // assert!(exists);
 
-        // let tables = catalog
-        //     .clone()
-        //     .list_tabulars(
-        //         &Namespace::try_new(&["load_table".to_owned()])
-        //             .expect("Failed to create namespace"),
-        //     )
-        //     .await
-        //     .expect("Failed to list Tables");
-        // assert_eq!(tables[0].to_string(), "load_table.table3".to_owned());
+        let tables = catalog
+            .clone()
+            .list_tabulars(
+                &Namespace::try_new(&["public".to_owned()]).expect("Failed to create namespace"),
+            )
+            .await
+            .expect("Failed to list Tables");
+        assert_eq!(tables[0].to_string(), "public.test".to_owned());
 
         let namespaces = catalog
             .clone()
