@@ -1,8 +1,8 @@
 use aws_sdk_glue::{
     config::http::HttpResponse,
     operation::{
-        create_table::CreateTableError, get_databases::GetDatabasesError, get_table::GetTableError,
-        get_tables::GetTablesError,
+        create_table::CreateTableError, delete_table::DeleteTableError,
+        get_databases::GetDatabasesError, get_table::GetTableError, get_tables::GetTablesError,
     },
 };
 use iceberg_rust::error::Error as IcebergError;
@@ -20,6 +20,8 @@ pub enum Error {
     CreateTableError(#[from] aws_sdk_glue::error::SdkError<CreateTableError, HttpResponse>),
     #[error(transparent)]
     GetTableError(#[from] aws_sdk_glue::error::SdkError<GetTableError, HttpResponse>),
+    #[error(transparent)]
+    DeleteTableError(#[from] aws_sdk_glue::error::SdkError<DeleteTableError, HttpResponse>),
     #[error(transparent)]
     GetTablesError(#[from] aws_sdk_glue::error::SdkError<GetTablesError, HttpResponse>),
     #[error(transparent)]

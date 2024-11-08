@@ -186,37 +186,37 @@ impl Catalog for GlueCatalog {
             .is_ok())
     }
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), IcebergError> {
-        let catalog_name = self.name.clone();
-        let namespace = identifier.namespace().to_string();
-        let name = identifier.name().to_string();
+        self.client
+            .delete_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?;
 
-        // sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
-        //         &namespace,
-        //         &name)).execute(&self.pool).await.map_err(Error::from)?;
-        // Ok(())
-        unimplemented!()
+        Ok(())
     }
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
-        let catalog_name = self.name.clone();
-        let namespace = identifier.namespace().to_string();
-        let name = identifier.name().to_string();
+        self.client
+            .delete_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?;
 
-        // sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
-        //         &namespace,
-        //         &name)).execute(&self.pool).await.map_err(Error::from)?;
-        // Ok(())
-        unimplemented!()
+        Ok(())
     }
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
-        let catalog_name = self.name.clone();
-        let namespace = identifier.namespace().to_string();
-        let name = identifier.name().to_string();
+        self.client
+            .delete_table()
+            .database_name(&identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?;
 
-        // sqlx::query(&format!("delete from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
-        //         &namespace,
-        //         &name)).execute(&self.pool).await.map_err(Error::from)?;
-        // Ok(())
-        unimplemented!()
+        Ok(())
     }
     async fn load_tabular(
         self: Arc<Self>,
@@ -1043,15 +1043,15 @@ pub mod tests {
         let transaction = table.new_transaction(None);
         transaction.commit().await.expect("Transaction failed.");
 
-        // catalog
-        //     .drop_table(&identifier)
-        //     .await
-        //     .expect("Failed to drop table.");
+        catalog
+            .drop_table(&identifier)
+            .await
+            .expect("Failed to drop table.");
 
-        // let exists = Arc::clone(&catalog)
-        //     .tabular_exists(&identifier)
-        //     .await
-        //     .expect("Table exists failed");
-        // assert!(!exists);
+        let exists = Arc::clone(&catalog)
+            .tabular_exists(&identifier)
+            .await
+            .expect("Table exists failed");
+        assert!(!exists);
     }
 }
