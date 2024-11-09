@@ -50,7 +50,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
         let (index, partition_field) = self
             .partition_fields
-            .into_iter()
+            .iter()
             .enumerate()
             .find(|(_, field)| field.source_name() == column.name())?;
         let data_type = partition_field
@@ -70,7 +70,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
         let (index, partition_field) = self
             .partition_fields
-            .into_iter()
+            .iter()
             .enumerate()
             .find(|(_, field)| field.source_name() == column.name())?;
         let data_type = partition_field
@@ -93,7 +93,7 @@ impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
         let (index, _) = self
             .partition_fields
-            .into_iter()
+            .iter()
             .enumerate()
             .find(|(_, field)| field.source_name() == column.name())?;
         let contains_null = self.files.iter().filter_map(|manifest| {

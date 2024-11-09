@@ -334,7 +334,7 @@ pub fn partition_value_schema(spec: &[BoundPartitionField<'_>]) -> Result<String
     Ok(spec
         .iter()
         .map(|field| {
-            let data_type = avro_schema_datatype(&field.field_type());
+            let data_type = avro_schema_datatype(field.field_type());
             Ok::<_, Error>(
                 r#"
                 {

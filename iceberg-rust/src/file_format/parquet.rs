@@ -35,11 +35,11 @@ pub fn parquet_to_datafile(
     partition_fields: &[BoundPartitionField<'_>],
 ) -> Result<DataFile, Error> {
     let mut partition = partition_fields
-        .into_iter()
+        .iter()
         .map(|part| Ok((part.name().to_owned(), None)))
         .collect::<Result<Struct, Error>>()?;
     let partition_fields = partition_fields
-        .into_iter()
+        .iter()
         .map(|part| {
             Ok((
                 part.source_name().to_owned(),

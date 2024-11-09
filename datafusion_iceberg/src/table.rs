@@ -321,7 +321,7 @@ async fn table_scan(
             let pruning_predicate =
                 PruningPredicate::try_new(physical_partition_predicate, arrow_schema.clone())?;
             let manifests_to_prune =
-                pruning_predicate.prune(&PruneManifests::new(&partition_fields, &manifests))?;
+                pruning_predicate.prune(&PruneManifests::new(partition_fields, &manifests))?;
 
             table
                 .datafiles(&manifests, Some(manifests_to_prune))

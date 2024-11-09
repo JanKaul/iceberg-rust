@@ -65,7 +65,7 @@ pub async fn partition_record_batches(
                     .iter()
                     .map(|field| {
                         let array = record_batch
-                            .column_by_name(&field.source_name())
+                            .column_by_name(field.source_name())
                             .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?;
                         transform_arrow(array.clone(), field.transform())
                     })

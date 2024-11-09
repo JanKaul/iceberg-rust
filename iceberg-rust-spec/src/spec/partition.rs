@@ -261,7 +261,7 @@ impl<'a> BoundPartitionField<'a> {
 
     /// Partition field
     pub fn partition_field(&self) -> &PartitionField {
-        &self.partition_field
+        self.partition_field
     }
 }
 

@@ -80,7 +80,7 @@ pub async fn write_parquet_partitioned(
         .await?;
         sender.send(files).await.map_err(Error::from)?;
     } else {
-        let streams = partition_record_batches(batches, &partition_fields).await?;
+        let streams = partition_record_batches(batches, partition_fields).await?;
 
         streams
             .map(Ok::<_, ArrowError>)

@@ -287,7 +287,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         update_partitions(
             self.manifest.partitions.as_mut().unwrap(),
             manifest_entry.data_file().partition(),
-            &self.table_metadata.default_partition_spec()?.fields(),
+            self.table_metadata.default_partition_spec()?.fields(),
         )?;
 
         self.writer.append_ser(manifest_entry)?;
