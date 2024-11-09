@@ -145,14 +145,25 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             serde_json::to_string(&table_metadata.current_schema(branch)?.schema_id())?,
         )?;
 
+        let spec_id = table_metadata.default_spec_id;
+
         writer.add_user_metadata(
             "partition-spec".to_string(),
-            serde_json::to_string(&table_metadata.default_partition_spec()?.fields())?,
+            serde_json::to_string(
+                &table_metadata
+                    .partition_specs
+                    .get(&spec_id)
+                    .ok_or(Error::NotFound(
+                        "Partition spec".to_owned(),
+                        spec_id.to_string(),
+                    ))?
+                    .fields(),
+            )?,
         )?;
 
         writer.add_user_metadata(
             "partition-spec-id".to_string(),
-            serde_json::to_string(&table_metadata.default_partition_spec()?.spec_id())?,
+            serde_json::to_string(&spec_id)?,
         )?;
 
         writer.add_user_metadata("content".to_string(), "data")?;
@@ -220,14 +231,25 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             serde_json::to_string(&table_metadata.current_schema(branch)?.schema_id())?,
         )?;
 
+        let spec_id = table_metadata.default_spec_id;
+
         writer.add_user_metadata(
             "partition-spec".to_string(),
-            serde_json::to_string(&table_metadata.default_partition_spec()?.fields())?,
+            serde_json::to_string(
+                &table_metadata
+                    .partition_specs
+                    .get(&spec_id)
+                    .ok_or(Error::NotFound(
+                        "Partition spec".to_owned(),
+                        spec_id.to_string(),
+                    ))?
+                    .fields(),
+            )?,
         )?;
 
         writer.add_user_metadata(
             "partition-spec-id".to_string(),
-            serde_json::to_string(&table_metadata.default_partition_spec()?.spec_id())?,
+            serde_json::to_string(&spec_id)?,
         )?;
 
         writer.add_user_metadata("content".to_string(), "data")?;
@@ -265,7 +287,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         update_partitions(
             self.manifest.partitions.as_mut().unwrap(),
             manifest_entry.data_file().partition(),
-            self.table_metadata.default_partition_spec()?.fields(),
+            &self.table_metadata.default_partition_spec()?.fields(),
         )?;
 
         self.writer.append_ser(manifest_entry)?;

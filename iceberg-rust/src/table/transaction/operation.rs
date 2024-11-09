@@ -116,15 +116,14 @@ impl Operation {
                 files: new_files,
                 additional_summary,
             } => {
-                let partition_spec = table_metadata.default_partition_spec()?;
+                let partition_fields =
+                    table_metadata.current_partition_fields(branch.as_deref())?;
                 let schema = table_metadata.current_schema(branch.as_deref())?;
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
 
-                let partition_column_names = table_metadata
-                    .default_partition_spec()?
-                    .fields()
+                let partition_column_names = partition_fields
                     .iter()
-                    .map(|x| x.name().as_str())
+                    .map(|(x, _)| x.name().as_str())
                     .collect::<SmallVec<[_; 4]>>();
 
                 let bounding_partition_values = new_files
@@ -226,7 +225,7 @@ impl Operation {
                 });
 
                 let manifest_schema = ManifestEntry::schema(
-                    &partition_value_schema(partition_spec.fields(), schema)?,
+                    &partition_value_schema(&partition_fields)?,
                     &table_metadata.format_version,
                 )?;
 
@@ -236,6 +235,8 @@ impl Operation {
                     + &snapshot_id.to_string()
                     + snapshot_uuid
                     + ".avro";
+
+                dbg!(&partition_fields, &branch);
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
@@ -382,15 +383,14 @@ impl Operation {
                 files,
                 additional_summary,
             } => {
-                let partition_spec = table_metadata.default_partition_spec()?;
+                let partition_fields =
+                    table_metadata.current_partition_fields(branch.as_deref())?;
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
                 let schema = table_metadata.current_schema(branch.as_deref())?.clone();
 
-                let partition_column_names = table_metadata
-                    .default_partition_spec()?
-                    .fields()
+                let partition_column_names = partition_fields
                     .iter()
-                    .map(|x| x.name().as_str())
+                    .map(|(x, _)| x.name().as_str())
                     .collect::<SmallVec<[_; 4]>>();
 
                 let bounding_partition_values = files
@@ -434,7 +434,7 @@ impl Operation {
                 });
 
                 let manifest_schema = ManifestEntry::schema(
-                    &partition_value_schema(partition_spec.fields(), &schema)?,
+                    &partition_value_schema(&partition_fields)?,
                     &table_metadata.format_version,
                 )?;
 

@@ -11,10 +11,12 @@ use std::{
 
 use crate::{
     error::Error,
+    partition::PartitionField,
     spec::{
         partition::PartitionSpec,
         sort::{self, SortOrder},
     },
+    types::StructField,
 };
 
 use serde::{Deserialize, Serialize};
@@ -136,6 +138,8 @@ pub struct TableMetadata {
     pub refs: HashMap<String, SnapshotReference>,
 }
 
+pub type PartitionFieldRef<'a> = (&'a PartitionField, &'a StructField);
+
 impl TableMetadata {
     /// Get current schema
     #[inline]
@@ -168,6 +172,50 @@ impl TableMetadata {
         self.partition_specs
             .get(&self.default_spec_id)
             .ok_or_else(|| Error::InvalidFormat("partition spec".to_string()))
+    }
+
+    /// Get partition fields
+    pub fn current_partition_fields(
+        &self,
+        branch: Option<&str>,
+    ) -> Result<Vec<(&PartitionField, &StructField)>, Error> {
+        let schema = self.current_schema(branch)?;
+        self.default_partition_spec()?
+            .fields()
+            .iter()
+            .map(|partition_field| {
+                let field =
+                    schema
+                        .get(*partition_field.source_id() as usize)
+                        .ok_or(Error::NotFound(
+                            "Field".to_owned(),
+                            partition_field.source_id().to_string(),
+                        ))?;
+                Ok((partition_field, field))
+            })
+            .collect()
+    }
+
+    /// Get partition fields for snapshot
+    pub fn partition_fields(
+        &self,
+        snapshot_id: i64,
+    ) -> Result<Vec<(&PartitionField, &StructField)>, Error> {
+        let schema = self.schema(snapshot_id)?;
+        self.default_partition_spec()?
+            .fields()
+            .iter()
+            .map(|partition_field| {
+                let field =
+                    schema
+                        .get(*partition_field.source_id() as usize)
+                        .ok_or(Error::NotFound(
+                            "Field".to_owned(),
+                            partition_field.source_id().to_string(),
+                        ))?;
+                Ok((partition_field, field))
+            })
+            .collect()
     }
 
     /// Get current snapshot

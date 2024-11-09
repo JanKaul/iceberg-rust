@@ -17,11 +17,8 @@ use std::sync::{
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
 use iceberg_rust_spec::{
-    spec::{
-        manifest::DataFile, partition::PartitionSpec, schema::Schema,
-        table_metadata::TableMetadata, values::Value,
-    },
-    table_metadata::{WRITE_DATA_PATH, WRITE_OBJECT_STORAGE_ENABLED},
+    spec::{manifest::DataFile, schema::Schema, table_metadata::TableMetadata, values::Value},
+    table_metadata::{PartitionFieldRef, WRITE_DATA_PATH, WRITE_OBJECT_STORAGE_ENABLED},
     util::strip_prefix,
 };
 use parquet::{
@@ -45,7 +42,9 @@ pub async fn write_parquet_partitioned(
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let schema = metadata.current_schema(branch).map_err(Error::from)?;
-    let partition_spec = metadata.default_partition_spec().map_err(Error::from)?;
+    let partition_fields = &metadata
+        .current_partition_fields(branch)
+        .map_err(Error::from)?;
 
     let data_location = &metadata
         .properties
@@ -58,7 +57,7 @@ pub async fn write_parquet_partitioned(
 
     let (mut sender, reciever) = unbounded();
 
-    if partition_spec.fields().is_empty() {
+    if partition_fields.is_empty() {
         let partition_path = if metadata
             .properties
             .get(WRITE_OBJECT_STORAGE_ENABLED)
@@ -72,7 +71,7 @@ pub async fn write_parquet_partitioned(
             data_location,
             schema,
             &arrow_schema,
-            partition_spec,
+            partition_fields,
             partition_path,
             batches,
             object_store.clone(),
@@ -80,7 +79,7 @@ pub async fn write_parquet_partitioned(
         .await?;
         sender.send(files).await.map_err(Error::from)?;
     } else {
-        let streams = partition_record_batches(batches, partition_spec, schema).await?;
+        let streams = partition_record_batches(batches, &partition_fields).await?;
 
         streams
             .map(Ok::<_, ArrowError>)
@@ -96,13 +95,16 @@ pub async fn write_parquet_partitioned(
                     {
                         None
                     } else {
-                        Some(generate_partition_path(partition_spec, &partition_values)?)
+                        Some(generate_partition_path(
+                            partition_fields,
+                            &partition_values,
+                        )?)
                     };
                     let files = write_parquet_files(
                         data_location,
                         schema,
                         &arrow_schema,
-                        partition_spec,
+                        partition_fields,
                         partition_path,
                         batches,
                         object_store.clone(),
@@ -134,7 +136,7 @@ async fn write_parquet_files(
     data_location: &str,
     schema: &Schema,
     arrow_schema: &ArrowSchema,
-    partition_spec: &PartitionSpec,
+    partition_fields: &[PartitionFieldRef<'_>],
     partition_path: Option<String>,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
@@ -217,7 +219,7 @@ async fn write_parquet_files(
                     size,
                     &metadata,
                     schema,
-                    partition_spec.fields(),
+                    partition_fields,
                 )?)
             }
         })
@@ -227,14 +229,13 @@ async fn write_parquet_files(
 
 #[inline]
 fn generate_partition_path(
-    partition_spec: &PartitionSpec,
+    partition_fields: &[PartitionFieldRef<'_>],
     partiton_values: &[Value],
 ) -> Result<String, ArrowError> {
-    partition_spec
-        .fields()
+    partition_fields
         .iter()
         .zip(partiton_values.iter())
-        .map(|(spec, value)| {
+        .map(|((spec, _), value)| {
             let name = spec.name().clone();
             Ok(name + "=" + &value.to_string() + "/")
         })
@@ -293,21 +294,27 @@ fn record_batch_size(batch: &RecordBatch) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use iceberg_rust_spec::types::{StructField, Type};
+
     use crate::spec::{
-        partition::{PartitionField, PartitionSpec, Transform},
+        partition::{PartitionField, Transform},
         values::Value,
     };
 
     #[test]
     fn test_generate_partiton_location_success() {
-        let partition_spec = PartitionSpec::builder()
-            .with_spec_id(0)
-            .with_partition_field(PartitionField::new(1, 1001, "month", Transform::Month))
-            .build()
-            .unwrap();
+        let field = StructField {
+            id: 0,
+            name: "date".to_owned(),
+            required: false,
+            field_type: Type::Primitive(iceberg_rust_spec::types::PrimitiveType::Date),
+            doc: None,
+        };
+        let partfield = PartitionField::new(1, 1001, "month", Transform::Month);
+        let partition_fields = vec![(&partfield, &field)];
         let partiton_values = vec![Value::Int(10)];
 
-        let result = super::generate_partition_path(&partition_spec, &partiton_values);
+        let result = super::generate_partition_path(&partition_fields, &partiton_values);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "month=10/");

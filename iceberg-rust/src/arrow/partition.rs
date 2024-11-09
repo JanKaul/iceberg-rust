@@ -27,7 +27,7 @@ use futures::{
 };
 use itertools::{iproduct, Itertools};
 
-use iceberg_rust_spec::spec::{partition::PartitionSpec, schema::Schema, values::Value};
+use iceberg_rust_spec::{spec::values::Value, table_metadata::PartitionFieldRef};
 
 use super::transform::transform_arrow;
 
@@ -39,8 +39,7 @@ type RecordBatchSender = UnboundedSender<Result<RecordBatch, ArrowError>>;
 /// Partition stream of record batches according to partition spec
 pub async fn partition_record_batches(
     record_batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
-    partition_spec: &PartitionSpec,
-    schema: &Schema,
+    partition_fields: &[PartitionFieldRef<'_>],
 ) -> Result<
     impl Stream<
         Item = (
@@ -62,19 +61,13 @@ pub async fn partition_record_batches(
             let partition_streams = partition_streams.clone();
             let partition_sender = partition_sender.clone();
             async move {
-                let partition_columns: Vec<ArrayRef> = partition_spec
-                    .fields()
+                let partition_columns: Vec<ArrayRef> = partition_fields
                     .iter()
-                    .map(|field| {
-                        let column_name = &schema
-                            .fields()
-                            .get(*field.source_id() as usize)
-                            .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?
-                            .name;
+                    .map(|(partition,field)| {
                         let array = record_batch
-                            .column_by_name(column_name)
+                            .column_by_name(&field.name)
                             .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?;
-                        transform_arrow(array.clone(), field.transform())
+                        transform_arrow(array.clone(), partition.transform())
                     })
                     .collect::<Result<_, ArrowError>>()?;
                 let distinct_values: Vec<DistinctValues> = partition_columns
@@ -235,6 +228,8 @@ mod tests {
         types::{PrimitiveType, StructField, StructType, Type},
     };
 
+    use crate::error::Error;
+
     use super::partition_record_batches;
 
     #[tokio::test]
@@ -308,7 +303,22 @@ mod tests {
             .with_partition_field(PartitionField::new(1, 1001, "x", Transform::Identity))
             .build()
             .unwrap();
-        let streams = partition_record_batches(record_batches, &partition_spec, &schema)
+        let partition_fields = partition_spec
+            .fields()
+            .iter()
+            .map(|partition_field| {
+                let field =
+                    schema
+                        .get(*partition_field.source_id() as usize)
+                        .ok_or(Error::NotFound(
+                            "Field".to_owned(),
+                            partition_field.source_id().to_string(),
+                        ))?;
+                Ok((partition_field, field))
+            })
+            .collect::<Result<Vec<_>, Error>>()
+            .unwrap();
+        let streams = partition_record_batches(record_batches, &partition_fields)
             .await
             .unwrap();
         let output = streams
