@@ -40,9 +40,6 @@ pub enum Error {
     /// Io error
     #[error(transparent)]
     IO(#[from] std::io::Error),
-    /// Objectstore error
-    #[error(transparent)]
-    ObjectStore(#[from] object_store::Error),
     /// Try from slice error
     #[error(transparent)]
     TryFromSlice(#[from] std::array::TryFromSliceError),

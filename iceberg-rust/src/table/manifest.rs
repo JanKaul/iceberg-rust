@@ -35,7 +35,7 @@ type ReaderMap<'a, R> = Map<
     ) -> Result<ManifestEntry, Error>,
 >;
 
-/// Iterator of ManifestFileEntries
+/// Iterator of manifest entries
 pub struct ManifestReader<'a, R: Read> {
     reader: ReaderMap<'a, R>,
 }
@@ -48,7 +48,7 @@ impl<'a, R: Read> Iterator for ManifestReader<'a, R> {
 }
 
 impl<'a, R: Read> ManifestReader<'a, R> {
-    /// Create a new ManifestFile reader
+    /// Create a new manifest reader
     pub fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();

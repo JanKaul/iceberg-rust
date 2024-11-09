@@ -4,9 +4,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use iceberg_rust_spec::manifest_list::{
-    manifest_list_schema_v1, manifest_list_schema_v2, ManifestListReader,
-};
+use iceberg_rust_spec::manifest_list::{manifest_list_schema_v1, manifest_list_schema_v2};
 use iceberg_rust_spec::spec::table_metadata::TableMetadata;
 use iceberg_rust_spec::spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
@@ -21,6 +19,7 @@ use object_store::ObjectStore;
 use smallvec::SmallVec;
 
 use crate::table::manifest::{ManifestReader, ManifestWriter};
+use crate::table::manifest_list::ManifestListReader;
 use crate::{
     catalog::commit::{TableRequirement, TableUpdate},
     error::Error,

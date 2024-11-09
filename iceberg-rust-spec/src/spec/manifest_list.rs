@@ -2,13 +2,9 @@
  * Manifest lists
 */
 
-use std::{
-    io::Read,
-    iter::{repeat, Map, Repeat, Zip},
-    sync::OnceLock,
-};
+use std::sync::OnceLock;
 
-use apache_avro::{types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema};
+use apache_avro::{types::Value as AvroValue, Schema as AvroSchema};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -22,39 +18,6 @@ use super::{
     types::Type,
     values::Value,
 };
-
-type ReaderZip<'a, 'metadata, R> = Zip<AvroReader<'a, R>, Repeat<&'metadata TableMetadata>>;
-type ReaderMap<'a, 'metadata, R> = Map<
-    ReaderZip<'a, 'metadata, R>,
-    fn((Result<AvroValue, apache_avro::Error>, &TableMetadata)) -> Result<ManifestListEntry, Error>,
->;
-
-/// Iterator of ManifestFileEntries
-pub struct ManifestListReader<'a, 'metadata, R: Read> {
-    reader: ReaderMap<'a, 'metadata, R>,
-}
-
-impl<'a, 'metadata, R: Read> Iterator for ManifestListReader<'a, 'metadata, R> {
-    type Item = Result<ManifestListEntry, Error>;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.reader.next()
-    }
-}
-
-impl<'a, 'metadata, R: Read> ManifestListReader<'a, 'metadata, R> {
-    /// Create a new ManifestFile reader
-    pub fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
-        let schema: &AvroSchema = match table_metadata.format_version {
-            FormatVersion::V1 => manifest_list_schema_v1(),
-            FormatVersion::V2 => manifest_list_schema_v2(),
-        };
-        Ok(Self {
-            reader: AvroReader::with_schema(schema, reader)?
-                .zip(repeat(table_metadata))
-                .map(avro_value_to_manifest_file),
-        })
-    }
-}
 
 #[derive(Debug, Serialize, PartialEq, Eq, Clone)]
 #[serde(into = "ManifestListEntryEnum")]
@@ -300,7 +263,7 @@ impl ManifestListEntry {
         }
     }
 
-    pub(crate) fn try_from_v2(
+    pub fn try_from_v2(
         entry: _serde::ManifestListEntryV2,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
@@ -344,7 +307,7 @@ impl ManifestListEntry {
         })
     }
 
-    pub(crate) fn try_from_v1(
+    pub fn try_from_v1(
         entry: _serde::ManifestListEntryV1,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
@@ -688,12 +651,12 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
     })
 }
 
-/// Convert an avro value to a [ManifestFile] according to the provided format version
-pub(crate) fn avro_value_to_manifest_file(
-    value: (Result<AvroValue, apache_avro::Error>, &TableMetadata),
+/// Convert an avro value result to a manifest list version according to the provided format version
+pub fn avro_value_to_manifest_list_entry(
+    value: Result<AvroValue, apache_avro::Error>,
+    table_metadata: &TableMetadata,
 ) -> Result<ManifestListEntry, Error> {
-    let entry = value.0?;
-    let table_metadata = value.1;
+    let entry = value?;
     match table_metadata.format_version {
         FormatVersion::V1 => ManifestListEntry::try_from_v1(
             apache_avro::from_value::<_serde::ManifestListEntryV1>(&entry)?,

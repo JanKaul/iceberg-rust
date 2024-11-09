@@ -2,9 +2,10 @@
 Defining the [Table] struct that represents an iceberg table.
 */
 
-use std::{io::Cursor, iter::repeat, sync::Arc};
+use std::{io::Cursor, sync::Arc};
 
 use manifest::ManifestReader;
+use manifest_list::read_snapshot;
 use object_store::{path::Path, ObjectStore};
 
 use futures::{
@@ -31,6 +32,7 @@ use crate::{
 };
 
 pub mod manifest;
+pub mod manifest_list;
 pub mod transaction;
 
 #[derive(Debug)]
@@ -127,9 +129,7 @@ impl Table {
                         Some(sequence_number)
                     }
                 });
-        let iter = end_snapshot
-            .manifests(metadata, self.object_store().clone())
-            .await?;
+        let iter = read_snapshot(end_snapshot, metadata, self.object_store().clone()).await?;
         match start_sequence_number {
             Some(start) => iter
                 .filter(|manifest| {
@@ -139,11 +139,8 @@ impl Table {
                         true
                     }
                 })
-                .collect::<Result<_, iceberg_rust_spec::error::Error>>()
-                .map_err(Error::from),
-            None => iter
-                .collect::<Result<_, iceberg_rust_spec::error::Error>>()
-                .map_err(Error::from),
+                .collect(),
+            None => iter.collect(),
         }
     }
     /// Get list of datafiles corresponding to the given manifest files
@@ -179,19 +176,16 @@ async fn datafiles(
     filter: Option<Vec<bool>>,
 ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
     // filter manifest files according to filter vector
-    let iter = match filter {
-        Some(predicate) => manifests
-            .iter()
-            .zip(Box::new(predicate.into_iter()) as Box<dyn Iterator<Item = bool> + Send + Sync>)
-            .filter_map(
-                filter_manifest as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
-            ),
-        None => manifests
-            .iter()
-            .zip(Box::new(repeat(true)) as Box<dyn Iterator<Item = bool> + Send + Sync>)
-            .filter_map(
-                filter_manifest as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
-            ),
+    let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
+        Some(predicate) => {
+            let iter = manifests
+                .iter()
+                .zip(predicate.into_iter())
+                .filter(|(_, predicate)| *predicate)
+                .map(|(manifest, _)| manifest);
+            Box::new(iter)
+        }
+        None => Box::new(manifests.iter()),
     };
 
     let (sender, reciever) = unbounded();
@@ -227,10 +221,10 @@ pub(crate) async fn delete_files(
     let Some(snapshot) = metadata.current_snapshot(None)? else {
         return Ok(());
     };
-    let manifests = snapshot
-        .manifests(metadata, object_store.clone())
+    let manifests: Vec<ManifestListEntry> = read_snapshot(snapshot, metadata, object_store.clone())
         .await?
-        .collect::<Result<Vec<_>, iceberg_rust_spec::error::Error>>()?;
+        .collect::<Result<_, _>>()?;
+
     let datafiles = datafiles(object_store.clone(), &manifests, None).await?;
     let snapshots = &metadata.snapshots;
 
@@ -272,16 +266,4 @@ pub(crate) async fn delete_files(
         .await?;
 
     Ok(())
-}
-
-#[inline]
-// Filter manifest files according to predicate. Returns Some(&ManifestFile) of the predicate is true and None if it is false.
-fn filter_manifest(
-    (manifest, predicate): (&ManifestListEntry, bool),
-) -> Option<&ManifestListEntry> {
-    if predicate {
-        Some(manifest)
-    } else {
-        None
-    }
 }
