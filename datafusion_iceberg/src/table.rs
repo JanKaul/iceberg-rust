@@ -274,17 +274,11 @@ async fn table_scan(
     let partition_fields = &snapshot_range
         .1
         .and_then(|snapshot_id| table.metadata().partition_fields(snapshot_id).ok())
-        .unwrap_or_else(|| {
-            table
-                .metadata()
-                .current_partition_fields(None)
-                .unwrap()
-                .clone()
-        });
+        .unwrap_or_else(|| table.metadata().current_partition_fields(None).unwrap());
 
     let partition_column_names = partition_fields
         .iter()
-        .map(|(_, field)| Ok(field.name.clone()))
+        .map(|field| Ok(field.source_name().to_owned()))
         .collect::<Result<HashSet<_>, Error>>()?;
 
     // If there is a filter expression the manifests to read are pruned based on the pruning statistics available in the manifest_list file.
@@ -446,16 +440,16 @@ async fn table_scan(
     // Get all partition columns
     let table_partition_cols: Vec<Field> = partition_fields
         .iter()
-        .map(|(part, field)| {
+        .map(|part| {
             Ok(Field::new(
-                part.name().clone() + "__partition",
-                (&field
-                    .field_type
+                part.name().to_owned() + "__partition",
+                (&part
+                    .field_type()
                     .tranform(part.transform())
                     .map_err(Into::<Error>::into)?)
                     .try_into()
                     .map_err(Into::<Error>::into)?,
-                !field.required,
+                !part.required(),
             ))
         })
         .collect::<Result<Vec<_>, DataFusionError>>()
@@ -466,12 +460,12 @@ async fn table_scan(
     for field in schema.fields().iter() {
         schema_builder.with_struct_field(field.clone());
     }
-    for (partition_field, field) in partition_fields {
+    for partition_field in partition_fields {
         schema_builder.with_struct_field(StructField {
-            id: *partition_field.field_id(),
-            name: partition_field.name().clone() + "__partition",
-            field_type: field
-                .field_type
+            id: partition_field.field_id(),
+            name: partition_field.name().to_owned() + "__partition",
+            field_type: partition_field
+                .field_type()
                 .tranform(partition_field.transform())
                 .unwrap(),
             required: true,

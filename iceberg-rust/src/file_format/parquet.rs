@@ -8,6 +8,7 @@ use std::{
 };
 
 use iceberg_rust_spec::{
+    partition::BoundPartitionField,
     spec::{
         manifest::{AvroMap, Content, DataFile, FileFormat},
         partition::PartitionField,
@@ -15,7 +16,6 @@ use iceberg_rust_spec::{
         types::Type,
         values::{Struct, Value},
     },
-    table_metadata::PartitionFieldRef,
 };
 use parquet::{
     file::{metadata::RowGroupMetaData, writer::TrackedWrite},
@@ -32,15 +32,20 @@ pub fn parquet_to_datafile(
     file_size: usize,
     file_metadata: &FileMetaData,
     schema: &Schema,
-    partition_fields: &[PartitionFieldRef<'_>],
+    partition_fields: &[BoundPartitionField<'_>],
 ) -> Result<DataFile, Error> {
     let mut partition = partition_fields
         .into_iter()
-        .map(|(part, _)| Ok((part.name().clone(), None)))
+        .map(|part| Ok((part.name().to_owned(), None)))
         .collect::<Result<Struct, Error>>()?;
     let partition_fields = partition_fields
         .into_iter()
-        .map(|(part, field)| Ok((field.name.clone(), (*part).clone())))
+        .map(|part| {
+            Ok((
+                part.source_name().to_owned(),
+                part.partition_field().clone(),
+            ))
+        })
         .collect::<Result<HashMap<String, PartitionField>, Error>>()?;
     let parquet_schema = Arc::new(SchemaDescriptor::new(from_thrift(&file_metadata.schema)?));
 

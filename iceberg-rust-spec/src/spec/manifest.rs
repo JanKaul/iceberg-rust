@@ -10,7 +10,7 @@ use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
-use crate::{error::Error, table_metadata::PartitionFieldRef};
+use crate::{error::Error, partition::BoundPartitionField};
 
 use super::{
     partition::PartitionSpec,
@@ -330,11 +330,11 @@ impl<'de> Deserialize<'de> for FileFormat {
 }
 
 /// Get schema for partition values depending on partition spec and table schema
-pub fn partition_value_schema(spec: &[PartitionFieldRef<'_>]) -> Result<String, Error> {
+pub fn partition_value_schema(spec: &[BoundPartitionField<'_>]) -> Result<String, Error> {
     Ok(spec
         .iter()
-        .map(|(field, schema_field)| {
-            let data_type = avro_schema_datatype(&schema_field.field_type);
+        .map(|field| {
+            let data_type = avro_schema_datatype(&field.field_type());
             Ok::<_, Error>(
                 r#"
                 {
@@ -1591,7 +1591,7 @@ mod tests {
             field_type: Type::Primitive(PrimitiveType::Int),
             doc: None,
         };
-        let partition_fields = vec![(&part_field, &field)];
+        let partition_fields = vec![BoundPartitionField::new(&part_field, &field)];
 
         let raw_schema = partition_value_schema(&partition_fields).unwrap();
 

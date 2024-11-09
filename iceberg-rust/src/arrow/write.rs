@@ -17,8 +17,9 @@ use std::sync::{
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
 use iceberg_rust_spec::{
+    partition::BoundPartitionField,
     spec::{manifest::DataFile, schema::Schema, table_metadata::TableMetadata, values::Value},
-    table_metadata::{PartitionFieldRef, WRITE_DATA_PATH, WRITE_OBJECT_STORAGE_ENABLED},
+    table_metadata::{WRITE_DATA_PATH, WRITE_OBJECT_STORAGE_ENABLED},
     util::strip_prefix,
 };
 use parquet::{
@@ -136,7 +137,7 @@ async fn write_parquet_files(
     data_location: &str,
     schema: &Schema,
     arrow_schema: &ArrowSchema,
-    partition_fields: &[PartitionFieldRef<'_>],
+    partition_fields: &[BoundPartitionField<'_>],
     partition_path: Option<String>,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
@@ -229,14 +230,14 @@ async fn write_parquet_files(
 
 #[inline]
 fn generate_partition_path(
-    partition_fields: &[PartitionFieldRef<'_>],
+    partition_fields: &[BoundPartitionField<'_>],
     partiton_values: &[Value],
 ) -> Result<String, ArrowError> {
     partition_fields
         .iter()
         .zip(partiton_values.iter())
-        .map(|((spec, _), value)| {
-            let name = spec.name().clone();
+        .map(|(field, value)| {
+            let name = field.name().to_owned();
             Ok(name + "=" + &value.to_string() + "/")
         })
         .collect::<Result<String, ArrowError>>()
@@ -294,7 +295,10 @@ fn record_batch_size(batch: &RecordBatch) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use iceberg_rust_spec::types::{StructField, Type};
+    use iceberg_rust_spec::{
+        partition::BoundPartitionField,
+        types::{StructField, Type},
+    };
 
     use crate::spec::{
         partition::{PartitionField, Transform},
@@ -311,7 +315,7 @@ mod tests {
             doc: None,
         };
         let partfield = PartitionField::new(1, 1001, "month", Transform::Month);
-        let partition_fields = vec![(&partfield, &field)];
+        let partition_fields = vec![BoundPartitionField::new(&partfield, &field)];
         let partiton_values = vec![Value::Int(10)];
 
         let result = super::generate_partition_path(&partition_fields, &partiton_values);

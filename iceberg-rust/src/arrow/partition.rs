@@ -27,7 +27,7 @@ use futures::{
 };
 use itertools::{iproduct, Itertools};
 
-use iceberg_rust_spec::{spec::values::Value, table_metadata::PartitionFieldRef};
+use iceberg_rust_spec::{partition::BoundPartitionField, spec::values::Value};
 
 use super::transform::transform_arrow;
 
@@ -39,7 +39,7 @@ type RecordBatchSender = UnboundedSender<Result<RecordBatch, ArrowError>>;
 /// Partition stream of record batches according to partition spec
 pub async fn partition_record_batches(
     record_batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
-    partition_fields: &[PartitionFieldRef<'_>],
+    partition_fields: &[BoundPartitionField<'_>],
 ) -> Result<
     impl Stream<
         Item = (
@@ -63,11 +63,11 @@ pub async fn partition_record_batches(
             async move {
                 let partition_columns: Vec<ArrayRef> = partition_fields
                     .iter()
-                    .map(|(partition,field)| {
+                    .map(|field| {
                         let array = record_batch
-                            .column_by_name(&field.name)
+                            .column_by_name(&field.source_name())
                             .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?;
-                        transform_arrow(array.clone(), partition.transform())
+                        transform_arrow(array.clone(), field.transform())
                     })
                     .collect::<Result<_, ArrowError>>()?;
                 let distinct_values: Vec<DistinctValues> = partition_columns
@@ -222,10 +222,13 @@ mod tests {
         record_batch::RecordBatch,
     };
 
-    use iceberg_rust_spec::spec::{
-        partition::{PartitionField, PartitionSpec, Transform},
-        schema::Schema,
-        types::{PrimitiveType, StructField, StructType, Type},
+    use iceberg_rust_spec::{
+        partition::BoundPartitionField,
+        spec::{
+            partition::{PartitionField, PartitionSpec, Transform},
+            schema::Schema,
+            types::{PrimitiveType, StructField, StructType, Type},
+        },
     };
 
     use crate::error::Error;
@@ -314,7 +317,7 @@ mod tests {
                             "Field".to_owned(),
                             partition_field.source_id().to_string(),
                         ))?;
-                Ok((partition_field, field))
+                Ok(BoundPartitionField::new(partition_field, field))
             })
             .collect::<Result<Vec<_>, Error>>()
             .unwrap();

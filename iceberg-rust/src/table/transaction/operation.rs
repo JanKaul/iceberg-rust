@@ -123,7 +123,7 @@ impl Operation {
 
                 let partition_column_names = partition_fields
                     .iter()
-                    .map(|(x, _)| x.name().as_str())
+                    .map(|x| x.name())
                     .collect::<SmallVec<[_; 4]>>();
 
                 let bounding_partition_values = new_files
@@ -390,7 +390,7 @@ impl Operation {
 
                 let partition_column_names = partition_fields
                     .iter()
-                    .map(|(x, _)| x.name().as_str())
+                    .map(|x| x.name())
                     .collect::<SmallVec<[_; 4]>>();
 
                 let bounding_partition_values = files
