@@ -17,11 +17,11 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Run iceberg-rust-spec tests
-      run: cargo test -p iceberg-rust-spec --lib --verbose
+      run: make test-iceberg-rust-spec
     - name: Run iceberg-rust tests
-      run: cargo test -p iceberg-rust --lib --verbose
+      run: make test-iceberg-rust
     - name: Run datafusion-iceberg tests
-      run: cargo test -p datafusion_iceberg --tests --verbose -j 2
+      run: make test-datafusion_iceberg
 
   lint:
     runs-on: ubuntu-latest
@@ -30,4 +30,4 @@ jobs:
     - name: Install Clippy
       run: rustup component add clippy
     - name: Run Clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      run: make clippy
