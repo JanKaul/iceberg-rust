@@ -35,20 +35,20 @@ type ReaderMap<'a, R> = Map<
     ) -> Result<ManifestEntry, Error>,
 >;
 
-/// Iterator of ManifestFileEntries
-pub struct ManifestFileReader<'a, R: Read> {
+/// Iterator of manifest entries
+pub struct ManifestReader<'a, R: Read> {
     reader: ReaderMap<'a, R>,
 }
 
-impl<'a, R: Read> Iterator for ManifestFileReader<'a, R> {
+impl<'a, R: Read> Iterator for ManifestReader<'a, R> {
     type Item = Result<ManifestEntry, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next()
     }
 }
 
-impl<'a, R: Read> ManifestFileReader<'a, R> {
-    /// Create a new ManifestFile reader
+impl<'a, R: Read> ManifestReader<'a, R> {
+    /// Create a new ManifestReader reader
     pub fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();
@@ -103,13 +103,13 @@ impl<'a, R: Read> ManifestFileReader<'a, R> {
 }
 
 /// A helper to write entries into a manifest
-pub struct ManifestFileWriter<'schema, 'metadata> {
+pub struct ManifestWriter<'schema, 'metadata> {
     table_metadata: &'metadata TableMetadata,
     manifest: ManifestListEntry,
     writer: AvroWriter<'schema, Vec<u8>>,
 }
 
-impl<'schema, 'metadata> ManifestFileWriter<'schema, 'metadata> {
+impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// Create empty manifest writer
     pub fn new(
         manifest_location: &str,
@@ -176,7 +176,7 @@ impl<'schema, 'metadata> ManifestFileWriter<'schema, 'metadata> {
             key_metadata: None,
         };
 
-        Ok(ManifestFileWriter {
+        Ok(ManifestWriter {
             manifest,
             writer,
             table_metadata,
@@ -234,7 +234,7 @@ impl<'schema, 'metadata> ManifestFileWriter<'schema, 'metadata> {
 
         writer.extend(manifest_reader.filter_map(Result::ok))?;
 
-        Ok(ManifestFileWriter {
+        Ok(ManifestWriter {
             manifest,
             writer,
             table_metadata,

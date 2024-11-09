@@ -11,7 +11,7 @@ use std::{
 use apache_avro::{types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema};
 use iceberg_rust_spec::{
     manifest_list::{
-        avro_value_to_manifest_file, manifest_list_schema_v1, manifest_list_schema_v2,
+        avro_value_to_manifest_list_entry, manifest_list_schema_v1, manifest_list_schema_v2,
         ManifestListEntry,
     },
     snapshot::Snapshot,
@@ -28,7 +28,7 @@ type ReaderMap<'a, 'metadata, R> = Map<
     fn((Result<AvroValue, apache_avro::Error>, &TableMetadata)) -> Result<ManifestListEntry, Error>,
 >;
 
-/// Iterator of ManifestFileEntries
+/// Iterator of manifest list entries
 pub struct ManifestListReader<'a, 'metadata, R: Read> {
     reader: ReaderMap<'a, 'metadata, R>,
 }
@@ -41,7 +41,7 @@ impl<'a, 'metadata, R: Read> Iterator for ManifestListReader<'a, 'metadata, R> {
 }
 
 impl<'a, 'metadata, R: Read> ManifestListReader<'a, 'metadata, R> {
-    /// Create a new ManifestFile reader
+    /// Create a new manifest list reader
     pub fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
         let schema: &AvroSchema = match table_metadata.format_version {
             FormatVersion::V1 => manifest_list_schema_v1(),
@@ -50,7 +50,9 @@ impl<'a, 'metadata, R: Read> ManifestListReader<'a, 'metadata, R> {
         Ok(Self {
             reader: AvroReader::with_schema(schema, reader)?
                 .zip(repeat(table_metadata))
-                .map(|avro_res| avro_value_to_manifest_file(avro_res).map_err(Error::from)),
+                .map(|(avro_value_res, meta)| {
+                    avro_value_to_manifest_list_entry(avro_value_res, meta).map_err(Error::from)
+                }),
         })
     }
 }

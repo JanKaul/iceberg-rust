@@ -2,9 +2,9 @@
 Defining the [Table] struct that represents an iceberg table.
 */
 
-use std::{io::Cursor, iter::repeat, sync::Arc};
+use std::{io::Cursor, sync::Arc};
 
-use manifest_file::ManifestFileReader;
+use manifest::ManifestReader;
 use manifest_list::read_snapshot;
 use object_store::{path::Path, ObjectStore};
 
@@ -31,7 +31,7 @@ use crate::{
     table::transaction::TableTransaction,
 };
 
-pub mod manifest_file;
+pub mod manifest;
 pub mod manifest_list;
 pub mod transaction;
 
@@ -176,19 +176,16 @@ async fn datafiles(
     filter: Option<Vec<bool>>,
 ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
     // filter manifest files according to filter vector
-    let iter = match filter {
-        Some(predicate) => manifests
-            .iter()
-            .zip(Box::new(predicate.into_iter()) as Box<dyn Iterator<Item = bool> + Send + Sync>)
-            .filter_map(
-                filter_manifest as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
-            ),
-        None => manifests
-            .iter()
-            .zip(Box::new(repeat(true)) as Box<dyn Iterator<Item = bool> + Send + Sync>)
-            .filter_map(
-                filter_manifest as fn((&ManifestListEntry, bool)) -> Option<&ManifestListEntry>,
-            ),
+    let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
+        Some(predicate) => {
+            let iter = manifests
+                .iter()
+                .zip(predicate.into_iter())
+                .filter(|(_, predicate)| *predicate)
+                .map(|(manifest, _)| manifest);
+            Box::new(iter)
+        }
+        None => Box::new(manifests.iter()),
     };
 
     let (sender, reciever) = unbounded();
@@ -206,7 +203,7 @@ async fn datafiles(
                         .and_then(|file| file.bytes())
                         .await?,
                 ));
-                let reader = ManifestFileReader::new(bytes)?;
+                let reader = ManifestReader::new(bytes)?;
                 sender.send(stream::iter(reader)).await?;
                 Ok(())
             }
@@ -269,16 +266,4 @@ pub(crate) async fn delete_files(
         .await?;
 
     Ok(())
-}
-
-#[inline]
-// Filter manifest files according to predicate. Returns Some(&ManifestFile) of the predicate is true and None if it is false.
-fn filter_manifest(
-    (manifest, predicate): (&ManifestListEntry, bool),
-) -> Option<&ManifestListEntry> {
-    if predicate {
-        Some(manifest)
-    } else {
-        None
-    }
 }

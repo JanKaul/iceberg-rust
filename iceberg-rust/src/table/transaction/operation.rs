@@ -18,7 +18,7 @@ use iceberg_rust_spec::util::strip_prefix;
 use object_store::ObjectStore;
 use smallvec::SmallVec;
 
-use crate::table::manifest_file::{ManifestFileReader, ManifestFileWriter};
+use crate::table::manifest::{ManifestReader, ManifestWriter};
 use crate::table::manifest_list::ManifestListReader;
 use crate::{
     catalog::commit::{TableRequirement, TableUpdate},
@@ -248,7 +248,7 @@ impl Operation {
                             .await?
                             .into();
 
-                        ManifestFileWriter::from_existing(
+                        ManifestWriter::from_existing(
                             &manifest_bytes,
                             manifest,
                             &manifest_schema,
@@ -263,7 +263,7 @@ impl Operation {
                             + &0.to_string()
                             + ".avro";
 
-                        ManifestFileWriter::new(
+                        ManifestWriter::new(
                             &manifest_location,
                             snapshot_id,
                             &manifest_schema,
@@ -289,8 +289,8 @@ impl Operation {
                             .await?
                             .into();
 
-                        let manifest_reader = ManifestFileReader::new(&*manifest_bytes)?
-                            .map(|x| x.map_err(Error::from));
+                        let manifest_reader =
+                            ManifestReader::new(&*manifest_bytes)?.map(|x| x.map_err(Error::from));
 
                         split_datafiles(
                             new_datafile_iter.chain(manifest_reader),
@@ -315,7 +315,7 @@ impl Operation {
                             + &i.to_string()
                             + ".avro";
 
-                        let mut manifest_writer = ManifestFileWriter::new(
+                        let mut manifest_writer = ManifestWriter::new(
                             &manifest_location,
                             snapshot_id,
                             &manifest_schema,
@@ -456,7 +456,7 @@ impl Operation {
                         + "-m"
                         + &0.to_string()
                         + ".avro";
-                    let mut manifest_writer = ManifestFileWriter::new(
+                    let mut manifest_writer = ManifestWriter::new(
                         &manifest_location,
                         snapshot_id,
                         &manifest_schema,
@@ -488,7 +488,7 @@ impl Operation {
                             + &i.to_string()
                             + ".avro";
 
-                        let mut manifest_writer = ManifestFileWriter::new(
+                        let mut manifest_writer = ManifestWriter::new(
                             &manifest_location,
                             snapshot_id,
                             &manifest_schema,

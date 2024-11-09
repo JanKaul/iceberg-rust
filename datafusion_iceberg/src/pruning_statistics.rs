@@ -3,13 +3,13 @@
  *
  * Pruning is done on two levels:
  *
- * 1. Prune ManifestFiles based on information in Manifest_list_file
- * 2. Prune DataFiles based on information in Manifest_file
+ * 1. Prune manifests based on information in manifests lists
+ * 2. Prune data files based on information in manifests
  *
- * For the first level the triat PruningStatistics is implemented for the DataFusionTable. It returns the pruning information for the manifest files
+ * For the first level the trait [`PruningStatistics`] is implemented for the DataFusionTable. It returns the pruning information for the manifest files
  * and not the final data files.
  *
- * For the second level the trait PruningStatistics is implemented for the ManifestFile
+ * For the second level the trait PruningStatistics is implemented for the Manifest
 */
 
 use std::any::Any;

@@ -651,12 +651,12 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
     })
 }
 
-/// Convert an avro value to a [ManifestFile] according to the provided format version
-pub fn avro_value_to_manifest_file(
-    value: (Result<AvroValue, apache_avro::Error>, &TableMetadata),
+/// Convert an avro value result to a manifest list version according to the provided format version
+pub fn avro_value_to_manifest_list_entry(
+    value: Result<AvroValue, apache_avro::Error>,
+    table_metadata: &TableMetadata,
 ) -> Result<ManifestListEntry, Error> {
-    let entry = value.0?;
-    let table_metadata = value.1;
+    let entry = value?;
     match table_metadata.format_version {
         FormatVersion::V1 => ManifestListEntry::try_from_v1(
             apache_avro::from_value::<_serde::ManifestListEntryV1>(&entry)?,
