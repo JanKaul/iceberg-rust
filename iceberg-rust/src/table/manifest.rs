@@ -48,7 +48,7 @@ impl<'a, R: Read> Iterator for ManifestReader<'a, R> {
 }
 
 impl<'a, R: Read> ManifestReader<'a, R> {
-    /// Create a new ManifestReader reader
+    /// Create a new manifest reader
     pub fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();
