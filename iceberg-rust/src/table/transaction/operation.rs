@@ -289,8 +289,13 @@ impl Operation {
                             .await?
                             .into();
 
-                        let manifest_reader =
-                            ManifestReader::new(&*manifest_bytes)?.map(|x| x.map_err(Error::from));
+                        let manifest_reader = ManifestReader::new(&*manifest_bytes)?
+                            .map(|x| x.map_err(Error::from))
+                            .map(|entry| {
+                                let mut entry = entry?;
+                                *entry.status_mut() = Status::Existing;
+                                Ok(entry)
+                            });
 
                         split_datafiles(
                             new_datafile_iter.chain(manifest_reader),

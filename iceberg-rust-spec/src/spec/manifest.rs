@@ -44,6 +44,10 @@ impl ManifestEntry {
     pub fn builder() -> ManifestEntryBuilder {
         ManifestEntryBuilder::default()
     }
+
+    pub fn status_mut(&mut self) -> &mut Status {
+        &mut self.status
+    }
 }
 
 impl ManifestEntry {
