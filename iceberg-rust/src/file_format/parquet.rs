@@ -36,14 +36,14 @@ pub fn parquet_to_datafile(
 ) -> Result<DataFile, Error> {
     let mut partition = partition_fields
         .iter()
-        .map(|part| Ok((part.name().to_owned(), None)))
+        .map(|field| Ok((field.name().to_owned(), None)))
         .collect::<Result<Struct, Error>>()?;
     let partition_fields = partition_fields
         .iter()
-        .map(|part| {
+        .map(|field| {
             Ok((
-                part.source_name().to_owned(),
-                part.partition_field().clone(),
+                field.source_name().to_owned(),
+                field.partition_field().clone(),
             ))
         })
         .collect::<Result<HashMap<String, PartitionField>, Error>>()?;

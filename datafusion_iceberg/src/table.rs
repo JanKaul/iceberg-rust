@@ -440,16 +440,16 @@ async fn table_scan(
     // Get all partition columns
     let table_partition_cols: Vec<Field> = partition_fields
         .iter()
-        .map(|part| {
+        .map(|partition_field| {
             Ok(Field::new(
-                part.name().to_owned() + "__partition",
-                (&part
+                partition_field.name().to_owned() + "__partition",
+                (&partition_field
                     .field_type()
-                    .tranform(part.transform())
+                    .tranform(partition_field.transform())
                     .map_err(Into::<Error>::into)?)
                     .try_into()
                     .map_err(Into::<Error>::into)?,
-                !part.required(),
+                !partition_field.required(),
             ))
         })
         .collect::<Result<Vec<_>, DataFusionError>>()
