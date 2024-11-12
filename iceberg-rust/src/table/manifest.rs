@@ -198,7 +198,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// Create an manifest writer from an existing manifest
     pub fn from_existing(
         bytes: &[u8],
-        manifest: ManifestListEntry,
+        mut manifest: ManifestListEntry,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
         branch: Option<&str>,
@@ -261,10 +261,24 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                     let mut entry = entry
                         .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))?;
                     *entry.status_mut() = Status::Existing;
+                    if entry.sequence_number().is_none() {
+                        *entry.sequence_number_mut() =
+                            table_metadata.sequence_number(entry.snapshot_id().ok_or(
+                                apache_avro::Error::DeserializeValue(
+                                    "Snapshot_id missing in Manifest Entry.".to_owned(),
+                                ),
+                            )?);
+                    }
                     to_value(entry)
                 })
                 .filter_map(Result::ok),
         )?;
+
+        manifest.existing_files_count = Some(
+            manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
+        );
+
+        manifest.added_files_count = None;
 
         Ok(ManifestWriter {
             manifest,
@@ -294,6 +308,8 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         }
 
         added_rows_count += manifest_entry.data_file().record_count();
+        let status = *manifest_entry.status();
+
         update_partitions(
             self.manifest.partitions.as_mut().unwrap(),
             manifest_entry.data_file().partition(),
@@ -302,10 +318,22 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
 
         self.writer.append_ser(manifest_entry)?;
 
-        self.manifest.added_files_count = match self.manifest.added_files_count {
-            Some(count) => Some(count + 1),
-            None => Some(1),
-        };
+        match status {
+            Status::Added => {
+                self.manifest.added_files_count = match self.manifest.added_files_count {
+                    Some(count) => Some(count + 1),
+                    None => Some(1),
+                };
+            }
+            Status::Existing => {
+                self.manifest.existing_files_count = match self.manifest.existing_files_count {
+                    Some(count) => Some(count + 1),
+                    None => Some(1),
+                };
+            }
+            Status::Deleted => (),
+        }
+
         self.manifest.added_rows_count = match self.manifest.added_rows_count {
             Some(count) => Some(count + added_rows_count),
             None => Some(added_rows_count),

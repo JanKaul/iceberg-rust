@@ -48,6 +48,10 @@ impl ManifestEntry {
     pub fn status_mut(&mut self) -> &mut Status {
         &mut self.status
     }
+
+    pub fn sequence_number_mut(&mut self) -> &mut Option<i64> {
+        &mut self.sequence_number
+    }
 }
 
 impl ManifestEntry {
@@ -236,7 +240,7 @@ impl ManifestEntry {
     }
 }
 
-#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 /// Used to track additions and deletions
 pub enum Status {
