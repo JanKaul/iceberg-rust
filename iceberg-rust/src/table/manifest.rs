@@ -9,10 +9,11 @@ use std::{
 };
 
 use apache_avro::{
-    types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
+    to_value, types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema,
+    Writer as AvroWriter,
 };
 use iceberg_rust_spec::{
-    manifest::{ManifestEntry, ManifestEntryV1, ManifestEntryV2},
+    manifest::{ManifestEntry, ManifestEntryV1, ManifestEntryV2, Status},
     manifest_list::{self, FieldSummary, ManifestListEntry},
     partition::{PartitionField, PartitionSpec},
     schema::{Schema, SchemaV1, SchemaV2},
@@ -202,7 +203,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         table_metadata: &'metadata TableMetadata,
         branch: Option<&str>,
     ) -> Result<Self, Error> {
-        let manifest_reader = apache_avro::Reader::new(bytes)?;
+        let manifest_reader = ManifestReader::new(bytes)?;
 
         let mut writer = AvroWriter::new(schema, Vec::new());
 
@@ -254,7 +255,16 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
 
         writer.add_user_metadata("content".to_string(), "data")?;
 
-        writer.extend(manifest_reader.filter_map(Result::ok))?;
+        writer.extend(
+            manifest_reader
+                .map(|entry| {
+                    let mut entry = entry
+                        .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))?;
+                    *entry.status_mut() = Status::Existing;
+                    to_value(entry)
+                })
+                .filter_map(Result::ok),
+        )?;
 
         Ok(ManifestWriter {
             manifest,
