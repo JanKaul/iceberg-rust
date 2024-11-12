@@ -273,6 +273,13 @@ impl TableMetadata {
             }
         }
     }
+
+    /// Get sequence_number of snapshot
+    pub fn sequence_number(&self, snapshot_id: i64) -> Option<i64> {
+        self.snapshots
+            .get(&snapshot_id)
+            .map(|x| *x.sequence_number())
+    }
 }
 
 pub fn new_metadata_location<'a, T: Into<TabularMetadataRef<'a>>>(metadata: T) -> String {

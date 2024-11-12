@@ -33,29 +33,6 @@ use super::append::{
 /// The target number of datafiles per manifest is dynamic, but we don't want to go below this number.
 static MIN_DATAFILES_PER_MANIFEST: usize = 4;
 
-/// To achieve fast lookups of the datafiles, the manifest tree should be somewhat balanced, meaning that manifest files should contain a similar number of datafiles.
-/// This means that manifest files might need to be split up when they get too large. Since the number of datafiles being added by a append operation might be really large,
-/// it might even be required to split the manifest file multiple times. *n_splits* stores how many times a manifest file needs to be split to give at most *limit* datafiles per manifest.
-fn compute_n_splits(
-    existing_file_count: usize,
-    new_file_count: usize,
-    selected_manifest_file_count: usize,
-) -> u32 {
-    // We want:
-    //   nb manifests per manifest list ~= nb data files per manifest
-    // Since:
-    //   total number of data files = nb manifests per manifest list * nb data files per manifest
-    // We shall have:
-    //   limit = sqrt(total number of data files)
-    let limit = MIN_DATAFILES_PER_MANIFEST
-        + ((existing_file_count + new_file_count) as f64).sqrt() as usize;
-    let new_manifest_file_count = selected_manifest_file_count + new_file_count;
-    match new_manifest_file_count / limit {
-        0 => 0,
-        x => x.ilog2() + 1,
-    }
-}
-
 #[derive(Debug)]
 ///Table operations
 pub enum Operation {
@@ -210,14 +187,13 @@ impl Operation {
                     .unwrap_or(bounding_partition_values);
 
                 let snapshot_id = generate_snapshot_id();
-                let sequence_number = table_metadata.last_sequence_number + 1;
+                let snapshot_uuid = &uuid::Uuid::new_v4().to_string();
 
                 let new_datafile_iter = new_files.into_iter().map(|data_file| {
                     ManifestEntry::builder()
                         .with_format_version(table_metadata.format_version)
                         .with_status(Status::Added)
                         .with_snapshot_id(snapshot_id)
-                        .with_sequence_number(sequence_number)
                         .with_data_file(data_file)
                         .build()
                         .map_err(crate::spec::error::Error::from)
@@ -229,14 +205,12 @@ impl Operation {
                     &table_metadata.format_version,
                 )?;
 
-                let snapshot_uuid = &uuid::Uuid::new_v4().to_string();
                 let new_manifest_list_location = table_metadata.location.to_string()
                     + "/metadata/snap-"
                     + &snapshot_id.to_string()
+                    + "-"
                     + snapshot_uuid
                     + ".avro";
-
-                dbg!(&partition_fields, &branch);
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
@@ -295,6 +269,14 @@ impl Operation {
                             .map(|entry| {
                                 let mut entry = entry?;
                                 *entry.status_mut() = Status::Existing;
+                                if entry.sequence_number().is_none() {
+                                    *entry.sequence_number_mut() =
+                                        table_metadata.sequence_number(entry.snapshot_id().ok_or(
+                                            apache_avro::Error::DeserializeValue(
+                                                "Snapshot_id missing in Manifest Entry.".to_owned(),
+                                            ),
+                                        )?);
+                                }
                                 Ok(entry)
                             });
 
@@ -447,6 +429,7 @@ impl Operation {
                 let new_manifest_list_location = table_metadata.location.to_string()
                     + "/metadata/snap-"
                     + &snapshot_id.to_string()
+                    + "-"
                     + snapshot_uuid
                     + ".avro";
 
@@ -590,5 +573,28 @@ impl Operation {
                 Ok((None, vec![TableUpdate::SetDefaultSpec { spec_id }]))
             }
         }
+    }
+}
+
+/// To achieve fast lookups of the datafiles, the manifest tree should be somewhat balanced, meaning that manifest files should contain a similar number of datafiles.
+/// This means that manifest files might need to be split up when they get too large. Since the number of datafiles being added by a append operation might be really large,
+/// it might even be required to split the manifest file multiple times. *n_splits* stores how many times a manifest file needs to be split to give at most *limit* datafiles per manifest.
+fn compute_n_splits(
+    existing_file_count: usize,
+    new_file_count: usize,
+    selected_manifest_file_count: usize,
+) -> u32 {
+    // We want:
+    //   nb manifests per manifest list ~= nb data files per manifest
+    // Since:
+    //   total number of data files = nb manifests per manifest list * nb data files per manifest
+    // We shall have:
+    //   limit = sqrt(total number of data files)
+    let limit = MIN_DATAFILES_PER_MANIFEST
+        + ((existing_file_count + new_file_count) as f64).sqrt() as usize;
+    let new_manifest_file_count = selected_manifest_file_count + new_file_count;
+    match new_manifest_file_count / limit {
+        0 => 0,
+        x => x.ilog2() + 1,
     }
 }

@@ -261,6 +261,14 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                     let mut entry = entry
                         .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))?;
                     *entry.status_mut() = Status::Existing;
+                    if entry.sequence_number().is_none() {
+                        *entry.sequence_number_mut() =
+                            table_metadata.sequence_number(entry.snapshot_id().ok_or(
+                                apache_avro::Error::DeserializeValue(
+                                    "Snapshot_id missing in Manifest Entry.".to_owned(),
+                                ),
+                            )?);
+                    }
                     to_value(entry)
                 })
                 .filter_map(Result::ok),
