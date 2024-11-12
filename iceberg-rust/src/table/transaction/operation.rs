@@ -166,9 +166,19 @@ impl Operation {
 
                 let selected_manifest_file_count = selected_manifest_opt
                     .as_ref()
-                    // TODO: should this also account for existing_files_count?
-                    .and_then(|selected_manifest| selected_manifest.added_files_count)
+                    .and_then(|selected_manifest| {
+                        match (
+                            selected_manifest.existing_files_count,
+                            selected_manifest.added_files_count,
+                        ) {
+                            (Some(x), Some(y)) => Some(x + y),
+                            (Some(x), None) => Some(x),
+                            (None, Some(y)) => Some(y),
+                            (None, None) => None,
+                        }
+                    })
                     .unwrap_or(0) as usize;
+
                 let n_splits = compute_n_splits(
                     existing_file_count,
                     new_files.len(),
