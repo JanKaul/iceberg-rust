@@ -273,7 +273,7 @@ impl Catalog for SqlCatalog {
             let row = {
                 sqlx::query(&format!("select table_namespace, table_name, metadata_location, previous_metadata_location from iceberg_tables where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';",&catalog_name,
                     &namespace,
-                    &name)).fetch_one(&self.pool).await.map_err(Error::from)?
+                    &name)).fetch_one(&self.pool).await.map_err(|_| IcebergError::CatalogNotFound)?
             };
             let row = query_map(&row).map_err(Error::from)?;
 

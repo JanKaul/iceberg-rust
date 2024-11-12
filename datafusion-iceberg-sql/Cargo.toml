@@ -17,5 +17,4 @@ datafusion-common.workspace = true
 datafusion-execution.workspace = true
 datafusion-functions.workspace = true
 datafusion-functions-aggregate.workspace = true
-datafusion-functions-array.workspace = true
 arrow-schema.workspace = true

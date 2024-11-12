@@ -1,13 +1,14 @@
 use std::{any::Any, sync::Arc};
 
 use datafusion::{
-    catalog::{schema::SchemaProvider, CatalogProvider},
+    catalog::{CatalogProvider, SchemaProvider},
     error::Result,
 };
 use iceberg_rust::catalog::{namespace::Namespace, Catalog};
 
 use crate::catalog::{mirror::Mirror, schema::IcebergSchema};
 
+#[derive(Debug)]
 pub struct IcebergCatalog {
     catalog: Arc<Mirror>,
 }

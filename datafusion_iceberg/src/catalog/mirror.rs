@@ -13,6 +13,7 @@ use iceberg_rust::{
         tabular::Tabular,
         Catalog,
     },
+    error::Error as IcebergError,
     spec::table_metadata::new_metadata_location,
     spec::util::strip_prefix,
 };
@@ -27,6 +28,7 @@ enum Node {
     Relation(Identifier),
 }
 
+#[derive(Debug)]
 pub struct Mirror {
     storage: DashMap<String, Node>,
     catalog: Arc<dyn Catalog>,
@@ -120,63 +122,70 @@ impl Mirror {
         &self,
         identifier: Identifier,
     ) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
-        Ok(Some(
-            self.catalog
-                .clone()
-                .load_tabular(&identifier)
-                .await
-                .map(|tabular| match tabular {
-                    Tabular::Table(table) => {
-                        let end = self
-                            .branch
-                            .as_ref()
-                            .and_then(|branch| table.metadata().refs.get(branch))
-                            .map(|x| x.snapshot_id);
-                        Arc::new(DataFusionTable::new(
-                            Tabular::Table(table),
-                            None,
-                            end,
-                            self.branch.as_deref(),
-                        )) as Arc<dyn TableProvider>
-                    }
-                    Tabular::View(view) => {
-                        let end = self
-                            .branch
-                            .as_ref()
-                            .and_then(|branch| {
-                                view.metadata()
-                                    .properties
-                                    .get(&(REF_PREFIX.to_string() + branch))
-                            })
-                            .map(|x| x.parse::<i64>().unwrap());
-                        Arc::new(DataFusionTable::new(
-                            Tabular::View(view),
-                            None,
-                            end,
-                            self.branch.as_deref(),
-                        )) as Arc<dyn TableProvider>
-                    }
-                    Tabular::MaterializedView(matview) => {
-                        let end = self
-                            .branch
-                            .as_ref()
-                            .and_then(|branch| {
-                                matview
-                                    .metadata()
-                                    .properties
-                                    .get(&(REF_PREFIX.to_string() + branch))
-                            })
-                            .map(|x| x.parse::<i64>().unwrap());
-                        Arc::new(DataFusionTable::new(
-                            Tabular::MaterializedView(matview),
-                            None,
-                            end,
-                            self.branch.as_deref(),
-                        )) as Arc<dyn TableProvider>
-                    }
-                })
-                .map_err(Error::from)?,
-        ))
+        self.catalog
+            .clone()
+            .load_tabular(&identifier)
+            .await
+            .map(|tabular| match tabular {
+                Tabular::Table(table) => {
+                    let end = self
+                        .branch
+                        .as_ref()
+                        .and_then(|branch| table.metadata().refs.get(branch))
+                        .map(|x| x.snapshot_id);
+                    Arc::new(DataFusionTable::new(
+                        Tabular::Table(table),
+                        None,
+                        end,
+                        self.branch.as_deref(),
+                    )) as Arc<dyn TableProvider>
+                }
+                Tabular::View(view) => {
+                    let end = self
+                        .branch
+                        .as_ref()
+                        .and_then(|branch| {
+                            view.metadata()
+                                .properties
+                                .get(&(REF_PREFIX.to_string() + branch))
+                        })
+                        .map(|x| x.parse::<i64>().unwrap());
+                    Arc::new(DataFusionTable::new(
+                        Tabular::View(view),
+                        None,
+                        end,
+                        self.branch.as_deref(),
+                    )) as Arc<dyn TableProvider>
+                }
+                Tabular::MaterializedView(matview) => {
+                    let end = self
+                        .branch
+                        .as_ref()
+                        .and_then(|branch| {
+                            matview
+                                .metadata()
+                                .properties
+                                .get(&(REF_PREFIX.to_string() + branch))
+                        })
+                        .map(|x| x.parse::<i64>().unwrap());
+                    Arc::new(DataFusionTable::new(
+                        Tabular::MaterializedView(matview),
+                        None,
+                        end,
+                        self.branch.as_deref(),
+                    )) as Arc<dyn TableProvider>
+                }
+            })
+            .map(Some)
+            .or_else(|err| {
+                if matches!(err, IcebergError::CatalogNotFound) {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            })
+            .map_err(Error::from)
+            .map_err(DataFusionError::from)
     }
     pub fn table_exists(&self, identifier: Identifier) -> bool {
         self.storage.contains_key(&identifier.to_string())

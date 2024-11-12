@@ -1,7 +1,7 @@
 use std::{any::Any, ops::Deref, sync::Arc};
 
 use datafusion::{
-    catalog::schema::SchemaProvider,
+    catalog::SchemaProvider,
     datasource::TableProvider,
     error::{DataFusionError, Result},
 };
@@ -9,6 +9,7 @@ use iceberg_rust::catalog::{identifier::Identifier, namespace::Namespace};
 
 use crate::{catalog::mirror::Mirror, error::Error};
 
+#[derive(Debug)]
 pub struct IcebergSchema {
     schema: Namespace,
     catalog: Arc<Mirror>,
