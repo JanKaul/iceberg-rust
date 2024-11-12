@@ -26,6 +26,9 @@ pub enum Error {
     /// Not supported
     #[error("Feature {0} is not supported.")]
     NotSupported(String),
+    /// Not found in catalog
+    #[error("Entity not found in catalog")]
+    CatalogNotFound,
     /// Iceberg spec error
     #[error(transparent)]
     Iceberg(#[from] iceberg_rust_spec::error::Error),

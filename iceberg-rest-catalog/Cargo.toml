@@ -16,7 +16,7 @@ uuid.workspace = true
 reqwest-middleware = "0.2.0"
 iceberg-rust = { path = "../iceberg-rust", version = "0.5.8" }
 object_store.workspace = true
-async-trait = "0.1.80"
+async-trait.workspace = true
 futures.workspace = true
 tracing.workspace = true
 tracing-futures.workspace = true

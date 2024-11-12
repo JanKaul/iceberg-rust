@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use chrono::DateTime;
-use datafusion_expr::utils::conjunction;
+use datafusion_expr::{dml::InsertOp, utils::conjunction};
 use futures::TryStreamExt;
 use object_store::ObjectMeta;
 use std::{
@@ -18,6 +18,7 @@ use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use datafusion::{
     arrow::datatypes::{Field, SchemaRef},
+    catalog::Session,
     common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
     datasource::{
         file_format::{parquet::ParquetFormat, FileFormat},
@@ -156,11 +157,12 @@ impl TableProvider for DataFusionTable {
     }
     async fn scan(
         &self,
-        session: &SessionState,
+        session: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
+        let session_state = session.as_any().downcast_ref::<SessionState>().unwrap();
         match self.tabular.read().await.deref() {
             Tabular::View(view) => {
                 let metadata = view.metadata();
@@ -173,7 +175,7 @@ impl TableProvider for DataFusionTable {
                     ViewRepresentation::Sql { sql, .. } => sql,
                 };
                 let statement = DFParser::new(sql)?.parse_statement()?;
-                let logical_plan = session.statement_to_plan(statement).await?;
+                let logical_plan = session_state.statement_to_plan(statement).await?;
                 ViewTable::try_new(logical_plan, Some(sql.clone()))?
                     .scan(session, projection, filters, limit)
                     .await
@@ -186,7 +188,7 @@ impl TableProvider for DataFusionTable {
                     &self.snapshot_range,
                     schema,
                     statistics,
-                    session,
+                    session_state,
                     projection,
                     filters,
                     limit,
@@ -202,7 +204,7 @@ impl TableProvider for DataFusionTable {
                     &self.snapshot_range,
                     schema,
                     statistics,
-                    session,
+                    session_state,
                     projection,
                     filters,
                     limit,
@@ -213,18 +215,18 @@ impl TableProvider for DataFusionTable {
     }
     async fn insert_into(
         &self,
-        _state: &SessionState,
+        _state: &dyn Session,
         input: Arc<dyn ExecutionPlan>,
-        overwrite: bool,
+        insert_op: InsertOp,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
         // Create a physical plan from the logical plan.
         // Check that the schema of the plan matches the schema of this table.
         if !self.schema().equivalent_names_and_types(&input.schema()) {
             return plan_err!("Inserting query must have the same schema with the table.");
         }
-        if overwrite {
+        let InsertOp::Append = insert_op else {
             return not_impl_err!("Overwrite not implemented for MemoryTable yet");
-        }
+        };
         Ok(Arc::new(DataSinkExec::new(
             input,
             Arc::new(self.clone().into_data_sink()),
@@ -1236,14 +1238,14 @@ mod tests {
             .with_fields(
                 StructType::builder()
                     .with_struct_field(StructField {
-                        id: 1,
+                        id: 3,
                         name: "product_id".to_string(),
                         required: true,
                         field_type: Type::Primitive(PrimitiveType::Long),
                         doc: None,
                     })
                     .with_struct_field(StructField {
-                        id: 2,
+                        id: 5,
                         name: "amount".to_string(),
                         required: true,
                         field_type: Type::Primitive(PrimitiveType::Int),

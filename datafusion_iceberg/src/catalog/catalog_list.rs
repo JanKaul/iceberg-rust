@@ -9,6 +9,7 @@ use crate::error::Error;
 
 use super::catalog::IcebergCatalog;
 
+#[derive(Debug)]
 pub struct IcebergCatalogList {
     catalogs: DashMap<String, Arc<dyn CatalogProvider>>,
     catalog_list: Arc<dyn CatalogList>,

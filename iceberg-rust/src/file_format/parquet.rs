@@ -75,11 +75,13 @@ pub fn parquet_to_datafile(
                 .or_insert(row_group.num_rows());
 
             if let Some(statistics) = column.statistics() {
-                null_value_counts
-                    .entry(id)
-                    .and_modify(|x| *x += statistics.null_count() as i64)
-                    .or_insert(statistics.null_count() as i64);
-                if let Some(distinct_count) = statistics.distinct_count() {
+                if let Some(null_count) = statistics.null_count_opt() {
+                    null_value_counts
+                        .entry(id)
+                        .and_modify(|x| *x += null_count as i64)
+                        .or_insert(null_count as i64);
+                }
+                if let Some(distinct_count) = statistics.distinct_count_opt() {
                     distinct_counts
                         .entry(id)
                         .and_modify(|x| *x += distinct_count as i64)
@@ -91,9 +93,9 @@ pub fn parquet_to_datafile(
                     .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
                     .field_type;
 
-                if statistics.has_min_max_set() {
+                if let Some(min_bytes) = statistics.min_bytes_opt() {
                     if let Type::Primitive(_) = &data_type {
-                        let new = Value::try_from_bytes(statistics.min_bytes(), data_type)?;
+                        let new = Value::try_from_bytes(min_bytes, data_type)?;
                         match lower_bounds.entry(id) {
                             Entry::Occupied(mut entry) => {
                                 let entry = entry.get_mut();
@@ -145,7 +147,9 @@ pub fn parquet_to_datafile(
                                 entry.insert(new);
                             }
                         }
-                        let new = Value::try_from_bytes(statistics.max_bytes(), data_type)?;
+                    }
+                    if let Some(max_bytes) = statistics.max_bytes_opt() {
+                        let new = Value::try_from_bytes(max_bytes, data_type)?;
                         match upper_bounds.entry(id) {
                             Entry::Occupied(mut entry) => {
                                 let entry = entry.get_mut();
@@ -206,14 +210,16 @@ pub fn parquet_to_datafile(
                                         partition_fields.get(column_name).ok_or_else(|| {
                                             Error::InvalidFormat("transform".to_string())
                                         })?;
-                                    let min =
-                                        Value::try_from_bytes(statistics.min_bytes(), data_type)?
+                                    if let (Some(min_bytes), Some(max_bytes)) =
+                                        (statistics.min_bytes_opt(), statistics.max_bytes_opt())
+                                    {
+                                        let min = Value::try_from_bytes(min_bytes, data_type)?
                                             .tranform(partition_field.transform())?;
-                                    let max =
-                                        Value::try_from_bytes(statistics.max_bytes(), data_type)?
+                                        let max = Value::try_from_bytes(max_bytes, data_type)?
                                             .tranform(partition_field.transform())?;
-                                    if min == max {
-                                        *partition_value = Some(min)
+                                        if min == max {
+                                            *partition_value = Some(min)
+                                        }
                                     }
                                 }
                             }

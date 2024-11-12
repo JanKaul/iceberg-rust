@@ -229,7 +229,7 @@ impl Catalog for GlueCatalog {
             .name(identifier.name())
             .send()
             .await
-            .map_err(Error::from)?
+            .map_err(|_| IcebergError::CatalogNotFound)?
             .table
             .ok_or(Error::Text(
                 "Glue create table didn't return a table.".to_owned(),

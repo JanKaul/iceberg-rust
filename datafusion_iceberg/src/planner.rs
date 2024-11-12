@@ -32,6 +32,7 @@ use iceberg_rust::{
     table::Table,
 };
 
+#[derive(Debug)]
 pub struct IcebergQueryPlanner {}
 
 #[async_trait]
@@ -299,6 +300,10 @@ impl UserDefinedLogicalNode for CreateIcebergTable {
             false
         }
     }
+
+    fn dyn_ord(&self, _other: &dyn UserDefinedLogicalNode) -> Option<std::cmp::Ordering> {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -355,6 +360,10 @@ impl UserDefinedLogicalNode for CreateIcebergView {
         } else {
             false
         }
+    }
+
+    fn dyn_ord(&self, _other: &dyn UserDefinedLogicalNode) -> Option<std::cmp::Ordering> {
+        None
     }
 }
 
@@ -490,11 +499,7 @@ mod tests {
     use datafusion::{
         arrow::array::{Int32Array, Int64Array},
         common::tree_node::{TransformedResult, TreeNode},
-        execution::{
-            config::SessionConfig,
-            context::{SessionContext, SessionState},
-            runtime_env::RuntimeEnv,
-        },
+        execution::{context::SessionContext, SessionStateBuilder},
     };
     use datafusion_expr::ScalarUDF;
     use iceberg_sql_catalog::SqlCatalogList;
@@ -522,19 +527,12 @@ mod tests {
                     .unwrap(),
             )
         };
-        let session_config = SessionConfig::from_env()
-            .unwrap()
-            .with_create_default_catalog_and_schema(true)
-            .with_information_schema(true);
 
-        let runtime_env = Arc::new(RuntimeEnv::default());
-
-        let state = SessionState::new_with_config_rt_and_catalog_list(
-            session_config,
-            runtime_env,
-            catalog_list,
-        )
-        .with_query_planner(Arc::new(IcebergQueryPlanner {}));
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_catalog_list(catalog_list)
+            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .build();
 
         let ctx = SessionContext::new_with_state(state);
 
@@ -579,7 +577,7 @@ OPTIONS ('has_header' 'true');";
         .await
         .expect("Failed to insert values into table");
 
-        let sql = "CREATE MATERIALIZED VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) from iceberg.public.orders group by product_id;";
+        let sql = "CREATE VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) from iceberg.public.orders group by product_id;";
 
         let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 

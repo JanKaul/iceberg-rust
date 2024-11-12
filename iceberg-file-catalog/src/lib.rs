@@ -153,7 +153,8 @@ impl Catalog for FileCatalog {
         let bytes = &self
             .object_store
             .get(&strip_prefix(&metadata_location).as_str().into())
-            .await?
+            .await
+            .map_err(|_| IcebergError::CatalogNotFound)?
             .bytes()
             .await?;
 

@@ -56,7 +56,6 @@ impl IcebergContext {
 
         datafusion_functions::register_all(&mut function_registry)?;
         datafusion_functions_aggregate::register_all(&mut function_registry)?;
-        datafusion_functions_array::register_all(&mut function_registry)?;
 
         Ok(IcebergContext {
             sources,

@@ -278,7 +278,7 @@ impl Catalog for RestCatalog {
                     )
                     .await
                     .map(|x| x.metadata)
-                    .map_err(Into::<Error>::into)?;
+                    .map_err(|_| Error::CatalogNotFound)?;
 
                     Ok(Tabular::Table(
                         Table::new(identifier.clone(), self.clone(), *table_metadata).await?,
