@@ -271,23 +271,14 @@ async fn table_scan(
     // This way data files with the same partition value are mapped to the same vector.
     let mut file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> = HashMap::new();
 
-    let partition_column_names = table
-        .metadata()
-        .default_partition_spec()
-        .map_err(Error::from)?
-        .fields()
+    let partition_fields = &snapshot_range
+        .1
+        .and_then(|snapshot_id| table.metadata().partition_fields(snapshot_id).ok())
+        .unwrap_or_else(|| table.metadata().current_partition_fields(None).unwrap());
+
+    let partition_column_names = partition_fields
         .iter()
-        .map(|x| {
-            Ok(schema
-                .fields()
-                .get(*x.source_id() as usize)
-                .ok_or(Error::NotFound(
-                    "Field".to_string(),
-                    x.source_id().to_string(),
-                ))?
-                .name
-                .clone())
-        })
+        .map(|field| Ok(field.source_name().to_owned()))
         .collect::<Result<HashSet<_>, Error>>()?;
 
     // If there is a filter expression the manifests to read are pruned based on the pruning statistics available in the manifest_list file.
@@ -329,15 +320,8 @@ async fn table_scan(
             )?;
             let pruning_predicate =
                 PruningPredicate::try_new(physical_partition_predicate, arrow_schema.clone())?;
-            let partition_spec = table
-                .metadata()
-                .default_partition_spec()
-                .map_err(Error::from)?;
-            let manifests_to_prune = pruning_predicate.prune(&PruneManifests::new(
-                &schema,
-                partition_spec,
-                &manifests,
-            ))?;
+            let manifests_to_prune =
+                pruning_predicate.prune(&PruneManifests::new(partition_fields, &manifests))?;
 
             table
                 .datafiles(&manifests, Some(manifests_to_prune))
@@ -454,23 +438,18 @@ async fn table_scan(
     };
 
     // Get all partition columns
-    let table_partition_cols: Vec<Field> = table
-        .metadata()
-        .default_partition_spec()
-        .map_err(Into::<Error>::into)?
-        .fields()
+    let table_partition_cols: Vec<Field> = partition_fields
         .iter()
-        .map(|field| {
-            let struct_field = schema.fields().get(*field.source_id() as usize).unwrap();
+        .map(|partition_field| {
             Ok(Field::new(
-                field.name().clone() + "__partition",
-                (&struct_field
-                    .field_type
-                    .tranform(field.transform())
+                partition_field.name().to_owned() + "__partition",
+                (&partition_field
+                    .field_type()
+                    .tranform(partition_field.transform())
                     .map_err(Into::<Error>::into)?)
                     .try_into()
                     .map_err(Into::<Error>::into)?,
-                !struct_field.required,
+                !partition_field.required(),
             ))
         })
         .collect::<Result<Vec<_>, DataFusionError>>()
@@ -481,15 +460,12 @@ async fn table_scan(
     for field in schema.fields().iter() {
         schema_builder.with_struct_field(field.clone());
     }
-    for partition_field in table.metadata().default_partition_spec().unwrap().fields() {
+    for partition_field in partition_fields {
         schema_builder.with_struct_field(StructField {
-            id: *partition_field.field_id(),
-            name: partition_field.name().clone() + "__partition",
-            field_type: schema
-                .fields()
-                .get(*partition_field.source_id() as usize)
-                .unwrap()
-                .field_type
+            id: partition_field.field_id(),
+            name: partition_field.name().to_owned() + "__partition",
+            field_type: partition_field
+                .field_type()
                 .tranform(partition_field.transform())
                 .unwrap(),
             required: true,

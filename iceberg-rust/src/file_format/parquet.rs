@@ -7,12 +7,15 @@ use std::{
     sync::Arc,
 };
 
-use iceberg_rust_spec::spec::{
-    manifest::{AvroMap, Content, DataFile, FileFormat},
-    partition::PartitionField,
-    schema::Schema,
-    types::Type,
-    values::{Struct, Value},
+use iceberg_rust_spec::{
+    partition::BoundPartitionField,
+    spec::{
+        manifest::{AvroMap, Content, DataFile, FileFormat},
+        partition::PartitionField,
+        schema::Schema,
+        types::Type,
+        values::{Struct, Value},
+    },
 };
 use parquet::{
     file::{metadata::RowGroupMetaData, writer::TrackedWrite},
@@ -29,20 +32,19 @@ pub fn parquet_to_datafile(
     file_size: usize,
     file_metadata: &FileMetaData,
     schema: &Schema,
-    partition_spec: &[PartitionField],
+    partition_fields: &[BoundPartitionField<'_>],
 ) -> Result<DataFile, Error> {
-    let mut partition = partition_spec
+    let mut partition = partition_fields
         .iter()
-        .map(|x| Ok((x.name().clone(), None)))
+        .map(|field| Ok((field.name().to_owned(), None)))
         .collect::<Result<Struct, Error>>()?;
-    let partition_fields = partition_spec
+    let partition_fields = partition_fields
         .iter()
-        .map(|x| {
-            let field = schema
-                .fields()
-                .get(*x.source_id() as usize)
-                .ok_or_else(|| Error::InvalidFormat("partition column in schema".to_string()))?;
-            Ok((field.name.clone(), x.clone()))
+        .map(|field| {
+            Ok((
+                field.source_name().to_owned(),
+                field.partition_field().clone(),
+            ))
         })
         .collect::<Result<HashMap<String, PartitionField>, Error>>()?;
     let parquet_schema = Arc::new(SchemaDescriptor::new(from_thrift(&file_metadata.schema)?));

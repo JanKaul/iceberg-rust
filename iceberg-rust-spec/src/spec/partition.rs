@@ -15,7 +15,7 @@ use serde::{
 
 use derive_builder::Builder;
 
-use crate::error::Error;
+use crate::{error::Error, types::StructField};
 
 use super::types::{StructType, Type};
 
@@ -207,6 +207,61 @@ impl str::FromStr for PartitionSpec {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         serde_json::from_str(s).map_err(Error::from)
+    }
+}
+
+#[derive(Debug)]
+pub struct BoundPartitionField<'a> {
+    partition_field: &'a PartitionField,
+    struct_field: &'a StructField,
+}
+
+impl<'a> BoundPartitionField<'a> {
+    pub fn new(partition_field: &'a PartitionField, struct_field: &'a StructField) -> Self {
+        Self {
+            partition_field,
+            struct_field,
+        }
+    }
+
+    /// Name of partition field
+    pub fn name(&self) -> &str {
+        &self.partition_field.name
+    }
+
+    /// Name of source field
+    pub fn source_name(&self) -> &str {
+        &self.struct_field.name
+    }
+
+    /// Datatype of source field
+    pub fn field_type(&self) -> &Type {
+        &self.struct_field.field_type
+    }
+
+    /// Datatype of source field
+    pub fn transform(&self) -> &Transform {
+        &self.partition_field.transform
+    }
+
+    /// Field id if partition field
+    pub fn field_id(&self) -> i32 {
+        self.partition_field.field_id
+    }
+
+    /// Field id if partition field
+    pub fn source_id(&self) -> i32 {
+        self.partition_field.source_id
+    }
+
+    /// Field id if partition field
+    pub fn required(&self) -> bool {
+        self.struct_field.required
+    }
+
+    /// Partition field
+    pub fn partition_field(&self) -> &PartitionField {
+        self.partition_field
     }
 }
 
