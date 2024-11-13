@@ -1,7 +1,7 @@
 /*! Enum for Metadata of Table, View or Materialized View
 */
 
-use std::{fmt, str};
+use std::{fmt, ops::Deref, str};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -72,6 +72,7 @@ impl From<MaterializedViewMetadata> for TabularMetadata {
     }
 }
 
+#[derive(Serialize)]
 pub enum TabularMetadataRef<'a> {
     /// Table metadata
     Table(&'a TableMetadata),
