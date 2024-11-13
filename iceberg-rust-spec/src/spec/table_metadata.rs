@@ -282,7 +282,7 @@ impl TableMetadata {
     }
 
     pub fn as_ref(&self) -> TabularMetadataRef {
-        TabularMetadataRef::Table(&self)
+        TabularMetadataRef::Table(self)
     }
 }
 
