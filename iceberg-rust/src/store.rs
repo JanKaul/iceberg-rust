@@ -1,3 +1,5 @@
+/*! Helpers for Intarting with object storage
+*/
 use async_trait::async_trait;
 use iceberg_rust_spec::{
     tabular::{TabularMetadata, TabularMetadataRef},

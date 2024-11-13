@@ -9,7 +9,10 @@ use uuid::Uuid;
 
 use crate::identifier::Identifier;
 
-use super::view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder};
+use super::{
+    tabular::TabularMetadataRef,
+    view_metadata::{GeneralViewMetadata, GeneralViewMetadataBuilder},
+};
 
 pub static REFRESH_STATE: &str = "refresh-state";
 
@@ -17,6 +20,12 @@ pub static REFRESH_STATE: &str = "refresh-state";
 pub type MaterializedViewMetadata = GeneralViewMetadata<Identifier>;
 /// Builder for materialized view metadata
 pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<Identifier>;
+
+impl MaterializedViewMetadata {
+    pub fn as_ref(&self) -> TabularMetadataRef {
+        TabularMetadataRef::MaterializedView(self)
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]

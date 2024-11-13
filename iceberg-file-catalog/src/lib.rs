@@ -28,6 +28,7 @@ use iceberg_rust::{
         util::strip_prefix,
         view_metadata::ViewMetadata,
     },
+    store::IcebergStore,
     table::Table,
     view::View,
 };
@@ -198,14 +199,10 @@ impl Catalog for FileCatalog {
         let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
-        let metadata_json = serde_json::to_string(&metadata)?;
         let metadata_location = location + "/metadata/v0.metadata.json";
 
         object_store
-            .put(
-                &strip_prefix(&metadata_location).into(),
-                metadata_json.into(),
-            )
+            .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
         self.cache.write().unwrap().insert(
@@ -236,14 +233,10 @@ impl Catalog for FileCatalog {
         let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
-        let metadata_json = serde_json::to_string(&metadata)?;
         let metadata_location = location + "/metadata/v0.metadata.json";
 
         object_store
-            .put(
-                &strip_prefix(&metadata_location).into(),
-                metadata_json.into(),
-            )
+            .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
         self.cache.write().unwrap().insert(
@@ -281,25 +274,17 @@ impl Catalog for FileCatalog {
         let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
-        let metadata_json = serde_json::to_string(&metadata)?;
         let metadata_location = location + "/metadata/v0.metadata.json";
 
-        let table_metadata_json = serde_json::to_string(&table_metadata)?;
         let table_metadata_location =
             table_metadata.location.clone() + "/metadata/v0.metadata.json";
 
         object_store
-            .put(
-                &strip_prefix(&metadata_location).into(),
-                metadata_json.into(),
-            )
+            .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
         object_store
-            .put(
-                &strip_prefix(&table_metadata_location).into(),
-                table_metadata_json.into(),
-            )
+            .put_metadata(&table_metadata_location, table_metadata.as_ref())
             .await?;
 
         self.cache.write().unwrap().insert(
@@ -340,10 +325,7 @@ impl Catalog for FileCatalog {
         let temp_metadata_location = new_metadata_location(&metadata);
 
         self.object_store
-            .put(
-                &strip_prefix(&temp_metadata_location).into(),
-                serde_json::to_string(&metadata)?.into(),
-            )
+            .put_metadata(&temp_metadata_location, metadata.as_ref())
             .await?;
 
         let current_version = parse_version(&previous_metadata_location)? + 1;
@@ -389,10 +371,7 @@ impl Catalog for FileCatalog {
                 let temp_metadata_location = new_metadata_location(&*metadata);
 
                 self.object_store
-                    .put(
-                        &strip_prefix(&temp_metadata_location).into(),
-                        serde_json::to_string(&metadata)?.into(),
-                    )
+                    .put_metadata(&temp_metadata_location, metadata.as_ref())
                     .await?;
 
                 let current_version = parse_version(&previous_metadata_location)? + 1;
@@ -447,11 +426,9 @@ impl Catalog for FileCatalog {
                 }
                 apply_view_updates(metadata, commit.updates)?;
                 let temp_metadata_location = new_metadata_location(&*metadata);
+
                 self.object_store
-                    .put(
-                        &strip_prefix(&temp_metadata_location).into(),
-                        serde_json::to_string(&metadata)?.into(),
-                    )
+                    .put_metadata(&temp_metadata_location, metadata.as_ref())
                     .await?;
 
                 let current_version = parse_version(&previous_metadata_location)? + 1;

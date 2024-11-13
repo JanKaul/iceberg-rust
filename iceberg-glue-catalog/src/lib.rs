@@ -32,6 +32,7 @@ use iceberg_rust::{
         util::strip_prefix,
         view_metadata::ViewMetadata,
     },
+    store::IcebergStore,
     table::Table,
     view::View,
 };
@@ -286,13 +287,9 @@ impl Catalog for GlueCatalog {
         let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
-        let metadata_json = serde_json::to_string(&metadata)?;
         let metadata_location = new_metadata_location(&metadata);
         object_store
-            .put(
-                &strip_prefix(&metadata_location).into(),
-                metadata_json.into(),
-            )
+            .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
         let schema = metadata.current_schema(None)?;
@@ -357,13 +354,9 @@ impl Catalog for GlueCatalog {
         let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
-        let metadata_json = serde_json::to_string(&metadata)?;
         let metadata_location = new_metadata_location(&metadata);
         object_store
-            .put(
-                &strip_prefix(&metadata_location).into(),
-                metadata_json.into(),
-            )
+            .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
         let schema = metadata.current_schema(None)?;
@@ -430,23 +423,15 @@ impl Catalog for GlueCatalog {
         let bucket = Bucket::from_path(&location)?;
         let object_store = self.object_store(bucket);
 
-        let metadata_json = serde_json::to_string(&metadata)?;
         let metadata_location = new_metadata_location(&metadata);
 
-        let table_metadata_json = serde_json::to_string(&table_metadata)?;
         let table_metadata_location = new_metadata_location(&table_metadata);
         let table_identifier = metadata.current_version(None)?.storage_table();
         object_store
-            .put(
-                &strip_prefix(&metadata_location).into(),
-                metadata_json.into(),
-            )
+            .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
         object_store
-            .put(
-                &strip_prefix(&table_metadata_location).into(),
-                table_metadata_json.into(),
-            )
+            .put_metadata(&table_metadata_location, table_metadata.as_ref())
             .await?;
 
         let schema = metadata.current_schema(None)?;
@@ -550,10 +535,7 @@ impl Catalog for GlueCatalog {
         apply_table_updates(&mut metadata, commit.updates)?;
         let metadata_location = new_metadata_location(&metadata);
         self.object_store
-            .put(
-                &strip_prefix(&metadata_location).into(),
-                serde_json::to_string(&metadata)?.into(),
-            )
+            .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
         let schema = metadata.current_schema(None)?;
@@ -650,10 +632,7 @@ impl Catalog for GlueCatalog {
                     + &Uuid::new_v4().to_string()
                     + ".metadata.json";
                 self.object_store
-                    .put(
-                        &strip_prefix(&metadata_location).into(),
-                        serde_json::to_string(&metadata)?.into(),
-                    )
+                    .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
                 Ok(metadata_location)
             }
@@ -762,10 +741,7 @@ impl Catalog for GlueCatalog {
                     + &Uuid::new_v4().to_string()
                     + ".metadata.json";
                 self.object_store
-                    .put(
-                        &strip_prefix(&metadata_location).into(),
-                        serde_json::to_string(&metadata)?.into(),
-                    )
+                    .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
                 Ok(metadata_location)
             }
