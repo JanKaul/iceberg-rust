@@ -280,6 +280,10 @@ impl TableMetadata {
             .get(&snapshot_id)
             .map(|x| *x.sequence_number())
     }
+
+    pub fn as_ref(&self) -> TabularMetadataRef {
+        TabularMetadataRef::Table(self)
+    }
 }
 
 pub fn new_metadata_location<'a, T: Into<TabularMetadataRef<'a>>>(metadata: T) -> String {

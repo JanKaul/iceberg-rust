@@ -72,6 +72,8 @@ impl From<MaterializedViewMetadata> for TabularMetadata {
     }
 }
 
+#[derive(Serialize)]
+#[serde(untagged)]
 pub enum TabularMetadataRef<'a> {
     /// Table metadata
     Table(&'a TableMetadata),

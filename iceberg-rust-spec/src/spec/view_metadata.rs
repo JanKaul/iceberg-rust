@@ -17,7 +17,10 @@ use uuid::Uuid;
 
 use crate::{error::Error, identifier::Identifier};
 
-use super::schema::{Schema, DEFAULT_SCHEMA_ID};
+use super::{
+    schema::{Schema, DEFAULT_SCHEMA_ID},
+    tabular::TabularMetadataRef,
+};
 
 pub use _serde::ViewMetadataV1;
 
@@ -105,6 +108,12 @@ impl<T: Materialization> GeneralViewMetadata<T> {
     #[inline]
     pub fn add_schema(&mut self, schema: Schema) {
         self.schemas.insert(*schema.schema_id(), schema);
+    }
+}
+
+impl ViewMetadata {
+    pub fn as_ref(&self) -> TabularMetadataRef {
+        TabularMetadataRef::View(self)
     }
 }
 

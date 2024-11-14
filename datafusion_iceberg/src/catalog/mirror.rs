@@ -1,6 +1,7 @@
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
 use futures::{executor::LocalPool, task::LocalSpawnExt};
+use iceberg_rust::store::IcebergStore;
 use std::{collections::HashSet, sync::Arc};
 
 use iceberg_rust::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
@@ -15,7 +16,6 @@ use iceberg_rust::{
     },
     error::Error as IcebergError,
     spec::table_metadata::new_metadata_location,
-    spec::util::strip_prefix,
 };
 
 use crate::{error::Error, DataFusionTable};
@@ -236,10 +236,7 @@ impl Mirror {
                             let object_store = cloned_catalog
                                 .object_store(Bucket::from_path(&metadata_location).unwrap());
                             object_store
-                                .put(
-                                    &strip_prefix(&metadata_location).into(),
-                                    serde_json::to_vec(&metadata).unwrap().into(),
-                                )
+                                .put_metadata(&metadata_location, metadata.as_ref())
                                 .await
                                 .unwrap();
                             cloned_catalog
