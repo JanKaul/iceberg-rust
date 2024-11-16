@@ -452,22 +452,13 @@ fn parse_transform(input: &str) -> Result<(String, Transform), Error> {
     let short = Regex::new(r"(\w+)").unwrap();
     let full = Regex::new(r"(\w+)\((.*)\)").unwrap();
 
-    let (transform_name, column, arg) = if let Some(caps) = short.captures(input) {
-        let column = caps
-            .get(1)
-            .ok_or(Error::InvalidFormat("Partition column".to_owned()))?
-            .as_str()
-            .to_string();
-        ("identity".to_owned(), column, None)
-    } else {
-        let caps = full
-            .captures(input)
-            .ok_or(Error::InvalidFormat("Partition transform".to_owned()))?;
+    let (transform_name, column, arg) = if let Some(caps) = full.captures(input) {
         let transform_name = caps
             .get(1)
             .ok_or(Error::InvalidFormat("Partition transform".to_owned()))?
             .as_str()
-            .to_string();
+            .to_string()
+            .to_lowercase();
         let args = caps
             .get(2)
             .ok_or(Error::InvalidFormat("Partition column".to_owned()))?
@@ -475,9 +466,22 @@ fn parse_transform(input: &str) -> Result<(String, Transform), Error> {
         let mut args = args.split(',').map(|s| s.to_string());
         let column = args
             .next()
-            .ok_or(Error::InvalidFormat("Partition column".to_owned()))?;
+            .ok_or(Error::InvalidFormat("Partition column".to_owned()))?
+            .to_lowercase();
         let arg = args.next();
         (transform_name, column, arg)
+    } else {
+        let caps = short
+            .captures(input)
+            .ok_or(Error::InvalidFormat("Partition transform".to_owned()))?;
+
+        let column = caps
+            .get(1)
+            .ok_or(Error::InvalidFormat("Partition column".to_owned()))?
+            .as_str()
+            .to_string()
+            .to_lowercase();
+        ("identity".to_owned(), column, None)
     };
     match (transform_name.as_str(), column, arg) {
         ("identity", column, None) => Ok((column, Transform::Identity)),
