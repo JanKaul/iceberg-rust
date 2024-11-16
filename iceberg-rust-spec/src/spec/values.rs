@@ -13,7 +13,7 @@ use std::{
     slice::Iter,
 };
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
@@ -32,6 +32,9 @@ use super::{
     partition::{PartitionField, Transform},
     types::{PrimitiveType, StructType, Type},
 };
+
+static DAYS_BEFORE_UNIX_EPOCH: i32 = 719162;
+static YEARS_BEFORE_UNIX_EPOCH: i32 = 1970;
 
 /// Values present in iceberg type
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -309,92 +312,69 @@ impl Value {
                 )),
             },
             Transform::Year => match self {
-                Value::Date(date) => Ok(Value::Int(*date / 365)),
+                Value::Date(date) => Ok(Value::Int(
+                    NaiveDate::from_num_days_from_ce_opt(*date + DAYS_BEFORE_UNIX_EPOCH)
+                        .ok_or(Error::InvalidFormat("Date".to_owned()))?
+                        .year()
+                        - YEARS_BEFORE_UNIX_EPOCH,
+                )),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_days()
-                        / 364) as i32,
+                        .year()
+                        - YEARS_BEFORE_UNIX_EPOCH,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_days()
-                        / 364) as i32,
+                        .year()
+                        - YEARS_BEFORE_UNIX_EPOCH,
                 )),
                 _ => Err(Error::NotSupported(
                     "Datatype for year partition transform.".to_string(),
                 )),
             },
             Transform::Month => match self {
-                Value::Date(date) => Ok(Value::Int(*date / 30)),
+                Value::Date(date) => Ok(Value::Int(
+                    NaiveDate::from_num_days_from_ce_opt(*date + DAYS_BEFORE_UNIX_EPOCH)
+                        .ok_or(Error::InvalidFormat("Date".to_owned()))?
+                        .month0() as i32,
+                )),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_weeks()) as i32,
+                        .month0() as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_weeks()) as i32,
+                        .month0() as i32,
                 )),
                 _ => Err(Error::NotSupported(
                     "Datatype for month partition transform.".to_string(),
                 )),
             },
             Transform::Day => match self {
-                Value::Date(date) => Ok(Value::Int(*date)),
+                Value::Date(date) => Ok(Value::Int(
+                    NaiveDate::from_num_days_from_ce_opt(*date + DAYS_BEFORE_UNIX_EPOCH)
+                        .ok_or(Error::InvalidFormat("Date".to_owned()))?
+                        .day0() as i32,
+                )),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_days()) as i32,
+                        .day0() as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_days()) as i32,
+                        .day0() as i32,
                 )),
                 _ => Err(Error::NotSupported(
                     "Datatype for day partition transform.".to_string(),
@@ -402,28 +382,16 @@ impl Value {
             },
             Transform::Hour => match self {
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_hours()) as i32,
+                        .hour() as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_hours()) as i32,
+                        .hour() as i32,
                 )),
                 _ => Err(Error::NotSupported(
                     "Datatype for hour partition transform.".to_string(),

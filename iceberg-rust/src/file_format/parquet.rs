@@ -220,7 +220,9 @@ pub fn parquet_to_datafile(
                                         if min == max {
                                             *partition_value = Some(min)
                                         } else {
-                                            return Err(Error::InvalidFormat("Partition value of data file".to_owned()))
+                                            return Err(Error::InvalidFormat(
+                                                "Partition value of data file".to_owned(),
+                                            ));
                                         }
                                     }
                                 }
