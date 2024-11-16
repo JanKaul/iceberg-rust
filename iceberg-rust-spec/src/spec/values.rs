@@ -13,7 +13,7 @@ use std::{
     slice::Iter,
 };
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
@@ -32,6 +32,9 @@ use super::{
     partition::{PartitionField, Transform},
     types::{PrimitiveType, StructType, Type},
 };
+
+static DAYS_BEFORE_UNIX_EPOCH: i32 = 719163;
+static YEARS_BEFORE_UNIX_EPOCH: i32 = 1970;
 
 /// Values present in iceberg type
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -288,7 +291,7 @@ impl Hash for Struct {
 
 impl Value {
     /// Perform a partition transformation for the given value
-    pub fn tranform(&self, transform: &Transform) -> Result<Value, Error> {
+    pub fn transform(&self, transform: &Transform) -> Result<Value, Error> {
         match transform {
             Transform::Identity => Ok(self.clone()),
             Transform::Bucket(n) => {
@@ -309,92 +312,69 @@ impl Value {
                 )),
             },
             Transform::Year => match self {
-                Value::Date(date) => Ok(Value::Int(*date / 365)),
+                Value::Date(date) => Ok(Value::Int(
+                    NaiveDate::from_num_days_from_ce_opt(*date + DAYS_BEFORE_UNIX_EPOCH)
+                        .ok_or(Error::InvalidFormat("Date".to_owned()))?
+                        .year()
+                        - YEARS_BEFORE_UNIX_EPOCH,
+                )),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_days()
-                        / 364) as i32,
+                        .year()
+                        - YEARS_BEFORE_UNIX_EPOCH,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_days()
-                        / 364) as i32,
+                        .year()
+                        - YEARS_BEFORE_UNIX_EPOCH,
                 )),
                 _ => Err(Error::NotSupported(
                     "Datatype for year partition transform.".to_string(),
                 )),
             },
             Transform::Month => match self {
-                Value::Date(date) => Ok(Value::Int(*date / 30)),
+                Value::Date(date) => Ok(Value::Int(
+                    NaiveDate::from_num_days_from_ce_opt(*date + DAYS_BEFORE_UNIX_EPOCH)
+                        .ok_or(Error::InvalidFormat("Date".to_owned()))?
+                        .month() as i32,
+                )),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_weeks()) as i32,
+                        .month() as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_weeks()) as i32,
+                        .month() as i32,
                 )),
                 _ => Err(Error::NotSupported(
                     "Datatype for month partition transform.".to_string(),
                 )),
             },
             Transform::Day => match self {
-                Value::Date(date) => Ok(Value::Int(*date)),
+                Value::Date(date) => Ok(Value::Int(
+                    NaiveDate::from_num_days_from_ce_opt(*date + DAYS_BEFORE_UNIX_EPOCH)
+                        .ok_or(Error::InvalidFormat("Date".to_owned()))?
+                        .day() as i32,
+                )),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_days()) as i32,
+                        .day() as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_days()) as i32,
+                        .day() as i32,
                 )),
                 _ => Err(Error::NotSupported(
                     "Datatype for day partition transform.".to_string(),
@@ -402,28 +382,16 @@ impl Value {
             },
             Transform::Hour => match self {
                 Value::Timestamp(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_hours()) as i32,
+                        .hour() as i32,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    (DateTime::from_timestamp_millis(time / 1000)
+                    DateTime::from_timestamp_millis(time / 1000)
                         .unwrap()
                         .naive_utc()
-                        .signed_duration_since(
-                            NaiveDate::from_ymd_opt(1970, 1, 1)
-                                .unwrap()
-                                .and_hms_opt(0, 0, 0)
-                                .unwrap(),
-                        )
-                        .num_hours()) as i32,
+                        .hour() as i32,
                 )),
                 _ => Err(Error::NotSupported(
                     "Datatype for hour partition transform.".to_string(),
@@ -919,12 +887,11 @@ fn sub_string(left: &str, right: &str) -> u64 {
 #[cfg(test)]
 mod tests {
 
+    use super::*;
     use crate::{
         spec::types::{ListType, MapType, StructType},
         types::StructField,
     };
-
-    use super::*;
 
     fn check_json_serde(json: &str, expected_literal: Value, expected_type: &Type) {
         let raw_json_value = serde_json::from_str::<JsonValue>(json).unwrap();
@@ -1213,5 +1180,181 @@ mod tests {
             Value::String("iceberg".to_string()),
             &Type::Primitive(PrimitiveType::String),
         );
+    }
+
+    #[test]
+    fn test_transform_identity() {
+        let value = Value::Int(42);
+        let result = value.transform(&Transform::Identity).unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_transform_bucket() {
+        let value = Value::String("test".to_string());
+        let result = value.transform(&Transform::Bucket(10)).unwrap();
+        assert!(matches!(result, Value::Int(_)));
+    }
+
+    #[test]
+    fn test_transform_truncate_int() {
+        let value = Value::Int(42);
+        let result = value.transform(&Transform::Truncate(10)).unwrap();
+        assert_eq!(result, Value::Int(40));
+    }
+
+    #[test]
+    fn test_transform_truncate_long_int() {
+        let value = Value::LongInt(1234567890);
+        let result = value.transform(&Transform::Truncate(1000000)).unwrap();
+        assert_eq!(result, Value::LongInt(1234000000));
+    }
+
+    #[test]
+    fn test_transform_truncate_string() {
+        let value = Value::String("Hello, World!".to_string());
+        let result = value.transform(&Transform::Truncate(5)).unwrap();
+        assert_eq!(result, Value::String("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_transform_truncate_unsupported() {
+        let value = Value::Boolean(true);
+        let result = value.transform(&Transform::Truncate(5));
+        assert!(matches!(result, Err(Error::NotSupported(_))));
+    }
+
+    #[test]
+    fn test_transform_year_date() {
+        let value = Value::Date(19478);
+        let result = value.transform(&Transform::Year).unwrap();
+        assert_eq!(result, Value::Int(53));
+
+        let value = Value::Date(19523);
+        let result = value.transform(&Transform::Year).unwrap();
+        assert_eq!(result, Value::Int(53));
+
+        let value = Value::Date(19723);
+        let result = value.transform(&Transform::Year).unwrap();
+        assert_eq!(result, Value::Int(54));
+    }
+
+    #[test]
+    fn test_transform_year_timestamp() {
+        let value = Value::Timestamp(1682937000000000);
+        let result = value.transform(&Transform::Year).unwrap();
+        assert_eq!(result, Value::Int(53));
+
+        let value = Value::Timestamp(1686840330000000);
+        let result = value.transform(&Transform::Year).unwrap();
+        assert_eq!(result, Value::Int(53));
+
+        let value = Value::Timestamp(1704067200000000);
+        let result = value.transform(&Transform::Year).unwrap();
+        assert_eq!(result, Value::Int(54));
+    }
+
+    #[test]
+    fn test_transform_month_date() {
+        let value = Value::Date(19478);
+        let result = value.transform(&Transform::Month).unwrap();
+        assert_eq!(result, Value::Int(5)); // 0-based month index
+
+        let value = Value::Date(19523);
+        let result = value.transform(&Transform::Month).unwrap();
+        assert_eq!(result, Value::Int(6)); // 0-based month index
+
+        let value = Value::Date(19723);
+        let result = value.transform(&Transform::Month).unwrap();
+        assert_eq!(result, Value::Int(1)); // 0-based month index
+    }
+
+    #[test]
+    fn test_transform_month_timestamp() {
+        let value = Value::Timestamp(1682937000000000);
+        let result = value.transform(&Transform::Month).unwrap();
+        assert_eq!(result, Value::Int(5)); // 0-based month index
+
+        let value = Value::Timestamp(1686840330000000);
+        let result = value.transform(&Transform::Month).unwrap();
+        assert_eq!(result, Value::Int(6)); // 0-based month index
+
+        let value = Value::Timestamp(1704067200000000);
+        let result = value.transform(&Transform::Month).unwrap();
+        assert_eq!(result, Value::Int(1)); // 0-based month index
+    }
+
+    #[test]
+    fn test_transform_month_unsupported() {
+        let value = Value::Boolean(true);
+        let result = value.transform(&Transform::Month);
+        assert!(matches!(result, Err(Error::NotSupported(_))));
+
+        let value = Value::Boolean(true);
+        let result = value.transform(&Transform::Month);
+        assert!(matches!(result, Err(Error::NotSupported(_))));
+
+        let value = Value::Boolean(true);
+        let result = value.transform(&Transform::Month);
+        assert!(matches!(result, Err(Error::NotSupported(_))));
+    }
+
+    #[test]
+    fn test_transform_day_date() {
+        let value = Value::Date(19478);
+        let result = value.transform(&Transform::Day).unwrap();
+        assert_eq!(result, Value::Int(1)); // 0-based day index
+
+        let value = Value::Date(19523);
+        let result = value.transform(&Transform::Day).unwrap();
+        assert_eq!(result, Value::Int(15)); // 0-based day index
+
+        let value = Value::Date(19723);
+        let result = value.transform(&Transform::Day).unwrap();
+        assert_eq!(result, Value::Int(1)); // 0-based day index
+    }
+
+    #[test]
+    fn test_transform_day_timestamp() {
+        let value = Value::Timestamp(1682937000000000);
+        let result = value.transform(&Transform::Day).unwrap();
+        assert_eq!(result, Value::Int(1)); // 0-based day index
+
+        let value = Value::Timestamp(1686840330000000);
+        let result = value.transform(&Transform::Day).unwrap();
+        assert_eq!(result, Value::Int(15)); // 0-based day index
+
+        let value = Value::Timestamp(1704067200000000);
+        let result = value.transform(&Transform::Day).unwrap();
+        assert_eq!(result, Value::Int(1)); // 0-based day index
+    }
+
+    #[test]
+    fn test_transform_day_unsupported() {
+        let value = Value::Boolean(true);
+        let result = value.transform(&Transform::Day);
+        assert!(matches!(result, Err(Error::NotSupported(_))));
+    }
+
+    #[test]
+    fn test_transform_hour_timestamp() {
+        let value = Value::Timestamp(1682937000000000);
+        let result = value.transform(&Transform::Hour).unwrap();
+        assert_eq!(result, Value::Int(10)); // Assuming the timestamp is at 12:00 UTC
+
+        let value = Value::Timestamp(1686840330000000);
+        let result = value.transform(&Transform::Hour).unwrap();
+        assert_eq!(result, Value::Int(14)); // Assuming the timestamp is at 12:00 UTC
+
+        let value = Value::Timestamp(1704067200000000);
+        let result = value.transform(&Transform::Hour).unwrap();
+        assert_eq!(result, Value::Int(0)); // Assuming the timestamp is at 12:00 UTC
+    }
+
+    #[test]
+    fn test_transform_hour_unsupported() {
+        let value = Value::Date(0);
+        let result = value.transform(&Transform::Hour);
+        assert!(matches!(result, Err(Error::NotSupported(_))));
     }
 }
