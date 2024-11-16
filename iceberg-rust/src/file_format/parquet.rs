@@ -214,9 +214,9 @@ pub fn parquet_to_datafile(
                                         (statistics.min_bytes_opt(), statistics.max_bytes_opt())
                                     {
                                         let min = Value::try_from_bytes(min_bytes, data_type)?
-                                            .tranform(partition_field.transform())?;
+                                            .transform(partition_field.transform())?;
                                         let max = Value::try_from_bytes(max_bytes, data_type)?
-                                            .tranform(partition_field.transform())?;
+                                            .transform(partition_field.transform())?;
                                         if min == max {
                                             *partition_value = Some(min)
                                         } else {
