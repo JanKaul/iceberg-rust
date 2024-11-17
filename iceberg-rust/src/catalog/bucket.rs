@@ -2,10 +2,13 @@
 Defining the [Bucket] struct for specifying buckets for the ObjectStore.
 */
 
-use std::{fmt::Display, sync::Arc};
+use std::{fmt::Display, str::FromStr, sync::Arc};
 
 use object_store::{
-    aws::AmazonS3Builder, gcp::GoogleCloudStorageBuilder, local::LocalFileSystem, memory::InMemory,
+    aws::{AmazonS3Builder, AmazonS3ConfigKey},
+    gcp::{GoogleCloudStorageBuilder, GoogleConfigKey},
+    local::LocalFileSystem,
+    memory::InMemory,
     ObjectStore,
 };
 
@@ -65,7 +68,50 @@ pub enum ObjectStoreBuilder {
     Memory(Arc<InMemory>),
 }
 
+/// Configuration keys for [ObjectStoreBuilder]
+pub enum ConfigKey {
+    /// Configuration keys for AWS S3
+    AWS(AmazonS3ConfigKey),
+    /// Configuration keys for GCS
+    GCS(GoogleConfigKey),
+}
+
+impl FromStr for ConfigKey {
+    type Err = object_store::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(x) = s.parse() {
+            return Ok(ConfigKey::AWS(x));
+        };
+        if let Ok(x) = s.parse() {
+            return Ok(ConfigKey::GCS(x));
+        };
+        Err(object_store::Error::UnknownConfigurationKey {
+            store: "",
+            key: s.to_string(),
+        })
+    }
+}
 impl ObjectStoreBuilder {
+    /// Create new AWS S3 Object Store builder
+    pub fn aws() -> Self {
+        ObjectStoreBuilder::S3(AmazonS3Builder::from_env())
+    }
+    /// Create new AWS S3 Object Store builder
+    pub fn gcs() -> Self {
+        ObjectStoreBuilder::GCS(GoogleCloudStorageBuilder::from_env())
+    }
+    /// Set config value for builder
+    pub fn with_config(self, key: ConfigKey, value: impl Into<String>) -> Self {
+        match (self, key) {
+            (ObjectStoreBuilder::S3(aws), ConfigKey::AWS(key)) => {
+                ObjectStoreBuilder::S3(aws.with_config(key, value))
+            }
+            (ObjectStoreBuilder::GCS(gcs), ConfigKey::GCS(key)) => {
+                ObjectStoreBuilder::GCS(gcs.with_config(key, value))
+            }
+            (x, _) => x,
+        }
+    }
     /// Create objectstore from template
     pub fn build(&self, bucket: Bucket) -> Result<Arc<dyn ObjectStore>, Error> {
         match (bucket, self) {
