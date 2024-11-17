@@ -359,11 +359,7 @@ async fn integration_trino_sql() {
                 postgres_host, postgres_port
             ),
             "iceberg",
-            Arc::new(
-                object_store
-                    .build(iceberg_rust::catalog::bucket::Bucket::S3("warehouse"))
-                    .unwrap(),
-            ),
+            object_store,
         )
         .await
         .unwrap(),

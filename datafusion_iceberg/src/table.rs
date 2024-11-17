@@ -576,14 +576,6 @@ mod tests {
 
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
     use iceberg_rust::{
-        catalog::tabular::Tabular,
-        spec::{
-            partition::{PartitionField, Transform},
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
-        },
-    };
-    use iceberg_rust::{
         catalog::Catalog,
         spec::{
             partition::PartitionSpec,
@@ -592,18 +584,26 @@ mod tests {
         table::Table,
         view::View,
     };
+    use iceberg_rust::{
+        catalog::{bucket::ObjectStoreBuilder, tabular::Tabular},
+        spec::{
+            partition::{PartitionField, Transform},
+            schema::Schema,
+            types::{PrimitiveType, StructField, StructType, Type},
+        },
+    };
     use iceberg_sql_catalog::SqlCatalog;
-    use object_store::{memory::InMemory, ObjectStore};
+
     use std::{ops::Deref, sync::Arc};
 
     use crate::{catalog::catalog::IcebergCatalog, DataFusionTable};
 
     #[tokio::test]
     pub async fn test_datafusion_table_insert() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let object_store = ObjectStoreBuilder::memory();
 
         let catalog: Arc<dyn Catalog> = Arc::new(
-            SqlCatalog::new("sqlite://", "test", object_store.clone())
+            SqlCatalog::new("sqlite://", "test", object_store)
                 .await
                 .unwrap(),
         );
@@ -774,10 +774,10 @@ mod tests {
 
     #[tokio::test]
     pub async fn test_datafusion_table_insert_partitioned() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let object_store = ObjectStoreBuilder::memory();
 
         let catalog: Arc<dyn Catalog> = Arc::new(
-            SqlCatalog::new("sqlite://", "test", object_store.clone())
+            SqlCatalog::new("sqlite://", "test", object_store)
                 .await
                 .unwrap(),
         );
@@ -965,10 +965,10 @@ mod tests {
 
     #[tokio::test]
     pub async fn test_datafusion_table_branch_insert() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let object_store = ObjectStoreBuilder::memory();
 
         let catalog: Arc<dyn Catalog> = Arc::new(
-            SqlCatalog::new("sqlite://", "iceberg", object_store.clone())
+            SqlCatalog::new("sqlite://", "iceberg", object_store)
                 .await
                 .unwrap(),
         );
@@ -1145,10 +1145,10 @@ mod tests {
 
     #[tokio::test]
     pub async fn test_datafusion_view_scan() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let object_store = ObjectStoreBuilder::memory();
 
         let catalog: Arc<dyn Catalog> = Arc::new(
-            SqlCatalog::new("sqlite://", "test", object_store.clone())
+            SqlCatalog::new("sqlite://", "test", object_store)
                 .await
                 .unwrap(),
         );

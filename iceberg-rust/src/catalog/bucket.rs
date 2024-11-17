@@ -2,7 +2,7 @@
 Defining the [Bucket] struct for specifying buckets for the ObjectStore.
 */
 
-use std::{fmt::Display, str::FromStr, sync::Arc};
+use std::{fmt::Display, path::Path, str::FromStr, sync::Arc};
 
 use object_store::{
     aws::{AmazonS3Builder, AmazonS3ConfigKey},
@@ -99,6 +99,14 @@ impl ObjectStoreBuilder {
     /// Create new AWS S3 Object Store builder
     pub fn gcs() -> Self {
         ObjectStoreBuilder::GCS(GoogleCloudStorageBuilder::from_env())
+    }
+    /// Create a new FileSystem ObjectStoreBuilder
+    pub fn filesystem(prefix: impl AsRef<Path>) -> Self {
+        ObjectStoreBuilder::Filesystem(Arc::new(LocalFileSystem::new_with_prefix(prefix).unwrap()))
+    }
+    /// Create a new InMemory ObjectStoreBuilder
+    pub fn memory() -> Self {
+        ObjectStoreBuilder::Memory(Arc::new(InMemory::new()))
     }
     /// Set config value for builder
     pub fn with_config(self, key: ConfigKey, value: impl Into<String>) -> Self {

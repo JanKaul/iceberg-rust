@@ -210,10 +210,13 @@ pub async fn refresh_materialized_view(
 mod tests {
 
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
-    use iceberg_rust::spec::{
-        partition::{PartitionField, Transform},
-        schema::Schema,
-        types::{PrimitiveType, StructField, StructType, Type},
+    use iceberg_rust::{
+        catalog::bucket::ObjectStoreBuilder,
+        spec::{
+            partition::{PartitionField, Transform},
+            schema::Schema,
+            types::{PrimitiveType, StructField, StructType, Type},
+        },
     };
     use iceberg_rust::{
         catalog::CatalogList,
@@ -225,17 +228,16 @@ mod tests {
         table::Table,
     };
     use iceberg_sql_catalog::SqlCatalogList;
-    use object_store::{memory::InMemory, ObjectStore};
     use std::sync::Arc;
 
     use crate::{catalog::catalog::IcebergCatalog, materialized_view::refresh_materialized_view};
 
     #[tokio::test]
     pub async fn test_datafusion_refresh_materialized_view() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let object_store = ObjectStoreBuilder::memory();
 
         let catalog_list = Arc::new(
-            SqlCatalogList::new("sqlite://", object_store.clone())
+            SqlCatalogList::new("sqlite://", object_store)
                 .await
                 .unwrap(),
         );
