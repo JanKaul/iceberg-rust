@@ -11,7 +11,7 @@ use aws_sdk_glue::{
 };
 use iceberg_rust::{
     catalog::{
-        bucket::Bucket,
+        bucket::{Bucket, ObjectStoreBuilder},
         commit::{
             apply_table_updates, apply_view_updates, check_table_requirements,
             check_view_requirements, CommitTable, CommitView, TableRequirement,
@@ -20,7 +20,7 @@ use iceberg_rust::{
         identifier::Identifier,
         namespace::Namespace,
         tabular::Tabular,
-        Catalog, CatalogList,
+        Catalog,
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
@@ -46,7 +46,7 @@ use crate::error::Error;
 pub struct GlueCatalog {
     name: String,
     client: Client,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: ObjectStoreBuilder,
     cache: Arc<RwLock<HashMap<Identifier, (String, TabularMetadata)>>>,
 }
 
@@ -57,20 +57,13 @@ impl GlueCatalog {
     pub fn new(
         config: &SdkConfig,
         name: &str,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: ObjectStoreBuilder,
     ) -> Result<Self, Error> {
         Ok(GlueCatalog {
             name: name.to_owned(),
             client: Client::new(config),
             object_store,
             cache: Arc::new(RwLock::new(HashMap::new())),
-        })
-    }
-
-    pub fn catalog_list(&self) -> Arc<GlueCatalogList> {
-        Arc::new(GlueCatalogList {
-            client: self.client.clone(),
-            object_store: self.object_store.clone(),
         })
     }
 }
@@ -248,13 +241,15 @@ impl Catalog for GlueCatalog {
             ))?
             .to_string();
 
-        let bytes = &self
-            .object_store
+        let bucket = Bucket::from_path(&metadata_location)?;
+        let object_store = self.object_store(bucket);
+
+        let bytes = object_store
             .get(&strip_prefix(metadata_location).as_str().into())
             .await?
             .bytes()
             .await?;
-        let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
+        let metadata: TabularMetadata = serde_json::from_slice(&bytes)?;
 
         self.cache
             .write()
@@ -534,7 +529,11 @@ impl Catalog for GlueCatalog {
         }
         apply_table_updates(&mut metadata, commit.updates)?;
         let metadata_location = new_metadata_location(&metadata);
-        self.object_store
+
+        let bucket = Bucket::from_path(&metadata_location)?;
+        let object_store = self.object_store(bucket);
+
+        object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
@@ -588,13 +587,12 @@ impl Catalog for GlueCatalog {
         let metadata = if new_metadata_location == metadata_location {
             metadata
         } else {
-            let bytes = &self
-                .object_store
+            let bytes = object_store
                 .get(&strip_prefix(new_metadata_location).as_str().into())
                 .await?
                 .bytes()
                 .await?;
-            let metadata: TableMetadata = serde_json::from_slice(bytes)?;
+            let metadata: TableMetadata = serde_json::from_slice(&bytes)?;
             metadata
         };
 
@@ -617,6 +615,11 @@ impl Catalog for GlueCatalog {
             ));
         };
         let (version_id, mut metadata) = entry;
+
+        let metadata_ref = metadata.as_ref();
+        let bucket = Bucket::from_path(metadata_ref.location())?;
+        let object_store = self.object_store(bucket);
+
         let metadata_location = match &mut metadata {
             TabularMetadata::View(metadata) => {
                 if !check_view_requirements(&commit.requirements, metadata) {
@@ -631,7 +634,7 @@ impl Catalog for GlueCatalog {
                     + "-"
                     + &Uuid::new_v4().to_string()
                     + ".metadata.json";
-                self.object_store
+                object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
                 Ok(metadata_location)
@@ -692,14 +695,7 @@ impl Catalog for GlueCatalog {
         let metadata = if new_metadata_location == metadata_location {
             metadata
         } else {
-            let bytes = &self
-                .object_store
-                .get(&strip_prefix(new_metadata_location).as_str().into())
-                .await?
-                .bytes()
-                .await?;
-            let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
-            metadata
+            object_store.get_metadata(&new_metadata_location).await?
         };
 
         self.cache
@@ -726,6 +722,11 @@ impl Catalog for GlueCatalog {
             ));
         };
         let (version_id, mut metadata) = entry;
+
+        let metadata_ref = metadata.as_ref();
+        let bucket = Bucket::from_path(metadata_ref.location())?;
+        let object_store = self.object_store(bucket);
+
         let metadata_location = match &mut metadata {
             TabularMetadata::MaterializedView(metadata) => {
                 if !check_view_requirements(&commit.requirements, metadata) {
@@ -740,7 +741,7 @@ impl Catalog for GlueCatalog {
                     + "-"
                     + &Uuid::new_v4().to_string()
                     + ".metadata.json";
-                self.object_store
+                object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
                 Ok(metadata_location)
@@ -801,14 +802,7 @@ impl Catalog for GlueCatalog {
         let metadata = if new_metadata_location == metadata_location {
             metadata
         } else {
-            let bytes = &self
-                .object_store
-                .get(&strip_prefix(new_metadata_location).as_str().into())
-                .await?
-                .bytes()
-                .await?;
-            let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
-            metadata
+            object_store.get_metadata(&new_metadata_location).await?
         };
 
         self.cache
@@ -889,52 +883,8 @@ impl Catalog for GlueCatalog {
         Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
-    fn object_store(&self, _: Bucket) -> Arc<dyn object_store::ObjectStore> {
-        self.object_store.clone()
-    }
-}
-
-#[derive(Debug)]
-pub struct GlueCatalogList {
-    client: Client,
-    object_store: Arc<dyn ObjectStore>,
-}
-
-impl GlueCatalogList {
-    pub fn new(config: &SdkConfig, object_store: Arc<dyn ObjectStore>) -> Result<Self, Error> {
-        let client = Client::new(config);
-
-        Ok(GlueCatalogList {
-            client,
-            object_store,
-        })
-    }
-}
-
-#[async_trait]
-impl CatalogList for GlueCatalogList {
-    fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
-        Some(Arc::new(GlueCatalog {
-            name: name.to_owned(),
-            client: self.client.clone(),
-            object_store: self.object_store.clone(),
-            cache: Arc::new(RwLock::new(HashMap::new())),
-        }))
-    }
-    async fn list_catalogs(&self) -> Vec<String> {
-        // let rows = {
-        //     sqlx::query("select distinct catalog_name from iceberg_tables;")
-        //         .fetch_all(&self.pool)
-        //         .await
-        //         .map_err(Error::from)
-        //         .unwrap_or_default()
-        // };
-        // let iter = rows.iter().map(|row| row.try_get::<String, _>(0));
-
-        // iter.collect::<Result<_, sqlx::Error>>()
-        //     .map_err(Error::from)
-        //     .unwrap_or_default()
-        unimplemented!()
+    fn object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
+        Arc::new(self.object_store.build(bucket).unwrap())
     }
 }
 
@@ -943,14 +893,16 @@ pub mod tests {
     use aws_config::BehaviorVersion;
     use aws_sdk_glue::{types::DatabaseInput, Client};
     use iceberg_rust::{
-        catalog::{identifier::Identifier, namespace::Namespace, Catalog},
+        catalog::{
+            bucket::ObjectStoreBuilder, identifier::Identifier, namespace::Namespace, Catalog,
+        },
         spec::{
             schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
         },
         table::Table,
     };
-    use object_store::{memory::InMemory, ObjectStore};
+
     use std::sync::Arc;
     use testcontainers::{
         core::{wait::LogWaitStrategy, ContainerPort, WaitFor},
@@ -989,7 +941,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let object_store = ObjectStoreBuilder::memory();
         let catalog: Arc<dyn Catalog> =
             Arc::new(GlueCatalog::new(&config, "warehouse", object_store).unwrap());
         let identifier = Identifier::parse("public.test", None).unwrap();
