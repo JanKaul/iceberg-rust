@@ -461,7 +461,7 @@ impl Catalog for SqlCatalog {
         let metadata_file_location = metadata_location.to_string();
         let previous_metadata_file_location = previous_metadata_location.to_string();
 
-        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
+        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}' and metadata_location = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name, previous_metadata_file_location)).execute(&self.pool).await.map_err(Error::from)?;
 
         self.cache.write().unwrap().insert(
             identifier.clone(),
@@ -516,7 +516,7 @@ impl Catalog for SqlCatalog {
         let metadata_file_location = metadata_location.to_string();
         let previous_metadata_file_location = previous_metadata_location.to_string();
 
-        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
+        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}' and metadata_location = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name,previous_metadata_file_location)).execute(&self.pool).await.map_err(Error::from)?;
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone()),
@@ -574,7 +574,7 @@ impl Catalog for SqlCatalog {
         let metadata_file_location = metadata_location.to_string();
         let previous_metadata_file_location = previous_metadata_location.to_string();
 
-        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
+        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}' and metadata_location = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name, previous_metadata_file_location)).execute(&self.pool).await.map_err(Error::from)?;
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone()),
