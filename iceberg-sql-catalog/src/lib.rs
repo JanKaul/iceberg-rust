@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use iceberg_rust::{
     catalog::{
-        bucket::Bucket,
+        bucket::{Bucket, ObjectStoreBuilder},
         commit::{
             apply_table_updates, apply_view_updates, check_table_requirements,
             check_view_requirements, CommitTable, CommitView, TableRequirement,
@@ -44,7 +44,7 @@ use crate::error::Error;
 pub struct SqlCatalog {
     name: String,
     pool: AnyPool,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: ObjectStoreBuilder,
     cache: Arc<RwLock<HashMap<Identifier, (String, TabularMetadata)>>>,
 }
 
@@ -54,7 +54,7 @@ impl SqlCatalog {
     pub async fn new(
         url: &str,
         name: &str,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: ObjectStoreBuilder,
     ) -> Result<Self, Error> {
         install_default_drivers();
 
@@ -280,13 +280,16 @@ impl Catalog for SqlCatalog {
 
             row.metadata_location
         };
-        let bytes = &self
-            .object_store
+
+        let bucket = Bucket::from_path(&path)?;
+        let object_store = self.object_store(bucket);
+
+        let bytes = object_store
             .get(&strip_prefix(&path).as_str().into())
             .await?
             .bytes()
             .await?;
-        let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
+        let metadata: TabularMetadata = serde_json::from_slice(&bytes)?;
         self.cache
             .write()
             .unwrap()
@@ -434,6 +437,9 @@ impl Catalog for SqlCatalog {
         };
         let (previous_metadata_location, metadata) = entry;
 
+        let bucket = Bucket::from_path(&previous_metadata_location)?;
+        let object_store = self.object_store(bucket);
+
         let TabularMetadata::Table(mut metadata) = metadata else {
             return Err(IcebergError::InvalidFormat(
                 "Table update on entity that is not a table".to_owned(),
@@ -446,7 +452,7 @@ impl Catalog for SqlCatalog {
         }
         apply_table_updates(&mut metadata, commit.updates)?;
         let metadata_location = new_metadata_location(&metadata);
-        self.object_store
+        object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
         let catalog_name = self.name.clone();
@@ -455,7 +461,7 @@ impl Catalog for SqlCatalog {
         let metadata_file_location = metadata_location.to_string();
         let previous_metadata_file_location = previous_metadata_location.to_string();
 
-        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
+        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}' and metadata_location = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name, previous_metadata_file_location)).execute(&self.pool).await.map_err(Error::from)?;
 
         self.cache.write().unwrap().insert(
             identifier.clone(),
@@ -476,6 +482,10 @@ impl Catalog for SqlCatalog {
             ));
         };
         let (previous_metadata_location, mut metadata) = entry;
+
+        let bucket = Bucket::from_path(&previous_metadata_location)?;
+        let object_store = self.object_store(bucket);
+
         let metadata_location = match &mut metadata {
             TabularMetadata::View(metadata) => {
                 if !check_view_requirements(&commit.requirements, metadata) {
@@ -490,7 +500,7 @@ impl Catalog for SqlCatalog {
                     + "-"
                     + &Uuid::new_v4().to_string()
                     + ".metadata.json";
-                self.object_store
+                object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
                 Ok(metadata_location)
@@ -506,7 +516,7 @@ impl Catalog for SqlCatalog {
         let metadata_file_location = metadata_location.to_string();
         let previous_metadata_file_location = previous_metadata_location.to_string();
 
-        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
+        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}' and metadata_location = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name,previous_metadata_file_location)).execute(&self.pool).await.map_err(Error::from)?;
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone()),
@@ -530,6 +540,10 @@ impl Catalog for SqlCatalog {
             ));
         };
         let (previous_metadata_location, mut metadata) = entry;
+
+        let bucket = Bucket::from_path(&previous_metadata_location)?;
+        let object_store = self.object_store(bucket);
+
         let metadata_location = match &mut metadata {
             TabularMetadata::MaterializedView(metadata) => {
                 if !check_view_requirements(&commit.requirements, metadata) {
@@ -544,7 +558,7 @@ impl Catalog for SqlCatalog {
                     + "-"
                     + &Uuid::new_v4().to_string()
                     + ".metadata.json";
-                self.object_store
+                object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
                 Ok(metadata_location)
@@ -560,7 +574,7 @@ impl Catalog for SqlCatalog {
         let metadata_file_location = metadata_location.to_string();
         let previous_metadata_file_location = previous_metadata_location.to_string();
 
-        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name)).execute(&self.pool).await.map_err(Error::from)?;
+        sqlx::query(&format!("update iceberg_tables set metadata_location = '{}', previous_metadata_location = '{}' where catalog_name = '{}' and table_namespace = '{}' and table_name = '{}' and metadata_location = '{}';", metadata_file_location, previous_metadata_file_location,catalog_name,namespace,name, previous_metadata_file_location)).execute(&self.pool).await.map_err(Error::from)?;
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone()),
@@ -605,8 +619,8 @@ impl Catalog for SqlCatalog {
         Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
-    fn object_store(&self, _: Bucket) -> Arc<dyn object_store::ObjectStore> {
-        self.object_store.clone()
+    fn object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
+        Arc::new(self.object_store.build(bucket).unwrap())
     }
 }
 
@@ -624,11 +638,11 @@ impl SqlCatalog {
 #[derive(Debug)]
 pub struct SqlCatalogList {
     pool: AnyPool,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: ObjectStoreBuilder,
 }
 
 impl SqlCatalogList {
-    pub async fn new(url: &str, object_store: Arc<dyn ObjectStore>) -> Result<Self, Error> {
+    pub async fn new(url: &str, object_store: ObjectStoreBuilder) -> Result<Self, Error> {
         install_default_drivers();
 
         let mut pool_options = PoolOptions::new();
@@ -701,21 +715,23 @@ impl CatalogList for SqlCatalogList {
 #[cfg(test)]
 pub mod tests {
     use iceberg_rust::{
-        catalog::{identifier::Identifier, namespace::Namespace, Catalog},
+        catalog::{
+            bucket::ObjectStoreBuilder, identifier::Identifier, namespace::Namespace, Catalog,
+        },
         spec::{
             schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
         },
         table::Table,
     };
-    use object_store::{memory::InMemory, ObjectStore};
+
     use std::sync::Arc;
 
     use crate::SqlCatalog;
 
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let object_store = ObjectStoreBuilder::memory();
         let catalog: Arc<dyn Catalog> = Arc::new(
             SqlCatalog::new("sqlite://", "test", object_store)
                 .await

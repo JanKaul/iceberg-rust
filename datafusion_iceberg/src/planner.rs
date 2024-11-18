@@ -506,8 +506,8 @@ mod tests {
         execution::{context::SessionContext, SessionStateBuilder},
     };
     use datafusion_expr::ScalarUDF;
+    use iceberg_rust::catalog::bucket::ObjectStoreBuilder;
     use iceberg_sql_catalog::SqlCatalogList;
-    use object_store::{memory::InMemory, ObjectStore};
     use tokio::time::sleep;
 
     use crate::{
@@ -517,9 +517,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_planner() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let object_store = ObjectStoreBuilder::memory();
         let iceberg_catalog_list = Arc::new(
-            SqlCatalogList::new("sqlite://", object_store.clone())
+            SqlCatalogList::new("sqlite://", object_store)
                 .await
                 .unwrap(),
         );

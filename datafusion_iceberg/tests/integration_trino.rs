@@ -183,14 +183,15 @@ async fn integration_trino_rest() {
         .await
         .unwrap();
 
-    let object_store = ObjectStoreBuilder::S3(
-        AmazonS3Builder::new()
-            .with_region("us-east-1")
-            .with_allow_http(true)
-            .with_access_key_id("user")
-            .with_secret_access_key("password")
-            .with_endpoint(format!("http://{}:{}", localstack_host, localstack_port)),
-    );
+    let object_store = ObjectStoreBuilder::aws()
+        .with_config("aws_access_key_id".parse().unwrap(), "user")
+        .with_config("aws_secret_access_key".parse().unwrap(), "password")
+        .with_config(
+            "endpoint".parse().unwrap(),
+            format!("http://{}:{}", localstack_host, localstack_port),
+        )
+        .with_config("region".parse().unwrap(), "us-east-1")
+        .with_config("allow_http".parse().unwrap(), "true");
 
     let catalog = Arc::new(RestCatalog::new(
         None,
@@ -358,11 +359,7 @@ async fn integration_trino_sql() {
                 postgres_host, postgres_port
             ),
             "iceberg",
-            Arc::new(
-                object_store
-                    .build(iceberg_rust::catalog::bucket::Bucket::S3("warehouse"))
-                    .unwrap(),
-            ),
+            object_store,
         )
         .await
         .unwrap(),

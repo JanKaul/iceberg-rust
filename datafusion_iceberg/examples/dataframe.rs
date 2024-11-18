@@ -3,23 +3,22 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::prelude::SessionContext;
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
+use iceberg_rust::catalog::bucket::ObjectStoreBuilder;
 use iceberg_rust::catalog::identifier::Identifier;
 use iceberg_rust::catalog::Catalog;
 use iceberg_rust::spec::schema::Schema;
 use iceberg_rust::spec::types::{StructField, StructType};
 use iceberg_rust::table::Table;
 use iceberg_sql_catalog::SqlCatalog;
-use object_store::memory::InMemory;
-use object_store::ObjectStore;
 
 use std::sync::Arc;
 
 #[tokio::main]
 pub(crate) async fn main() {
-    let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+    let object_store = ObjectStoreBuilder::memory();
 
     let catalog: Arc<dyn Catalog> = Arc::new(
-        SqlCatalog::new("sqlite://", "test", object_store.clone())
+        SqlCatalog::new("sqlite://", "test", object_store)
             .await
             .unwrap(),
     );

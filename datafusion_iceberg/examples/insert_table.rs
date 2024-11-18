@@ -1,7 +1,7 @@
 use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
 use datafusion_iceberg::DataFusionTable;
 use iceberg_rust::{
-    catalog::Catalog,
+    catalog::{bucket::ObjectStoreBuilder, Catalog},
     spec::{
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
@@ -10,17 +10,15 @@ use iceberg_rust::{
     table::Table,
 };
 use iceberg_sql_catalog::SqlCatalog;
-use object_store::memory::InMemory;
-use object_store::ObjectStore;
 
 use std::sync::Arc;
 
 #[tokio::main]
 pub(crate) async fn main() {
-    let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+    let object_store = ObjectStoreBuilder::memory();
 
     let catalog: Arc<dyn Catalog> = Arc::new(
-        SqlCatalog::new("sqlite://", "test", object_store.clone())
+        SqlCatalog::new("sqlite://", "test", object_store)
             .await
             .unwrap(),
     );
