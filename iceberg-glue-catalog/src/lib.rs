@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use aws_config::SdkConfig;
 use aws_sdk_glue::{
-    types::{StorageDescriptor, TableInput},
+    types::{DatabaseInput, StorageDescriptor, TableInput},
     Client,
 };
 use iceberg_rust::{
@@ -77,10 +77,21 @@ impl Catalog for GlueCatalog {
     /// Create a namespace in the catalog
     async fn create_namespace(
         &self,
-        _namespace: &Namespace,
+        namespace: &Namespace,
         _properties: Option<HashMap<String, String>>,
     ) -> Result<HashMap<String, String>, IcebergError> {
-        todo!()
+        self.client
+            .create_database()
+            .database_input(
+                DatabaseInput::builder()
+                    .name(namespace[0].as_str())
+                    .build()
+                    .unwrap(),
+            )
+            .send()
+            .await
+            .map_err(Error::from)?;
+        Ok(HashMap::new())
     }
     /// Drop a namespace in the catalog
     async fn drop_namespace(&self, _namespace: &Namespace) -> Result<(), IcebergError> {
@@ -554,7 +565,10 @@ impl Catalog for GlueCatalog {
                     )
                     .build()
                     .map_err(Error::from)?,
-            );
+            )
+            .send()
+            .await
+            .map_err(Error::from)?;
 
         let table = self
             .client
@@ -662,7 +676,10 @@ impl Catalog for GlueCatalog {
                     )
                     .build()
                     .map_err(Error::from)?,
-            );
+            )
+            .send()
+            .await
+            .map_err(Error::from)?;
 
         let table = self
             .client
@@ -769,7 +786,10 @@ impl Catalog for GlueCatalog {
                     )
                     .build()
                     .map_err(Error::from)?,
-            );
+            )
+            .send()
+            .await
+            .map_err(Error::from)?;
 
         let table = self
             .client
@@ -891,17 +911,17 @@ impl Catalog for GlueCatalog {
 #[cfg(test)]
 pub mod tests {
     use aws_config::BehaviorVersion;
-    use aws_sdk_glue::{types::DatabaseInput, Client};
-    use iceberg_rust::{
-        catalog::{
-            bucket::ObjectStoreBuilder, identifier::Identifier, namespace::Namespace, Catalog,
-        },
-        spec::{
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
-        },
-        table::Table,
+    use datafusion::{
+        arrow::array::{Float64Array, Int64Array},
+        common::tree_node::{TransformedResult, TreeNode},
+        execution::SessionStateBuilder,
+        prelude::SessionContext,
     };
+    use datafusion_iceberg::{
+        catalog::catalog::IcebergCatalog,
+        planner::{iceberg_transform, IcebergQueryPlanner},
+    };
+    use iceberg_rust::catalog::{bucket::ObjectStoreBuilder, namespace::Namespace, Catalog};
 
     use std::sync::Arc;
     use testcontainers::{
@@ -934,85 +954,152 @@ pub mod tests {
             .load()
             .await;
 
-        Client::new(&config)
-            .create_database()
-            .database_input(DatabaseInput::builder().name("public").build().unwrap())
-            .send()
-            .await
-            .unwrap();
-
         let object_store = ObjectStoreBuilder::memory();
-        let catalog: Arc<dyn Catalog> =
+        let iceberg_catalog: Arc<dyn Catalog> =
             Arc::new(GlueCatalog::new(&config, "warehouse", object_store).unwrap());
-        let identifier = Identifier::parse("public.test", None).unwrap();
 
-        let schema = Schema::builder()
-            .with_schema_id(0)
-            .with_identifier_field_ids(vec![1, 2])
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "one".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "two".to_string(),
-                        required: false,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
-            .build()
-            .unwrap();
-
-        let mut table = Table::builder()
-            .with_name(identifier.name())
-            .with_location("/")
-            .with_schema(schema)
-            .build(identifier.namespace(), catalog.clone())
+        iceberg_catalog
+            .create_namespace(&Namespace::try_new(&["tpch".to_owned()]).unwrap(), None)
             .await
-            .expect("Failed to create table");
+            .expect("Failed to create namespace");
 
-        let exists = Arc::clone(&catalog)
-            .tabular_exists(&identifier)
-            .await
-            .expect("Table doesn't exist");
-        assert!(exists);
-
-        let tables = catalog
-            .clone()
-            .list_tabulars(
-                &Namespace::try_new(&["public".to_owned()]).expect("Failed to create namespace"),
-            )
-            .await
-            .expect("Failed to list Tables");
-        assert_eq!(tables[0].to_string(), "public.test".to_owned());
-
-        let namespaces = catalog
+        let namespaces = iceberg_catalog
             .clone()
             .list_namespaces(None)
             .await
             .expect("Failed to list namespaces");
-        assert_eq!(namespaces[0].to_string(), "public");
+        assert_eq!(namespaces[0].to_string(), "tpch");
 
-        let transaction = table.new_transaction(None);
-        transaction.commit().await.expect("Transaction failed.");
+        let catalog = Arc::new(
+            IcebergCatalog::new(iceberg_catalog.clone(), None)
+                .await
+                .unwrap(),
+        );
 
-        catalog
-            .drop_table(&identifier)
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .build();
+
+        let ctx = SessionContext::new_with_state(state);
+
+        ctx.register_catalog("warehouse", catalog);
+
+        let sql = "CREATE EXTERNAL TABLE lineitem ( 
+    L_ORDERKEY BIGINT NOT NULL, 
+    L_PARTKEY BIGINT NOT NULL, 
+    L_SUPPKEY BIGINT NOT NULL, 
+    L_LINENUMBER INT NOT NULL, 
+    L_QUANTITY DOUBLE NOT NULL, 
+    L_EXTENDED_PRICE DOUBLE NOT NULL, 
+    L_DISCOUNT DOUBLE NOT NULL, 
+    L_TAX DOUBLE NOT NULL, 
+    L_RETURNFLAG CHAR NOT NULL, 
+    L_LINESTATUS CHAR NOT NULL, 
+    L_SHIPDATE DATE NOT NULL, 
+    L_COMMITDATE DATE NOT NULL, 
+    L_RECEIPTDATE DATE NOT NULL, 
+    L_SHIPINSTRUCT VARCHAR NOT NULL, 
+    L_SHIPMODE VARCHAR NOT NULL, 
+    L_COMMENT VARCHAR NOT NULL ) STORED AS CSV LOCATION '../datafusion_iceberg/testdata/tpch/lineitem.csv' OPTIONS ('has_header' 'false');";
+
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+        ctx.execute_logical_plan(transformed)
             .await
-            .expect("Failed to drop table.");
-
-        let exists = Arc::clone(&catalog)
-            .tabular_exists(&identifier)
+            .unwrap()
+            .collect()
             .await
-            .expect("Table exists failed");
-        assert!(!exists);
+            .expect("Failed to execute query plan.");
+
+        let sql = "CREATE EXTERNAL TABLE warehouse.tpch.lineitem ( 
+    L_ORDERKEY BIGINT NOT NULL, 
+    L_PARTKEY BIGINT NOT NULL, 
+    L_SUPPKEY BIGINT NOT NULL, 
+    L_LINENUMBER INT NOT NULL, 
+    L_QUANTITY DOUBLE NOT NULL, 
+    L_EXTENDED_PRICE DOUBLE NOT NULL, 
+    L_DISCOUNT DOUBLE NOT NULL, 
+    L_TAX DOUBLE NOT NULL, 
+    L_RETURNFLAG CHAR NOT NULL, 
+    L_LINESTATUS CHAR NOT NULL, 
+    L_SHIPDATE DATE NOT NULL, 
+    L_COMMITDATE DATE NOT NULL, 
+    L_RECEIPTDATE DATE NOT NULL, 
+    L_SHIPINSTRUCT VARCHAR NOT NULL, 
+    L_SHIPMODE VARCHAR NOT NULL, 
+    L_COMMENT VARCHAR NOT NULL ) STORED AS ICEBERG LOCATION '/tmp/warehouse/tpch/lineitem' PARTITIONED BY ( \"month(L_SHIPDATE)\" );";
+
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+        ctx.execute_logical_plan(transformed)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .expect("Failed to execute query plan.");
+
+        let tables = iceberg_catalog
+            .clone()
+            .list_tabulars(
+                &Namespace::try_new(&["tpch".to_owned()]).expect("Failed to create namespace"),
+            )
+            .await
+            .expect("Failed to list Tables");
+        assert_eq!(tables[0].to_string(), "tpch.lineitem".to_owned());
+
+        let sql = "insert into warehouse.tpch.lineitem select * from lineitem;";
+
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+        ctx.execute_logical_plan(transformed)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .expect("Failed to execute query plan.");
+
+        let batches = ctx
+        .sql("select sum(L_QUANTITY), L_PARTKEY from warehouse.tpch.lineitem group by L_PARTKEY;")
+        .await
+        .expect("Failed to create plan for select")
+        .collect()
+        .await
+        .expect("Failed to execute select query");
+
+        let mut once = false;
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (amounts, product_ids) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Float64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (product_id, amount) in product_ids.iter().zip(amounts) {
+                    if product_id.unwrap() == 24027 {
+                        assert_eq!(amount.unwrap(), 24.0)
+                    } else if product_id.unwrap() == 63700 {
+                        assert_eq!(amount.unwrap(), 8.0)
+                    }
+                }
+                once = true
+            }
+        }
+
+        assert!(once);
     }
 }
