@@ -241,7 +241,7 @@ impl Catalog for GlueCatalog {
             ))?
             .to_string();
 
-        let bucket = Bucket::from_path(&metadata_location)?;
+        let bucket = Bucket::from_path(metadata_location)?;
         let object_store = self.object_store(bucket);
 
         let bytes = object_store
@@ -695,7 +695,7 @@ impl Catalog for GlueCatalog {
         let metadata = if new_metadata_location == metadata_location {
             metadata
         } else {
-            object_store.get_metadata(&new_metadata_location).await?
+            object_store.get_metadata(new_metadata_location).await?
         };
 
         self.cache
@@ -802,7 +802,7 @@ impl Catalog for GlueCatalog {
         let metadata = if new_metadata_location == metadata_location {
             metadata
         } else {
-            object_store.get_metadata(&new_metadata_location).await?
+            object_store.get_metadata(new_metadata_location).await?
         };
 
         self.cache
