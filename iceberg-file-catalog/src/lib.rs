@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures::{future, TryStreamExt};
 use iceberg_rust::{
     catalog::{
-        bucket::Bucket,
+        bucket::{Bucket, ObjectStoreBuilder},
         commit::{
             apply_table_updates, apply_view_updates, check_table_requirements,
             check_view_requirements, CommitTable, CommitView, TableRequirement,
@@ -40,7 +40,7 @@ use crate::error::Error;
 pub struct FileCatalog {
     name: String,
     path: String,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: ObjectStoreBuilder,
     cache: Arc<RwLock<HashMap<Identifier, (String, TabularMetadata)>>>,
 }
 
@@ -50,7 +50,7 @@ impl FileCatalog {
     pub async fn new(
         path: &str,
         name: &str,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: ObjectStoreBuilder,
     ) -> Result<Self, Error> {
         Ok(FileCatalog {
             name: name.to_owned(),
@@ -107,7 +107,10 @@ impl Catalog for FileCatalog {
         todo!()
     }
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, IcebergError> {
-        self.object_store
+        let bucket = Bucket::from_path(&self.path)?;
+        let object_store = self.object_store.build(bucket)?;
+
+        object_store
             .list(Some(
                 &strip_prefix(&self.namespace_path(&namespace[0])).into(),
             ))
@@ -120,7 +123,10 @@ impl Catalog for FileCatalog {
             .await
     }
     async fn list_namespaces(&self, _parent: Option<&str>) -> Result<Vec<Namespace>, IcebergError> {
-        self.object_store
+        let bucket = Bucket::from_path(&self.path)?;
+        let object_store = self.object_store.build(bucket)?;
+
+        object_store
             .list_with_delimiter(Some(
                 &strip_prefix(&(self.path.trim_start_matches('/').to_owned() + "/" + &self.name))
                     .into(),
@@ -149,17 +155,19 @@ impl Catalog for FileCatalog {
         self: Arc<Self>,
         identifier: &Identifier,
     ) -> Result<Tabular, IcebergError> {
+        let bucket = Bucket::from_path(&self.path)?;
+        let object_store = self.object_store.build(bucket)?;
+
         let metadata_location = self.metadata_location(identifier).await?;
 
-        let bytes = &self
-            .object_store
+        let bytes = object_store
             .get(&strip_prefix(&metadata_location).as_str().into())
             .await
             .map_err(|_| IcebergError::CatalogNotFound)?
             .bytes()
             .await?;
 
-        let metadata: TabularMetadata = serde_json::from_slice(bytes)?;
+        let metadata: TabularMetadata = serde_json::from_slice(&bytes)?;
 
         self.cache.write().unwrap().insert(
             identifier.clone(),
@@ -296,6 +304,9 @@ impl Catalog for FileCatalog {
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
+        let bucket = Bucket::from_path(&self.path)?;
+        let object_store = self.object_store.build(bucket)?;
+
         let identifier = commit.identifier;
         let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
             #[allow(clippy::if_same_then_else)]
@@ -324,7 +335,7 @@ impl Catalog for FileCatalog {
         apply_table_updates(&mut metadata, commit.updates)?;
         let temp_metadata_location = new_metadata_location(&metadata);
 
-        self.object_store
+        object_store
             .put_metadata(&temp_metadata_location, metadata.as_ref())
             .await?;
 
@@ -334,7 +345,7 @@ impl Catalog for FileCatalog {
             + &current_version.to_string()
             + ".metadata.json";
 
-        self.object_store
+        object_store
             .copy_if_not_exists(
                 &temp_metadata_location.into(),
                 &metadata_location.as_str().into(),
@@ -353,6 +364,9 @@ impl Catalog for FileCatalog {
         self: Arc<Self>,
         commit: CommitView<Option<()>>,
     ) -> Result<View, IcebergError> {
+        let bucket = Bucket::from_path(&self.path)?;
+        let object_store = self.object_store.build(bucket)?;
+
         let identifier = commit.identifier;
         let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
             return Err(IcebergError::InvalidFormat(
@@ -370,7 +384,7 @@ impl Catalog for FileCatalog {
                 apply_view_updates(metadata, commit.updates)?;
                 let temp_metadata_location = new_metadata_location(&*metadata);
 
-                self.object_store
+                object_store
                     .put_metadata(&temp_metadata_location, metadata.as_ref())
                     .await?;
 
@@ -380,7 +394,7 @@ impl Catalog for FileCatalog {
                     + &current_version.to_string()
                     + ".metadata.json";
 
-                self.object_store
+                object_store
                     .copy_if_not_exists(
                         &temp_metadata_location.into(),
                         &metadata_location.as_str().into(),
@@ -410,6 +424,9 @@ impl Catalog for FileCatalog {
         self: Arc<Self>,
         commit: CommitView<Identifier>,
     ) -> Result<MaterializedView, IcebergError> {
+        let bucket = Bucket::from_path(&self.path)?;
+        let object_store = self.object_store.build(bucket)?;
+
         let identifier = commit.identifier;
         let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {
             return Err(IcebergError::InvalidFormat(
@@ -427,7 +444,7 @@ impl Catalog for FileCatalog {
                 apply_view_updates(metadata, commit.updates)?;
                 let temp_metadata_location = new_metadata_location(&*metadata);
 
-                self.object_store
+                object_store
                     .put_metadata(&temp_metadata_location, metadata.as_ref())
                     .await?;
 
@@ -437,7 +454,7 @@ impl Catalog for FileCatalog {
                     + &current_version.to_string()
                     + ".metadata.json";
 
-                self.object_store
+                object_store
                     .copy_if_not_exists(
                         &temp_metadata_location.into(),
                         &metadata_location.as_str().into(),
@@ -472,8 +489,8 @@ impl Catalog for FileCatalog {
         unimplemented!()
     }
 
-    fn object_store(&self, _: Bucket) -> Arc<dyn object_store::ObjectStore> {
-        self.object_store.clone()
+    fn object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
+        Arc::new(self.object_store.build(bucket).unwrap())
     }
 }
 
@@ -493,9 +510,11 @@ impl FileCatalog {
     }
 
     async fn metadata_location(&self, identifier: &Identifier) -> Result<String, IcebergError> {
+        let bucket = Bucket::from_path(&self.path)?;
+        let object_store = self.object_store.build(bucket)?;
+
         let path = self.tabular_path(&identifier.namespace()[0], identifier.name()) + "/metadata";
-        let mut files: Vec<String> = self
-            .object_store
+        let mut files: Vec<String> = object_store
             .list(Some(&strip_prefix(&path).trim_start_matches('/').into()))
             .map_ok(|x| x.location.to_string())
             .try_filter(|x| {
@@ -550,11 +569,11 @@ fn parse_version(path: &str) -> Result<u64, IcebergError> {
 #[derive(Debug)]
 pub struct FileCatalogList {
     path: String,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: ObjectStoreBuilder,
 }
 
 impl FileCatalogList {
-    pub async fn new(path: &str, object_store: Arc<dyn ObjectStore>) -> Result<Self, Error> {
+    pub async fn new(path: &str, object_store: ObjectStoreBuilder) -> Result<Self, Error> {
         Ok(FileCatalogList {
             path: path.to_owned(),
             object_store,
@@ -580,21 +599,22 @@ impl CatalogList for FileCatalogList {
 #[cfg(test)]
 pub mod tests {
     use iceberg_rust::{
-        catalog::{identifier::Identifier, namespace::Namespace, Catalog},
+        catalog::{
+            bucket::ObjectStoreBuilder, identifier::Identifier, namespace::Namespace, Catalog,
+        },
         spec::{
             schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},
         },
         table::Table,
     };
-    use object_store::{memory::InMemory, ObjectStore};
     use std::sync::Arc;
 
     use crate::FileCatalog;
 
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let object_store = ObjectStoreBuilder::memory();
         let catalog: Arc<dyn Catalog> =
             Arc::new(FileCatalog::new("/", "test", object_store).await.unwrap());
         let identifier = Identifier::parse("load_table.table3", None).unwrap();
