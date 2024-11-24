@@ -531,9 +531,7 @@ impl DataFile {
     pub fn builder() -> DataFileBuilder {
         DataFileBuilder::default()
     }
-}
 
-impl DataFile {
     pub(crate) fn try_from_v2(
         value: DataFileV2,
         schema: &Schema,

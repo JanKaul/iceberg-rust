@@ -216,7 +216,9 @@ impl<'schema, 'metadata> ManifestListWriter<'metadata> {
         snapshot_builder
             .with_snapshot_id(self.snapshot_id)
             .with_manifest_list(new_manifest_list_location)
-            .with_sequence_number(self.table_metadata.last_sequence_number)
+            // TODO check whether this should be greater than the last sequence
+            // number overall or just in the branch
+            .with_sequence_number(self.table_metadata.last_sequence_number + 1)
             .with_summary(Summary {
                 operation,
                 other: additional_summary.unwrap_or_default(),
@@ -231,5 +233,129 @@ impl<'schema, 'metadata> ManifestListWriter<'metadata> {
     /// Snapshot id of the currently written snapshot
     pub fn snapshot_id(&self) -> i64 {
         self.snapshot_id
+    }
+}
+#[cfg(test)]
+mod tests {
+    use crate::table::manifest::ManifestReader;
+
+    use super::*;
+
+    use iceberg_rust_spec::{
+        manifest::{Content, DataFile, FileFormat, ManifestEntryBuilder, Status},
+        partition::PartitionSpec,
+        values::Struct,
+    };
+    use object_store::memory::InMemory;
+    use std::sync::Arc;
+
+    async fn write_new_manifest_entries_no_partition(manifest_entries: Vec<ManifestEntry>) {
+        let schema = Schema::from_json(
+            r#"
+        {
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [{
+                "id": 1,
+                "name": "id",
+                "required": true,
+                "type": "uuid"
+            },{
+                "id": 2,
+                "name": "data",
+                "required": false,
+                "type": "int"
+            }]
+        }"#,
+        );
+        let table_metadata = TableMetadata {
+            format_version: FormatVersion::V2,
+            last_sequence_number: 1,
+            current_snapshot_id: Some(7),
+            schemas: [(1, schema.clone())].into_iter().collect(),
+            current_schema_id: 1,
+            partition_specs: [(1, PartitionSpec::unpartitioned(1))].into_iter().collect(),
+            default_spec_id: 1,
+            ..Default::default()
+        };
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let mut writer =
+            ManifestListWriter::try_new(object_store.clone(), &table_metadata, None).unwrap();
+
+        let original_entry_count = manifest_entries.len();
+        let entries = vec![manifest_entries];
+        writer
+            .append_manifest_entries_to_new_manifests(entries)
+            .await
+            .unwrap();
+        let snapshot = writer
+            .finish(Operation::Append, None, &schema)
+            .await
+            .unwrap();
+
+        let reader =
+            ManifestListReader::from_snapshot(&snapshot, &table_metadata, object_store.clone())
+                .await
+                .unwrap();
+
+        let manifest_list_entries = reader.collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(manifest_list_entries.len(), 1);
+        let manifest_list_entry = manifest_list_entries.first().unwrap();
+        let manifest_reader =
+            ManifestReader::from_object_store(object_store, &manifest_list_entry.manifest_path)
+                .await
+                .unwrap();
+        let manifest_entries_read = manifest_reader.collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(manifest_entries_read.len(), original_entry_count);
+    }
+
+    fn datafile_unpartitioned() -> DataFile {
+        DataFile::builder()
+            .with_content(Content::Data)
+            .with_file_path(String::from("dummy"))
+            .with_file_format(FileFormat::Parquet)
+            .with_partition(Struct::unpartitioned())
+            .with_record_count(0)
+            .with_file_size_in_bytes(0)
+            .with_column_sizes(None)
+            .with_value_counts(None)
+            .with_null_value_counts(None)
+            .with_value_counts(None)
+            .with_nan_value_counts(None)
+            .with_distinct_counts(None)
+            .with_lower_bounds(None)
+            .with_upper_bounds(None)
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_write_new_manifest_single_entry_no_partition() {
+        let entry = ManifestEntryBuilder::default()
+            .with_format_version(FormatVersion::V2)
+            .with_data_file(datafile_unpartitioned())
+            .with_status(Status::Existing)
+            .with_sequence_number(1)
+            .with_snapshot_id(7)
+            .build()
+            .unwrap();
+        write_new_manifest_entries_no_partition(vec![entry]).await;
+    }
+
+    #[tokio::test]
+    async fn test_write_new_manifest_many_entries_no_partition() {
+        let entries: Vec<_> = (0..100)
+            .map(|_| {
+                ManifestEntryBuilder::default()
+                    .with_format_version(FormatVersion::V2)
+                    .with_data_file(datafile_unpartitioned())
+                    .with_status(Status::Existing)
+                    .with_sequence_number(1)
+                    .with_snapshot_id(7)
+                    .build()
+                    .unwrap()
+            })
+            .collect();
+        write_new_manifest_entries_no_partition(entries).await;
     }
 }

@@ -8,9 +8,7 @@ use iceberg_rust_spec::spec::table_metadata::TableMetadata;
 use iceberg_rust_spec::spec::{
     manifest::{DataFile, ManifestEntry, Status},
     schema::Schema,
-    snapshot::{
-        generate_snapshot_id, Operation as SpecOperation, SnapshotReference, SnapshotRetention,
-    },
+    snapshot::{Operation as SpecOperation, SnapshotReference, SnapshotRetention},
 };
 use object_store::ObjectStore;
 use smallvec::SmallVec;
@@ -193,7 +191,6 @@ impl Operation {
                             .with_format_version(table_metadata.format_version)
                             .with_status(Status::Added)
                             .with_snapshot_id(manifest_list_writer.snapshot_id())
-                            .with_sequence_number(table_metadata.last_sequence_number + 1)
                             .with_data_file(data_file)
                             .build()
                             .map_err(crate::spec::error::Error::from)
@@ -309,17 +306,13 @@ impl Operation {
 
                 let n_splits = compute_n_splits(0, files.len(), 0);
 
-                let snapshot_id = generate_snapshot_id();
-                let sequence_number = table_metadata.last_sequence_number + 1;
-
                 let new_datafiles = files
                     .into_iter()
                     .map(|data_file| {
                         ManifestEntry::builder()
                             .with_format_version(table_metadata.format_version)
                             .with_status(Status::Added)
-                            .with_snapshot_id(snapshot_id)
-                            .with_sequence_number(sequence_number)
+                            .with_snapshot_id(manifest_list_writer.snapshot_id())
                             .with_data_file(data_file)
                             .build()
                             .map_err(crate::spec::error::Error::from)
@@ -345,6 +338,7 @@ impl Operation {
                         .await?;
                 };
 
+                let new_snapshot_id = manifest_list_writer.snapshot_id();
                 let snapshot = manifest_list_writer
                     .finish(SpecOperation::Overwrite, additional_summary, &schema)
                     .await?;
@@ -365,7 +359,7 @@ impl Operation {
                         TableUpdate::SetSnapshotRef {
                             ref_name: branch.unwrap_or("main".to_owned()),
                             snapshot_reference: SnapshotReference {
-                                snapshot_id,
+                                snapshot_id: new_snapshot_id,
                                 retention: SnapshotRetention::default(),
                             },
                         },
