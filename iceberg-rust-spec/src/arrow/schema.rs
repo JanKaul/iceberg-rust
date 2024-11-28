@@ -8,7 +8,10 @@ use std::{
     sync::Arc,
 };
 
-use crate::spec::types::{PrimitiveType, StructField, StructType, Type};
+use crate::{
+    spec::types::{PrimitiveType, StructField, StructType, Type},
+    types::ListType,
+};
 use arrow_schema::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
 
 use crate::error::Error;
@@ -173,6 +176,14 @@ impl TryFrom<&DataType> for Type {
                 Ok(Type::Primitive(PrimitiveType::Fixed(*len as u64)))
             }
             DataType::Binary => Ok(Type::Primitive(PrimitiveType::Binary)),
+            DataType::Struct(fields) => Ok(Type::Struct(
+                (&ArrowSchema::new(fields.clone())).try_into()?,
+            )),
+            DataType::List(field) => Ok(Type::List(ListType {
+                element_id: field.dict_id().unwrap_or(0) as i32,
+                element_required: !field.is_nullable(),
+                element: Box::new(field.data_type().try_into()?),
+            })),
             _ => Err(Error::NotSupported("datatype to arrow".to_string())),
         }
     }
