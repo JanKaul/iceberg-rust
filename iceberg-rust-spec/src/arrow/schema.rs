@@ -184,7 +184,10 @@ impl TryFrom<&DataType> for Type {
                 element_required: !field.is_nullable(),
                 element: Box::new(field.data_type().try_into()?),
             })),
-            _ => Err(Error::NotSupported("datatype to arrow".to_string())),
+            x => Err(Error::NotSupported(format!(
+                "Arrow datatype {} is not supported.",
+                x
+            ))),
         }
     }
 }
