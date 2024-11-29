@@ -510,7 +510,7 @@ impl FileCatalog {
             .try_filter(|x| {
                 future::ready(
                     x.ends_with("metadata.json")
-                        && x.starts_with(&(strip_prefix(&path) + "/v").trim_start_matches('/')),
+                        && x.starts_with((strip_prefix(&path) + "/v").trim_start_matches('/')),
                 )
             })
             .try_collect()
