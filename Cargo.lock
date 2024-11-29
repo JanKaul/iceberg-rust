@@ -2870,6 +2870,8 @@ dependencies = [
  "iceberg-rust",
  "object_store",
  "serde_json",
+ "testcontainers 0.20.0",
+ "testcontainers-modules",
  "thiserror",
  "tokio",
  "url",
