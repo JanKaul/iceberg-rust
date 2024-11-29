@@ -38,7 +38,6 @@ use crate::error::Error;
 
 #[derive(Debug)]
 pub struct FileCatalog {
-    name: String,
     path: String,
     object_store: ObjectStoreBuilder,
     cache: Arc<RwLock<HashMap<Identifier, (String, TabularMetadata)>>>,
@@ -47,13 +46,8 @@ pub struct FileCatalog {
 pub mod error;
 
 impl FileCatalog {
-    pub async fn new(
-        path: &str,
-        name: &str,
-        object_store: ObjectStoreBuilder,
-    ) -> Result<Self, Error> {
+    pub async fn new(path: &str, object_store: ObjectStoreBuilder) -> Result<Self, Error> {
         Ok(FileCatalog {
-            name: name.to_owned(),
             path: path.to_owned(),
             object_store,
             cache: Arc::new(RwLock::new(HashMap::new())),
@@ -72,7 +66,7 @@ impl FileCatalog {
 impl Catalog for FileCatalog {
     /// Catalog name
     fn name(&self) -> &str {
-        &self.name
+        self.path.trim_end_matches('/').split("/").last().unwrap()
     }
     /// Create a namespace in the catalog
     async fn create_namespace(
@@ -128,8 +122,7 @@ impl Catalog for FileCatalog {
 
         object_store
             .list_with_delimiter(Some(
-                &strip_prefix(&(self.path.trim_start_matches('/').to_owned() + "/" + &self.name))
-                    .into(),
+                &strip_prefix(self.path.trim_start_matches('/')).into(),
             ))
             .await
             .map_err(IcebergError::from)?
@@ -499,17 +492,11 @@ impl Catalog for FileCatalog {
 
 impl FileCatalog {
     fn namespace_path(&self, namespace: &str) -> String {
-        self.path.as_str().trim_end_matches('/').to_owned() + "/" + &self.name + "/" + namespace
+        self.path.as_str().trim_end_matches('/').to_owned() + "/" + namespace
     }
 
     fn tabular_path(&self, namespace: &str, name: &str) -> String {
-        self.path.as_str().trim_end_matches('/').to_owned()
-            + "/"
-            + &self.name
-            + "/"
-            + namespace
-            + "/"
-            + name
+        self.path.as_str().trim_end_matches('/').to_owned() + "/" + namespace + "/" + name
     }
 
     async fn metadata_location(&self, identifier: &Identifier) -> Result<String, IcebergError> {
@@ -518,12 +505,12 @@ impl FileCatalog {
 
         let path = self.tabular_path(&identifier.namespace()[0], identifier.name()) + "/metadata";
         let mut files: Vec<String> = object_store
-            .list(Some(&strip_prefix(&path).trim_start_matches('/').into()))
+            .list(Some(&strip_prefix(&path).into()))
             .map_ok(|x| x.location.to_string())
             .try_filter(|x| {
                 future::ready(
                     x.ends_with("metadata.json")
-                        && x.starts_with((path.clone() + "/v").trim_start_matches('/')),
+                        && x.starts_with(&(strip_prefix(&path) + "/v").trim_start_matches('/')),
                 )
             })
             .try_collect()
@@ -537,26 +524,29 @@ impl FileCatalog {
     }
 
     fn identifier(&self, path: &str) -> Identifier {
-        let parts: Vec<&str> = path
-            .trim_start_matches(self.path.trim_start_matches('/'))
+        let parts: Vec<&str> = trim_start_path(path)
+            .trim_start_matches(trim_start_path(&self.path))
             .trim_start_matches('/')
             .split('/')
-            .skip(1)
             .take(2)
             .collect();
         Identifier::new(&[parts[0].to_owned()], parts[1])
     }
 
     fn namespace(&self, path: &str) -> Result<Namespace, IcebergError> {
-        let parts = path
-            .trim_start_matches(self.path.trim_start_matches('/'))
+        let parts = trim_start_path(path)
+            .trim_start_matches(trim_start_path(&self.path))
             .trim_start_matches('/')
             .split('/')
-            .nth(1)
+            .next()
             .ok_or(IcebergError::InvalidFormat("Namespace in path".to_owned()))?
             .to_owned();
         Namespace::try_new(&[parts]).map_err(IcebergError::from)
     }
+}
+
+fn trim_start_path(path: &str) -> &str {
+    path.trim_start_matches('/').trim_start_matches("s3://")
 }
 
 fn parse_version(path: &str) -> Result<u64, IcebergError> {
@@ -582,20 +572,41 @@ impl FileCatalogList {
             object_store,
         })
     }
+
+    fn parse_catalog(&self, path: &str) -> Result<String, IcebergError> {
+        trim_start_path(path.trim_start_matches(trim_start_path(&self.path)))
+            .trim_start_matches('/')
+            .split('/')
+            .next()
+            .ok_or(IcebergError::InvalidFormat("Catalog in path".to_owned()))
+            .map(ToOwned::to_owned)
+    }
 }
 
 #[async_trait]
 impl CatalogList for FileCatalogList {
     fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
         Some(Arc::new(FileCatalog {
-            name: name.to_owned(),
-            path: self.path.clone(),
+            path: self.path.clone() + "/" + name,
             object_store: self.object_store.clone(),
             cache: Arc::new(RwLock::new(HashMap::new())),
         }))
     }
     async fn list_catalogs(&self) -> Vec<String> {
-        todo!()
+        let bucket = Bucket::from_path(&self.path).unwrap();
+        let object_store = self.object_store.build(bucket).unwrap();
+
+        object_store
+            .list_with_delimiter(Some(&strip_prefix(trim_start_path(&self.path)).into()))
+            .await
+            .map_err(IcebergError::from)
+            .unwrap()
+            .common_prefixes
+            .into_iter()
+            .map(|x| self.parse_catalog(x.as_ref()))
+            .collect::<Result<_, IcebergError>>()
+            .map_err(IcebergError::from)
+            .unwrap()
     }
 }
 
@@ -613,17 +624,48 @@ pub mod tests {
     };
     use iceberg_rust::catalog::{bucket::ObjectStoreBuilder, namespace::Namespace, Catalog};
     use std::sync::Arc;
+    // use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
+    // use testcontainers_modules::localstack::LocalStack;
 
     use crate::FileCatalog;
 
     #[tokio::test]
     async fn test_create_update_drop_table() {
+        // let localstack = LocalStack::default()
+        //     .with_env_var("SERVICES", "s3")
+        //     .with_env_var("AWS_ACCESS_KEY_ID", "user")
+        //     .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
+        //     .start()
+        //     .await
+        //     .unwrap();
+
+        // localstack
+        //     .exec(ExecCommand::new(vec![
+        //         "awslocal",
+        //         "s3api",
+        //         "create-bucket",
+        //         "--bucket",
+        //         "warehouse",
+        //     ]))
+        //     .await
+        //     .unwrap();
+
+        // let localstack_host = localstack.get_host().await.unwrap();
+        // let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
+
+        // let object_store = ObjectStoreBuilder::aws()
+        //     .with_config("aws_access_key_id".parse().unwrap(), "user")
+        //     .with_config("aws_secret_access_key".parse().unwrap(), "password")
+        //     .with_config(
+        //         "endpoint".parse().unwrap(),
+        //         format!("http://{}:{}", localstack_host, localstack_port),
+        //     )
+        //     .with_config("region".parse().unwrap(), "us-east-1")
+        //     .with_config("allow_http".parse().unwrap(), "true");
         let object_store = ObjectStoreBuilder::memory();
-        let iceberg_catalog: Arc<dyn Catalog> = Arc::new(
-            FileCatalog::new("/", "warehouse", object_store)
-                .await
-                .unwrap(),
-        );
+
+        let iceberg_catalog: Arc<dyn Catalog> =
+            Arc::new(FileCatalog::new("/warehouse", object_store).await.unwrap());
 
         let catalog = Arc::new(
             IcebergCatalog::new(iceberg_catalog.clone(), None)
@@ -756,5 +798,48 @@ pub mod tests {
         }
 
         assert!(once);
+    }
+
+    #[tokio::test]
+    async fn test_namespace_path_normal_case() {
+        let test_struct = FileCatalog::new("/base/path", ObjectStoreBuilder::memory())
+            .await
+            .unwrap();
+        assert_eq!(
+            test_struct.namespace_path("test_namespace"),
+            "/base/path/test_namespace"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_namespace_path_s3() {
+        let test_struct = FileCatalog::new("s3://base/path", ObjectStoreBuilder::memory())
+            .await
+            .unwrap();
+        assert_eq!(
+            test_struct.namespace_path("test_namespace"),
+            "s3://base/path/test_namespace"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_identifier_normal_case() {
+        let test_struct = FileCatalog::new("/base/path", ObjectStoreBuilder::memory())
+            .await
+            .unwrap();
+
+        let result = test_struct.identifier("/base/path/test_namespace/test_table");
+        assert_eq!(result.namespace()[0], "test_namespace");
+        assert_eq!(result.name(), "test_table");
+    }
+
+    #[tokio::test]
+    async fn test_namespace_normal_case() {
+        let test_struct = FileCatalog::new("/base/path", ObjectStoreBuilder::memory())
+            .await
+            .unwrap();
+
+        let result = test_struct.namespace("/base/path/test_namespace").unwrap();
+        assert_eq!(result.as_ref(), &["test_namespace".to_string()]);
     }
 }

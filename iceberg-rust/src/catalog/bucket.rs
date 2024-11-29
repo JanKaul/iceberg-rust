@@ -15,6 +15,7 @@ use object_store::{
 use crate::error::Error;
 
 /// Type for buckets for different cloud providers
+#[derive(Debug)]
 pub enum Bucket<'s> {
     /// Aws S3 bucket
     S3(&'s str),
