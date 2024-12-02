@@ -343,8 +343,8 @@ impl Catalog for FileCatalog {
 
         object_store
             .copy_if_not_exists(
-                &temp_metadata_location.into(),
-                &metadata_location.as_str().into(),
+                &strip_prefix(&temp_metadata_location).into(),
+                &strip_prefix(metadata_location.as_str()).into(),
             )
             .await?;
 
@@ -392,8 +392,8 @@ impl Catalog for FileCatalog {
 
                 object_store
                     .copy_if_not_exists(
-                        &temp_metadata_location.into(),
-                        &metadata_location.as_str().into(),
+                        &strip_prefix(&temp_metadata_location).into(),
+                        &strip_prefix(metadata_location.as_str()).into(),
                     )
                     .await?;
 
@@ -452,8 +452,8 @@ impl Catalog for FileCatalog {
 
                 object_store
                     .copy_if_not_exists(
-                        &temp_metadata_location.into(),
-                        &metadata_location.as_str().into(),
+                        &strip_prefix(&temp_metadata_location).into(),
+                        &strip_prefix(metadata_location.as_str()).into(),
                     )
                     .await?;
 
@@ -624,48 +624,51 @@ pub mod tests {
     };
     use iceberg_rust::catalog::{bucket::ObjectStoreBuilder, namespace::Namespace, Catalog};
     use std::sync::Arc;
-    // use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
-    // use testcontainers_modules::localstack::LocalStack;
+    use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
+    use testcontainers_modules::localstack::LocalStack;
 
     use crate::FileCatalog;
 
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        // let localstack = LocalStack::default()
-        //     .with_env_var("SERVICES", "s3")
-        //     .with_env_var("AWS_ACCESS_KEY_ID", "user")
-        //     .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
-        //     .start()
-        //     .await
-        //     .unwrap();
+        let localstack = LocalStack::default()
+            .with_env_var("SERVICES", "s3")
+            .with_env_var("AWS_ACCESS_KEY_ID", "user")
+            .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
+            .start()
+            .await
+            .unwrap();
 
-        // localstack
-        //     .exec(ExecCommand::new(vec![
-        //         "awslocal",
-        //         "s3api",
-        //         "create-bucket",
-        //         "--bucket",
-        //         "warehouse",
-        //     ]))
-        //     .await
-        //     .unwrap();
+        localstack
+            .exec(ExecCommand::new(vec![
+                "awslocal",
+                "s3api",
+                "create-bucket",
+                "--bucket",
+                "warehouse",
+            ]))
+            .await
+            .unwrap();
 
-        // let localstack_host = localstack.get_host().await.unwrap();
-        // let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
+        let localstack_host = localstack.get_host().await.unwrap();
+        let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
 
-        // let object_store = ObjectStoreBuilder::aws()
-        //     .with_config("aws_access_key_id".parse().unwrap(), "user")
-        //     .with_config("aws_secret_access_key".parse().unwrap(), "password")
-        //     .with_config(
-        //         "endpoint".parse().unwrap(),
-        //         format!("http://{}:{}", localstack_host, localstack_port),
-        //     )
-        //     .with_config("region".parse().unwrap(), "us-east-1")
-        //     .with_config("allow_http".parse().unwrap(), "true");
-        let object_store = ObjectStoreBuilder::memory();
+        let object_store = ObjectStoreBuilder::aws()
+            .with_config("aws_access_key_id".parse().unwrap(), "user")
+            .with_config("aws_secret_access_key".parse().unwrap(), "password")
+            .with_config(
+                "endpoint".parse().unwrap(),
+                format!("http://{}:{}", localstack_host, localstack_port),
+            )
+            .with_config("region".parse().unwrap(), "us-east-1")
+            .with_config("allow_http".parse().unwrap(), "true");
+        // let object_store = ObjectStoreBuilder::memory();
 
-        let iceberg_catalog: Arc<dyn Catalog> =
-            Arc::new(FileCatalog::new("/warehouse", object_store).await.unwrap());
+        let iceberg_catalog: Arc<dyn Catalog> = Arc::new(
+            FileCatalog::new("s3://warehouse", object_store)
+                .await
+                .unwrap(),
+        );
 
         let catalog = Arc::new(
             IcebergCatalog::new(iceberg_catalog.clone(), None)
@@ -727,7 +730,7 @@ pub mod tests {
     L_RECEIPTDATE DATE NOT NULL, 
     L_SHIPINSTRUCT VARCHAR NOT NULL, 
     L_SHIPMODE VARCHAR NOT NULL, 
-    L_COMMENT VARCHAR NOT NULL ) STORED AS ICEBERG LOCATION '/warehouse/tpch/lineitem' PARTITIONED BY ( \"month(L_SHIPDATE)\" );";
+    L_COMMENT VARCHAR NOT NULL ) STORED AS ICEBERG LOCATION 's3://warehouse/tpch/lineitem' PARTITIONED BY ( \"month(L_SHIPDATE)\" );";
 
         let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
