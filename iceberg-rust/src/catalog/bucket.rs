@@ -5,7 +5,7 @@ Defining the [Bucket] struct for specifying buckets for the ObjectStore.
 use std::{fmt::Display, path::Path, str::FromStr, sync::Arc};
 
 use object_store::{
-    aws::{AmazonS3Builder, AmazonS3ConfigKey},
+    aws::{AmazonS3Builder, AmazonS3ConfigKey, S3CopyIfNotExists},
     gcp::{GoogleCloudStorageBuilder, GoogleConfigKey},
     local::LocalFileSystem,
     memory::InMemory,
@@ -128,6 +128,7 @@ impl ObjectStoreBuilder {
                 builder
                     .clone()
                     .with_bucket_name(bucket)
+                    .with_copy_if_not_exists(S3CopyIfNotExists::Multipart)
                     .build()
                     .map_err(Error::from)?,
             )),

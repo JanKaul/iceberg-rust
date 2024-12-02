@@ -39,3 +39,7 @@ itertools = "0.10.5"
 derive-getters = "0.3.0"
 tracing = "0.1"
 tracing-futures = "0.2"
+
+
+[patch.crates-io]
+object_store = { version = "0.11.1", features = ["aws", "gcp"], git = "https://github.com/apache/arrow-rs", rev = "c60ce14" }
