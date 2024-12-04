@@ -2,11 +2,7 @@
  * Convert between datafusion and iceberg schema
 */
 
-use std::{
-    collections::{HashMap, HashSet},
-    convert::TryInto,
-    sync::Arc,
-};
+use std::{collections::HashMap, convert::TryInto, sync::Arc};
 
 use crate::{
     spec::types::{PrimitiveType, StructField, StructType, Type},
@@ -22,15 +18,23 @@ impl TryInto<ArrowSchema> for &StructType {
     type Error = Error;
 
     fn try_into(self) -> Result<ArrowSchema, Self::Error> {
+        let fields = self.try_into()?;
+        let metadata = HashMap::new();
+        Ok(ArrowSchema { fields, metadata })
+    }
+}
+
+impl TryInto<Fields> for &StructType {
+    type Error = Error;
+
+    fn try_into(self) -> Result<Fields, Self::Error> {
         let fields = self
             .iter()
             .map(|field| {
-                Ok(Field::new_dict(
+                Ok(Field::new(
                     &field.name,
                     (&field.field_type).try_into()?,
                     !field.required,
-                    field.id as i64,
-                    false,
                 )
                 .with_metadata(HashMap::from_iter(vec![(
                     PARQUET_FIELD_ID_META_KEY.to_string(),
@@ -38,8 +42,7 @@ impl TryInto<ArrowSchema> for &StructType {
                 )])))
             })
             .collect::<Result<_, Error>>()?;
-        let metadata = HashMap::new();
-        Ok(ArrowSchema { fields, metadata })
+        Ok(fields)
     }
 }
 
@@ -47,26 +50,19 @@ impl TryFrom<&ArrowSchema> for StructType {
     type Error = Error;
 
     fn try_from(value: &ArrowSchema) -> Result<Self, Self::Error> {
-        let mut ids = HashSet::new();
+        value.fields().try_into()
+    }
+}
+
+impl TryFrom<&Fields> for StructType {
+    type Error = Error;
+
+    fn try_from(value: &Fields) -> Result<Self, Self::Error> {
         let fields = value
-            .fields
             .iter()
             .map(|field| {
-                let id = match field.dict_id() {
-                    Some(id) => {
-                        if !ids.contains(&id) {
-                            id
-                        } else if id as usize != ids.len() {
-                            ids.len() as i64
-                        } else {
-                            0
-                        }
-                    }
-                    None => ids.len() as i64,
-                };
-                ids.insert(id);
                 Ok(StructField {
-                    id: id as i32,
+                    id: get_field_id(field)?,
                     name: field.name().to_owned(),
                     required: !field.is_nullable(),
                     field_type: field.data_type().try_into()?,
@@ -104,48 +100,38 @@ impl TryFrom<&Type> for DataType {
                 PrimitiveType::Fixed(len) => Ok(DataType::FixedSizeBinary(*len as i32)),
                 PrimitiveType::Binary => Ok(DataType::Binary),
             },
-            Type::List(list) => Ok(DataType::List(Arc::new(Field::new_dict(
-                "",
-                (&list.element as &Type).try_into()?,
-                !list.element_required,
-                list.element_id as i64,
-                false,
-            )))),
-            Type::Struct(struc) => Ok(DataType::Struct(
-                struc
-                    .iter()
-                    .map(|field| {
-                        Ok(Field::new_dict(
-                            &field.name,
-                            (&field.field_type).try_into()?,
-                            !field.required,
-                            field.id as i64,
-                            false,
-                        ))
-                    })
-                    .collect::<Result<_, Error>>()?,
-            )),
+            Type::List(list) => Ok(DataType::List(Arc::new(
+                Field::new(
+                    "",
+                    (&list.element as &Type).try_into()?,
+                    !list.element_required,
+                )
+                .with_metadata(HashMap::from_iter(vec![(
+                    PARQUET_FIELD_ID_META_KEY.to_string(),
+                    list.element_id.to_string(),
+                )])),
+            ))),
+            Type::Struct(struc) => Ok(DataType::Struct(struc.try_into()?)),
             Type::Map(map) => Ok(DataType::Map(
-                Arc::new(Field::new_dict(
+                Arc::new(Field::new(
                     "entries",
                     DataType::Struct(Fields::from(vec![
-                        Field::new_dict(
-                            "key",
-                            (&map.key as &Type).try_into()?,
-                            false,
-                            map.key_id as i64,
-                            false,
+                        Field::new("key", (&map.key as &Type).try_into()?, false).with_metadata(
+                            HashMap::from_iter(vec![(
+                                PARQUET_FIELD_ID_META_KEY.to_string(),
+                                map.key_id.to_string(),
+                            )]),
                         ),
-                        Field::new_dict(
+                        Field::new(
                             "value",
                             (&map.value as &Type).try_into()?,
                             !map.value_required,
-                            map.value_id as i64,
-                            false,
-                        ),
+                        )
+                        .with_metadata(HashMap::from_iter(vec![(
+                            PARQUET_FIELD_ID_META_KEY.to_string(),
+                            map.value_id.to_string(),
+                        )])),
                     ])),
-                    false,
-                    0,
                     false,
                 )),
                 false,
@@ -176,9 +162,7 @@ impl TryFrom<&DataType> for Type {
                 Ok(Type::Primitive(PrimitiveType::Fixed(*len as u64)))
             }
             DataType::Binary => Ok(Type::Primitive(PrimitiveType::Binary)),
-            DataType::Struct(fields) => Ok(Type::Struct(
-                (&ArrowSchema::new(fields.clone())).try_into()?,
-            )),
+            DataType::Struct(fields) => Ok(Type::Struct(fields.try_into()?)),
             DataType::List(field) => Ok(Type::List(ListType {
                 element_id: field.dict_id().unwrap_or(0) as i32,
                 element_required: !field.is_nullable(),
@@ -189,5 +173,302 @@ impl TryFrom<&DataType> for Type {
                 x
             ))),
         }
+    }
+}
+
+fn get_field_id(field: &Field) -> Result<i32, Error> {
+    field
+        .metadata()
+        .get(PARQUET_FIELD_ID_META_KEY)
+        .ok_or(Error::NotFound("Parquet".to_owned(), "field id".to_owned()))
+        .and_then(|x| x.parse().map_err(Error::from))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::spec::types::MapType;
+
+    #[test]
+    fn test_struct_type_to_arrow_schema_simple() {
+        let struct_type = StructType::new(vec![
+            StructField::new(1, "field1", true, Type::Primitive(PrimitiveType::Int), None),
+            StructField::new(
+                2,
+                "field2",
+                false,
+                Type::Primitive(PrimitiveType::String),
+                None,
+            ),
+        ]);
+
+        let arrow_schema: ArrowSchema = (&struct_type).try_into().unwrap();
+
+        assert_eq!(arrow_schema.fields().len(), 2);
+        assert_eq!(arrow_schema.field(0).name(), "field1");
+        assert_eq!(get_field_id(arrow_schema.field(0)).unwrap(), 1);
+        assert_eq!(arrow_schema.field(0).data_type(), &DataType::Int32);
+        assert!(!arrow_schema.field(0).is_nullable());
+        assert_eq!(arrow_schema.field(1).name(), "field2");
+        assert_eq!(get_field_id(arrow_schema.field(1)).unwrap(), 2);
+        assert_eq!(arrow_schema.field(1).data_type(), &DataType::Utf8);
+        assert!(arrow_schema.field(1).is_nullable());
+    }
+
+    #[test]
+    fn test_struct_type_to_arrow_schema_nested() {
+        let nested_struct = StructType::new(vec![
+            StructField::new(
+                3,
+                "nested1",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ),
+            StructField::new(
+                4,
+                "nested2",
+                false,
+                Type::Primitive(PrimitiveType::Boolean),
+                None,
+            ),
+        ]);
+
+        let struct_type = StructType::new(vec![
+            StructField::new(1, "field1", true, Type::Primitive(PrimitiveType::Int), None),
+            StructField::new(2, "field2", false, Type::Struct(nested_struct), None),
+        ]);
+
+        let arrow_schema: ArrowSchema = (&struct_type).try_into().unwrap();
+
+        assert_eq!(arrow_schema.fields().len(), 2);
+        assert_eq!(arrow_schema.field(0).name(), "field1");
+        assert_eq!(get_field_id(arrow_schema.field(0)).unwrap(), 1);
+        assert_eq!(arrow_schema.field(0).data_type(), &DataType::Int32);
+        assert!(!arrow_schema.field(0).is_nullable());
+
+        let nested_field = arrow_schema.field(1);
+        assert_eq!(nested_field.name(), "field2");
+        assert_eq!(get_field_id(nested_field).unwrap(), 2);
+        assert!(nested_field.is_nullable());
+
+        if let DataType::Struct(nested_fields) = nested_field.data_type() {
+            assert_eq!(nested_fields.len(), 2);
+            assert_eq!(nested_fields[0].name(), "nested1");
+            assert_eq!(get_field_id(&nested_fields[0]).unwrap(), 3);
+            assert_eq!(nested_fields[0].data_type(), &DataType::Int64);
+            assert!(!nested_fields[0].is_nullable());
+            assert_eq!(nested_fields[1].name(), "nested2");
+            assert_eq!(get_field_id(&nested_fields[1]).unwrap(), 4);
+            assert_eq!(nested_fields[1].data_type(), &DataType::Boolean);
+            assert!(nested_fields[1].is_nullable());
+        } else {
+            panic!("Expected nested field to be a struct");
+        }
+    }
+
+    #[test]
+    fn test_struct_type_to_arrow_schema_list() {
+        let list_type = Type::List(ListType {
+            element_id: 3,
+            element_required: false,
+            element: Box::new(Type::Primitive(PrimitiveType::Double)),
+        });
+
+        let struct_type = StructType::new(vec![
+            StructField::new(1, "field1", true, Type::Primitive(PrimitiveType::Int), None),
+            StructField::new(2, "field2", false, list_type, None),
+        ]);
+
+        let arrow_schema: ArrowSchema = (&struct_type).try_into().unwrap();
+
+        assert_eq!(arrow_schema.fields().len(), 2);
+        assert_eq!(arrow_schema.field(0).name(), "field1");
+        assert_eq!(get_field_id(arrow_schema.field(0)).unwrap(), 1);
+        assert_eq!(arrow_schema.field(0).data_type(), &DataType::Int32);
+        assert!(!arrow_schema.field(0).is_nullable());
+
+        let list_field = arrow_schema.field(1);
+        assert_eq!(list_field.name(), "field2");
+        assert_eq!(get_field_id(list_field).unwrap(), 2);
+        assert!(list_field.is_nullable());
+
+        if let DataType::List(element_field) = list_field.data_type() {
+            assert_eq!(element_field.data_type(), &DataType::Float64);
+            assert_eq!(get_field_id(element_field).unwrap(), 3);
+            assert!(element_field.is_nullable());
+        } else {
+            panic!("Expected list field");
+        }
+    }
+
+    #[test]
+    fn test_struct_type_to_arrow_schema_map() {
+        let map_type = Type::Map(MapType {
+            key_id: 3,
+            value_id: 4,
+            value_required: false,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value: Box::new(Type::Primitive(PrimitiveType::Int)),
+        });
+
+        let struct_type = StructType::new(vec![
+            StructField::new(1, "field1", true, Type::Primitive(PrimitiveType::Int), None),
+            StructField::new(2, "field2", false, map_type, None),
+        ]);
+
+        let arrow_schema: ArrowSchema = (&struct_type).try_into().unwrap();
+
+        assert_eq!(arrow_schema.fields().len(), 2);
+        assert_eq!(arrow_schema.field(0).name(), "field1");
+        assert_eq!(get_field_id(arrow_schema.field(0)).unwrap(), 1);
+        assert_eq!(arrow_schema.field(0).data_type(), &DataType::Int32);
+        assert!(!arrow_schema.field(0).is_nullable());
+
+        let map_field = arrow_schema.field(1);
+        assert_eq!(map_field.name(), "field2");
+        assert_eq!(get_field_id(map_field).unwrap(), 2);
+        assert!(map_field.is_nullable());
+
+        if let DataType::Map(entries_field, _) = map_field.data_type() {
+            if let DataType::Struct(entry_fields) = entries_field.data_type() {
+                assert_eq!(entry_fields.len(), 2);
+                assert_eq!(entry_fields[0].name(), "key");
+                assert_eq!(get_field_id(&entry_fields[0]).unwrap(), 3);
+                assert_eq!(entry_fields[0].data_type(), &DataType::Utf8);
+                assert!(!entry_fields[0].is_nullable());
+                assert_eq!(entry_fields[1].name(), "value");
+                assert_eq!(get_field_id(&entry_fields[1]).unwrap(), 4);
+                assert_eq!(entry_fields[1].data_type(), &DataType::Int32);
+                assert!(entry_fields[1].is_nullable());
+            } else {
+                panic!("Expected struct field for map entries");
+            }
+        } else {
+            panic!("Expected map field");
+        }
+    }
+
+    #[test]
+    fn test_struct_type_to_arrow_schema_complex() {
+        let nested_struct = StructType::new(vec![
+            StructField::new(
+                4,
+                "nested1",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ),
+            StructField::new(
+                5,
+                "nested2",
+                false,
+                Type::Primitive(PrimitiveType::Boolean),
+                None,
+            ),
+        ]);
+
+        let list_type = Type::List(ListType {
+            element_id: 3,
+            element_required: true,
+            element: Box::new(Type::Struct(nested_struct)),
+        });
+
+        let map_type = Type::Map(MapType {
+            key_id: 7,
+            value_id: 8,
+            value_required: false,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value: Box::new(Type::Primitive(PrimitiveType::Date)),
+        });
+
+        let struct_type = StructType::new(vec![
+            StructField::new(1, "field1", true, Type::Primitive(PrimitiveType::Int), None),
+            StructField::new(2, "field2", false, list_type, None),
+            StructField::new(6, "field3", true, map_type, None),
+        ]);
+
+        let arrow_schema: ArrowSchema = (&struct_type).try_into().unwrap();
+
+        assert_eq!(arrow_schema.fields().len(), 3);
+        // Assertions for field1 (simple int)
+        assert_eq!(arrow_schema.field(0).name(), "field1");
+        assert_eq!(get_field_id(arrow_schema.field(0)).unwrap(), 1);
+        assert_eq!(arrow_schema.field(0).data_type(), &DataType::Int32);
+        assert!(!arrow_schema.field(0).is_nullable());
+
+        // Assertions for field2 (list of structs)
+        let list_field = arrow_schema.field(1);
+        assert_eq!(list_field.name(), "field2");
+        assert_eq!(get_field_id(list_field).unwrap(), 2);
+        assert!(list_field.is_nullable());
+        if let DataType::List(element_field) = list_field.data_type() {
+            if let DataType::Struct(nested_fields) = element_field.data_type() {
+                assert_eq!(nested_fields.len(), 2);
+                assert_eq!(nested_fields[0].name(), "nested1");
+                assert_eq!(get_field_id(&nested_fields[0]).unwrap(), 4);
+                assert_eq!(nested_fields[0].data_type(), &DataType::Int64);
+                assert!(!nested_fields[0].is_nullable());
+                assert_eq!(nested_fields[1].name(), "nested2");
+                assert_eq!(get_field_id(&nested_fields[1]).unwrap(), 5);
+                assert_eq!(nested_fields[1].data_type(), &DataType::Boolean);
+                assert!(nested_fields[1].is_nullable());
+            } else {
+                panic!("Expected struct as list element");
+            }
+        } else {
+            panic!("Expected list field");
+        }
+
+        // Assertions for field3 (map of string to list of structs)
+        let map_field = arrow_schema.field(2);
+        assert_eq!(map_field.name(), "field3");
+        assert_eq!(get_field_id(map_field).unwrap(), 6);
+        assert!(!map_field.is_nullable());
+        if let DataType::Map(entries_field, _) = map_field.data_type() {
+            if let DataType::Struct(entry_fields) = entries_field.data_type() {
+                assert_eq!(entry_fields.len(), 2);
+                assert_eq!(entry_fields[0].name(), "key");
+                assert_eq!(get_field_id(&entry_fields[0]).unwrap(), 7);
+                assert_eq!(entry_fields[0].data_type(), &DataType::Utf8);
+                assert!(!entry_fields[0].is_nullable());
+
+                // Check the value (list of structs)
+                assert_eq!(entry_fields[1].name(), "value");
+                assert_eq!(get_field_id(&entry_fields[1]).unwrap(), 8);
+                assert!(entry_fields[1].is_nullable());
+            } else {
+                panic!("Expected struct field for map entries");
+            }
+        } else {
+            panic!("Expected map field");
+        }
+    }
+
+    #[test]
+    fn test_struct_type_to_arrow_schema_empty() {
+        let struct_type = StructType::new(vec![]);
+        let arrow_schema: ArrowSchema = (&struct_type).try_into().unwrap();
+        assert_eq!(arrow_schema.fields().len(), 0);
+    }
+
+    #[test]
+    fn test_struct_type_to_arrow_schema_metadata() {
+        let struct_type = StructType::new(vec![StructField::new(
+            1,
+            "field1",
+            true,
+            Type::Primitive(PrimitiveType::Int),
+            None,
+        )]);
+
+        let arrow_schema: ArrowSchema = (&struct_type).try_into().unwrap();
+
+        // Check that the PARQUET:field_id metadata is set correctly
+        let field_metadata = arrow_schema.field(0).metadata();
+        assert_eq!(
+            field_metadata.get(PARQUET_FIELD_ID_META_KEY),
+            Some(&"1".to_string())
+        );
     }
 }
