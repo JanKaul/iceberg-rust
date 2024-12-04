@@ -2,7 +2,7 @@
  * Convert between datafusion and iceberg schema
 */
 
-use std::{collections::HashMap, convert::TryInto, sync::Arc};
+use std::{collections::HashMap, convert::TryInto, ops::Deref, sync::Arc};
 
 use crate::{
     spec::types::{PrimitiveType, StructField, StructType, Type},
@@ -182,6 +182,54 @@ fn get_field_id(field: &Field) -> Result<i32, Error> {
         .get(PARQUET_FIELD_ID_META_KEY)
         .ok_or(Error::NotFound("Parquet".to_owned(), "field id".to_owned()))
         .and_then(|x| x.parse().map_err(Error::from))
+}
+
+pub fn new_fields_with_ids(fields: &Fields, index: &mut i32) -> Fields {
+    fields
+        .into_iter()
+        .map(|field| {
+            *index += 1;
+            match field.data_type() {
+                DataType::Struct(fields) => {
+                    let temp = *index;
+                    Field::new(
+                        field.name(),
+                        DataType::Struct(new_fields_with_ids(fields, index)),
+                        field.is_nullable(),
+                    )
+                    .with_metadata(HashMap::from_iter(vec![(
+                        PARQUET_FIELD_ID_META_KEY.to_string(),
+                        temp.to_string(),
+                    )]))
+                }
+                DataType::List(list_field) => {
+                    let temp = *index;
+                    *index += 1;
+                    Field::new(
+                        field.name(),
+                        DataType::List(Arc::new(list_field.deref().clone().with_metadata(
+                            HashMap::from_iter(vec![(
+                                PARQUET_FIELD_ID_META_KEY.to_string(),
+                                index.to_string(),
+                            )]),
+                        ))),
+                        field.is_nullable(),
+                    )
+                    .with_metadata(HashMap::from_iter(vec![(
+                        PARQUET_FIELD_ID_META_KEY.to_string(),
+                        temp.to_string(),
+                    )]))
+                }
+                _ => field
+                    .deref()
+                    .clone()
+                    .with_metadata(HashMap::from_iter(vec![(
+                        PARQUET_FIELD_ID_META_KEY.to_string(),
+                        index.to_string(),
+                    )])),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

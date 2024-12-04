@@ -23,6 +23,7 @@ use iceberg_rust::{
     error::Error,
     materialized_view::MaterializedView,
     spec::{
+        arrow::schema::new_fields_with_ids,
         identifier::Identifier,
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
@@ -113,8 +114,11 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
 
         let catalog = iceberg_catalog.catalog();
 
-        let schema = StructType::try_from(node.0.schema.as_arrow())
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+        let schema = StructType::try_from(&new_fields_with_ids(
+            node.0.schema.as_arrow().fields(),
+            &mut 0,
+        ))
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
         let pacrtition_spec = node
             .0
@@ -206,8 +210,11 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
 
         let catalog = iceberg_catalog.catalog();
 
-        let schema = StructType::try_from(node.0.input.schema().as_arrow())
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+        let schema = StructType::try_from(&new_fields_with_ids(
+            node.0.input.schema().as_arrow().fields(),
+            &mut 0,
+        ))
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
         let lowercase = node.0.definition.as_ref().unwrap().to_lowercase();
         let definition = lowercase.split_once(" as ").unwrap().1;
