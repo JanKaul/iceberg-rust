@@ -492,14 +492,14 @@ mod tests {
 
         assert_eq!(struct_type[0].id, 1);
         assert_eq!(struct_type[0].name, "field1");
-        assert_eq!(struct_type[0].required, true);
+        assert!(struct_type[0].required);
         assert_eq!(
             struct_type[0].field_type,
             Type::Primitive(PrimitiveType::Int)
         );
         assert_eq!(struct_type[1].id, 2);
         assert_eq!(struct_type[1].name, "field2");
-        assert_eq!(struct_type[1].required, false);
+        assert!(!struct_type[1].required);
         assert_eq!(
             struct_type[1].field_type,
             Type::Primitive(PrimitiveType::String)
@@ -533,7 +533,7 @@ mod tests {
 
         assert_eq!(struct_type[0].id, 1);
         assert_eq!(struct_type[0].name, "field1");
-        assert_eq!(struct_type[0].required, true);
+        assert!(struct_type[0].required);
         assert_eq!(
             struct_type[0].field_type,
             Type::Primitive(PrimitiveType::Int)
@@ -543,14 +543,14 @@ mod tests {
             Type::Struct(nested_struct) => {
                 assert_eq!(nested_struct[0].id, 3);
                 assert_eq!(nested_struct[0].name, "nested1");
-                assert_eq!(nested_struct[0].required, false);
+                assert!(!nested_struct[0].required);
                 assert_eq!(
                     nested_struct[0].field_type,
                     Type::Primitive(PrimitiveType::Long)
                 );
                 assert_eq!(nested_struct[1].id, 4);
                 assert_eq!(nested_struct[1].name, "nested2");
-                assert_eq!(nested_struct[1].required, true);
+                assert!(nested_struct[1].required);
                 assert_eq!(
                     nested_struct[1].field_type,
                     Type::Primitive(PrimitiveType::Boolean)
@@ -587,7 +587,7 @@ mod tests {
 
         assert_eq!(struct_type[0].id, 1);
         assert_eq!(struct_type[0].name, "field1");
-        assert_eq!(struct_type[0].required, true);
+        assert!(struct_type[0].required);
         assert_eq!(
             struct_type[0].field_type,
             Type::Primitive(PrimitiveType::Int)
@@ -596,7 +596,7 @@ mod tests {
         match &struct_type[1].field_type {
             Type::List(list_type) => {
                 assert_eq!(list_type.element_id, 3);
-                assert_eq!(list_type.element_required, false);
+                assert!(!list_type.element_required);
                 assert_eq!(*list_type.element, Type::Primitive(PrimitiveType::Double));
             }
             _ => panic!("Expected list type"),
