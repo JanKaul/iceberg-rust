@@ -46,7 +46,7 @@ impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
     }
 }
 
-impl<'table, 'manifests> PruningStatistics for PruneManifests<'table, 'manifests> {
+impl PruningStatistics for PruneManifests<'_, '_> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
         let (index, partition_field) = self
             .partition_fields
@@ -146,7 +146,7 @@ impl<'table, 'manifests> PruneDataFiles<'table, 'manifests> {
     }
 }
 
-impl<'table, 'manifests> PruningStatistics for PruneDataFiles<'table, 'manifests> {
+impl PruningStatistics for PruneDataFiles<'_, '_> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
         let column_id = self.schema.fields().get_name(&column.name)?.id;
         let datatype = self

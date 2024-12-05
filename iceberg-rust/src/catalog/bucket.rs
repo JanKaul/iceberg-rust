@@ -25,7 +25,7 @@ pub enum Bucket<'s> {
     Local,
 }
 
-impl<'s> Display for Bucket<'s> {
+impl Display for Bucket<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Bucket::S3(s) => write!(f, "s3://{}", s),
@@ -35,7 +35,7 @@ impl<'s> Display for Bucket<'s> {
     }
 }
 
-impl<'a> Bucket<'a> {
+impl Bucket<'_> {
     /// Get the bucket and coud provider from the location string
     pub fn from_path(path: &str) -> Result<Bucket, Error> {
         if path.starts_with("s3://") {
