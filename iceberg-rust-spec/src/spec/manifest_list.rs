@@ -267,7 +267,18 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV2,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
-        let partition_types = table_metadata.current_partition_fields(None)?;
+        let partition_types = table_metadata.default_partition_spec()?.data_types(
+            table_metadata
+                .current_schema(None)
+                .or(table_metadata
+                    .refs
+                    .values()
+                    .next()
+                    .ok_or(Error::NotFound("Current schema".to_string()))
+                    .and_then(|x| table_metadata.schema(x.snapshot_id)))
+                .unwrap()
+                .fields(),
+        )?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V2,
             manifest_path: entry.manifest_path,
@@ -288,7 +299,7 @@ impl ManifestListEntry {
                 .map(|v| {
                     v.into_iter()
                         .zip(partition_types.iter())
-                        .map(|(x, d)| FieldSummary::try_from(x, d.field_type()))
+                        .map(|(x, d)| FieldSummary::try_from(x, d))
                         .collect::<Result<Vec<_>, Error>>()
                 })
                 .transpose()?,
@@ -300,7 +311,18 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV1,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
-        let partition_types = table_metadata.current_partition_fields(None)?;
+        let partition_types = table_metadata.default_partition_spec()?.data_types(
+            table_metadata
+                .current_schema(None)
+                .or(table_metadata
+                    .refs
+                    .values()
+                    .next()
+                    .ok_or(Error::NotFound("Current schema".to_string()))
+                    .and_then(|x| table_metadata.schema(x.snapshot_id)))
+                .unwrap()
+                .fields(),
+        )?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V1,
             manifest_path: entry.manifest_path,
@@ -321,7 +343,7 @@ impl ManifestListEntry {
                 .map(|v| {
                     v.into_iter()
                         .zip(partition_types.iter())
-                        .map(|(x, d)| FieldSummary::try_from(x, d.field_type()))
+                        .map(|(x, d)| FieldSummary::try_from(x, d))
                         .collect::<Result<Vec<_>, Error>>()
                 })
                 .transpose()?,
