@@ -186,7 +186,7 @@ impl TableMetadata {
                         .get(*partition_field.source_id() as usize)
                         .ok_or(Error::NotFound(format!(
                             "Schema field with id {}",
-                            partition_field.source_id().to_string()
+                            partition_field.source_id()
                         )))?;
                 Ok(BoundPartitionField::new(partition_field, field))
             })
@@ -205,7 +205,7 @@ impl TableMetadata {
                         .get(*partition_field.source_id() as usize)
                         .ok_or(Error::NotFound(format!(
                             "Schema field with id {}",
-                            partition_field.source_id().to_string()
+                            partition_field.source_id()
                         )))?;
                 Ok(BoundPartitionField::new(partition_field, field))
             })
