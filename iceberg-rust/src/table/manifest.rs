@@ -41,14 +41,14 @@ pub struct ManifestReader<'a, R: Read> {
     reader: ReaderMap<'a, R>,
 }
 
-impl<'a, R: Read> Iterator for ManifestReader<'a, R> {
+impl<R: Read> Iterator for ManifestReader<'_, R> {
     type Item = Result<ManifestEntry, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next()
     }
 }
 
-impl<'a, R: Read> ManifestReader<'a, R> {
+impl<R: Read> ManifestReader<'_, R> {
     /// Create a new manifest reader
     pub fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;

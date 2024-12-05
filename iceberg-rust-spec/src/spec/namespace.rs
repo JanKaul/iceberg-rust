@@ -65,7 +65,6 @@ impl Display for Namespace {
 }
 
 #[cfg(test)]
-
 mod tests {
     use serde_json::{json, Value};
 

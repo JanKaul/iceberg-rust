@@ -83,7 +83,7 @@ pub enum TabularMetadataRef<'a> {
     MaterializedView(&'a MaterializedViewMetadata),
 }
 
-impl<'a> TabularMetadataRef<'a> {
+impl TabularMetadataRef<'_> {
     /// Get uuid of tabular
     pub fn uuid(&self) -> &Uuid {
         match self {

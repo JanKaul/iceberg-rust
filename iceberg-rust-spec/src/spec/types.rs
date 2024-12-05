@@ -309,6 +309,18 @@ pub struct StructField {
     pub doc: Option<String>,
 }
 
+impl StructField {
+    pub fn new(id: i32, name: &str, required: bool, field_type: Type, doc: Option<String>) -> Self {
+        Self {
+            id,
+            name: name.to_owned(),
+            required,
+            field_type,
+            doc,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename = "list", rename_all = "kebab-case", tag = "type")]
 /// A list is a collection of values with some element type. The element field has an integer id that is unique in the table schema.

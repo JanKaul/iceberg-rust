@@ -33,14 +33,14 @@ pub struct ManifestListReader<'a, 'metadata, R: Read> {
     reader: ReaderMap<'a, 'metadata, R>,
 }
 
-impl<'a, 'metadata, R: Read> Iterator for ManifestListReader<'a, 'metadata, R> {
+impl<R: Read> Iterator for ManifestListReader<'_, '_, R> {
     type Item = Result<ManifestListEntry, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next()
     }
 }
 
-impl<'a, 'metadata, R: Read> ManifestListReader<'a, 'metadata, R> {
+impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
     /// Create a new manifest list reader
     pub fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
         let schema: &AvroSchema = match table_metadata.format_version {
