@@ -14,6 +14,7 @@ use iceberg_rust::{
     spec::materialized_view_metadata::{SourceTables, SourceViews},
 };
 use iceberg_rust::{
+    error::Error,
     spec::{materialized_view_metadata::RefreshState, view_metadata::ViewRepresentation},
     sql::find_relations,
 };
@@ -21,7 +22,7 @@ use itertools::Itertools;
 use uuid::Uuid;
 
 use crate::{
-    error::Error,
+    error::Error as DatafusionIcebergError,
     sql::{transform_name, transform_relations},
     DataFusionTable,
 };
@@ -64,10 +65,9 @@ pub async fn refresh_materialized_view(
                 );
                 let catalog_name = reference.catalog.to_string();
                 let identifier = Identifier::new(&[reference.schema.to_string()], &reference.table);
-                let catalog = catalog_list.catalog(&catalog_name).ok_or(Error::NotFound(
-                    "Catalog".to_owned(),
-                    catalog_name.to_owned(),
-                ))?;
+                let catalog = catalog_list
+                    .catalog(&catalog_name)
+                    .ok_or(Error::NotFound(format!("Catalog {catalog_name}")))?;
 
                 let tabular = match catalog.load_tabular(&identifier).await? {
                     Tabular::View(_) => {
@@ -81,10 +81,10 @@ pub async fn refresh_materialized_view(
                         .current_snapshot(branch.as_deref())?
                         // Fallback to main branch
                         .or(table.metadata().current_snapshot(None)?)
-                        .ok_or(Error::NotFound(
-                            "Snapshot in source table".to_owned(),
+                        .ok_or(Error::NotFound(format!(
+                            "Snapshot in source table {}",
                             (&identifier.name()).to_string(),
-                        ))?
+                        )))?
                         .snapshot_id()),
                     Tabular::MaterializedView(mv) => {
                         let storage_table = mv.storage_table().await?;
@@ -93,10 +93,10 @@ pub async fn refresh_materialized_view(
                             .current_snapshot(branch.as_deref())?
                             // Fallback to main branch
                             .or(storage_table.metadata().current_snapshot(None)?)
-                            .ok_or(Error::NotFound(
-                                "Snapshot in source table".to_owned(),
+                            .ok_or(Error::NotFound(format!(
+                                "Snapshot in source table {}",
                                 (&identifier.name()).to_string(),
-                            ))?
+                            )))?
                             .snapshot_id())
                     }
                     _ => Err(Error::InvalidFormat("storage table".to_string())),
@@ -159,7 +159,8 @@ pub async fn refresh_materialized_view(
             ]
         })
         .map(|(identifier, uuid, snapshot_id, table)| {
-            ctx.register_table(transform_name(&identifier.to_string()), table)?;
+            ctx.register_table(transform_name(&identifier.to_string()), table)
+                .map_err(DatafusionIcebergError::from)?;
             Ok::<_, Error>((identifier, uuid, snapshot_id))
         })
         .filter_ok(|(identifier, _, _)| !identifier.table.ends_with("__delta__"))
@@ -171,14 +172,20 @@ pub async fn refresh_materialized_view(
 
     let sql_statements = transform_relations(sql)?;
 
-    let logical_plan = ctx.state().create_logical_plan(&sql_statements[0]).await?;
+    let logical_plan = ctx
+        .state()
+        .create_logical_plan(&sql_statements[0])
+        .await
+        .map_err(DatafusionIcebergError::from)?;
 
     // Calculate arrow record batches from logical plan
     let batches = ctx
         .execute_logical_plan(logical_plan)
-        .await?
+        .await
+        .map_err(DatafusionIcebergError::from)?
         .execute_stream()
-        .await?
+        .await
+        .map_err(DatafusionIcebergError::from)?
         .map_err(ArrowError::from);
 
     // Write arrow record batches to datafiles

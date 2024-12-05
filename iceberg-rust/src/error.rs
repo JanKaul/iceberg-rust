@@ -29,6 +29,9 @@ pub enum Error {
     /// Not found in catalog
     #[error("Entity not found in catalog")]
     CatalogNotFound,
+    /// External error
+    #[error(transparent)]
+    External(Box<dyn std::error::Error + Send + Sync>),
     /// Iceberg spec error
     #[error(transparent)]
     Iceberg(#[from] iceberg_rust_spec::error::Error),

@@ -3,29 +3,12 @@ Error type for iceberg
 */
 
 use datafusion::error::DataFusionError;
+use iceberg_rust::error::Error as IcebergError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 /// Iceberg error
 pub enum Error {
-    /// Invalid format
-    #[error("{0} doesn't have the right format")]
-    InvalidFormat(String),
-    /// Type error
-    #[error("Value {0} doesn't have the {1} type.")]
-    Type(String, String),
-    /// Schema error
-    #[error("Column {0} not in schema {1}.")]
-    Schema(String, String),
-    /// Conversion error
-    #[error("Failed to convert {0} to {1}.")]
-    Conversion(String, String),
-    /// Not supported
-    #[error("Feature {0} is not supported.")]
-    NotSupported(String),
-    /// Not found
-    #[error("{0} {1} not found.")]
-    NotFound(String, String),
     /// Datafusion error
     #[error(transparent)]
     Datafusion(#[from] datafusion::error::DataFusionError),
@@ -76,5 +59,11 @@ pub enum Error {
 impl From<Error> for DataFusionError {
     fn from(value: Error) -> Self {
         DataFusionError::External(Box::new(value))
+    }
+}
+
+impl From<Error> for IcebergError {
+    fn from(value: Error) -> Self {
+        IcebergError::External(Box::new(value))
     }
 }

@@ -42,7 +42,7 @@ use datafusion::{
 };
 
 use crate::{
-    error::Error,
+    error::Error as DataFusionIcebergError,
     pruning_statistics::{PruneDataFiles, PruneManifests},
     statistics::manifest_statistics,
 };
@@ -57,7 +57,7 @@ use iceberg_rust::spec::{
     view_metadata::ViewRepresentation,
 };
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular,
+    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular, error::Error,
     materialized_view::MaterializedView, table::Table, view::View,
 };
 // mod value;
@@ -170,7 +170,11 @@ impl TableProvider for DataFusionTable {
                     .snapshot_range
                     .1
                     .and_then(|version_id| metadata.versions.get(&version_id))
-                    .unwrap_or(metadata.current_version(None).map_err(Error::from)?);
+                    .unwrap_or(
+                        metadata
+                            .current_version(None)
+                            .map_err(DataFusionIcebergError::from)?,
+                    );
                 let sql = match &version.representations[0] {
                     ViewRepresentation::Sql { sql, .. } => sql,
                 };
@@ -182,7 +186,10 @@ impl TableProvider for DataFusionTable {
             }
             Tabular::Table(table) => {
                 let schema = self.schema();
-                let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
+                let statistics = self
+                    .statistics()
+                    .await
+                    .map_err(DataFusionIcebergError::from)?;
                 table_scan(
                     table,
                     &self.snapshot_range,
@@ -196,9 +203,15 @@ impl TableProvider for DataFusionTable {
                 .await
             }
             Tabular::MaterializedView(mv) => {
-                let table = mv.storage_table().await.map_err(Error::from)?;
+                let table = mv
+                    .storage_table()
+                    .await
+                    .map_err(DataFusionIcebergError::from)?;
                 let schema = self.schema();
-                let statistics = self.statistics().await.map_err(Into::<Error>::into)?;
+                let statistics = self
+                    .statistics()
+                    .await
+                    .map_err(DataFusionIcebergError::from)?;
                 table_scan(
                     &table,
                     &self.snapshot_range,
@@ -281,7 +294,8 @@ async fn table_scan(
     let partition_column_names = partition_fields
         .iter()
         .map(|field| Ok(field.source_name().to_owned()))
-        .collect::<Result<HashSet<_>, Error>>()?;
+        .collect::<Result<HashSet<_>, Error>>()
+        .map_err(DataFusionIcebergError::from)?;
 
     // If there is a filter expression the manifests to read are pruned based on the pruning statistics available in the manifest_list file.
     let physical_predicate = if let Some(predicate) = conjunction(filters.iter().cloned()) {
@@ -311,7 +325,8 @@ async fn table_scan(
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
-            .map_err(Into::<Error>::into)?;
+            .map_err(Into::<Error>::into)
+            .map_err(DataFusionIcebergError::from)?;
 
         // If there is a filter expression on the partition column, the manifest files to read are pruned.
         let data_files: Vec<ManifestEntry> = if let Some(predicate) = partition_predicates {
@@ -328,18 +343,18 @@ async fn table_scan(
             table
                 .datafiles(&manifests, Some(manifests_to_prune))
                 .await
-                .map_err(Into::<Error>::into)?
+                .map_err(DataFusionIcebergError::from)?
                 .try_collect()
                 .await
-                .map_err(Error::from)?
+                .map_err(DataFusionIcebergError::from)?
         } else {
             table
                 .datafiles(&manifests, None)
                 .await
-                .map_err(Into::<Error>::into)?
+                .map_err(DataFusionIcebergError::from)?
                 .try_collect()
                 .await
-                .map_err(Error::from)?
+                .map_err(DataFusionIcebergError::from)?
         };
 
         let pruning_predicate =
@@ -392,14 +407,14 @@ async fn table_scan(
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
-            .map_err(Into::<Error>::into)?;
+            .map_err(DataFusionIcebergError::from)?;
         let data_files: Vec<ManifestEntry> = table
             .datafiles(&manifests, None)
             .await
-            .map_err(Into::<Error>::into)?
+            .map_err(DataFusionIcebergError::from)?
             .try_collect()
             .await
-            .map_err(Error::from)?;
+            .map_err(DataFusionIcebergError::from)?;
         data_files.into_iter().for_each(|manifest| {
             if *manifest.status() != Status::Deleted {
                 let partition_values = manifest
@@ -448,14 +463,14 @@ async fn table_scan(
                 (&partition_field
                     .field_type()
                     .tranform(partition_field.transform())
-                    .map_err(Into::<Error>::into)?)
+                    .map_err(DataFusionIcebergError::from)?)
                     .try_into()
-                    .map_err(Into::<Error>::into)?,
+                    .map_err(DataFusionIcebergError::from)?,
                 !partition_field.required(),
             ))
         })
         .collect::<Result<Vec<_>, DataFusionError>>()
-        .map_err(Into::<Error>::into)?;
+        .map_err(DataFusionIcebergError::from)?;
 
     // Add the partition columns to the table schema
     let mut schema_builder = StructType::builder();
@@ -480,11 +495,11 @@ async fn table_scan(
             schema_builder
                 .build()
                 .map_err(iceberg_rust::spec::error::Error::from)
-                .map_err(Error::from)?,
+                .map_err(DataFusionIcebergError::from)?,
         )
         .build()
         .map_err(iceberg_rust::spec::error::Error::from)
-        .map_err(Error::from)?;
+        .map_err(DataFusionIcebergError::from)?;
 
     let file_schema: SchemaRef = Arc::new((file_schema.fields()).try_into().unwrap());
 
@@ -545,7 +560,7 @@ impl DataSink for IcebergDataSink {
         } else {
             Err(Error::InvalidFormat("database entity".to_string()))
         }
-        .map_err(Into::<Error>::into)?;
+        .map_err(DataFusionIcebergError::from)?;
 
         let object_store = table.object_store().clone();
 
@@ -562,7 +577,7 @@ impl DataSink for IcebergDataSink {
             .append(metadata_files)
             .commit()
             .await
-            .map_err(Into::<Error>::into)?;
+            .map_err(DataFusionIcebergError::from)?;
 
         Ok(0)
     }

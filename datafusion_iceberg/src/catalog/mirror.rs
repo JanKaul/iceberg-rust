@@ -80,12 +80,14 @@ impl Mirror {
         let node = self
             .storage
             .get(&namespace.to_string())
-            .ok_or_else(|| Error::InvalidFormat("namespace in catalog".to_string()))
+            .ok_or_else(|| IcebergError::InvalidFormat("namespace in catalog".to_string()))
             .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         let names = if let Node::Namespace(names) = node.value() {
             Ok(names)
         } else {
-            Err(Error::InvalidFormat("table in namespace".to_string()))
+            Err(IcebergError::InvalidFormat(
+                "table in namespace".to_string(),
+            ))
         }
         .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
         Ok(names

@@ -11,9 +11,7 @@ use iceberg_rust::spec::{
     schema::Schema,
     values::Value,
 };
-use iceberg_rust::{catalog::tabular::Tabular, table::Table};
-
-use crate::error::Error;
+use iceberg_rust::{catalog::tabular::Tabular, error::Error, table::Table};
 
 use super::table::DataFusionTable;
 
