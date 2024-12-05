@@ -54,7 +54,7 @@ impl Table {
                 "zstd".to_owned(),
             ))
             .with_property((WRITE_PARQUET_COMPRESSION_LEVEL.to_owned(), 1.to_string()))
-            .with_property((WRITE_OBJECT_STORAGE_ENABLED.to_owned(), "true".to_owned()));
+            .with_property((WRITE_OBJECT_STORAGE_ENABLED.to_owned(), "false".to_owned()));
         builder
     }
 
