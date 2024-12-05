@@ -93,7 +93,6 @@ impl TryFrom<&str> for Identifier {
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::Identifier;
 

@@ -5,7 +5,6 @@ use crate::apis::{self, catalog_api_api::CreateNamespaceError};
 /**
 Error conversion
 */
-
 impl<T> From<apis::Error<T>> for Error {
     fn from(val: apis::Error<T>) -> Self {
         match val {
