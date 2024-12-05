@@ -113,10 +113,7 @@ impl Operation {
                         acc.expand_with_node(node);
                         Ok(Some(acc))
                     })?
-                    .ok_or(Error::NotFound(
-                        "Bounding".to_owned(),
-                        "rectangle".to_owned(),
-                    ))?;
+                    .ok_or(Error::NotFound("Bounding partition values".to_owned()))?;
 
                 let manifest_list_schema = match table_metadata.format_version {
                     FormatVersion::V1 => manifest_list_schema_v1(),
@@ -400,10 +397,7 @@ impl Operation {
                         acc.expand_with_node(node);
                         Ok(Some(acc))
                     })?
-                    .ok_or(Error::NotFound(
-                        "Bounding".to_owned(),
-                        "rectangle".to_owned(),
-                    ))?;
+                    .ok_or(Error::NotFound("Bounding partition values".to_owned()))?;
 
                 let manifest_list_schema = match table_metadata.format_version {
                     FormatVersion::V1 => manifest_list_schema_v1(),

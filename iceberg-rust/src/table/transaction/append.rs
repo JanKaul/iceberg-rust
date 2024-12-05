@@ -51,11 +51,11 @@ fn split_datafiles_once(
     Ok([
         (
             smaller,
-            smaller_rect.ok_or(Error::NotFound("Lower".to_owned(), "rectangle".to_owned()))?,
+            smaller_rect.expect("No files selected for the smaller rectangle"),
         ),
         (
             larger,
-            larger_rect.ok_or(Error::NotFound("Upper".to_owned(), "rectangle".to_owned()))?,
+            larger_rect.expect("No files selected for the smaller rectangle"),
         ),
     ])
 }
@@ -103,12 +103,11 @@ pub(crate) fn select_manifest_partitioned(
     for manifest_res in manifest_list_reader {
         let manifest = manifest_res?;
 
-        let mut bounds = summary_to_rectangle(
-            manifest
-                .partitions
-                .as_ref()
-                .ok_or(Error::NotFound("Partition".to_owned(), "struct".to_owned()))?,
-        )?;
+        let mut bounds =
+            summary_to_rectangle(manifest.partitions.as_ref().ok_or(Error::NotFound(format!(
+                "Partition struct in manifest {}",
+                manifest.manifest_path
+            )))?)?;
 
         bounds.expand(bounding_partition_values);
 
@@ -136,7 +135,7 @@ pub(crate) fn select_manifest_partitioned(
             manifest: entry,
             file_count_all_entries,
         })
-        .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))
+        .ok_or(Error::NotFound("Manifest for insert".to_owned()))
 }
 
 /// Select the manifest with the smallest number of rows.
@@ -177,5 +176,5 @@ pub(crate) fn select_manifest_unpartitioned(
             manifest: entry,
             file_count_all_entries,
         })
-        .ok_or(Error::NotFound("Manifest".to_owned(), "file".to_owned()))
+        .ok_or(Error::NotFound("Manifest for insert".to_owned()))
 }

@@ -43,13 +43,13 @@ impl Bucket<'_> {
                 .split('/')
                 .next()
                 .map(Bucket::S3)
-                .ok_or(Error::NotFound("Table".to_string(), "location".to_string()))
+                .ok_or(Error::NotFound(format!("Bucket in path {path}")))
         } else if path.starts_with("gcs://") {
             path.trim_start_matches("gcs://")
                 .split('/')
                 .next()
                 .map(Bucket::GCS)
-                .ok_or(Error::NotFound("Table".to_string(), "location".to_string()))
+                .ok_or(Error::NotFound(format!("Bucket in path {path}")))
         } else {
             Ok(Bucket::Local)
         }

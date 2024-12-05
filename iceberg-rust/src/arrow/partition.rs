@@ -313,10 +313,10 @@ mod tests {
                 let field =
                     schema
                         .get(*partition_field.source_id() as usize)
-                        .ok_or(Error::NotFound(
-                            "Field".to_owned(),
+                        .ok_or(Error::NotFound(format!(
+                            "Schema field with id {}",
                             partition_field.source_id().to_string(),
-                        ))?;
+                        )))?;
                 Ok(BoundPartitionField::new(partition_field, field))
             })
             .collect::<Result<Vec<_>, Error>>()

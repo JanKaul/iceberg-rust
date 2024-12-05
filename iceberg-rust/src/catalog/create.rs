@@ -73,7 +73,7 @@ impl CreateTableBuilder {
         let name = self
             .name
             .as_ref()
-            .ok_or(Error::NotFound("Table".to_owned(), "name".to_owned()))?;
+            .ok_or(Error::NotFound("Name to create table".to_owned()))?;
         let identifier = Identifier::new(namespace, name);
 
         let create = self.create()?;
@@ -99,7 +99,7 @@ impl TryInto<TableMetadata> for CreateTable {
             table_uuid: Uuid::new_v4(),
             location: self
                 .location
-                .ok_or(Error::NotFound("Table".to_owned(), "location".to_owned()))?,
+                .ok_or(Error::NotFound(format!("Location for table {}", self.name)))?,
             last_sequence_number: 0,
             last_updated_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -160,7 +160,7 @@ impl CreateViewBuilder<Option<()>> {
         let name = self
             .name
             .as_ref()
-            .ok_or(Error::NotFound("View".to_owned(), "name".to_owned()))?;
+            .ok_or(Error::NotFound("Name to create view".to_owned()))?;
         let identifier = Identifier::new(namespace, name);
 
         if let Some(version) = &mut self.view_version {
@@ -187,7 +187,7 @@ impl TryInto<ViewMetadata> for CreateView<Option<()>> {
             format_version: Default::default(),
             location: self
                 .location
-                .ok_or(Error::NotFound("Table".to_owned(), "location".to_owned()))?,
+                .ok_or(Error::NotFound(format!("Location for view {}", self.name)))?,
             current_version_id: DEFAULT_VERSION_ID,
             versions: HashMap::from_iter(vec![(DEFAULT_VERSION_ID, self.view_version)]),
             version_log: Vec::new(),
@@ -203,9 +203,10 @@ impl TryInto<MaterializedViewMetadata> for CreateView<Identifier> {
         Ok(MaterializedViewMetadata {
             view_uuid: Uuid::new_v4(),
             format_version: Default::default(),
-            location: self
-                .location
-                .ok_or(Error::NotFound("Table".to_owned(), "location".to_owned()))?,
+            location: self.location.ok_or(Error::NotFound(format!(
+                "Location for materialized view {}",
+                self.name
+            )))?,
             current_version_id: DEFAULT_VERSION_ID,
             versions: HashMap::from_iter(vec![(DEFAULT_VERSION_ID, self.view_version)]),
             version_log: Vec::new(),
@@ -259,10 +260,9 @@ impl CreateMaterializedViewBuilder {
         namespace: &[String],
         catalog: Arc<dyn Catalog>,
     ) -> Result<MaterializedView, Error> {
-        let name = self
-            .name
-            .as_ref()
-            .ok_or(Error::NotFound("View".to_owned(), "name".to_owned()))?;
+        let name = self.name.as_ref().ok_or(Error::NotFound(
+            "Name to create materialized view".to_owned(),
+        ))?;
         let identifier = Identifier::new(namespace, name);
 
         if let Some(version) = &mut self.view_version {

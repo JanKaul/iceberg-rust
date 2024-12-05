@@ -154,10 +154,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 &table_metadata
                     .partition_specs
                     .get(&spec_id)
-                    .ok_or(Error::NotFound(
-                        "Partition spec".to_owned(),
-                        spec_id.to_string(),
-                    ))?
+                    .ok_or(Error::NotFound(format!("Partition spec with id {spec_id}")))?
                     .fields(),
             )?,
         )?;
@@ -240,10 +237,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 &table_metadata
                     .partition_specs
                     .get(&spec_id)
-                    .ok_or(Error::NotFound(
-                        "Partition spec".to_owned(),
-                        spec_id.to_string(),
-                    ))?
+                    .ok_or(Error::NotFound(format!("Partition spec with id {spec_id}")))?
                     .fields(),
             )?,
         )?;

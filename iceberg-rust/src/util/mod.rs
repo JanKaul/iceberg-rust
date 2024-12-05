@@ -98,13 +98,13 @@ pub(crate) fn summary_to_rectangle(summaries: &[FieldSummary]) -> Result<Rectang
             summary
                 .upper_bound
                 .clone()
-                .ok_or(Error::NotFound("Upper".to_owned(), "bounds".to_owned()))?,
+                .ok_or(Error::NotFound("Upper bounds in summary".to_owned()))?,
         );
         min.push(
             summary
                 .lower_bound
                 .clone()
-                .ok_or(Error::NotFound("Lower".to_owned(), "bounds".to_owned()))?,
+                .ok_or(Error::NotFound("Upper bounds in summary".to_owned()))?,
         );
     }
 

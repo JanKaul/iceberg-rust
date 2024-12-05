@@ -21,8 +21,8 @@ pub enum Error {
     #[error("Failed to convert {0} to {1}.")]
     Conversion(String, String),
     /// Not found
-    #[error("{0} {1} not found.")]
-    NotFound(String, String),
+    #[error("{0} not found.")]
+    NotFound(String),
     /// Not supported
     #[error("Feature {0} is not supported.")]
     NotSupported(String),

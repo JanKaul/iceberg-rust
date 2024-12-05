@@ -135,7 +135,7 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
                 Ok::<_, Error>(PartitionField::new(
                     schema
                         .get_name(&column)
-                        .ok_or(Error::NotFound("Column".to_owned(), column.clone()))?
+                        .ok_or(Error::NotFound(format!("Column {column}")))?
                         .id,
                     1000 + i as i32,
                     &name,

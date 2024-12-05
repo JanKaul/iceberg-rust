@@ -187,7 +187,10 @@ impl Catalog for RestCatalog {
         .map_err(Into::<Error>::into)?;
         namespaces
             .namespaces
-            .ok_or(Error::NotFound("Namespaces".to_string(), "".to_owned()))?
+            .ok_or(Error::NotFound(format!(
+                "Namespaces in catalog {:?}",
+                self.name
+            )))?
             .into_iter()
             .map(|x| Namespace::try_new(&x))
             .collect::<Result<Vec<_>, iceberg_rust::spec::error::Error>>()
