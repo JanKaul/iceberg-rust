@@ -528,9 +528,9 @@ pub mod tests {
 
     use crate::{apis::configuration::Configuration, catalog::RestCatalog};
 
-    fn configuration() -> Configuration {
+    fn configuration(url: &str) -> Configuration {
         Configuration {
-            base_path: "http://localhost:8181".to_string(),
+            base_path: url.to_owned(),
             user_agent: None,
             client: reqwest::Client::new().into(),
             basic_auth: None,
@@ -541,18 +541,24 @@ pub mod tests {
     }
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        let container = GenericImage::new("tabulario/iceberg-rest", "1.6.0")
-            .with_wait_for(WaitFor::StdOutMessage {
-                message: "INFO  [org.eclipse.jetty.server.Server] - Started ".to_owned(),
+        let container = GenericImage::new("apache/iceberg-rest-fixture", "latest")
+            .with_wait_for(WaitFor::StdErrMessage {
+                message: "INFO org.eclipse.jetty.server.Server - Started ".to_owned(),
             })
             .with_env_var("CATALOG_WAREHOUSE", "/tmp/warehouse")
-            .pull_image()
+            .with_exposed_port(8181)
+            .start()
             .await;
 
-        let _node = container.with_mapped_port((8181, 8181)).start().await;
+        let rest_host = container.get_host().await;
+        let rest_port = container.get_host_port_ipv4(8181).await;
 
         let object_store = ObjectStoreBuilder::Memory(Arc::new(InMemory::new()));
-        let catalog = Arc::new(RestCatalog::new(None, configuration(), object_store));
+        let catalog = Arc::new(RestCatalog::new(
+            None,
+            configuration(&format!("http://{rest_host}:{rest_port}")),
+            object_store,
+        ));
 
         catalog
             .create_namespace(&Namespace::try_new(&["public".to_owned()]).unwrap(), None)
