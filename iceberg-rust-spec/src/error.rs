@@ -15,13 +15,13 @@ pub enum Error {
     Type(String, String),
     /// Schema error
     #[error("Column {0} not in schema {1}.")]
-    Schema(String, String),
+    ColumnNotInSchema(String, String),
     /// Conversion error
     #[error("Failed to convert {0} to {1}.")]
     Conversion(String, String),
     /// Not found
-    #[error("{0} {1} not found.")]
-    NotFound(String, String),
+    #[error("{0} not found.")]
+    NotFound(String),
     /// Not supported
     #[error("Feature {0} is not supported.")]
     NotSupported(String),

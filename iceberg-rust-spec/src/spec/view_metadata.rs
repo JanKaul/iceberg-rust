@@ -83,7 +83,7 @@ impl<T: Materialization> GeneralViewMetadata<T> {
         let id = self
             .versions
             .get(&version_id)
-            .ok_or_else(|| Error::NotFound("Version".to_string(), version_id.to_string()))?
+            .ok_or_else(|| Error::NotFound(format!("View version {version_id}")))?
             .schema_id;
         self.schemas
             .get(&id)

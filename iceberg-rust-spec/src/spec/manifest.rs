@@ -454,7 +454,10 @@ impl AvroMap<ByteBuf> {
                             &v,
                             &schema
                                 .get(k as usize)
-                                .ok_or(Error::Schema(k.to_string(), format!("{:?}", schema)))?
+                                .ok_or(Error::ColumnNotInSchema(
+                                    k.to_string(),
+                                    format!("{:?}", schema),
+                                ))?
                                 .field_type,
                         )?,
                     ))

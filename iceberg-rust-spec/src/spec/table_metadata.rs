@@ -184,10 +184,10 @@ impl TableMetadata {
                 let field =
                     schema
                         .get(*partition_field.source_id() as usize)
-                        .ok_or(Error::NotFound(
-                            "Field".to_owned(),
-                            partition_field.source_id().to_string(),
-                        ))?;
+                        .ok_or(Error::NotFound(format!(
+                            "Schema field with id {}",
+                            partition_field.source_id().to_string()
+                        )))?;
                 Ok(BoundPartitionField::new(partition_field, field))
             })
             .collect()
@@ -203,10 +203,10 @@ impl TableMetadata {
                 let field =
                     schema
                         .get(*partition_field.source_id() as usize)
-                        .ok_or(Error::NotFound(
-                            "Field".to_owned(),
-                            partition_field.source_id().to_string(),
-                        ))?;
+                        .ok_or(Error::NotFound(format!(
+                            "Schema field with id {}",
+                            partition_field.source_id().to_string()
+                        )))?;
                 Ok(BoundPartitionField::new(partition_field, field))
             })
             .collect()

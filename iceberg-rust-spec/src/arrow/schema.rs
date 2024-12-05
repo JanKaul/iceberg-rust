@@ -180,7 +180,9 @@ fn get_field_id(field: &Field) -> Result<i32, Error> {
     field
         .metadata()
         .get(PARQUET_FIELD_ID_META_KEY)
-        .ok_or(Error::NotFound("Parquet".to_owned(), "field id".to_owned()))
+        .ok_or(Error::NotFound(format!(
+            "Parquet field id of field {field}"
+        )))
         .and_then(|x| x.parse().map_err(Error::from))
 }
 
@@ -825,7 +827,7 @@ mod tests {
 
         let result: Result<StructType, Error> = (&arrow_schema).try_into();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::NotFound(_, _)));
+        assert!(matches!(result.unwrap_err(), Error::NotFound(_)));
     }
 
     #[test]

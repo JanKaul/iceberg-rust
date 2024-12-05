@@ -183,10 +183,7 @@ impl PartitionSpec {
             .map(|field| {
                 schema
                     .get(field.source_id as usize)
-                    .ok_or(Error::NotFound(
-                        "Partition field".to_owned(),
-                        field.name.clone(),
-                    ))
+                    .ok_or(Error::NotFound(format!("Schema field {}", field.name)))
                     .and_then(|x| x.field_type.clone().tranform(&field.transform))
             })
             .collect::<Result<Vec<_>, Error>>()

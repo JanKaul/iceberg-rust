@@ -45,10 +45,7 @@ impl Identifier {
         let namespace: Vec<String> = parts.rev().map(ToOwned::to_owned).collect();
         let namespace = if namespace.is_empty() {
             default_namespace
-                .ok_or(Error::NotFound(
-                    "Default".to_owned(),
-                    "namespace".to_owned(),
-                ))?
+                .ok_or(Error::NotFound("Default namespace".to_owned()))?
                 .iter()
                 .map(ToOwned::to_owned)
                 .collect()
