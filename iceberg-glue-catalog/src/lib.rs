@@ -236,18 +236,18 @@ impl Catalog for GlueCatalog {
             .await
             .map_err(|_| IcebergError::CatalogNotFound)?
             .table
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?;
 
         let metadata_location = table
             .storage_descriptor()
             .and_then(|x| x.location())
-            .ok_or(Error::Text(format!("Table {} not found.", table.name())))?;
+            .ok_or(IcebergError::NotFound(format!("Table {}", table.name())))?;
 
         let version_id = table
             .version_id()
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?
             .to_string();
@@ -328,7 +328,7 @@ impl Catalog for GlueCatalog {
             .await
             .map_err(Error::from)?
             .table
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?;
 
@@ -337,7 +337,7 @@ impl Catalog for GlueCatalog {
             (
                 table
                     .version_id()
-                    .ok_or(Error::Text(
+                    .ok_or(IcebergError::NotFound(
                         "Glue create table didn't return a table.".to_owned(),
                     ))?
                     .to_string(),
@@ -395,7 +395,7 @@ impl Catalog for GlueCatalog {
             .await
             .map_err(Error::from)?
             .table
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?;
 
@@ -404,7 +404,7 @@ impl Catalog for GlueCatalog {
             (
                 table
                     .version_id()
-                    .ok_or(Error::Text(
+                    .ok_or(IcebergError::NotFound(
                         "Glue create table didn't return a table.".to_owned(),
                     ))?
                     .to_string(),
@@ -493,7 +493,7 @@ impl Catalog for GlueCatalog {
             .await
             .map_err(Error::from)?
             .table
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?;
 
@@ -502,7 +502,7 @@ impl Catalog for GlueCatalog {
             (
                 table
                     .version_id()
-                    .ok_or(Error::Text(
+                    .ok_or(IcebergError::NotFound(
                         "Glue create table didn't return a table.".to_owned(),
                     ))?
                     .to_string(),
@@ -579,13 +579,13 @@ impl Catalog for GlueCatalog {
             .await
             .map_err(Error::from)?
             .table
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?;
 
         let version_id = table
             .version_id()
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?
             .to_string();
@@ -593,7 +593,7 @@ impl Catalog for GlueCatalog {
         let new_metadata_location = table
             .storage_descriptor()
             .and_then(|x| x.location())
-            .ok_or(Error::Text(format!(
+            .ok_or(IcebergError::NotFound(format!(
                 "Location for table {} not found.",
                 identifier.name()
             )))?;
@@ -690,13 +690,13 @@ impl Catalog for GlueCatalog {
             .await
             .map_err(Error::from)?
             .table
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?;
 
         let version_id = table
             .version_id()
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?
             .to_string();
@@ -704,7 +704,7 @@ impl Catalog for GlueCatalog {
         let new_metadata_location = table
             .storage_descriptor()
             .and_then(|x| x.location())
-            .ok_or(Error::Text(format!(
+            .ok_or(IcebergError::NotFound(format!(
                 "Location for table {} not found.",
                 identifier.name()
             )))?;
@@ -800,13 +800,13 @@ impl Catalog for GlueCatalog {
             .await
             .map_err(Error::from)?
             .table
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?;
 
         let version_id = table
             .version_id()
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?
             .to_string();
@@ -814,7 +814,7 @@ impl Catalog for GlueCatalog {
         let new_metadata_location = table
             .storage_descriptor()
             .and_then(|x| x.location())
-            .ok_or(Error::Text(format!(
+            .ok_or(IcebergError::NotFound(format!(
                 "Location for table {} not found.",
                 identifier.name()
             )))?;
@@ -884,7 +884,7 @@ impl Catalog for GlueCatalog {
             .await
             .map_err(Error::from)?
             .table
-            .ok_or(Error::Text(
+            .ok_or(IcebergError::NotFound(
                 "Glue create table didn't return a table.".to_owned(),
             ))?;
 
@@ -893,7 +893,7 @@ impl Catalog for GlueCatalog {
             (
                 table
                     .version_id()
-                    .ok_or(Error::Text(
+                    .ok_or(IcebergError::NotFound(
                         "Glue create table didn't return a table.".to_owned(),
                     ))?
                     .to_string(),

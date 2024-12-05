@@ -1,7 +1,8 @@
 use aws_sdk_glue::types::Column;
 use iceberg_rust::spec::types::{PrimitiveType, StructType, Type};
 
-use crate::error::Error;
+use crate::error::Error as GlueError;
+use iceberg_rust::error::Error;
 
 pub(crate) fn schema_to_glue(fields: &StructType) -> Result<Vec<Column>, Error> {
     fields
@@ -11,7 +12,8 @@ pub(crate) fn schema_to_glue(fields: &StructType) -> Result<Vec<Column>, Error> 
                 .name(x.name.clone())
                 .set_type(type_to_glue(&x.field_type).ok())
                 .set_comment(x.doc.clone())
-                .build()?)
+                .build()
+                .map_err(GlueError::from)?)
         })
         .collect::<Result<_, Error>>()
 }
@@ -28,12 +30,12 @@ pub(crate) fn type_to_glue(datatype: &Type) -> Result<String, Error> {
             PrimitiveType::Timestamp => Ok("timestamp".to_owned()),
             PrimitiveType::String | PrimitiveType::Uuid => Ok("string".to_owned()),
             PrimitiveType::Binary | PrimitiveType::Fixed(_) => Ok("binary".to_owned()),
-            x => Err(Error::Text(format!(
+            x => Err(Error::InvalidFormat(format!(
                 "Type {} cannot be converted to glue type",
                 x
             ))),
         },
-        x => Err(Error::Text(format!(
+        x => Err(Error::InvalidFormat(format!(
             "Type {} cannot be converted to glue type",
             x
         ))),
