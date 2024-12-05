@@ -541,9 +541,9 @@ pub mod tests {
     }
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        let container = GenericImage::new("tabulario/iceberg-rest", "1.6.0")
-            .with_wait_for(WaitFor::StdOutMessage {
-                message: "INFO  [org.eclipse.jetty.server.Server] - Started ".to_owned(),
+        let container = GenericImage::new("apache/iceberg-rest-fixture", "latest")
+            .with_wait_for(WaitFor::StdErrMessage {
+                message: "INFO org.eclipse.jetty.server.Server - Started ".to_owned(),
             })
             .with_env_var("CATALOG_WAREHOUSE", "/tmp/warehouse")
             .pull_image()
