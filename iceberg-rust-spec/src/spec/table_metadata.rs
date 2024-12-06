@@ -291,12 +291,12 @@ pub fn new_metadata_location<'a, T: Into<TabularMetadataRef<'a>>>(metadata: T) -
     let transaction_uuid = Uuid::new_v4();
     let version = metadata.sequence_number();
 
-    metadata.location().to_string()
-        + "/metadata/"
-        + &version.to_string()
-        + "-"
-        + &transaction_uuid.to_string()
-        + ".metadata.json"
+    format!(
+        "{}/metadata/{:05}-{}.metadata.json",
+        metadata.location(),
+        version,
+        transaction_uuid
+    )
 }
 
 impl fmt::Display for TableMetadata {

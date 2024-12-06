@@ -194,7 +194,7 @@ impl Operation {
                     .unwrap_or(bounding_partition_values);
 
                 let snapshot_id = generate_snapshot_id();
-                let snapshot_uuid = &uuid::Uuid::new_v4().to_string();
+                let commit_uuid = &uuid::Uuid::new_v4().to_string();
 
                 let new_datafile_iter = new_files.into_iter().map(|data_file| {
                     ManifestEntry::builder()
@@ -212,12 +212,12 @@ impl Operation {
                     &table_metadata.format_version,
                 )?;
 
-                let new_manifest_list_location = table_metadata.location.to_string()
-                    + "/metadata/snap-"
-                    + &snapshot_id.to_string()
-                    + "-"
-                    + snapshot_uuid
-                    + ".avro";
+                let new_manifest_list_location = new_manifest_list_location(
+                    &table_metadata.location,
+                    snapshot_id,
+                    0,
+                    commit_uuid,
+                );
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
@@ -238,12 +238,8 @@ impl Operation {
                             branch.as_deref(),
                         )?
                     } else {
-                        let manifest_location = table_metadata.location.to_string()
-                            + "/metadata/"
-                            + snapshot_uuid
-                            + "-m"
-                            + &0.to_string()
-                            + ".avro";
+                        let manifest_location =
+                            new_manifest_location(&table_metadata.location, commit_uuid, 0);
 
                         ManifestWriter::new(
                             &manifest_location,
@@ -303,12 +299,8 @@ impl Operation {
                     };
 
                     for (i, entries) in splits.into_iter().enumerate() {
-                        let manifest_location = table_metadata.location.to_string()
-                            + "/metadata/"
-                            + snapshot_uuid
-                            + "-m"
-                            + &i.to_string()
-                            + ".avro";
+                        let manifest_location =
+                            new_manifest_location(&table_metadata.location, commit_uuid, i);
 
                         let mut manifest_writer = ManifestWriter::new(
                             &manifest_location,
@@ -433,24 +425,20 @@ impl Operation {
                 )?;
 
                 let snapshot_uuid = &uuid::Uuid::new_v4().to_string();
-                let new_manifest_list_location = table_metadata.location.to_string()
-                    + "/metadata/snap-"
-                    + &snapshot_id.to_string()
-                    + "-"
-                    + snapshot_uuid
-                    + ".avro";
+                let new_manifest_list_location = new_manifest_list_location(
+                    &table_metadata.location,
+                    snapshot_id,
+                    0,
+                    snapshot_uuid,
+                );
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
                 if n_splits == 0 {
                     // If manifest doesn't need to be split
 
-                    let manifest_location = table_metadata.location.to_string()
-                        + "/metadata/"
-                        + snapshot_uuid
-                        + "-m"
-                        + &0.to_string()
-                        + ".avro";
+                    let manifest_location =
+                        new_manifest_location(&table_metadata.location, snapshot_uuid, 0);
                     let mut manifest_writer = ManifestWriter::new(
                         &manifest_location,
                         snapshot_id,
@@ -476,12 +464,8 @@ impl Operation {
                     )?;
 
                     for (i, entries) in splits.into_iter().enumerate() {
-                        let manifest_location = table_metadata.location.to_string()
-                            + "/metadata/"
-                            + snapshot_uuid
-                            + "-m"
-                            + &i.to_string()
-                            + ".avro";
+                        let manifest_location =
+                            new_manifest_location(&table_metadata.location, snapshot_uuid, i);
 
                         let mut manifest_writer = ManifestWriter::new(
                             &manifest_location,
@@ -581,6 +565,25 @@ impl Operation {
             }
         }
     }
+}
+
+fn new_manifest_location(table_metadata_location: &str, commit_uuid: &String, i: usize) -> String {
+    format!(
+        "{}/metadata/{}-m{}.avro",
+        table_metadata_location, commit_uuid, i
+    )
+}
+
+fn new_manifest_list_location(
+    table_metadata_location: &str,
+    snapshot_id: i64,
+    attempt: i64,
+    commit_uuid: &String,
+) -> String {
+    format!(
+        "{}/metadata/snap-{}-{}-{}.avro",
+        table_metadata_location, snapshot_id, attempt, commit_uuid
+    )
 }
 
 /// To achieve fast lookups of the datafiles, the manifest tree should be somewhat balanced, meaning that manifest files should contain a similar number of datafiles.
