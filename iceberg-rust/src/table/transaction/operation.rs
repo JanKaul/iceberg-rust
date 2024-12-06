@@ -60,7 +60,7 @@ pub enum Operation {
     //     partition_values: Vec<Struct>,
     // },
     // /// Replace files in the table and commit
-    Rewrite {
+    Overwrite {
         branch: Option<String>,
         files: Vec<DataFile>,
         additional_summary: Option<HashMap<String, String>>,
@@ -351,6 +351,9 @@ impl Operation {
                         other: additional_summary.unwrap_or_default(),
                     })
                     .with_schema_id(*schema.schema_id());
+                if let Some(snapshot) = old_snapshot {
+                    snapshot_builder.with_parent_snapshot_id(*snapshot.snapshot_id());
+                }
                 let snapshot = snapshot_builder
                     .build()
                     .map_err(iceberg_rust_spec::error::Error::from)?;
@@ -372,7 +375,7 @@ impl Operation {
                     ],
                 ))
             }
-            Operation::Rewrite {
+            Operation::Overwrite {
                 branch,
                 files,
                 additional_summary,
@@ -514,7 +517,7 @@ impl Operation {
                     .with_schema_id(*schema.schema_id())
                     .with_manifest_list(new_manifest_list_location)
                     .with_summary(Summary {
-                        operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
+                        operation: iceberg_rust_spec::spec::snapshot::Operation::Overwrite,
                         other: additional_summary.unwrap_or_default(),
                     });
                 let snapshot = snapshot_builder
