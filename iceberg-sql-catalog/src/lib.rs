@@ -36,7 +36,6 @@ use sqlx::{
     pool::PoolOptions,
     AnyPool, Executor, Row,
 };
-use uuid::Uuid;
 
 use crate::error::Error;
 
@@ -494,12 +493,7 @@ impl Catalog for SqlCatalog {
                     ));
                 }
                 apply_view_updates(metadata, commit.updates)?;
-                let metadata_location = metadata.location.to_string()
-                    + "/metadata/"
-                    + &metadata.current_version_id.to_string()
-                    + "-"
-                    + &Uuid::new_v4().to_string()
-                    + ".metadata.json";
+                let metadata_location = new_metadata_location(&*metadata);
                 object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
@@ -552,12 +546,8 @@ impl Catalog for SqlCatalog {
                     ));
                 }
                 apply_view_updates(metadata, commit.updates)?;
-                let metadata_location = metadata.location.to_string()
-                    + "/metadata/"
-                    + &metadata.current_version_id.to_string()
-                    + "-"
-                    + &Uuid::new_v4().to_string()
-                    + ".metadata.json";
+
+                let metadata_location = new_metadata_location(&*metadata);
                 object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;

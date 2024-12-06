@@ -335,11 +335,8 @@ impl Catalog for FileCatalog {
             .put_metadata(&temp_metadata_location, metadata.as_ref())
             .await?;
 
-        let current_version = parse_version(&previous_metadata_location)? + 1;
-        let metadata_location = metadata.location.clone()
-            + "/metadata/v"
-            + &current_version.to_string()
-            + ".metadata.json";
+        let metadata_location =
+            new_filesystem_metadata_location(&metadata.location, &previous_metadata_location)?;
 
         object_store
             .copy_if_not_exists(
@@ -384,11 +381,10 @@ impl Catalog for FileCatalog {
                     .put_metadata(&temp_metadata_location, metadata.as_ref())
                     .await?;
 
-                let current_version = parse_version(&previous_metadata_location)? + 1;
-                let metadata_location = metadata.location.clone()
-                    + "/metadata/v"
-                    + &current_version.to_string()
-                    + ".metadata.json";
+                let metadata_location = new_filesystem_metadata_location(
+                    &metadata.location,
+                    &previous_metadata_location,
+                )?;
 
                 object_store
                     .copy_if_not_exists(
@@ -444,11 +440,10 @@ impl Catalog for FileCatalog {
                     .put_metadata(&temp_metadata_location, metadata.as_ref())
                     .await?;
 
-                let current_version = parse_version(&previous_metadata_location)? + 1;
-                let metadata_location = metadata.location.clone()
-                    + "/metadata/v"
-                    + &current_version.to_string()
-                    + ".metadata.json";
+                let metadata_location = new_filesystem_metadata_location(
+                    &metadata.location,
+                    &previous_metadata_location,
+                )?;
 
                 object_store
                     .copy_if_not_exists(
@@ -557,6 +552,17 @@ fn parse_version(path: &str) -> Result<u64, IcebergError> {
         .trim_end_matches(".metadata.json")
         .parse()
         .map_err(IcebergError::from)
+}
+
+fn new_filesystem_metadata_location(
+    metadata_location: &str,
+    previous_metadata_location: &str,
+) -> Result<String, IcebergError> {
+    let current_version = parse_version(&previous_metadata_location)? + 1;
+    Ok(metadata_location.to_string()
+        + "/metadata/v"
+        + &current_version.to_string()
+        + ".metadata.json")
 }
 
 #[derive(Debug)]
