@@ -8,6 +8,7 @@ members = [
   "iceberg-rest-catalog",
   "iceberg-file-catalog",
   "iceberg-glue-catalog",
+  "iceberg-s3tables-catalog",
 ]
 
 resolver = "2"
