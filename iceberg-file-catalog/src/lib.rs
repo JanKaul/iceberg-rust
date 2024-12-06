@@ -558,7 +558,7 @@ fn new_filesystem_metadata_location(
     metadata_location: &str,
     previous_metadata_location: &str,
 ) -> Result<String, IcebergError> {
-    let current_version = parse_version(&previous_metadata_location)? + 1;
+    let current_version = parse_version(previous_metadata_location)? + 1;
     Ok(metadata_location.to_string()
         + "/metadata/v"
         + &current_version.to_string()

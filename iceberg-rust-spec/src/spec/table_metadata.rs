@@ -292,7 +292,7 @@ pub fn new_metadata_location<'a, T: Into<TabularMetadataRef<'a>>>(metadata: T) -
     let version = metadata.sequence_number();
 
     format!(
-        "{}/metadata/{:04}-{}.metadata.json",
+        "{}/metadata/{:05}-{}.metadata.json",
         metadata.location(),
         version,
         transaction_uuid
