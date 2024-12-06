@@ -72,7 +72,7 @@ impl<'view> Transaction<'view> {
         self.storage_table_operations
             .entry(REWRITE_KEY.to_owned())
             .and_modify(|mut x| {
-                if let TableOperation::Rewrite {
+                if let TableOperation::Overwrite {
                     branch: _,
                     files: old,
                     additional_summary: old_lineage,
@@ -85,7 +85,7 @@ impl<'view> Transaction<'view> {
                     )]));
                 }
             })
-            .or_insert(TableOperation::Rewrite {
+            .or_insert(TableOperation::Overwrite {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: Some(HashMap::from_iter(vec![(
@@ -111,7 +111,7 @@ impl<'view> Transaction<'view> {
             let delete_data = if self
                 .storage_table_operations
                 .values()
-                .any(|x| matches!(x, TableOperation::Rewrite { .. }))
+                .any(|x| matches!(x, TableOperation::Overwrite { .. }))
             {
                 Some(storage_table.metadata().clone())
             } else {

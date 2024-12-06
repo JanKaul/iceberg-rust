@@ -73,11 +73,11 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Quickly append files to the table
-    pub fn rewrite(mut self, files: Vec<DataFile>) -> Self {
+    pub fn overwrite(mut self, files: Vec<DataFile>) -> Self {
         self.operations
             .entry(REWRITE_KEY.to_owned())
             .and_modify(|mut x| {
-                if let Operation::Rewrite {
+                if let Operation::Overwrite {
                     branch: _,
                     files: old,
                     additional_summary: None,
@@ -86,7 +86,7 @@ impl<'table> TableTransaction<'table> {
                     old.extend_from_slice(&files)
                 }
             })
-            .or_insert(Operation::Rewrite {
+            .or_insert(Operation::Overwrite {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: None,
@@ -94,7 +94,7 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Quickly append files to the table
-    pub fn rewrite_with_lineage(
+    pub fn overwrite_with_lineage(
         mut self,
         files: Vec<DataFile>,
         additional_summary: HashMap<String, String>,
@@ -102,7 +102,7 @@ impl<'table> TableTransaction<'table> {
         self.operations
             .entry(REWRITE_KEY.to_owned())
             .and_modify(|mut x| {
-                if let Operation::Rewrite {
+                if let Operation::Overwrite {
                     branch: _,
                     files: old,
                     additional_summary: old_lineage,
@@ -112,7 +112,7 @@ impl<'table> TableTransaction<'table> {
                     *old_lineage = Some(additional_summary.clone());
                 }
             })
-            .or_insert(Operation::Rewrite {
+            .or_insert(Operation::Overwrite {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: Some(additional_summary),
@@ -149,7 +149,7 @@ impl<'table> TableTransaction<'table> {
         let delete_data = if self.operations.values().any(|x| {
             matches!(
                 x,
-                Operation::Rewrite {
+                Operation::Overwrite {
                     branch: _,
                     files: _,
                     additional_summary: _,
