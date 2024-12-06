@@ -381,22 +381,22 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                 {
                     "name": "manifest_path",
                     "type": "string",
-                    "field_id": 500
+                    "field-id": 500
                 },
                 {
                     "name": "manifest_length",
                     "type": "long",
-                    "field_id": 501
+                    "field-id": 501
                 },
                 {
                     "name": "partition_spec_id",
                     "type": "int",
-                    "field_id": 502
+                    "field-id": 502
                 },
                 {
                     "name": "added_snapshot_id",
                     "type": "long",
-                    "field_id": 503
+                    "field-id": 503
                 },
                 {
                     "name": "added_files_count",
@@ -405,7 +405,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                         "int"
                     ],
                     "default": null,
-                    "field_id": 504
+                    "field-id": 504
                 },
                 {
                     "name": "existing_files_count",
@@ -414,7 +414,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                         "int"
                     ],
                     "default": null,
-                    "field_id": 505
+                    "field-id": 505
                 },
                 {
                     "name": "deleted_files_count",
@@ -423,7 +423,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                         "int"
                     ],
                     "default": null,
-                    "field_id": 506
+                    "field-id": 506
                 },
                 {
                     "name": "added_rows_count",
@@ -432,7 +432,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                         "long"
                     ],
                     "default": null,
-                    "field_id": 512
+                    "field-id": 512
                 },
                 {
                     "name": "existing_rows_count",
@@ -441,7 +441,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                         "long"
                     ],
                     "default": null,
-                    "field_id": 513
+                    "field-id": 513
                 },
                 {
                     "name": "deleted_rows_count",
@@ -450,7 +450,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                         "long"
                     ],
                     "default": null,
-                    "field_id": 514
+                    "field-id": 514
                 },
                 {
                     "name": "partitions",
@@ -465,7 +465,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                                     {
                                         "name": "contains_null",
                                         "type": "boolean",
-                                        "field_id": 509
+                                        "field-id": 509
                                     },
                                     {
                                         "name": "contains_nan",
@@ -473,7 +473,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                                             "null",
                                             "boolean"
                                         ],
-                                        "field_id": 518
+                                        "field-id": 518
                                     },
                                     {
                                         "name": "lower_bound",
@@ -481,7 +481,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                                             "null",
                                             "bytes"
                                         ],
-                                        "field_id": 510
+                                        "field-id": 510
                                     },
                                     {
                                         "name": "upper_bound",
@@ -489,7 +489,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                                             "null",
                                             "bytes"
                                         ],
-                                        "field_id": 511
+                                        "field-id": 511
                                     }
                                 ]
                             },
@@ -497,7 +497,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                         }
                     ],
                     "default": null,
-                    "field_id": 507
+                    "field-id": 507
                 },
                 {
                     "name": "key_metadata",
@@ -505,7 +505,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                         "null",
                         "bytes"
                     ],
-                    "field_id": 519
+                    "field-id": 519
                 }
             ]
         }
@@ -526,67 +526,67 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
                 {
                     "name": "manifest_path",
                     "type": "string",
-                    "field_id": 500
+                    "field-id": 500
                 },
                 {
                     "name": "manifest_length",
                     "type": "long",
-                    "field_id": 501
+                    "field-id": 501
                 },
                 {
                     "name": "partition_spec_id",
                     "type": "int",
-                    "field_id": 502
+                    "field-id": 502
                 },
                 {
                     "name": "content",
                     "type": "int",
-                    "field_id": 517
+                    "field-id": 517
                 },
                 {
                     "name": "sequence_number",
                     "type": "long",
-                    "field_id": 515
+                    "field-id": 515
                 },
                 {
                     "name": "min_sequence_number",
                     "type": "long",
-                    "field_id": 516
+                    "field-id": 516
                 },
                 {
                     "name": "added_snapshot_id",
                     "type": "long",
-                    "field_id": 503
+                    "field-id": 503
                 },
                 {
                     "name": "added_files_count",
                     "type": "int",
-                    "field_id": 504
+                    "field-id": 504
                 },
                 {
                     "name": "existing_files_count",
                     "type": "int",
-                    "field_id": 505
+                    "field-id": 505
                 },
                 {
                     "name": "deleted_files_count",
                     "type": "int",
-                    "field_id": 506
+                    "field-id": 506
                 },
                 {
                     "name": "added_rows_count",
                     "type": "long",
-                    "field_id": 512
+                    "field-id": 512
                 },
                 {
                     "name": "existing_rows_count",
                     "type": "long",
-                    "field_id": 513
+                    "field-id": 513
                 },
                 {
                     "name": "deleted_rows_count",
                     "type": "long",
-                    "field_id": 514
+                    "field-id": 514
                 },
                 {
                     "name": "partitions",
@@ -601,7 +601,7 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
                                     {
                                         "name": "contains_null",
                                         "type": "boolean",
-                                        "field_id": 509
+                                        "field-id": 509
                                     },
                                     {
                                         "name": "contains_nan",
@@ -609,7 +609,7 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
                                             "null",
                                             "boolean"
                                         ],
-                                        "field_id": 518
+                                        "field-id": 518
                                     },
                                     {
                                         "name": "lower_bound",
@@ -617,7 +617,7 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
                                             "null",
                                             "bytes"
                                         ],
-                                        "field_id": 510
+                                        "field-id": 510
                                     },
                                     {
                                         "name": "upper_bound",
@@ -625,7 +625,7 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
                                             "null",
                                             "bytes"
                                         ],
-                                        "field_id": 511
+                                        "field-id": 511
                                     }
                                 ]
                             },
@@ -633,7 +633,7 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
                         }
                     ],
                     "default": null,
-                    "field_id": 507
+                    "field-id": 507
                 },
                 {
                     "name": "key_metadata",
@@ -641,7 +641,7 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
                         "null",
                         "bytes"
                     ],
-                    "field_id": 519
+                    "field-id": 519
                 }
             ]
         }

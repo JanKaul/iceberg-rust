@@ -177,12 +177,12 @@ impl ManifestEntry {
                 {
                     "name": "status",
                     "type": "int",
-                    "field_id": 0
+                    "field-id": 0
                 },
                 {
                     "name": "snapshot_id",
                     "type": "long",
-                    "field_id": 1
+                    "field-id": 1
                 },
                 {
                     "name": "data_file",
@@ -190,7 +190,7 @@ impl ManifestEntry {
                     .to_owned()
                     + &datafile_schema
                     + r#",
-                    "field_id": 2
+                    "field-id": 2
                 }
             ]
         }"#
@@ -204,7 +204,7 @@ impl ManifestEntry {
                 {
                     "name": "status",
                     "type": "int",
-                    "field_id": 0
+                    "field-id": 0
                 },
                 {
                     "name": "snapshot_id",
@@ -213,7 +213,7 @@ impl ManifestEntry {
                         "long"
                     ],
                     "default": null,
-                    "field_id": 1
+                    "field-id": 1
                 },
                 {
                     "name": "sequence_number",
@@ -222,7 +222,7 @@ impl ManifestEntry {
                         "long"
                     ],
                     "default": null,
-                    "field_id": 3
+                    "field-id": 3
                 },
                 {
                     "name": "data_file",
@@ -230,7 +230,7 @@ impl ManifestEntry {
                     .to_owned()
                     + &datafile_schema
                     + r#",
-                    "field_id": 2
+                    "field-id": 2
                 }
             ]
         }"#
@@ -353,7 +353,7 @@ pub fn partition_value_schema(spec: &[BoundPartitionField<'_>]) -> Result<String
                     "type":  ["null",""#
                     + &format!("{}", &data_type)
                     + r#""],
-                    "field_id": "#
+                    "field-id": "#
                     + &field.field_id().to_string()
                     + r#",
                     "default": null
@@ -758,12 +758,12 @@ impl DataFileV1 {
                 {
                     "name": "file_path",
                     "type": "string",
-                    "field_id": 100
+                    "field-id": 100
                 },
                 {
                     "name": "file_format",
                     "type": "string",
-                    "field_id": 101
+                    "field-id": 101
                 },
                 {
                     "name": "partition",
@@ -771,22 +771,22 @@ impl DataFileV1 {
             .to_owned()
             + partition_schema
             + r#",
-                    "field_id": 102
+                    "field-id": 102
                 },
                 {
                     "name": "record_count",
                     "type": "long",
-                    "field_id": 103
+                    "field-id": 103
                 },
                 {
                     "name": "file_size_in_bytes",
                     "type": "long",
-                    "field_id": 104
+                    "field-id": 104
                 },
                 {
                     "name": "block_size_in_bytes",
                     "type": "long",
-                    "field_id": 105
+                    "field-id": 105
                 },
                 {
                     "name": "file_ordinal",
@@ -795,7 +795,7 @@ impl DataFileV1 {
                         "int"
                     ],
                     "default": null,
-                    "field_id": 106
+                    "field-id": 106
                 },
                 {
                     "name": "sort_columns",
@@ -808,7 +808,7 @@ impl DataFileV1 {
                         }
                     ],
                     "default": null,
-                    "field_id": 107
+                    "field-id": 107
                 },
                 {
                     "name": "column_sizes",
@@ -836,7 +836,7 @@ impl DataFileV1 {
                         }
                     ],
                     "default": null,
-                    "field_id": 108
+                    "field-id": 108
                 },
                 {
                     "name": "value_counts",
@@ -864,7 +864,7 @@ impl DataFileV1 {
                         }
                     ],
                     "default": null,
-                    "field_id": 109
+                    "field-id": 109
                 },
                 {
                     "name": "null_value_counts",
@@ -892,7 +892,7 @@ impl DataFileV1 {
                         }
                     ],
                     "default": null,
-                    "field_id": 110
+                    "field-id": 110
                 },
                 {
                     "name": "nan_value_counts",
@@ -920,7 +920,7 @@ impl DataFileV1 {
                         }
                     ],
                     "default": null,
-                    "field_id": 137
+                    "field-id": 137
                 },
                 {
                     "name": "distinct_counts",
@@ -948,7 +948,7 @@ impl DataFileV1 {
                         }
                     ],
                     "default": null,
-                    "field_id": 111
+                    "field-id": 111
                 },
                 {
                     "name": "lower_bounds",
@@ -976,7 +976,7 @@ impl DataFileV1 {
                         }
                     ],
                     "default": null,
-                    "field_id": 125
+                    "field-id": 125
                 },
                 {
                     "name": "upper_bounds",
@@ -1004,7 +1004,7 @@ impl DataFileV1 {
                         }
                     ],
                     "default": null,
-                    "field_id": 128
+                    "field-id": 128
                 },
                 {
                     "name": "key_metadata",
@@ -1013,7 +1013,7 @@ impl DataFileV1 {
                         "bytes"
                     ],
                     "default": null,
-                    "field_id": 131
+                    "field-id": 131
                 },
                 {
                     "name": "split_offsets",
@@ -1026,7 +1026,7 @@ impl DataFileV1 {
                         }
                     ],
                     "default": null,
-                    "field_id": 132
+                    "field-id": 132
                 },
                 {
                     "name": "sort_order_id",
@@ -1035,7 +1035,7 @@ impl DataFileV1 {
                         "int"
                     ],
                     "default": null,
-                    "field_id": 140
+                    "field-id": 140
                 }
             ]
         }"#
@@ -1052,17 +1052,17 @@ impl DataFileV2 {
                 {
                     "name": "content",
                     "type": "int",
-                    "field_id": 134
+                    "field-id": 134
                 },
                 {
                     "name": "file_path",
                     "type": "string",
-                    "field_id": 100
+                    "field-id": 100
                 },
                 {
                     "name": "file_format",
                     "type": "string",
-                    "field_id": 101
+                    "field-id": 101
                 },
                 {
                     "name": "partition",
@@ -1070,17 +1070,17 @@ impl DataFileV2 {
             .to_owned()
             + partition_schema
             + r#",
-                    "field_id": 102
+                    "field-id": 102
                 },
                 {
                     "name": "record_count",
                     "type": "long",
-                    "field_id": 103
+                    "field-id": 103
                 },
                 {
                     "name": "file_size_in_bytes",
                     "type": "long",
-                    "field_id": 104
+                    "field-id": 104
                 },
                 {
                     "name": "column_sizes",
@@ -1108,7 +1108,7 @@ impl DataFileV2 {
                         }
                     ],
                     "default": null,
-                    "field_id": 108
+                    "field-id": 108
                 },
                 {
                     "name": "value_counts",
@@ -1136,7 +1136,7 @@ impl DataFileV2 {
                         }
                     ],
                     "default": null,
-                    "field_id": 109
+                    "field-id": 109
                 },
                 {
                     "name": "null_value_counts",
@@ -1164,7 +1164,7 @@ impl DataFileV2 {
                         }
                     ],
                     "default": null,
-                    "field_id": 110
+                    "field-id": 110
                 },
                 {
                     "name": "nan_value_counts",
@@ -1192,7 +1192,7 @@ impl DataFileV2 {
                         }
                     ],
                     "default": null,
-                    "field_id": 137
+                    "field-id": 137
                 },
                 {
                     "name": "distinct_counts",
@@ -1220,7 +1220,7 @@ impl DataFileV2 {
                         }
                     ],
                     "default": null,
-                    "field_id": 111
+                    "field-id": 111
                 },
                 {
                     "name": "lower_bounds",
@@ -1248,7 +1248,7 @@ impl DataFileV2 {
                         }
                     ],
                     "default": null,
-                    "field_id": 125
+                    "field-id": 125
                 },
                 {
                     "name": "upper_bounds",
@@ -1276,7 +1276,7 @@ impl DataFileV2 {
                         }
                     ],
                     "default": null,
-                    "field_id": 128
+                    "field-id": 128
                 },
                 {
                     "name": "key_metadata",
@@ -1285,7 +1285,7 @@ impl DataFileV2 {
                         "bytes"
                     ],
                     "default": null,
-                    "field_id": 131
+                    "field-id": 131
                 },
                 {
                     "name": "split_offsets",
@@ -1298,7 +1298,7 @@ impl DataFileV2 {
                         }
                     ],
                     "default": null,
-                    "field_id": 132
+                    "field-id": 132
                 },
                 {
                     "name": "equality_ids",
@@ -1311,7 +1311,7 @@ impl DataFileV2 {
                         }
                     ],
                     "default": null,
-                    "field_id": 135
+                    "field-id": 135
                 },
                 {
                     "name": "sort_order_id",
@@ -1320,7 +1320,7 @@ impl DataFileV2 {
                         "int"
                     ],
                     "default": null,
-                    "field_id": 140
+                    "field-id": 140
                 }
             ]
         }"#
