@@ -1,7 +1,10 @@
 use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
-use datafusion_expr::{ColumnarValue, CreateView, ScalarUDFImpl, Signature, Volatility};
+use datafusion_expr::{
+    ColumnarValue, CreateCatalogSchema, CreateView, ScalarUDFImpl, Signature, Volatility,
+};
+use itertools::Itertools;
 use regex::Regex;
 
 use crate::{catalog::catalog::IcebergCatalog, materialized_view::refresh_materialized_view};
@@ -25,6 +28,7 @@ use iceberg_rust::{
     spec::{
         arrow::schema::new_fields_with_ids,
         identifier::Identifier,
+        namespace::Namespace,
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         types::StructType,
@@ -46,6 +50,7 @@ impl QueryPlanner for IcebergQueryPlanner {
         let planner = DefaultPhysicalPlanner::with_extension_planners(vec![
             Arc::new(CreateIcebergTablePlanner {}),
             Arc::new(CreateIcebergViewPlanner {}),
+            Arc::new(CreateIcebergNamespacePlanner {}),
         ]);
         planner
             .create_physical_plan(logical_plan, session_state)
@@ -69,6 +74,11 @@ pub fn iceberg_transform(node: LogicalPlan) -> Result<Transformed<LogicalPlan>, 
         LogicalPlan::Ddl(DdlStatement::CreateView(view)) => {
             Ok(Transformed::yes(LogicalPlan::Extension(Extension {
                 node: Arc::new(CreateIcebergView(view)),
+            })))
+        }
+        LogicalPlan::Ddl(DdlStatement::CreateCatalogSchema(schema)) => {
+            Ok(Transformed::yes(LogicalPlan::Extension(Extension {
+                node: Arc::new(CreateIcebergNamespace(schema)),
             })))
         }
         _ => Ok(Transformed::no(node)),
@@ -250,6 +260,62 @@ impl ExtensionPlanner for CreateIcebergViewPlanner {
     }
 }
 
+pub struct CreateIcebergNamespacePlanner {}
+
+#[async_trait]
+impl ExtensionPlanner for CreateIcebergNamespacePlanner {
+    async fn plan_extension(
+        &self,
+        _planner: &dyn PhysicalPlanner,
+        node: &dyn UserDefinedLogicalNode,
+        _logical_inputs: &[&LogicalPlan],
+        _physical_inputs: &[Arc<dyn ExecutionPlan>],
+        session_state: &SessionState,
+    ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+        let Some(node) = node.as_any().downcast_ref::<CreateIcebergNamespace>() else {
+            return Ok(None);
+        };
+
+        let (catalog_name, namespace_name) =
+            node.0
+                .schema_name
+                .split('.')
+                .collect_tuple()
+                .ok_or(DataFusionError::Plan(format!(
+                    "Schema name {} has an invalid format.",
+                    &node.0.schema_name
+                )))?;
+
+        let catalog_list = session_state.catalog_list();
+        let datafusion_catalog =
+            catalog_list
+                .catalog(catalog_name)
+                .ok_or(DataFusionError::Plan(format!(
+                    "Catalog {catalog_name} does not exist."
+                )))?;
+        let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>()
+        else {
+            return Err(DataFusionError::Plan(format!(
+                "Catalog {catalog_name} is not an Iceberg catalog."
+            )));
+        };
+
+        let catalog = iceberg_catalog.catalog();
+
+        let namespace = Namespace::try_new(&[namespace_name.to_owned()])
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+        catalog
+            .create_namespace(&namespace, None)
+            .await
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+        Ok(Some(Arc::new(EmptyExec::new(Arc::new(
+            ArrowSchema::empty(),
+        )))))
+    }
+}
+
 #[derive(Clone)]
 pub struct CreateIcebergTable(pub CreateExternalTable);
 
@@ -363,6 +429,67 @@ impl UserDefinedLogicalNode for CreateIcebergView {
 
     fn dyn_eq(&self, other: &dyn UserDefinedLogicalNode) -> bool {
         if let Some(other) = other.as_any().downcast_ref::<CreateIcebergView>() {
+            self.0.eq(&other.0)
+        } else {
+            false
+        }
+    }
+
+    fn dyn_ord(&self, _other: &dyn UserDefinedLogicalNode) -> Option<std::cmp::Ordering> {
+        None
+    }
+}
+
+#[derive(Clone)]
+pub struct CreateIcebergNamespace(pub CreateCatalogSchema);
+
+impl Debug for CreateIcebergNamespace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = &self.0.schema_name;
+        write!(f, "CreateIcebergNamespace: {name:?}")
+    }
+}
+
+impl UserDefinedLogicalNode for CreateIcebergNamespace {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        "CreateIcebergNamespace"
+    }
+
+    fn inputs(&self) -> Vec<&datafusion::logical_expr::LogicalPlan> {
+        vec![]
+    }
+
+    fn schema(&self) -> &datafusion::common::DFSchemaRef {
+        &self.0.schema
+    }
+
+    fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
+        vec![]
+    }
+
+    fn fmt_for_explain(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let name = &self.0.schema_name;
+        write!(f, "CreateIcebergNamespace: {name:?}")
+    }
+
+    fn with_exprs_and_inputs(
+        &self,
+        _exprs: Vec<datafusion::prelude::Expr>,
+        _inputs: Vec<datafusion::logical_expr::LogicalPlan>,
+    ) -> datafusion::error::Result<std::sync::Arc<dyn UserDefinedLogicalNode>> {
+        Ok(Arc::new(self.clone()))
+    }
+
+    fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
+        self.0.hash(&mut state)
+    }
+
+    fn dyn_eq(&self, other: &dyn UserDefinedLogicalNode) -> bool {
+        if let Some(other) = other.as_any().downcast_ref::<CreateIcebergNamespace>() {
             self.0.eq(&other.0)
         } else {
             false
