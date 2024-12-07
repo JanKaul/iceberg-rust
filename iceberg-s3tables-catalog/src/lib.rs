@@ -273,9 +273,32 @@ impl Catalog for S3TablesCatalog {
     async fn create_table(
         self: Arc<Self>,
         identifier: Identifier,
-        create_table: CreateTable,
+        mut create_table: CreateTable,
     ) -> Result<Table, IcebergError> {
+        self.client
+            .create_table()
+            .table_bucket_arn(&self.arn)
+            .namespace(identifier.namespace().to_string())
+            .name(identifier.name())
+            .format(OpenTableFormat::Iceberg)
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        let table = self
+            .client
+            .get_table()
+            .table_bucket_arn(&self.arn)
+            .namespace(identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        create_table.location = Some(table.warehouse_location);
+
         let metadata: TableMetadata = create_table.try_into()?;
+
         // Create metadata
         let location = metadata.location.to_string();
 
@@ -287,17 +310,6 @@ impl Catalog for S3TablesCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
-
-        let table = self
-            .client
-            .create_table()
-            .table_bucket_arn(&self.arn)
-            .namespace(identifier.namespace().to_string())
-            .name(identifier.name())
-            .format(OpenTableFormat::Iceberg)
-            .send()
-            .await
-            .map_err(Error::from)?;
 
         let table = self
             .client
@@ -321,8 +333,30 @@ impl Catalog for S3TablesCatalog {
     async fn create_view(
         self: Arc<Self>,
         identifier: Identifier,
-        create_view: CreateView<Option<()>>,
+        mut create_view: CreateView<Option<()>>,
     ) -> Result<View, IcebergError> {
+        self.client
+            .create_table()
+            .table_bucket_arn(&self.arn)
+            .namespace(identifier.namespace().to_string())
+            .name(identifier.name())
+            .format(OpenTableFormat::Iceberg)
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        let table = self
+            .client
+            .get_table()
+            .table_bucket_arn(&self.arn)
+            .namespace(identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        create_view.location = Some(table.warehouse_location);
+
         let metadata: ViewMetadata = create_view.try_into()?;
         // Create metadata
         let location = metadata.location.to_string();
@@ -335,16 +369,6 @@ impl Catalog for S3TablesCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
-
-        let table = self
-            .client
-            .create_table()
-            .table_bucket_arn(&self.arn)
-            .namespace(identifier.namespace().to_string())
-            .name(identifier.name())
-            .send()
-            .await
-            .map_err(Error::from)?;
 
         let table = self
             .client
@@ -370,8 +394,58 @@ impl Catalog for S3TablesCatalog {
         identifier: Identifier,
         create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, IcebergError> {
-        let (create_view, create_table) = create_view.into();
+        let (mut create_view, mut create_table) = create_view.into();
+
+        // Create view
+        self.client
+            .create_table()
+            .table_bucket_arn(&self.arn)
+            .namespace(identifier.namespace().to_string())
+            .name(identifier.name())
+            .format(OpenTableFormat::Iceberg)
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        let view = self
+            .client
+            .get_table()
+            .table_bucket_arn(&self.arn)
+            .namespace(identifier.namespace().to_string())
+            .name(identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        create_view.location = Some(view.warehouse_location);
+
         let metadata: MaterializedViewMetadata = create_view.try_into()?;
+
+        let table_identifier = metadata.current_version(None)?.storage_table();
+
+        // Create storage table
+        self.client
+            .create_table()
+            .table_bucket_arn(&self.arn)
+            .namespace(table_identifier.namespace().to_string())
+            .name(table_identifier.name())
+            .format(OpenTableFormat::Iceberg)
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        let table = self
+            .client
+            .get_table()
+            .table_bucket_arn(&self.arn)
+            .namespace(table_identifier.namespace().to_string())
+            .name(table_identifier.name())
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        create_table.location = Some(table.warehouse_location);
+
         let table_metadata: TableMetadata = create_table.try_into()?;
         // Create metadata
         let location = metadata.location.to_string();
@@ -383,24 +457,12 @@ impl Catalog for S3TablesCatalog {
         let metadata_location = new_metadata_location(&metadata);
 
         let table_metadata_location = new_metadata_location(&table_metadata);
-        let table_identifier = metadata.current_version(None)?.storage_table();
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
         object_store
             .put_metadata(&table_metadata_location, table_metadata.as_ref())
             .await?;
-
-        // Create view
-        let view = self
-            .client
-            .create_table()
-            .table_bucket_arn(&self.arn)
-            .namespace(identifier.namespace().to_string())
-            .name(identifier.name())
-            .send()
-            .await
-            .map_err(Error::from)?;
 
         let view = self
             .client
