@@ -18,7 +18,7 @@ use iceberg_rust::{
         identifier::Identifier,
         namespace::Namespace,
         tabular::Tabular,
-        Catalog,
+        Catalog, CatalogList,
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
@@ -712,5 +712,38 @@ impl Catalog for S3TablesCatalog {
 
     fn object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
         Arc::new(self.object_store.build(bucket).unwrap())
+    }
+}
+
+#[derive(Debug)]
+pub struct S3TablesCatalogList {
+    prefix: String,
+    config: SdkConfig,
+    object_store_builder: ObjectStoreBuilder,
+}
+
+impl S3TablesCatalogList {
+    pub fn new(config: &SdkConfig, prefix: &str, object_store_builder: ObjectStoreBuilder) -> Self {
+        Self {
+            prefix: prefix.to_owned(),
+            config: config.clone(),
+            object_store_builder,
+        }
+    }
+}
+#[async_trait]
+impl CatalogList for S3TablesCatalogList {
+    fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
+        Some(Arc::new(
+            S3TablesCatalog::new(
+                &self.config,
+                &(self.prefix.clone() + name),
+                self.object_store_builder.clone(),
+            )
+            .unwrap(),
+        ))
+    }
+    async fn list_catalogs(&self) -> Vec<String> {
+        Vec::new()
     }
 }
