@@ -26,8 +26,9 @@ use iceberg_rust_spec::{
 };
 
 use crate::{
-    catalog::{bucket::Bucket, create::CreateTableBuilder, identifier::Identifier, Catalog},
+    catalog::{create::CreateTableBuilder, identifier::Identifier, Catalog},
     error::Error,
+    object_store::Bucket,
     table::transaction::TableTransaction,
 };
 

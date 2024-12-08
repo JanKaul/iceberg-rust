@@ -9,9 +9,9 @@ use datafusion::execution::context::SessionContext;
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
 use iceberg_rest_catalog::apis::configuration::Configuration;
 use iceberg_rest_catalog::catalog::RestCatalog;
-use iceberg_rust::catalog::bucket::ObjectStoreBuilder;
 use iceberg_rust::catalog::namespace::Namespace;
 use iceberg_rust::catalog::Catalog;
+use iceberg_rust::object_store::ObjectStoreBuilder;
 use iceberg_rust::spec::partition::{PartitionField, PartitionSpec, Transform};
 use iceberg_rust::spec::schema::Schema;
 use iceberg_rust::spec::types::{PrimitiveType, StructField, StructType, Type};
@@ -183,7 +183,7 @@ async fn integration_trino_rest() {
         .await
         .unwrap();
 
-    let object_store = ObjectStoreBuilder::aws()
+    let object_store = ObjectStoreBuilder::s3()
         .with_config("aws_access_key_id".parse().unwrap(), "user")
         .with_config("aws_secret_access_key".parse().unwrap(), "password")
         .with_config(

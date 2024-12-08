@@ -6,7 +6,7 @@ use datafusion::{
     execution::{context::SessionContext, SessionStateBuilder},
 };
 use datafusion_expr::ScalarUDF;
-use iceberg_rust::catalog::bucket::ObjectStoreBuilder;
+use iceberg_rust::object_store::ObjectStoreBuilder;
 use iceberg_sql_catalog::SqlCatalogList;
 
 use datafusion_iceberg::{

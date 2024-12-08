@@ -591,6 +591,15 @@ mod tests {
 
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
     use iceberg_rust::{
+        catalog::tabular::Tabular,
+        object_store::ObjectStoreBuilder,
+        spec::{
+            partition::{PartitionField, Transform},
+            schema::Schema,
+            types::{PrimitiveType, StructField, StructType, Type},
+        },
+    };
+    use iceberg_rust::{
         catalog::Catalog,
         spec::{
             partition::PartitionSpec,
@@ -598,14 +607,6 @@ mod tests {
         },
         table::Table,
         view::View,
-    };
-    use iceberg_rust::{
-        catalog::{bucket::ObjectStoreBuilder, tabular::Tabular},
-        spec::{
-            partition::{PartitionField, Transform},
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
-        },
     };
     use iceberg_sql_catalog::SqlCatalog;
 

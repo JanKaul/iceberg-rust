@@ -1,7 +1,8 @@
 use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
 use datafusion_iceberg::DataFusionTable;
 use iceberg_rust::{
-    catalog::{bucket::ObjectStoreBuilder, Catalog},
+    catalog::Catalog,
+    object_store::ObjectStoreBuilder,
     spec::{
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,

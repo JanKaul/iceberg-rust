@@ -9,7 +9,6 @@ use aws_config::SdkConfig;
 use aws_sdk_s3tables::{types::OpenTableFormat, Client};
 use iceberg_rust::{
     catalog::{
-        bucket::{Bucket, ObjectStoreBuilder},
         commit::{
             apply_table_updates, apply_view_updates, check_table_requirements,
             check_view_requirements, CommitTable, CommitView, TableRequirement,
@@ -22,6 +21,8 @@ use iceberg_rust::{
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
+    object_store::store::IcebergStore,
+    object_store::{Bucket, ObjectStoreBuilder},
     spec::{
         self,
         materialized_view_metadata::MaterializedViewMetadata,
@@ -30,7 +31,6 @@ use iceberg_rust::{
         util::strip_prefix,
         view_metadata::ViewMetadata,
     },
-    store::IcebergStore,
     table::Table,
     view::View,
 };

@@ -14,6 +14,8 @@ use object_store::{
 
 use crate::error::Error;
 
+pub mod store;
+
 /// Type for buckets for different cloud providers
 #[derive(Debug)]
 pub enum Bucket<'s> {
@@ -94,7 +96,7 @@ impl FromStr for ConfigKey {
 }
 impl ObjectStoreBuilder {
     /// Create new AWS S3 Object Store builder
-    pub fn aws() -> Self {
+    pub fn s3() -> Self {
         ObjectStoreBuilder::S3(AmazonS3Builder::from_env())
     }
     /// Create new AWS S3 Object Store builder
