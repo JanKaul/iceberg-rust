@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
 use datafusion_expr::{
-    ColumnarValue, CreateCatalogSchema, CreateView, ScalarUDFImpl, Signature, Volatility,
+    ColumnarValue, CreateCatalogSchema, CreateView, DropTable, ScalarUDFImpl, Signature, Volatility,
 };
 use itertools::Itertools;
 use regex::Regex;
@@ -78,6 +78,11 @@ pub fn iceberg_transform(node: LogicalPlan) -> Result<Transformed<LogicalPlan>, 
                 node: Arc::new(CreateIcebergNamespace(schema)),
             })))
         }
+        LogicalPlan::Ddl(DdlStatement::DropTable(table)) => {
+            Ok(Transformed::yes(LogicalPlan::Extension(Extension {
+                node: Arc::new(DropIcebergTable(table)),
+            })))
+        }
         _ => Ok(Transformed::no(node)),
     }
 }
@@ -100,6 +105,8 @@ impl ExtensionPlanner for IcebergPlanner {
             plan_create_view(node, session_state).await
         } else if let Some(node) = node.as_any().downcast_ref::<CreateIcebergNamespace>() {
             plan_create_namespace(node, session_state).await
+        } else if let Some(node) = node.as_any().downcast_ref::<DropIcebergTable>() {
+            plan_drop_table(node, session_state).await
         } else {
             return Ok(None);
         }
@@ -292,6 +299,44 @@ async fn plan_create_namespace(
     )))))
 }
 
+async fn plan_drop_table(
+    node: &DropIcebergTable,
+    session_state: &SessionState,
+) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+    let table_ref = &node.0.name.to_string();
+
+    let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
+
+    let catalog_list = session_state.catalog_list();
+    let catalog_name = &identifier.catalog;
+    let namespace_name = &identifier.schema;
+    let table_name: &str = &identifier.table;
+    let datafusion_catalog = catalog_list
+        .catalog(catalog_name)
+        .ok_or(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} does not exist."
+        )))?;
+    let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>() else {
+        return Err(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} is not an Iceberg catalog."
+        )));
+    };
+
+    let catalog = iceberg_catalog.catalog();
+
+    catalog
+        .drop_table(
+            &Identifier::try_new(&[namespace_name.to_string(), table_name.to_string()], None)
+                .map_err(|err| DataFusionError::External(Box::new(err)))?,
+        )
+        .await
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+    Ok(Some(Arc::new(EmptyExec::new(Arc::new(
+        ArrowSchema::empty(),
+    )))))
+}
+
 #[derive(Clone)]
 pub struct CreateIcebergTable(pub CreateExternalTable);
 
@@ -466,6 +511,67 @@ impl UserDefinedLogicalNode for CreateIcebergNamespace {
 
     fn dyn_eq(&self, other: &dyn UserDefinedLogicalNode) -> bool {
         if let Some(other) = other.as_any().downcast_ref::<CreateIcebergNamespace>() {
+            self.0.eq(&other.0)
+        } else {
+            false
+        }
+    }
+
+    fn dyn_ord(&self, _other: &dyn UserDefinedLogicalNode) -> Option<std::cmp::Ordering> {
+        None
+    }
+}
+
+#[derive(Clone)]
+pub struct DropIcebergTable(pub DropTable);
+
+impl Debug for DropIcebergTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = &self.0.name;
+        write!(f, "DropIcebergTable: {name:?}")
+    }
+}
+
+impl UserDefinedLogicalNode for DropIcebergTable {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        "DropIcebergTable"
+    }
+
+    fn inputs(&self) -> Vec<&datafusion::logical_expr::LogicalPlan> {
+        vec![]
+    }
+
+    fn schema(&self) -> &datafusion::common::DFSchemaRef {
+        &self.0.schema
+    }
+
+    fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
+        vec![]
+    }
+
+    fn fmt_for_explain(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let name = &self.0.name;
+        write!(f, "DropIcebergTable: {name:?}")
+    }
+
+    fn with_exprs_and_inputs(
+        &self,
+        _exprs: Vec<datafusion::prelude::Expr>,
+        _inputs: Vec<datafusion::logical_expr::LogicalPlan>,
+    ) -> datafusion::error::Result<std::sync::Arc<dyn UserDefinedLogicalNode>> {
+        Ok(Arc::new(self.clone()))
+    }
+
+    fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
+        self.0.hash(&mut state)
+    }
+
+    fn dyn_eq(&self, other: &dyn UserDefinedLogicalNode) -> bool {
+        if let Some(other) = other.as_any().downcast_ref::<DropIcebergTable>() {
             self.0.eq(&other.0)
         } else {
             false
