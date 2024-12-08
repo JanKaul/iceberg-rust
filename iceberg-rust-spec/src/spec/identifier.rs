@@ -93,6 +93,7 @@ impl TryFrom<&str> for Identifier {
 ///Identifies a table in an iceberg catalog.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Getters)]
 pub struct FullIdentifier {
+    #[serde(skip_serializing_if = "Option::is_none")]
     catalog: Option<String>,
     namespace: Namespace,
     name: String,
