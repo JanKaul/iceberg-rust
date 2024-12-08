@@ -47,11 +47,8 @@ impl QueryPlanner for IcebergQueryPlanner {
         logical_plan: &LogicalPlan,
         session_state: &SessionState,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        let planner = DefaultPhysicalPlanner::with_extension_planners(vec![
-            Arc::new(CreateIcebergTablePlanner {}),
-            Arc::new(CreateIcebergViewPlanner {}),
-            Arc::new(CreateIcebergNamespacePlanner {}),
-        ]);
+        let planner =
+            DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(IcebergPlanner {})]);
         planner
             .create_physical_plan(logical_plan, session_state)
             .await
@@ -85,10 +82,10 @@ pub fn iceberg_transform(node: LogicalPlan) -> Result<Transformed<LogicalPlan>, 
     }
 }
 
-pub struct CreateIcebergTablePlanner {}
+pub struct IcebergPlanner {}
 
 #[async_trait]
-impl ExtensionPlanner for CreateIcebergTablePlanner {
+impl ExtensionPlanner for IcebergPlanner {
     async fn plan_extension(
         &self,
         _planner: &dyn PhysicalPlanner,
@@ -97,223 +94,202 @@ impl ExtensionPlanner for CreateIcebergTablePlanner {
         _physical_inputs: &[Arc<dyn ExecutionPlan>],
         session_state: &SessionState,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
-        let Some(node) = node.as_any().downcast_ref::<CreateIcebergTable>() else {
+        if let Some(node) = node.as_any().downcast_ref::<CreateIcebergTable>() {
+            plan_create_table(node, session_state).await
+        } else if let Some(node) = node.as_any().downcast_ref::<CreateIcebergView>() {
+            plan_create_view(node, session_state).await
+        } else if let Some(node) = node.as_any().downcast_ref::<CreateIcebergNamespace>() {
+            plan_create_namespace(node, session_state).await
+        } else {
             return Ok(None);
-        };
-
-        let table_ref = &node.0.name.to_string();
-
-        let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
-
-        let catalog_list = session_state.catalog_list();
-        let catalog_name = &identifier.catalog;
-        let namespace_name = &identifier.schema;
-        let table_name: &str = &identifier.table;
-        let datafusion_catalog =
-            catalog_list
-                .catalog(catalog_name)
-                .ok_or(DataFusionError::Plan(format!(
-                    "Catalog {catalog_name} does not exist."
-                )))?;
-        let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>()
-        else {
-            return Err(DataFusionError::Plan(format!(
-                "Catalog {catalog_name} is not an Iceberg catalog."
-            )));
-        };
-
-        let catalog = iceberg_catalog.catalog();
-
-        let schema = StructType::try_from(&new_fields_with_ids(
-            node.0.schema.as_arrow().fields(),
-            &mut 0,
-        ))
-        .map_err(|err| DataFusionError::External(Box::new(err)))?;
-
-        let pacrtition_spec = node
-            .0
-            .table_partition_cols
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                let (column, transform) = parse_transform(x)?;
-                let name = if let Transform::Identity = &transform {
-                    column.clone()
-                } else {
-                    column.clone() + "_" + &transform.to_string()
-                };
-                Ok::<_, Error>(PartitionField::new(
-                    schema
-                        .get_name(&column)
-                        .ok_or(Error::NotFound(format!("Column {column}")))?
-                        .id,
-                    1000 + i as i32,
-                    &name,
-                    transform,
-                ))
-            })
-            .collect::<Result<Vec<_>, Error>>()
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-        let partition_spec = PartitionSpec::builder()
-            .with_spec_id(0)
-            .with_fields(pacrtition_spec)
-            .build()
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-
-        Table::builder()
-            .with_name(table_name)
-            .with_location(&node.0.location)
-            .with_schema(
-                Schema::builder()
-                    .with_fields(schema)
-                    .build()
-                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
-            )
-            .with_partition_spec(partition_spec)
-            .with_properties(node.0.options.clone())
-            .build(&[namespace_name.as_ref().to_owned()], catalog)
-            .await
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-
-        Ok(Some(Arc::new(EmptyExec::new(Arc::new(
-            ArrowSchema::empty(),
-        )))))
+        }
     }
 }
 
-pub struct CreateIcebergViewPlanner {}
+async fn plan_create_table(
+    node: &CreateIcebergTable,
+    session_state: &SessionState,
+) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+    let table_ref = &node.0.name.to_string();
 
-#[async_trait]
-impl ExtensionPlanner for CreateIcebergViewPlanner {
-    async fn plan_extension(
-        &self,
-        _planner: &dyn PhysicalPlanner,
-        node: &dyn UserDefinedLogicalNode,
-        _logical_inputs: &[&LogicalPlan],
-        _physical_inputs: &[Arc<dyn ExecutionPlan>],
-        session_state: &SessionState,
-    ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
-        let Some(node) = node.as_any().downcast_ref::<CreateIcebergView>() else {
-            return Ok(None);
-        };
+    let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
 
-        let table_ref = &node.0.name.to_string();
+    let catalog_list = session_state.catalog_list();
+    let catalog_name = &identifier.catalog;
+    let namespace_name = &identifier.schema;
+    let table_name: &str = &identifier.table;
+    let datafusion_catalog = catalog_list
+        .catalog(catalog_name)
+        .ok_or(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} does not exist."
+        )))?;
+    let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>() else {
+        return Err(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} is not an Iceberg catalog."
+        )));
+    };
 
-        let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
+    let catalog = iceberg_catalog.catalog();
 
-        let catalog_list = session_state.catalog_list();
-        let catalog_name = &identifier.catalog;
-        let namespace_name = &identifier.schema;
-        let table_name: &str = &identifier.table;
-        let datafusion_catalog =
-            catalog_list
-                .catalog(catalog_name)
-                .ok_or(DataFusionError::Plan(format!(
-                    "Catalog {catalog_name} does not exist."
-                )))?;
-        let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>()
-        else {
-            return Err(DataFusionError::Plan(format!(
-                "Catalog {catalog_name} is not an Iceberg catalog."
-            )));
-        };
+    let schema = StructType::try_from(&new_fields_with_ids(
+        node.0.schema.as_arrow().fields(),
+        &mut 0,
+    ))
+    .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
-        let catalog = iceberg_catalog.catalog();
-
-        let schema = StructType::try_from(&new_fields_with_ids(
-            node.0.input.schema().as_arrow().fields(),
-            &mut 0,
-        ))
+    let pacrtition_spec = node
+        .0
+        .table_partition_cols
+        .iter()
+        .enumerate()
+        .map(|(i, x)| {
+            let (column, transform) = parse_transform(x)?;
+            let name = if let Transform::Identity = &transform {
+                column.clone()
+            } else {
+                column.clone() + "_" + &transform.to_string()
+            };
+            Ok::<_, Error>(PartitionField::new(
+                schema
+                    .get_name(&column)
+                    .ok_or(Error::NotFound(format!("Column {column}")))?
+                    .id,
+                1000 + i as i32,
+                &name,
+                transform,
+            ))
+        })
+        .collect::<Result<Vec<_>, Error>>()
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    let partition_spec = PartitionSpec::builder()
+        .with_spec_id(0)
+        .with_fields(pacrtition_spec)
+        .build()
         .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
-        let lowercase = node.0.definition.as_ref().unwrap().to_lowercase();
-        let definition = lowercase.split_once(" as ").unwrap().1;
+    Table::builder()
+        .with_name(table_name)
+        .with_location(&node.0.location)
+        .with_schema(
+            Schema::builder()
+                .with_fields(schema)
+                .build()
+                .map_err(|err| DataFusionError::External(Box::new(err)))?,
+        )
+        .with_partition_spec(partition_spec)
+        .with_properties(node.0.options.clone())
+        .build(&[namespace_name.as_ref().to_owned()], catalog)
+        .await
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
-        #[cfg(test)]
-        let location = catalog_name.to_string() + "/" + namespace_name + "/" + table_name;
-
-        #[cfg(not(test))]
-        let location = "s3://".to_string() + catalog_name + "/" + namespace_name + "/" + table_name;
-
-        MaterializedView::builder()
-            .with_name(table_name)
-            .with_location(location)
-            .with_schema(
-                Schema::builder()
-                    .with_fields(schema)
-                    .build()
-                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
-            )
-            .with_view_version(
-                Version::builder()
-                    .with_representation(ViewRepresentation::sql(definition, None))
-                    .build()
-                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
-            )
-            .build(&[namespace_name.as_ref().to_owned()], catalog)
-            .await
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-
-        Ok(Some(Arc::new(EmptyExec::new(Arc::new(
-            ArrowSchema::empty(),
-        )))))
-    }
+    Ok(Some(Arc::new(EmptyExec::new(Arc::new(
+        ArrowSchema::empty(),
+    )))))
 }
 
-pub struct CreateIcebergNamespacePlanner {}
+async fn plan_create_view(
+    node: &CreateIcebergView,
+    session_state: &SessionState,
+) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+    let table_ref = &node.0.name.to_string();
 
-#[async_trait]
-impl ExtensionPlanner for CreateIcebergNamespacePlanner {
-    async fn plan_extension(
-        &self,
-        _planner: &dyn PhysicalPlanner,
-        node: &dyn UserDefinedLogicalNode,
-        _logical_inputs: &[&LogicalPlan],
-        _physical_inputs: &[Arc<dyn ExecutionPlan>],
-        session_state: &SessionState,
-    ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
-        let Some(node) = node.as_any().downcast_ref::<CreateIcebergNamespace>() else {
-            return Ok(None);
-        };
+    let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
 
-        let (catalog_name, namespace_name) =
-            node.0
-                .schema_name
-                .split('.')
-                .collect_tuple()
-                .ok_or(DataFusionError::Plan(format!(
-                    "Schema name {} has an invalid format.",
-                    &node.0.schema_name
-                )))?;
+    let catalog_list = session_state.catalog_list();
+    let catalog_name = &identifier.catalog;
+    let namespace_name = &identifier.schema;
+    let table_name: &str = &identifier.table;
+    let datafusion_catalog = catalog_list
+        .catalog(catalog_name)
+        .ok_or(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} does not exist."
+        )))?;
+    let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>() else {
+        return Err(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} is not an Iceberg catalog."
+        )));
+    };
 
-        let catalog_list = session_state.catalog_list();
-        let datafusion_catalog =
-            catalog_list
-                .catalog(catalog_name)
-                .ok_or(DataFusionError::Plan(format!(
-                    "Catalog {catalog_name} does not exist."
-                )))?;
-        let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>()
-        else {
-            return Err(DataFusionError::Plan(format!(
-                "Catalog {catalog_name} is not an Iceberg catalog."
-            )));
-        };
+    let catalog = iceberg_catalog.catalog();
 
-        let catalog = iceberg_catalog.catalog();
+    let schema = StructType::try_from(&new_fields_with_ids(
+        node.0.input.schema().as_arrow().fields(),
+        &mut 0,
+    ))
+    .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
-        let namespace = Namespace::try_new(&[namespace_name.to_owned()])
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    let lowercase = node.0.definition.as_ref().unwrap().to_lowercase();
+    let definition = lowercase.split_once(" as ").unwrap().1;
 
-        catalog
-            .create_namespace(&namespace, None)
-            .await
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    #[cfg(test)]
+    let location = catalog_name.to_string() + "/" + namespace_name + "/" + table_name;
 
-        Ok(Some(Arc::new(EmptyExec::new(Arc::new(
-            ArrowSchema::empty(),
-        )))))
-    }
+    #[cfg(not(test))]
+    let location = "s3://".to_string() + catalog_name + "/" + namespace_name + "/" + table_name;
+
+    MaterializedView::builder()
+        .with_name(table_name)
+        .with_location(location)
+        .with_schema(
+            Schema::builder()
+                .with_fields(schema)
+                .build()
+                .map_err(|err| DataFusionError::External(Box::new(err)))?,
+        )
+        .with_view_version(
+            Version::builder()
+                .with_representation(ViewRepresentation::sql(definition, None))
+                .build()
+                .map_err(|err| DataFusionError::External(Box::new(err)))?,
+        )
+        .build(&[namespace_name.as_ref().to_owned()], catalog)
+        .await
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+    Ok(Some(Arc::new(EmptyExec::new(Arc::new(
+        ArrowSchema::empty(),
+    )))))
+}
+
+async fn plan_create_namespace(
+    node: &CreateIcebergNamespace,
+    session_state: &SessionState,
+) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+    let (catalog_name, namespace_name) =
+        node.0
+            .schema_name
+            .split('.')
+            .collect_tuple()
+            .ok_or(DataFusionError::Plan(format!(
+                "Schema name {} has an invalid format.",
+                &node.0.schema_name
+            )))?;
+
+    let catalog_list = session_state.catalog_list();
+    let datafusion_catalog = catalog_list
+        .catalog(catalog_name)
+        .ok_or(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} does not exist."
+        )))?;
+    let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>() else {
+        return Err(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} is not an Iceberg catalog."
+        )));
+    };
+
+    let catalog = iceberg_catalog.catalog();
+
+    let namespace = Namespace::try_new(&[namespace_name.to_owned()])
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+    catalog
+        .create_namespace(&namespace, None)
+        .await
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+    Ok(Some(Arc::new(EmptyExec::new(Arc::new(
+        ArrowSchema::empty(),
+    )))))
 }
 
 #[derive(Clone)]
