@@ -51,7 +51,7 @@ impl<T: ObjectStore> IcebergStore for T {
 
     async fn put_version_hint(&self, location: &str) -> Result<(), Error> {
         self.put_opts(
-            &version_hint_path(&strip_prefix(&location))
+            &version_hint_path(&strip_prefix(location))
                 .ok_or(Error::InvalidFormat(format!(
                     "Path for version-hint for {location}"
                 )))?
