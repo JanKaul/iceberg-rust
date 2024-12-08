@@ -16,6 +16,7 @@ use iceberg_rust::{
     materialized_view::MaterializedView,
     object_store::{Bucket, ObjectStoreBuilder},
     spec::{
+        identifier::FullIdentifier,
         materialized_view_metadata::MaterializedViewMetadata,
         table_metadata::TableMetadata,
         tabular::TabularMetadata,
@@ -427,7 +428,7 @@ impl Catalog for RestCatalog {
     }
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView<Identifier>,
+        commit: CommitView<FullIdentifier>,
     ) -> Result<MaterializedView, Error> {
         let identifier = commit.identifier.clone();
         catalog_api_api::replace_view(

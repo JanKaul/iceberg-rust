@@ -9,6 +9,7 @@ use std::{
 
 use derive_builder::Builder;
 use iceberg_rust_spec::{
+    identifier::FullIdentifier,
     spec::{
         materialized_view_metadata::MaterializedViewMetadata,
         partition::{PartitionSpec, DEFAULT_PARTITION_SPEC_ID},
@@ -197,7 +198,7 @@ impl TryInto<ViewMetadata> for CreateView<Option<()>> {
     }
 }
 
-impl TryInto<MaterializedViewMetadata> for CreateView<Identifier> {
+impl TryInto<MaterializedViewMetadata> for CreateView<FullIdentifier> {
     type Error = Error;
     fn try_into(self) -> Result<MaterializedViewMetadata, Self::Error> {
         Ok(MaterializedViewMetadata {
@@ -231,7 +232,7 @@ pub struct CreateMaterializedView {
     /// Schema of the view
     pub schema: Schema,
     /// Viersion of the view
-    pub view_version: Version<Identifier>,
+    pub view_version: Version<FullIdentifier>,
     /// View properties
     #[builder(setter(each(name = "with_property")), default)]
     pub properties: HashMap<String, String>,
@@ -284,7 +285,8 @@ impl CreateMaterializedViewBuilder {
             representations: create.view_version.representations.clone(),
             default_catalog: create.view_version.default_catalog,
             default_namespace: create.view_version.default_namespace,
-            storage_table: Identifier::new(
+            storage_table: FullIdentifier::new(
+                None,
                 identifier.namespace(),
                 &(identifier.name().to_string() + STORAGE_TABLE_POSTFIX),
             ),
@@ -300,7 +302,7 @@ impl CreateMaterializedViewBuilder {
     }
 }
 
-impl From<CreateMaterializedView> for (CreateView<Identifier>, CreateTable) {
+impl From<CreateMaterializedView> for (CreateView<FullIdentifier>, CreateTable) {
     fn from(val: CreateMaterializedView) -> Self {
         let storage_table = val.view_version.storage_table.name().to_owned();
         (
