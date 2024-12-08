@@ -2981,8 +2981,6 @@ dependencies = [
  "apache-avro",
  "arrow",
  "async-trait",
- "aws-config",
- "aws-credential-types",
  "chrono",
  "derive-getters",
  "derive_builder",

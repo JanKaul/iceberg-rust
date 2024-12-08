@@ -31,8 +31,6 @@ thiserror = { workspace = true }
 derive-getters = { workspace = true }
 iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.5.8" }
 smallvec = { version = "1.13.2", features = ["const_generics"] }
-aws-config = "1.5.10"
-aws-credential-types = "1.2.1"
 
 [dev-dependencies]
 chrono = { workspace = true }
