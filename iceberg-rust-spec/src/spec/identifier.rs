@@ -3,6 +3,7 @@ Defining the [Identifier] struct for identifying tables in an iceberg catalog.
 */
 
 use core::fmt::{self, Display};
+use derive_getters::Getters;
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -86,6 +87,33 @@ impl TryFrom<&str> for Identifier {
     type Error = Error;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         Self::parse(value, None)
+    }
+}
+
+///Identifies a table in an iceberg catalog.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Getters)]
+pub struct FullIdentifier {
+    catalog: Option<String>,
+    namespace: Namespace,
+    name: String,
+}
+
+impl FullIdentifier {
+    pub fn new(catalog: Option<&str>, namespace: &Namespace, name: &str) -> Self {
+        Self {
+            catalog: catalog.map(ToString::to_string),
+            namespace: namespace.clone(),
+            name: name.to_owned(),
+        }
+    }
+}
+
+impl From<&FullIdentifier> for Identifier {
+    fn from(value: &FullIdentifier) -> Self {
+        Identifier {
+            namespace: value.namespace.clone(),
+            name: value.name.clone(),
+        }
     }
 }
 
