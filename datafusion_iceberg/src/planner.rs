@@ -2,7 +2,8 @@ use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
 use datafusion_expr::{
-    ColumnarValue, CreateCatalogSchema, CreateView, DropTable, ScalarUDFImpl, Signature, Volatility,
+    ColumnarValue, CreateCatalogSchema, CreateView, DropCatalogSchema, DropTable, ScalarUDFImpl,
+    Signature, Volatility,
 };
 use itertools::Itertools;
 use regex::Regex;
@@ -10,7 +11,7 @@ use regex::Regex;
 use crate::{catalog::catalog::IcebergCatalog, materialized_view::refresh_materialized_view};
 use datafusion::{
     arrow::datatypes::{DataType, Schema as ArrowSchema},
-    common::tree_node::Transformed,
+    common::{tree_node::Transformed, SchemaReference},
     error::DataFusionError,
     execution::context::{QueryPlanner, SessionState},
     logical_expr::{
@@ -47,8 +48,9 @@ impl QueryPlanner for IcebergQueryPlanner {
         logical_plan: &LogicalPlan,
         session_state: &SessionState,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        let planner =
-            DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(IcebergPlanner {})]);
+        let planner = DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(
+            IcebergExtensionPlanner {},
+        )]);
         planner
             .create_physical_plan(logical_plan, session_state)
             .await
@@ -83,14 +85,19 @@ pub fn iceberg_transform(node: LogicalPlan) -> Result<Transformed<LogicalPlan>, 
                 node: Arc::new(DropIcebergTable(table)),
             })))
         }
+        LogicalPlan::Ddl(DdlStatement::DropCatalogSchema(schema)) => {
+            Ok(Transformed::yes(LogicalPlan::Extension(Extension {
+                node: Arc::new(DropIcebergNamespace(schema)),
+            })))
+        }
         _ => Ok(Transformed::no(node)),
     }
 }
 
-pub struct IcebergPlanner {}
+pub struct IcebergExtensionPlanner {}
 
 #[async_trait]
-impl ExtensionPlanner for IcebergPlanner {
+impl ExtensionPlanner for IcebergExtensionPlanner {
     async fn plan_extension(
         &self,
         _planner: &dyn PhysicalPlanner,
@@ -107,6 +114,8 @@ impl ExtensionPlanner for IcebergPlanner {
             plan_create_namespace(node, session_state).await
         } else if let Some(node) = node.as_any().downcast_ref::<DropIcebergTable>() {
             plan_drop_table(node, session_state).await
+        } else if let Some(node) = node.as_any().downcast_ref::<DropIcebergNamespace>() {
+            plan_drop_namespace(node, session_state).await
         } else {
             return Ok(None);
         }
@@ -329,6 +338,42 @@ async fn plan_drop_table(
             &Identifier::try_new(&[namespace_name.to_string(), table_name.to_string()], None)
                 .map_err(|err| DataFusionError::External(Box::new(err)))?,
         )
+        .await
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+    Ok(Some(Arc::new(EmptyExec::new(Arc::new(
+        ArrowSchema::empty(),
+    )))))
+}
+
+async fn plan_drop_namespace(
+    node: &DropIcebergNamespace,
+    session_state: &SessionState,
+) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
+    let (catalog_name, namespace_name) = match &node.0.name {
+        SchemaReference::Bare { schema } => ("datafusion".to_owned(), schema.to_string()),
+        SchemaReference::Full { schema, catalog } => (catalog.to_string(), schema.to_string()),
+    };
+
+    let catalog_list = session_state.catalog_list();
+    let datafusion_catalog = catalog_list
+        .catalog(&catalog_name)
+        .ok_or(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} does not exist."
+        )))?;
+    let Some(iceberg_catalog) = datafusion_catalog.as_any().downcast_ref::<IcebergCatalog>() else {
+        return Err(DataFusionError::Plan(format!(
+            "Catalog {catalog_name} is not an Iceberg catalog."
+        )));
+    };
+
+    let catalog = iceberg_catalog.catalog();
+
+    let namespace = Namespace::try_new(&[namespace_name.to_owned()])
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+    catalog
+        .drop_namespace(&namespace)
         .await
         .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
@@ -572,6 +617,67 @@ impl UserDefinedLogicalNode for DropIcebergTable {
 
     fn dyn_eq(&self, other: &dyn UserDefinedLogicalNode) -> bool {
         if let Some(other) = other.as_any().downcast_ref::<DropIcebergTable>() {
+            self.0.eq(&other.0)
+        } else {
+            false
+        }
+    }
+
+    fn dyn_ord(&self, _other: &dyn UserDefinedLogicalNode) -> Option<std::cmp::Ordering> {
+        None
+    }
+}
+
+#[derive(Clone)]
+pub struct DropIcebergNamespace(pub DropCatalogSchema);
+
+impl Debug for DropIcebergNamespace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = &self.0.name;
+        write!(f, "DropIcebergNamespace: {name:?}")
+    }
+}
+
+impl UserDefinedLogicalNode for DropIcebergNamespace {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        "DropIcebergNamespace"
+    }
+
+    fn inputs(&self) -> Vec<&datafusion::logical_expr::LogicalPlan> {
+        vec![]
+    }
+
+    fn schema(&self) -> &datafusion::common::DFSchemaRef {
+        &self.0.schema
+    }
+
+    fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
+        vec![]
+    }
+
+    fn fmt_for_explain(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let name = &self.0.name;
+        write!(f, "DropIcebergNamespace: {name:?}")
+    }
+
+    fn with_exprs_and_inputs(
+        &self,
+        _exprs: Vec<datafusion::prelude::Expr>,
+        _inputs: Vec<datafusion::logical_expr::LogicalPlan>,
+    ) -> datafusion::error::Result<std::sync::Arc<dyn UserDefinedLogicalNode>> {
+        Ok(Arc::new(self.clone()))
+    }
+
+    fn dyn_hash(&self, mut state: &mut dyn std::hash::Hasher) {
+        self.0.hash(&mut state)
+    }
+
+    fn dyn_eq(&self, other: &dyn UserDefinedLogicalNode) -> bool {
+        if let Some(other) = other.as_any().downcast_ref::<DropIcebergNamespace>() {
             self.0.eq(&other.0)
         } else {
             false
