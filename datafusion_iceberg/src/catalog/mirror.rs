@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
 use futures::{executor::LocalPool, task::LocalSpawnExt};
-use iceberg_rust::store::IcebergStore;
+use iceberg_rust::object_store::store::IcebergStore;
 use std::{collections::HashSet, sync::Arc};
 
 use iceberg_rust::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};

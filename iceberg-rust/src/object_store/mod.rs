@@ -19,6 +19,8 @@ use object_store::{
 
 use crate::error::Error;
 
+pub mod store;
+
 /// Type for buckets for different cloud providers
 #[derive(Debug)]
 pub enum Bucket<'s> {

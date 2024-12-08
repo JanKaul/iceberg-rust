@@ -20,6 +20,7 @@ use iceberg_rust::{
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
+    object_store::store::IcebergStore,
     object_store::{Bucket, ObjectStoreBuilder},
     spec::{
         materialized_view_metadata::MaterializedViewMetadata,
@@ -28,7 +29,6 @@ use iceberg_rust::{
         util::strip_prefix,
         view_metadata::ViewMetadata,
     },
-    store::IcebergStore,
     table::Table,
     view::View,
 };
