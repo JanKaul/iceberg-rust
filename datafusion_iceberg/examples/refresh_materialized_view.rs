@@ -1,9 +1,9 @@
 use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
 use datafusion_iceberg::materialized_view::refresh_materialized_view;
-use iceberg_rust::catalog::bucket::ObjectStoreBuilder;
 use iceberg_rust::catalog::CatalogList;
 use iceberg_rust::materialized_view::MaterializedView;
+use iceberg_rust::object_store::ObjectStoreBuilder;
 use iceberg_rust::spec::partition::PartitionSpec;
 use iceberg_rust::spec::view_metadata::{Version, ViewRepresentation};
 use iceberg_rust::spec::{

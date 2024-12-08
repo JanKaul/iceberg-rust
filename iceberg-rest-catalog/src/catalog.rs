@@ -5,7 +5,6 @@ Iceberg rest catalog implementation
 */
 use iceberg_rust::{
     catalog::{
-        bucket::{Bucket, ObjectStoreBuilder},
         commit::CommitView,
         create::{CreateMaterializedView, CreateTable, CreateView},
         identifier::{self, Identifier},
@@ -15,6 +14,7 @@ use iceberg_rust::{
     },
     error::Error,
     materialized_view::MaterializedView,
+    object_store::{Bucket, ObjectStoreBuilder},
     spec::{
         materialized_view_metadata::MaterializedViewMetadata,
         table_metadata::TableMetadata,
@@ -516,9 +516,8 @@ impl CatalogList for RestCatalogList {
 #[cfg(test)]
 pub mod tests {
     use iceberg_rust::{
-        catalog::{
-            bucket::ObjectStoreBuilder, identifier::Identifier, namespace::Namespace, Catalog,
-        },
+        catalog::{identifier::Identifier, namespace::Namespace, Catalog},
+        object_store::ObjectStoreBuilder,
         spec::{
             schema::Schema,
             types::{PrimitiveType, StructField, StructType, Type},

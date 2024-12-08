@@ -29,7 +29,7 @@ use parquet::{
 };
 use uuid::Uuid;
 
-use crate::{catalog::bucket::Bucket, error::Error, file_format::parquet::parquet_to_datafile};
+use crate::{error::Error, file_format::parquet::parquet_to_datafile, object_store::Bucket};
 
 use super::partition::partition_record_batches;
 

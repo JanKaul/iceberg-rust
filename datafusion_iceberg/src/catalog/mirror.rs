@@ -7,7 +7,6 @@ use std::{collections::HashSet, sync::Arc};
 use iceberg_rust::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
 use iceberg_rust::{
     catalog::{
-        bucket::Bucket,
         create::{CreateMaterializedView, CreateView},
         identifier::Identifier,
         namespace::Namespace,
@@ -15,6 +14,7 @@ use iceberg_rust::{
         Catalog,
     },
     error::Error as IcebergError,
+    object_store::Bucket,
     spec::table_metadata::new_metadata_location,
 };
 

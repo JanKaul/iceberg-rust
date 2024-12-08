@@ -11,10 +11,10 @@ use object_store::ObjectStore;
 
 use crate::{
     catalog::{
-        bucket::Bucket, create::CreateMaterializedViewBuilder, identifier::Identifier,
-        tabular::Tabular, Catalog,
+        create::CreateMaterializedViewBuilder, identifier::Identifier, tabular::Tabular, Catalog,
     },
     error::Error,
+    object_store::Bucket,
 };
 
 use self::{storage_table::StorageTable, transaction::Transaction as MaterializedViewTransaction};

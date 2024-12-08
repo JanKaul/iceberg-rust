@@ -218,14 +218,6 @@ mod tests {
 
     use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
     use iceberg_rust::{
-        catalog::bucket::ObjectStoreBuilder,
-        spec::{
-            partition::{PartitionField, Transform},
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
-        },
-    };
-    use iceberg_rust::{
         catalog::CatalogList,
         materialized_view::MaterializedView,
         spec::{
@@ -233,6 +225,14 @@ mod tests {
             view_metadata::{Version, ViewRepresentation},
         },
         table::Table,
+    };
+    use iceberg_rust::{
+        object_store::ObjectStoreBuilder,
+        spec::{
+            partition::{PartitionField, Transform},
+            schema::Schema,
+            types::{PrimitiveType, StructField, StructType, Type},
+        },
     };
     use iceberg_sql_catalog::SqlCatalogList;
     use std::sync::Arc;

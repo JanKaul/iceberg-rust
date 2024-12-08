@@ -8,8 +8,9 @@ use iceberg_rust_spec::spec::{schema::Schema, view_metadata::ViewMetadata};
 use object_store::ObjectStore;
 
 use crate::{
-    catalog::{bucket::Bucket, create::CreateViewBuilder, identifier::Identifier, Catalog},
+    catalog::{create::CreateViewBuilder, identifier::Identifier, Catalog},
     error::Error,
+    object_store::Bucket,
 };
 
 use self::transaction::Transaction as ViewTransaction;

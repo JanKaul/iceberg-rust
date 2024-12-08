@@ -14,13 +14,12 @@ use crate::materialized_view::MaterializedView;
 use crate::table::Table;
 use crate::view::View;
 
-use self::bucket::Bucket;
 use self::commit::{CommitTable, CommitView};
 use self::create::{CreateMaterializedView, CreateTable, CreateView};
 use self::namespace::Namespace;
 use self::tabular::Tabular;
+use crate::object_store::Bucket;
 
-pub mod bucket;
 pub mod commit;
 pub mod create;
 pub mod tabular;
