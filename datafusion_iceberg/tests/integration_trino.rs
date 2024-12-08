@@ -93,9 +93,9 @@ async fn integration_trino_rest() {
     let localstack_host = localstack.get_host().await.unwrap();
     let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
 
-    let rest = GenericImage::new("tabulario/iceberg-rest", "1.6.0")
-        .with_wait_for(WaitFor::Log(LogWaitStrategy::stdout(
-            "INFO  [org.eclipse.jetty.server.Server] - Started ",
+    let rest = GenericImage::new("apache/iceberg-rest-fixture", "latest")
+        .with_wait_for(WaitFor::Log(LogWaitStrategy::stderr(
+            "INFO org.eclipse.jetty.server.Server - Started ",
         )))
         .with_env_var("AWS_REGION", "us-east-1")
         .with_env_var("AWS_ACCESS_KEY_ID", "user")

@@ -526,7 +526,11 @@ pub mod tests {
     };
     use object_store::{memory::InMemory, ObjectStore};
     use std::{convert::TryFrom, sync::Arc, time::Duration};
-    use testcontainers::{core::WaitFor, runners::AsyncRunner, GenericImage};
+    use testcontainers::{
+        core::{wait::LogWaitStrategy, WaitFor},
+        runners::AsyncRunner,
+        GenericImage, ImageExt,
+    };
 
     use crate::{apis::configuration::Configuration, catalog::RestCatalog};
 
@@ -544,16 +548,16 @@ pub mod tests {
     #[tokio::test]
     async fn test_create_update_drop_table() {
         let container = GenericImage::new("apache/iceberg-rest-fixture", "latest")
-            .with_wait_for(WaitFor::StdErrMessage {
-                message: "INFO org.eclipse.jetty.server.Server - Started ".to_owned(),
-            })
+            .with_wait_for(WaitFor::Log(LogWaitStrategy::stderr(
+                "INFO org.eclipse.jetty.server.Server - Started ",
+            )))
             .with_env_var("CATALOG_WAREHOUSE", "/tmp/warehouse")
-            .with_exposed_port(8181)
             .start()
-            .await;
+            .await
+            .unwrap();
 
-        let rest_host = container.get_host().await;
-        let rest_port = container.get_host_port_ipv4(8181).await;
+        let rest_host = container.get_host().await.unwrap();
+        let rest_port = container.get_host_port_ipv4(8181).await.unwrap();
 
         let object_store = ObjectStoreBuilder::Memory(Arc::new(InMemory::new()));
         let catalog = Arc::new(RestCatalog::new(

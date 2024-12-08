@@ -27,5 +27,5 @@ features = ["json", "multipart"]
 
 [dev-dependencies]
 tokio = "1"
-testcontainers = "0.16.7"
+testcontainers = "0.20"
 tracing-subscriber = "0.3"
