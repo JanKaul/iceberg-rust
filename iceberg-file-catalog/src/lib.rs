@@ -209,6 +209,8 @@ impl Catalog for FileCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
+        object_store.put_version_hint(&metadata_location).await?;
+
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone().into()),
@@ -242,6 +244,8 @@ impl Catalog for FileCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
+
+        object_store.put_version_hint(&metadata_location).await?;
 
         self.cache.write().unwrap().insert(
             identifier.clone(),
@@ -286,6 +290,8 @@ impl Catalog for FileCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
+
+        object_store.put_version_hint(&metadata_location).await?;
 
         object_store
             .put_metadata(&table_metadata_location, table_metadata.as_ref())
@@ -345,6 +351,8 @@ impl Catalog for FileCatalog {
             )
             .await?;
 
+        object_store.put_version_hint(&metadata_location).await?;
+
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone().into()),
@@ -392,6 +400,8 @@ impl Catalog for FileCatalog {
                         &metadata_location.as_str().into(),
                     )
                     .await?;
+
+                object_store.put_version_hint(&metadata_location).await?;
 
                 Ok(metadata_location)
             }
@@ -451,6 +461,8 @@ impl Catalog for FileCatalog {
                         &metadata_location.as_str().into(),
                     )
                     .await?;
+
+                object_store.put_version_hint(&metadata_location).await?;
 
                 Ok(metadata_location)
             }
@@ -807,6 +819,21 @@ pub mod tests {
         }
 
         assert!(once);
+
+        let object_store = iceberg_catalog.object_store(iceberg_rust::object_store::Bucket::Local);
+
+        let version_hint = object_store
+            .get(&"/warehouse/tpch/lineitem/metadata/version-hint.text".into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            std::str::from_utf8(&version_hint).unwrap(),
+            "/warehouse/tpch/lineitem/metadata/v1.metadata.json"
+        );
     }
 
     #[tokio::test]
