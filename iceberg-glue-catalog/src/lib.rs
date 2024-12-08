@@ -297,6 +297,8 @@ impl Catalog for GlueCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
+        object_store.put_version_hint(&metadata_location).await?;
+
         let schema = metadata.current_schema(None)?;
 
         self.client
@@ -363,6 +365,8 @@ impl Catalog for GlueCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
+
+        object_store.put_version_hint(&metadata_location).await?;
 
         let schema = metadata.current_schema(None)?;
 
@@ -435,6 +439,9 @@ impl Catalog for GlueCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
+
+        object_store.put_version_hint(&metadata_location).await?;
+
         object_store
             .put_metadata(&table_metadata_location, table_metadata.as_ref())
             .await?;
@@ -547,6 +554,8 @@ impl Catalog for GlueCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
+        object_store.put_version_hint(&metadata_location).await?;
+
         let schema = metadata.current_schema(None)?;
 
         self.client
@@ -645,6 +654,9 @@ impl Catalog for GlueCatalog {
                 object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
+
+                object_store.put_version_hint(&metadata_location).await?;
+
                 Ok(metadata_location)
             }
             _ => Err(IcebergError::InvalidFormat(
@@ -750,6 +762,9 @@ impl Catalog for GlueCatalog {
                 object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
+
+                object_store.put_version_hint(&metadata_location).await?;
+
                 Ok(metadata_location)
             }
             _ => Err(IcebergError::InvalidFormat(
@@ -1093,5 +1108,19 @@ pub mod tests {
         }
 
         assert!(once);
+
+        let object_store = iceberg_catalog.object_store(iceberg_rust::object_store::Bucket::Local);
+
+        let version_hint = object_store
+            .get(&"/tmp/warehouse/tpch/lineitem/metadata/version-hint.text".into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+
+        assert!(std::str::from_utf8(&version_hint)
+            .unwrap()
+            .ends_with(".metadata.json"));
     }
 }

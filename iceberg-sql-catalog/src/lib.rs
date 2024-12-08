@@ -323,6 +323,8 @@ impl Catalog for SqlCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
+
+        object_store.put_version_hint(&metadata_location).await?;
         {
             let catalog_name = self.name.clone();
             let namespace = identifier.namespace().to_string();
@@ -355,6 +357,8 @@ impl Catalog for SqlCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
+
+        object_store.put_version_hint(&metadata_location).await?;
         {
             let catalog_name = self.name.clone();
             let namespace = identifier.namespace().to_string();
@@ -392,6 +396,8 @@ impl Catalog for SqlCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
+        object_store.put_version_hint(&metadata_location).await?;
+
         object_store
             .put_metadata(&table_metadata_location, table_metadata.as_ref())
             .await?;
@@ -454,6 +460,8 @@ impl Catalog for SqlCatalog {
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
+        object_store.put_version_hint(&metadata_location).await?;
+
         let catalog_name = self.name.clone();
         let namespace = identifier.namespace().to_string();
         let name = identifier.name().to_string();
@@ -497,6 +505,8 @@ impl Catalog for SqlCatalog {
                 object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
+                object_store.put_version_hint(&metadata_location).await?;
+
                 Ok(metadata_location)
             }
             _ => Err(IcebergError::InvalidFormat(
@@ -551,6 +561,8 @@ impl Catalog for SqlCatalog {
                 object_store
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
+                object_store.put_version_hint(&metadata_location).await?;
+
                 Ok(metadata_location)
             }
             _ => Err(IcebergError::InvalidFormat(

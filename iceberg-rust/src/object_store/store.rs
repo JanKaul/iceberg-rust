@@ -78,3 +78,42 @@ fn version_hint_path(original: &str) -> Option<String> {
             .to_string(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_version_hint_path_normal_case() {
+        let input = "/path/to/metadata/v1.metadata.json";
+        let expected = "/path/to/metadata/version-hint.text";
+        assert_eq!(version_hint_path(input), Some(expected.to_string()));
+    }
+
+    #[test]
+    fn test_version_hint_path_single_file() {
+        let input = "file.json";
+        let expected = "version-hint.text";
+        assert_eq!(version_hint_path(input), Some(expected.to_string()));
+    }
+
+    #[test]
+    fn test_version_hint_path_empty_string() {
+        let input = "";
+        assert_eq!(version_hint_path(input), None);
+    }
+
+    #[test]
+    fn test_version_hint_path_with_special_characters() {
+        let input = "/path/with spaces/and#special@chars/file.json";
+        let expected = "/path/with spaces/and#special@chars/version-hint.text";
+        assert_eq!(version_hint_path(input), Some(expected.to_string()));
+    }
+
+    #[test]
+    fn test_version_hint_path_with_multiple_extensions() {
+        let input = "/path/to/file.with.multiple.extensions.json";
+        let expected = "/path/to/version-hint.text";
+        assert_eq!(version_hint_path(input), Some(expected.to_string()));
+    }
+}
