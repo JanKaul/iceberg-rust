@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use iceberg_rust_spec::identifier::FullIdentifier;
 use identifier::Identifier;
 use object_store::ObjectStore;
 
@@ -88,7 +89,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// perform commit view operation
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView<Identifier>,
+        commit: CommitView<FullIdentifier>,
     ) -> Result<MaterializedView, Error>;
     /// Register a table with the catalog if it doesn't exist.
     async fn register_table(

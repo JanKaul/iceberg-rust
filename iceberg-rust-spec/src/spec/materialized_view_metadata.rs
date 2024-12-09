@@ -7,7 +7,7 @@ use std::{collections::HashMap, ops::Deref};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::identifier::Identifier;
+use crate::identifier::FullIdentifier;
 
 use super::{
     tabular::TabularMetadataRef,
@@ -17,9 +17,9 @@ use super::{
 pub static REFRESH_STATE: &str = "refresh-state";
 
 /// Fields for the version 1 of the view metadata.
-pub type MaterializedViewMetadata = GeneralViewMetadata<Identifier>;
+pub type MaterializedViewMetadata = GeneralViewMetadata<FullIdentifier>;
 /// Builder for materialized view metadata
-pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<Identifier>;
+pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<FullIdentifier>;
 
 impl MaterializedViewMetadata {
     pub fn as_ref(&self) -> TabularMetadataRef {
