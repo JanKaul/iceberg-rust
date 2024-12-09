@@ -91,6 +91,13 @@ mod tests {
     }
 
     #[test]
+    fn test_version_hint_path_relative() {
+        let input = "path/to/metadata/v1.metadata.json";
+        let expected = "path/to/metadata/version-hint.text";
+        assert_eq!(version_hint_path(input), Some(expected.to_string()));
+    }
+
+    #[test]
     fn test_version_hint_path_single_file() {
         let input = "file.json";
         let expected = "version-hint.text";

@@ -60,7 +60,7 @@ impl QueryPlanner for IcebergQueryPlanner {
 pub fn iceberg_transform(node: LogicalPlan) -> Result<Transformed<LogicalPlan>, DataFusionError> {
     match node {
         LogicalPlan::Ddl(DdlStatement::CreateExternalTable(table)) => {
-            if table.file_type == "ICEBERG" {
+            if table.file_type.to_lowercase() == "iceberg" {
                 Ok(Transformed::yes(LogicalPlan::Extension(Extension {
                     node: Arc::new(CreateIcebergTable(table)),
                 })))
