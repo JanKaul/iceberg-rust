@@ -643,10 +643,12 @@ pub mod tests {
     use iceberg_rust::{
         catalog::{namespace::Namespace, Catalog},
         object_store::ObjectStoreBuilder,
+        spec::util::strip_prefix,
     };
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
     use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
     use testcontainers_modules::localstack::LocalStack;
+    use tokio::time::sleep;
 
     use crate::FileCatalog;
 
@@ -660,7 +662,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        localstack
+        let command = localstack
             .exec(ExecCommand::new(vec![
                 "awslocal",
                 "s3api",
@@ -671,10 +673,14 @@ pub mod tests {
             .await
             .unwrap();
 
+        while command.exit_code().await.unwrap().is_none() {
+            sleep(Duration::from_millis(100)).await;
+        }
+
         let localstack_host = localstack.get_host().await.unwrap();
         let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
 
-        let object_store = ObjectStoreBuilder::aws()
+        let object_store = ObjectStoreBuilder::s3()
             .with_config("aws_access_key_id".parse().unwrap(), "user")
             .with_config("aws_secret_access_key".parse().unwrap(), "password")
             .with_config(
@@ -823,10 +829,11 @@ pub mod tests {
 
         assert!(once);
 
-        let object_store = iceberg_catalog.object_store(iceberg_rust::object_store::Bucket::Local);
+        let object_store =
+            iceberg_catalog.object_store(iceberg_rust::object_store::Bucket::S3("warehouse"));
 
         let version_hint = object_store
-            .get(&"/warehouse/tpch/lineitem/metadata/version-hint.text".into())
+            .get(&strip_prefix("s3://warehouse/tpch/lineitem/metadata/version-hint.text").into())
             .await
             .unwrap()
             .bytes()
@@ -835,7 +842,7 @@ pub mod tests {
 
         assert_eq!(
             std::str::from_utf8(&version_hint).unwrap(),
-            "/warehouse/tpch/lineitem/metadata/v1.metadata.json"
+            "s3://warehouse/tpch/lineitem/metadata/v1.metadata.json"
         );
     }
 
