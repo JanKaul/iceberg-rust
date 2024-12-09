@@ -11,6 +11,6 @@ pub enum Error {
 
 impl From<Error> for IcebergError {
     fn from(value: Error) -> Self {
-        IcebergError::InvalidFormat(value.to_string())
+        IcebergError::External(Box::new(value))
     }
 }
