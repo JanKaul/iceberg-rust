@@ -719,7 +719,7 @@ pub mod tests {
     L_RECEIPTDATE DATE NOT NULL, 
     L_SHIPINSTRUCT VARCHAR NOT NULL, 
     L_SHIPMODE VARCHAR NOT NULL, 
-    L_COMMENT VARCHAR NOT NULL ) STORED AS CSV LOCATION '../datafusion_iceberg/testdata/tpch/lineitem.csv' OPTIONS ('has_header' 'false');";
+    L_COMMENT VARCHAR NOT NULL ) STORED AS CSV LOCATION '../../datafusion_iceberg/testdata/tpch/lineitem.csv' OPTIONS ('has_header' 'false');";
 
         let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 

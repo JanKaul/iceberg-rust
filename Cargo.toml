@@ -4,11 +4,11 @@ members = [
   "iceberg-rust",
   "datafusion_iceberg",
   "datafusion-iceberg-sql",
-  "iceberg-sql-catalog",
-  "iceberg-rest-catalog",
-  "iceberg-file-catalog",
-  "iceberg-glue-catalog",
-  "iceberg-s3tables-catalog",
+  "catalogs/iceberg-sql-catalog",
+  "catalogs/iceberg-rest-catalog",
+  "catalogs/iceberg-file-catalog",
+  "catalogs/iceberg-glue-catalog",
+  "catalogs/iceberg-s3tables-catalog",
 ]
 
 resolver = "2"

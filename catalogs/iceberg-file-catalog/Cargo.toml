@@ -1,9 +1,9 @@
 [package]
-name = "iceberg-glue-catalog"
+name = "iceberg-file-catalog"
 version = "0.5.8"
 edition = "2021"
 
-description = "Glue catalog for the unofficial Iceberg table format implementation"
+description = "Filesystem catalog for the unofficial Iceberg table format implementation"
 
 license = "Apache-2.0"
 
@@ -11,10 +11,8 @@ repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
 async-trait.workspace = true
-aws-config = "1.5.9"
-aws-sdk-glue = "1.68.0"
 futures.workspace = true
-iceberg-rust = { path = "../iceberg-rust", version = "0.5.8" }
+iceberg-rust = { path = "../../iceberg-rust", version = "0.5.8" }
 object_store.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -25,5 +23,5 @@ uuid = { version = "1.7.0", features = ["v4"] }
 tokio = "1"
 testcontainers-modules = { version = "0.8.0", features = ["localstack"] }
 testcontainers = "0.20.0"
-datafusion_iceberg = { path = "../datafusion_iceberg" , version = "0.5.8" }
+datafusion_iceberg = { path = "../../datafusion_iceberg" , version = "0.5.8" }
 datafusion.workspace = true
