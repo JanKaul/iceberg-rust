@@ -36,6 +36,7 @@ use iceberg_rust::{
         view_metadata::{Version, ViewRepresentation},
     },
     table::Table,
+    view::View,
 };
 
 #[derive(Debug)]
@@ -243,24 +244,45 @@ async fn plan_create_view(
     #[cfg(not(test))]
     let location = "s3://".to_string() + catalog_name + "/" + namespace_name + "/" + table_name;
 
-    MaterializedView::builder()
-        .with_name(table_name)
-        .with_location(location)
-        .with_schema(
-            Schema::builder()
-                .with_fields(schema)
-                .build()
-                .map_err(|err| DataFusionError::External(Box::new(err)))?,
-        )
-        .with_view_version(
-            Version::builder()
-                .with_representation(ViewRepresentation::sql(definition, None))
-                .build()
-                .map_err(|err| DataFusionError::External(Box::new(err)))?,
-        )
-        .build(&[namespace_name.as_ref().to_owned()], catalog)
-        .await
-        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    if node.0.temporary {
+        MaterializedView::builder()
+            .with_name(table_name)
+            .with_location(location)
+            .with_schema(
+                Schema::builder()
+                    .with_fields(schema)
+                    .build()
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
+            )
+            .with_view_version(
+                Version::builder()
+                    .with_representation(ViewRepresentation::sql(definition, None))
+                    .build()
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
+            )
+            .build(&[namespace_name.as_ref().to_owned()], catalog)
+            .await
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    } else {
+        View::builder()
+            .with_name(table_name)
+            .with_location(location)
+            .with_schema(
+                Schema::builder()
+                    .with_fields(schema)
+                    .build()
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
+            )
+            .with_view_version(
+                Version::builder()
+                    .with_representation(ViewRepresentation::sql(definition, None))
+                    .build()
+                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
+            )
+            .build(&[namespace_name.as_ref().to_owned()], catalog)
+            .await
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    }
 
     Ok(Some(Arc::new(EmptyExec::new(Arc::new(
         ArrowSchema::empty(),
