@@ -1,18 +1,15 @@
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
-    time::SystemTime,
 };
 
 use async_trait::async_trait;
 use aws_config::SdkConfig;
 
 use aws_sdk_s3tables::{
-    config::{Credentials, ProvideCredentials},
     types::OpenTableFormat,
     Client,
 };
-use futures::lock::Mutex;
 use iceberg_rust::{
     catalog::{
         commit::{
@@ -40,9 +37,7 @@ use iceberg_rust::{
     table::Table,
     view::View,
 };
-use object_store::{
-    aws::AwsCredential, CredentialProvider, Error as ObjectStoreError, ObjectStore,
-};
+use object_store::ObjectStore;
 use uuid::Uuid;
 
 use crate::error::Error;
