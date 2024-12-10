@@ -26,6 +26,6 @@ pub async fn get_schema(
     let logical_plan = planner.sql_statement_to_plan(statement)?;
     let fields: Vec<FieldRef> = logical_plan.schema().fields().iter().cloned().collect();
     let struct_type = StructType::try_from(&Schema::new(fields))
-        .map_err(|err| DataFusionError::Internal(err.to_string()))?;
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
     Ok(struct_type)
 }

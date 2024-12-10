@@ -297,7 +297,7 @@ impl Catalog for GlueCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
-        object_store.put_version_hint(&metadata_location).await?;
+        object_store.put_version_hint(&metadata_location).await.ok();
 
         let schema = metadata.current_schema(None)?;
 
@@ -366,7 +366,7 @@ impl Catalog for GlueCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
-        object_store.put_version_hint(&metadata_location).await?;
+        object_store.put_version_hint(&metadata_location).await.ok();
 
         let schema = metadata.current_schema(None)?;
 
@@ -440,7 +440,7 @@ impl Catalog for GlueCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
-        object_store.put_version_hint(&metadata_location).await?;
+        object_store.put_version_hint(&metadata_location).await.ok();
 
         object_store
             .put_metadata(&table_metadata_location, table_metadata.as_ref())
@@ -554,7 +554,7 @@ impl Catalog for GlueCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
-        object_store.put_version_hint(&metadata_location).await?;
+        object_store.put_version_hint(&metadata_location).await.ok();
 
         let schema = metadata.current_schema(None)?;
 
@@ -655,7 +655,7 @@ impl Catalog for GlueCatalog {
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
 
-                object_store.put_version_hint(&metadata_location).await?;
+                object_store.put_version_hint(&metadata_location).await.ok();
 
                 Ok(metadata_location)
             }
@@ -763,7 +763,7 @@ impl Catalog for GlueCatalog {
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
 
-                object_store.put_version_hint(&metadata_location).await?;
+                object_store.put_version_hint(&metadata_location).await.ok();
 
                 Ok(metadata_location)
             }

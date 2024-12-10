@@ -56,14 +56,14 @@ impl SchemaProvider for IcebergSchema {
         let mut full_name = self.schema.to_vec();
         full_name.push(name.to_owned());
         let identifier = Identifier::try_new(&full_name, None)
-            .map_err(|err| DataFusionError::Internal(err.to_string()))?;
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
         self.catalog.register_table(identifier, table)
     }
     fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
         let mut full_name = self.schema.to_vec();
         full_name.push(name.to_owned());
         let identifier = Identifier::try_new(&full_name, None)
-            .map_err(|err| DataFusionError::Internal(err.to_string()))?;
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
         self.catalog.deregister_table(identifier)
     }
 }
