@@ -37,10 +37,10 @@ impl IcebergContext {
                 .clone()
                 .load_tabular(
                     &Identifier::try_new(&[namespace.to_owned(), name.to_owned()], None)
-                        .map_err(|err| DataFusionError::Internal(err.to_string()))?,
+                        .map_err(|err| DataFusionError::External(Box::new(err)))?,
                 )
                 .await
-                .map_err(|err| DataFusionError::Internal(err.to_string()))?;
+                .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
             let table_source = IcebergTableSource::new(tabular, branch);
 

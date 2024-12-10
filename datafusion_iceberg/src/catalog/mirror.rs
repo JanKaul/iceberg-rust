@@ -45,14 +45,14 @@ impl Mirror {
             .clone()
             .list_namespaces(None)
             .await
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
         for namespace in namespaces {
             let mut namespace_node = HashSet::new();
             let tables = catalog
                 .clone()
                 .list_tabulars(&namespace)
                 .await
-                .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+                .map_err(|err| DataFusionError::External(Box::new(err)))?;
             for identifier in tables {
                 namespace_node.insert(identifier.to_string());
                 storage.insert(identifier.to_string(), Node::Relation(identifier));
@@ -81,7 +81,7 @@ impl Mirror {
             .storage
             .get(&namespace.to_string())
             .ok_or_else(|| IcebergError::InvalidFormat("namespace in catalog".to_string()))
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
         let names = if let Node::Namespace(names) = node.value() {
             Ok(names)
         } else {
@@ -89,7 +89,7 @@ impl Mirror {
                 "table in namespace".to_string(),
             ))
         }
-        .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
         Ok(names
             .iter()
             .filter_map(|r| {
@@ -118,7 +118,7 @@ impl Mirror {
                 )
             })
             .collect::<Result<_, iceberg_rust::spec::error::Error>>()
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))
+            .map_err(|err| DataFusionError::External(Box::new(err)))
     }
     pub async fn table(
         &self,
@@ -289,7 +289,7 @@ impl Mirror {
                     }
                 }
             })
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
         Ok(Some(table))
     }
     pub fn deregister_table(
@@ -316,7 +316,7 @@ impl Mirror {
             .spawn_local(async move {
                 cloned_catalog.drop_table(&identifier).await.unwrap();
             })
-            .map_err(|err| DataFusionError::Internal(format!("{}", err)))?;
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
         // Currently can't synchronously return a table which has to be fetched asynchronously
         Ok(None)
     }
