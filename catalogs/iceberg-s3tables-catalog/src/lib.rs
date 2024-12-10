@@ -1,12 +1,18 @@
 use std::{
     collections::HashMap,
     sync::{Arc, RwLock},
+    time::SystemTime,
 };
 
 use async_trait::async_trait;
 use aws_config::SdkConfig;
 
-use aws_sdk_s3tables::{types::OpenTableFormat, Client};
+use aws_sdk_s3tables::{
+    config::{Credentials, ProvideCredentials},
+    types::OpenTableFormat,
+    Client,
+};
+use futures::lock::Mutex;
 use iceberg_rust::{
     catalog::{
         commit::{
@@ -34,7 +40,9 @@ use iceberg_rust::{
     table::Table,
     view::View,
 };
-use object_store::ObjectStore;
+use object_store::{
+    aws::AwsCredential, CredentialProvider, Error as ObjectStoreError, ObjectStore,
+};
 use uuid::Uuid;
 
 use crate::error::Error;
@@ -311,7 +319,7 @@ impl Catalog for S3TablesCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
-        object_store.put_version_hint(&metadata_location).await?;
+        object_store.put_version_hint(&metadata_location).await.ok();
 
         let table = self
             .client
@@ -372,7 +380,7 @@ impl Catalog for S3TablesCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
-        object_store.put_version_hint(&metadata_location).await?;
+        object_store.put_version_hint(&metadata_location).await.ok();
 
         let table = self
             .client
@@ -465,7 +473,7 @@ impl Catalog for S3TablesCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
-        object_store.put_version_hint(&metadata_location).await?;
+        object_store.put_version_hint(&metadata_location).await.ok();
 
         object_store
             .put_metadata(&table_metadata_location, table_metadata.as_ref())
@@ -548,7 +556,7 @@ impl Catalog for S3TablesCatalog {
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
 
-        object_store.put_version_hint(&metadata_location).await?;
+        object_store.put_version_hint(&metadata_location).await.ok();
 
         let table = self
             .client
@@ -620,7 +628,7 @@ impl Catalog for S3TablesCatalog {
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
 
-                object_store.put_version_hint(&metadata_location).await?;
+                object_store.put_version_hint(&metadata_location).await.ok();
 
                 Ok(metadata_location)
             }
@@ -698,7 +706,7 @@ impl Catalog for S3TablesCatalog {
                     .put_metadata(&metadata_location, metadata.as_ref())
                     .await?;
 
-                object_store.put_version_hint(&metadata_location).await?;
+                object_store.put_version_hint(&metadata_location).await.ok();
 
                 Ok(metadata_location)
             }
