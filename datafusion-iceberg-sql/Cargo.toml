@@ -1,6 +1,6 @@
 [package]
 name = "datafusion-iceberg-sql"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 
 description = "Apache Iceberg integration for Datafusion"
@@ -10,7 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
-iceberg-rust = { path = "../iceberg-rust", version = "0.6.0" }
+iceberg-rust = { path = "../iceberg-rust", version = "0.6.1" }
 datafusion-sql.workspace = true
 datafusion-expr.workspace = true
 datafusion-common.workspace = true
