@@ -2,10 +2,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
     arrow::error::ArrowError,
+    common::tree_node::TreeNode,
     datasource::{empty::EmptyTable, TableProvider},
     prelude::SessionContext,
     sql::{ResolvedTableReference, TableReference},
 };
+use datafusion_expr::LogicalPlan;
 use futures::{stream, StreamExt, TryStreamExt};
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned,
@@ -26,6 +28,8 @@ use crate::{
     sql::{transform_name, transform_relations},
     DataFusionTable,
 };
+
+mod delta_queries;
 
 pub async fn refresh_materialized_view(
     matview: &mut MaterializedView,
@@ -211,6 +215,34 @@ pub async fn refresh_materialized_view(
         .await?;
 
     Ok(())
+}
+
+/// Check if the entire query has to be reexecuted
+fn requires_full_overwrite(node: &LogicalPlan) -> Result<bool, datafusion::error::DataFusionError> {
+    node.exists(|node| {
+        Ok(!matches!(
+            node,
+            &LogicalPlan::Projection(_)
+                | &LogicalPlan::Filter(_)
+                | &LogicalPlan::Join(_)
+                | &LogicalPlan::Union(_)
+                | &LogicalPlan::Aggregate(_)
+                | &LogicalPlan::Sort(_)
+                | &LogicalPlan::TableScan(_)
+        ))
+    })
+}
+
+/// Checks if the storage table has to be overwritten but the data from the last refresh can be reused
+fn requires_overwrite_from_last(
+    node: &LogicalPlan,
+) -> Result<bool, datafusion::error::DataFusionError> {
+    node.exists(|node| {
+        Ok(matches!(
+            node,
+            &LogicalPlan::Aggregate(_) | &LogicalPlan::Sort(_)
+        ))
+    })
 }
 
 #[cfg(test)]
