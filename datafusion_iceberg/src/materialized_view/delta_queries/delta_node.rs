@@ -46,11 +46,9 @@ impl UserDefinedLogicalNodeCore for PosDeltaNode {
 
     fn with_exprs_and_inputs(
         &self,
-        exprs: Vec<Expr>,
+        _exprs: Vec<Expr>,
         inputs: Vec<LogicalPlan>,
     ) -> datafusion::error::Result<Self> {
-        assert_eq!(inputs.len(), 1, "input size inconsistent");
-        assert_eq!(exprs.len(), 0, "expression size inconsistent");
         Ok(Self {
             input: Arc::new(inputs[0].clone()),
         })
@@ -71,7 +69,7 @@ impl PosDeltaNode {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Hash)]
+#[derive(PartialEq, Eq, Hash, PartialOrd)]
 pub struct PosDeltaScanNode {
     pub input: LogicalPlan,
 }
@@ -113,11 +111,9 @@ impl UserDefinedLogicalNodeCore for PosDeltaScanNode {
 
     fn with_exprs_and_inputs(
         &self,
-        exprs: Vec<Expr>,
+        _exprs: Vec<Expr>,
         inputs: Vec<LogicalPlan>,
     ) -> datafusion::error::Result<Self> {
-        assert_eq!(inputs.len(), 1, "input size inconsistent");
-        assert_eq!(exprs.len(), 0, "expression size inconsistent");
         Ok(Self {
             input: inputs[0].clone(),
         })
