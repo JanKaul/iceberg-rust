@@ -130,6 +130,7 @@ pub async fn refresh_materialized_view(
         .try_collect::<(HashMap<_, _>, HashMap<_, _>)>()
         .await?;
 
+    // If all source table states are fresh, then nothing has to be done
     if source_tables
         .iter()
         .all(|x| matches!(x.1 .1, StorageTableState::Fresh))
@@ -137,27 +138,16 @@ pub async fn refresh_materialized_view(
         return Ok(());
     }
 
-    // Register source tables in datafusion context
+    // Register the source table base
     source_tables
-        .into_iter()
-        .flat_map(|(identifier, (source_table, _))| {
+        .iter()
+        .try_for_each(|(identifier, (source_table, _))| {
             let table = Arc::new(DataFusionTable::new(
-                source_table,
+                source_table.clone(),
                 None,
                 None,
                 branch.as_deref(),
             )) as Arc<dyn TableProvider>;
-            let schema = table.schema().clone();
-
-            vec![
-                (identifier.clone(), table),
-                (
-                    identifier.clone() + "__pos__delta__",
-                    Arc::new(EmptyTable::new(schema)) as Arc<dyn TableProvider>,
-                ),
-            ]
-        })
-        .try_for_each(|(identifier, table)| {
             ctx.register_table(transform_name(&identifier.to_string()), table)
                 .map_err(DatafusionIcebergError::from)?;
             Ok::<_, Error>(())
@@ -171,15 +161,52 @@ pub async fn refresh_materialized_view(
         .await
         .map_err(DatafusionIcebergError::from)?;
 
+    let refresh_strategy =
+        determine_refresh_strategy(&logical_plan).map_err(DatafusionIcebergError::from)?;
+
+    // Potentially register source table deltas
+    let tranformed_plan = match refresh_strategy {
+        RefreshStrategy::FullOverwrite => {
+            source_tables
+                .into_iter()
+                .try_for_each(|(identifier, (source_table, _))| {
+                    let table = Arc::new(DataFusionTable::new(
+                        source_table.clone(),
+                        None,
+                        None,
+                        branch.as_deref(),
+                    )) as Arc<dyn TableProvider>;
+                    let schema = table.schema().clone();
+                    ctx.register_table(
+                        transform_name(&(identifier.to_string() + "__pos__delta__")),
+                        Arc::new(EmptyTable::new(schema)),
+                    )
+                    .map_err(DatafusionIcebergError::from)?;
+                    Ok::<_, Error>(())
+                })?;
+            logical_plan
+        }
+        RefreshStrategy::IncrementalAppend => logical_plan,
+        RefreshStrategy::IncrementalOverwrite => logical_plan,
+    };
+
     // Calculate arrow record batches from logical plan
     let batches = ctx
-        .execute_logical_plan(logical_plan)
+        .execute_logical_plan(tranformed_plan)
         .await
         .map_err(DatafusionIcebergError::from)?
         .execute_stream()
         .await
         .map_err(DatafusionIcebergError::from)?
         .map_err(ArrowError::from);
+
+    let refresh_version_id = matview.metadata().current_version_id;
+
+    let refresh_state = RefreshState {
+        refresh_version_id,
+        source_table_states: SourceTables(source_table_states),
+        source_view_states: SourceViews(HashMap::new()),
+    };
 
     // Write arrow record batches to datafiles
     let files = write_parquet_partitioned(
@@ -190,13 +217,6 @@ pub async fn refresh_materialized_view(
     )
     .await?;
 
-    let refresh_version_id = matview.metadata().current_version_id;
-
-    let refresh_state = RefreshState {
-        refresh_version_id,
-        source_table_states: SourceTables(source_table_states),
-        source_view_states: SourceViews(HashMap::new()),
-    };
     matview
         .new_transaction(branch.as_deref())
         .full_refresh(files, refresh_state)?
@@ -204,6 +224,28 @@ pub async fn refresh_materialized_view(
         .await?;
 
     Ok(())
+}
+
+/// Refresh strategy that can be used for the operation
+enum RefreshStrategy {
+    /// Changes can be computed incrementally and appended to the last state, i.e. Projection, Filter
+    IncrementalAppend,
+    /// Changes can be computed incrementally and the last state needs to be overwritten, i.e. Aggregate
+    IncrementalOverwrite,
+    /// The entire query needs to be computed, i.e. WindowFunction
+    FullOverwrite,
+}
+
+fn determine_refresh_strategy(
+    node: &LogicalPlan,
+) -> Result<RefreshStrategy, datafusion::error::DataFusionError> {
+    if requires_full_overwrite(node)? {
+        Ok(RefreshStrategy::FullOverwrite)
+    } else if requires_overwrite_from_last(node)? {
+        Ok(RefreshStrategy::IncrementalOverwrite)
+    } else {
+        Ok(RefreshStrategy::IncrementalAppend)
+    }
 }
 
 /// Check if the entire query has to be reexecuted
