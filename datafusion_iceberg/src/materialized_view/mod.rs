@@ -5,7 +5,7 @@ use datafusion::{
     common::tree_node::TreeNode,
     datasource::{empty::EmptyTable, TableProvider},
     prelude::SessionContext,
-    sql::{ResolvedTableReference, TableReference},
+    sql::TableReference,
 };
 use datafusion_expr::LogicalPlan;
 use futures::{stream, StreamExt, TryStreamExt};
@@ -20,8 +20,6 @@ use iceberg_rust::{
     spec::{materialized_view_metadata::RefreshState, view_metadata::ViewRepresentation},
     sql::find_relations,
 };
-use itertools::Itertools;
-use uuid::Uuid;
 
 use crate::{
     error::Error as DatafusionIcebergError,
@@ -57,7 +55,7 @@ pub async fn refresh_materialized_view(
     );
 
     // Load source tables
-    let source_tables = stream::iter(relations.iter())
+    let (source_tables, source_table_states) = stream::iter(relations.iter())
         .then(|relation| {
             let catalog_list = catalog_list.clone();
             let branch = branch.clone();
@@ -123,23 +121,26 @@ pub async fn refresh_materialized_view(
                     StorageTableState::Invalid
                 };
 
-                Ok((reference, tabular, table_state, uuid, current_snapshot_id))
+                Ok((
+                    (reference.to_string(), (tabular, table_state)),
+                    ((uuid, None), current_snapshot_id),
+                ))
             }
         })
-        .try_collect::<Vec<_>>()
+        .try_collect::<(HashMap<_, _>, HashMap<_, _>)>()
         .await?;
 
     if source_tables
         .iter()
-        .all(|x| matches!(x.2, StorageTableState::Fresh))
+        .all(|x| matches!(x.1 .1, StorageTableState::Fresh))
     {
         return Ok(());
     }
 
-    // Register source tables in datafusion context and return lineage information
-    let source_table_states = source_tables
+    // Register source tables in datafusion context
+    source_tables
         .into_iter()
-        .flat_map(|(identifier, source_table, _, uuid, snapshot_id)| {
+        .flat_map(|(identifier, (source_table, _))| {
             let table = Arc::new(DataFusionTable::new(
                 source_table,
                 None,
@@ -149,30 +150,18 @@ pub async fn refresh_materialized_view(
             let schema = table.schema().clone();
 
             vec![
-                (identifier.clone(), uuid, snapshot_id, table),
+                (identifier.clone(), table),
                 (
-                    ResolvedTableReference {
-                        catalog: identifier.catalog.clone(),
-                        schema: identifier.schema.clone(),
-                        table: (identifier.table.to_string() + "__delta__").as_str().into(),
-                    },
-                    uuid,
-                    snapshot_id,
+                    identifier.clone() + "__pos__delta__",
                     Arc::new(EmptyTable::new(schema)) as Arc<dyn TableProvider>,
                 ),
             ]
         })
-        .map(|(identifier, uuid, snapshot_id, table)| {
+        .try_for_each(|(identifier, table)| {
             ctx.register_table(transform_name(&identifier.to_string()), table)
                 .map_err(DatafusionIcebergError::from)?;
-            Ok::<_, Error>((identifier, uuid, snapshot_id))
-        })
-        .filter_ok(|(identifier, _, _)| !identifier.table.ends_with("__delta__"))
-        .map(|x| {
-            let (_, uuid, snapshot_id) = x?;
-            Ok(((uuid, None), snapshot_id))
-        })
-        .collect::<Result<HashMap<(Uuid, Option<String>), i64>, Error>>()?;
+            Ok::<_, Error>(())
+        })?;
 
     let sql_statements = transform_relations(sql)?;
 
