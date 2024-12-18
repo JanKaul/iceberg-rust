@@ -15,7 +15,7 @@ use crate::view::View;
 use super::identifier::Identifier;
 use super::Catalog;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(clippy::large_enum_variant)]
 /// Enum for different types that can be queried like a table, for example view
 pub enum Tabular {

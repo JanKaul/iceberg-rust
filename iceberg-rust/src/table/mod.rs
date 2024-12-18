@@ -36,7 +36,7 @@ pub mod manifest;
 pub mod manifest_list;
 pub mod transaction;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Iceberg table
 pub struct Table {
     identifier: Identifier,

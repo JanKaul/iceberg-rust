@@ -27,7 +27,7 @@ pub static STORAGE_TABLE_POSTFIX: &str = "__storage";
 /// Flag to mark a table as a storage table
 pub static STORAGE_TABLE_FLAG: &str = "materialize.storage_table";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// An iceberg materialized view
 pub struct MaterializedView {
     /// Type of the View, either filesystem or metastore.
