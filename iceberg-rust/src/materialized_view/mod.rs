@@ -40,7 +40,7 @@ pub struct MaterializedView {
 
 /// Storage table states
 #[derive(Debug)]
-pub enum StorageTableState {
+pub enum SourceTableState {
     /// Data in storage table is fresh
     Fresh,
     /// Data in storage table is outdated
