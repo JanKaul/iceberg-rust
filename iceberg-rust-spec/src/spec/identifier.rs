@@ -100,10 +100,10 @@ pub struct FullIdentifier {
 }
 
 impl FullIdentifier {
-    pub fn new(catalog: Option<&str>, namespace: &Namespace, name: &str) -> Self {
+    pub fn new(catalog: Option<&str>, namespace: &[String], name: &str) -> Self {
         Self {
             catalog: catalog.map(ToString::to_string),
-            namespace: namespace.clone(),
+            namespace: Namespace(namespace.to_owned()),
             name: name.to_owned(),
         }
     }
