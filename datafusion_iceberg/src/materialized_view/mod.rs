@@ -4,15 +4,17 @@ use datafusion::{
     arrow::error::ArrowError,
     common::tree_node::TreeNode,
     datasource::{empty::EmptyTable, TableProvider},
+    optimizer::{Optimizer, OptimizerContext},
     prelude::SessionContext,
     sql::TableReference,
 };
 use datafusion_expr::LogicalPlan;
+use delta_queries::{delta_node::PosDeltaNode, optimizer_rules::PosDelta};
 use futures::{stream, StreamExt, TryStreamExt};
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned,
     catalog::{identifier::Identifier, tabular::Tabular, CatalogList},
-    materialized_view::{MaterializedView, StorageTableState},
+    materialized_view::{MaterializedView, SourceTableState},
     spec::materialized_view_metadata::{SourceTables, SourceViews},
 };
 use iceberg_rust::{
@@ -109,16 +111,16 @@ pub async fn refresh_materialized_view(
                 let table_state = if let Some(old_refresh_state) = old_refresh_state.as_ref() {
                     let revision_id = old_refresh_state.source_table_states.get(&(uuid, None));
                     if Some(&current_snapshot_id) == revision_id {
-                        StorageTableState::Fresh
+                        SourceTableState::Fresh
                     } else if Some(&-1) == revision_id {
-                        StorageTableState::Invalid
+                        SourceTableState::Invalid
                     } else if let Some(revision_id) = revision_id {
-                        StorageTableState::Outdated(*revision_id)
+                        SourceTableState::Outdated(*revision_id)
                     } else {
-                        StorageTableState::Invalid
+                        SourceTableState::Invalid
                     }
                 } else {
-                    StorageTableState::Invalid
+                    SourceTableState::Invalid
                 };
 
                 Ok((
@@ -133,7 +135,7 @@ pub async fn refresh_materialized_view(
     // If all source table states are fresh, then nothing has to be done
     if source_tables
         .iter()
-        .all(|x| matches!(x.1 .1, StorageTableState::Fresh))
+        .all(|x| matches!(x.1 .1, SourceTableState::Fresh))
     {
         return Ok(());
     }
@@ -141,13 +143,32 @@ pub async fn refresh_materialized_view(
     // Register the source table base
     source_tables
         .iter()
-        .try_for_each(|(identifier, (source_table, _))| {
-            let table = Arc::new(DataFusionTable::new(
-                source_table.clone(),
-                None,
-                None,
-                branch.as_deref(),
-            )) as Arc<dyn TableProvider>;
+        .try_for_each(|(identifier, (source_table, state))| {
+            let table = match state {
+                SourceTableState::Fresh => Arc::new(DataFusionTable::new(
+                    source_table.clone(),
+                    None,
+                    None,
+                    branch.as_deref(),
+                )) as Arc<dyn TableProvider>,
+                SourceTableState::Outdated(id) => Arc::new(DataFusionTable::new(
+                    source_table.clone(),
+                    None,
+                    Some(*id),
+                    branch.as_deref(),
+                )) as Arc<dyn TableProvider>,
+                SourceTableState::Invalid => {
+                    let table = Arc::new(DataFusionTable::new(
+                        source_table.clone(),
+                        None,
+                        None,
+                        branch.as_deref(),
+                    )) as Arc<dyn TableProvider>;
+                    let schema = table.schema();
+
+                    Arc::new(EmptyTable::new(schema))
+                }
+            };
             ctx.register_table(transform_name(&identifier.to_string()), table)
                 .map_err(DatafusionIcebergError::from)?;
             Ok::<_, Error>(())
@@ -164,29 +185,52 @@ pub async fn refresh_materialized_view(
     let refresh_strategy =
         determine_refresh_strategy(&logical_plan).map_err(DatafusionIcebergError::from)?;
 
-    // Potentially register source table deltas
+    // Potentially register source table deltas and rewrite logical plan
     let tranformed_plan = match refresh_strategy {
-        RefreshStrategy::FullOverwrite => {
+        RefreshStrategy::FullOverwrite => logical_plan,
+        RefreshStrategy::IncrementalAppend => {
             source_tables
                 .into_iter()
-                .try_for_each(|(identifier, (source_table, _))| {
-                    let table = Arc::new(DataFusionTable::new(
-                        source_table.clone(),
-                        None,
-                        None,
-                        branch.as_deref(),
-                    )) as Arc<dyn TableProvider>;
-                    let schema = table.schema().clone();
-                    ctx.register_table(
-                        transform_name(&(identifier.to_string() + "__pos__delta__")),
-                        Arc::new(EmptyTable::new(schema)),
-                    )
-                    .map_err(DatafusionIcebergError::from)?;
+                .try_for_each(|(identifier, (source_table, state))| {
+                    match state {
+                        SourceTableState::Outdated(id) => {
+                            let table = Arc::new(DataFusionTable::new(
+                                source_table.clone(),
+                                Some(id),
+                                None,
+                                branch.as_deref(),
+                            )) as Arc<dyn TableProvider>;
+                            ctx.register_table(
+                                transform_name(&(identifier.to_string() + "__pos__delta__")),
+                                table,
+                            )
+                            .map_err(DatafusionIcebergError::from)?;
+                        }
+                        SourceTableState::Invalid => {
+                            let table = Arc::new(DataFusionTable::new(
+                                source_table.clone(),
+                                None,
+                                None,
+                                branch.as_deref(),
+                            )) as Arc<dyn TableProvider>;
+                            ctx.register_table(
+                                transform_name(&(identifier.to_string() + "__pos__delta__")),
+                                table,
+                            )
+                            .map_err(DatafusionIcebergError::from)?;
+                        }
+                        SourceTableState::Fresh => (),
+                    }
                     Ok::<_, Error>(())
                 })?;
-            logical_plan
+
+            let delta_plan = PosDeltaNode::new(logical_plan).into_logical_plan();
+            let optimizer = Optimizer::with_rules(vec![Arc::new(PosDelta {})]);
+
+            optimizer
+                .optimize(delta_plan, &OptimizerContext::new(), |_, _| {})
+                .map_err(DatafusionIcebergError::from)?
         }
-        RefreshStrategy::IncrementalAppend => logical_plan,
         RefreshStrategy::IncrementalOverwrite => logical_plan,
     };
 
@@ -217,11 +261,22 @@ pub async fn refresh_materialized_view(
     )
     .await?;
 
-    matview
-        .new_transaction(branch.as_deref())
-        .full_refresh(files, refresh_state)?
-        .commit()
-        .await?;
+    match refresh_strategy {
+        RefreshStrategy::FullOverwrite | RefreshStrategy::IncrementalOverwrite => {
+            matview
+                .new_transaction(branch.as_deref())
+                .full_refresh(files, refresh_state)?
+                .commit()
+                .await?;
+        }
+        RefreshStrategy::IncrementalAppend => {
+            matview
+                .new_transaction(branch.as_deref())
+                .append(files, refresh_state)?
+                .commit()
+                .await?;
+        }
+    }
 
     Ok(())
 }
