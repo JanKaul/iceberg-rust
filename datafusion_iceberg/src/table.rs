@@ -148,7 +148,7 @@ impl DataFusionTable {
 #[async_trait]
 impl TableProvider for DataFusionTable {
     fn as_any(&self) -> &dyn Any {
-        &self.tabular
+        self
     }
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
