@@ -876,7 +876,7 @@ mod tests {
             )
         };
 
-        let state = SessionStateBuilder::new()
+        let state = SessionStateBuilder::default()
             .with_default_features()
             .with_catalog_list(catalog_list)
             .with_query_planner(Arc::new(IcebergQueryPlanner {}))

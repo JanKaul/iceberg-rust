@@ -1,12 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
-    arrow::error::ArrowError,
-    common::tree_node::TreeNode,
-    datasource::{empty::EmptyTable, TableProvider},
-    execution::SessionStateBuilder,
-    optimizer::{Optimizer, OptimizerContext},
-    prelude::SessionContext,
+    arrow::error::ArrowError, common::tree_node::TreeNode, config::ConfigOptions,
+    execution::SessionStateBuilder, optimizer::Analyzer, prelude::SessionContext,
     sql::TableReference,
 };
 use datafusion_expr::LogicalPlan;
@@ -24,12 +20,7 @@ use iceberg_rust::{
     sql::find_relations,
 };
 
-use crate::{
-    catalog::catalog_list::IcebergCatalogList,
-    error::Error as DatafusionIcebergError,
-    sql::{transform_name, transform_relations},
-    DataFusionTable,
-};
+use crate::{catalog::catalog_list::IcebergCatalogList, error::Error as DatafusionIcebergError};
 
 mod delta_queries;
 
@@ -42,6 +33,7 @@ pub async fn refresh_materialized_view(
         .with_catalog_list(Arc::new(
             IcebergCatalogList::new(catalog_list.clone()).await?,
         ))
+        .with_default_features()
         .build();
     let ctx = SessionContext::new_with_state(state);
 
@@ -151,101 +143,31 @@ pub async fn refresh_materialized_view(
         return Ok(());
     }
 
-    // // Register the source table base
-    // source_tables.iter().try_for_each(|(identifier, state)| {
-    //     let table = match state {
-    //         SourceTableState::Fresh => Arc::new(DataFusionTable::new(
-    //             source_table.clone(),
-    //             None,
-    //             None,
-    //             branch.as_deref(),
-    //         )) as Arc<dyn TableProvider>,
-    //         SourceTableState::Outdated(id) => Arc::new(DataFusionTable::new(
-    //             source_table.clone(),
-    //             None,
-    //             Some(*id),
-    //             branch.as_deref(),
-    //         )) as Arc<dyn TableProvider>,
-    //         SourceTableState::Invalid => {
-    //             let table = Arc::new(DataFusionTable::new(
-    //                 source_table.clone(),
-    //                 None,
-    //                 None,
-    //                 branch.as_deref(),
-    //             )) as Arc<dyn TableProvider>;
-    //             let schema = table.schema();
-
-    //             Arc::new(EmptyTable::new(schema))
-    //         }
-    //     };
-    //     // ctx.register_table(transform_name(&identifier.to_string()), table)
-    //     //     .map_err(DatafusionIcebergError::from)?;
-    //     Ok::<_, Error>(())
-    // })?;
-
-    let sql_statements = transform_relations(sql)?;
-
     let logical_plan = ctx
         .state()
-        .create_logical_plan(&sql_statements[0])
+        .create_logical_plan(sql)
         .await
         .map_err(DatafusionIcebergError::from)?;
 
     let refresh_strategy =
         determine_refresh_strategy(&logical_plan).map_err(DatafusionIcebergError::from)?;
 
-    // // Potentially register source table deltas and rewrite logical plan
-    // let tranformed_plan = match refresh_strategy {
-    //     RefreshStrategy::FullOverwrite => logical_plan,
-    //     RefreshStrategy::IncrementalAppend => {
-    //         source_tables
-    //             .into_iter()
-    //             .try_for_each(|(identifier, state)| {
-    //                 match state {
-    //                     SourceTableState::Outdated(id) => {
-    //                         // let table = Arc::new(DataFusionTable::new(
-    //                         //     source_table.clone(),
-    //                         //     Some(id),
-    //                         //     None,
-    //                         //     branch.as_deref(),
-    //                         // )) as Arc<dyn TableProvider>;
-    //                         // ctx.register_table(
-    //                         //     transform_name(&(identifier.to_string() + "__pos__delta__")),
-    //                         //     table,
-    //                         // )
-    //                         // .map_err(DatafusionIcebergError::from)?;
-    //                     }
-    //                     SourceTableState::Invalid => {
-    //                         // let table = Arc::new(DataFusionTable::new(
-    //                         //     source_table.clone(),
-    //                         //     None,
-    //                         //     None,
-    //                         //     branch.as_deref(),
-    //                         // )) as Arc<dyn TableProvider>;
-    //                         // ctx.register_table(
-    //                         //     transform_name(&(identifier.to_string() + "__pos__delta__")),
-    //                         //     table,
-    //                         // )
-    //                         // .map_err(DatafusionIcebergError::from)?;
-    //                     }
-    //                     SourceTableState::Fresh => (),
-    //                 }
-    //                 Ok::<_, Error>(())
-    //             })?;
-
-    //         let delta_plan = PosDeltaNode::new(logical_plan).into_logical_plan();
-    //         let optimizer = Optimizer::with_rules(vec![Arc::new(PosDelta {})]);
-
-    //         optimizer
-    //             .optimize(delta_plan, &OptimizerContext::new(), |_, _| {})
-    //             .map_err(DatafusionIcebergError::from)?
-    //     }
-    //     RefreshStrategy::IncrementalOverwrite => logical_plan,
-    // };
+    // Potentially register source table deltas and rewrite logical plan
+    let transformed_plan = match refresh_strategy {
+        RefreshStrategy::FullOverwrite => logical_plan,
+        RefreshStrategy::IncrementalAppend => {
+            let analyzer = Analyzer::with_rules(vec![Arc::new(PosDelta::new(source_tables))]);
+            let delta_plan = PosDeltaNode::new(logical_plan).into_logical_plan();
+            analyzer
+                .execute_and_check(delta_plan, &ConfigOptions::default(), |_x, _y| ())
+                .map_err(DatafusionIcebergError::from)?
+        }
+        RefreshStrategy::IncrementalOverwrite => logical_plan,
+    };
 
     // Calculate arrow record batches from logical plan
     let batches = ctx
-        .execute_logical_plan(logical_plan)
+        .execute_logical_plan(transformed_plan)
         .await
         .map_err(DatafusionIcebergError::from)?
         .execute_stream()
