@@ -1,7 +1,12 @@
 use std::sync::Arc;
 
-use datafusion::{common::tree_node::Transformed, optimizer::OptimizerRule, sql::TableReference};
+use datafusion::{
+    common::tree_node::Transformed, datasource::DefaultTableSource, error::DataFusionError,
+    optimizer::OptimizerRule,
+};
 use datafusion_expr::{Filter, Join, LogicalPlan, Projection, Union};
+
+use crate::DataFusionTable;
 
 use super::delta_node::PosDeltaNode;
 
@@ -130,24 +135,23 @@ impl OptimizerRule for PosDelta {
                     }
                     LogicalPlan::TableScan(scan) => {
                         let mut scan = scan.clone();
-                        scan.table_name = match scan.table_name {
-                            TableReference::Bare { table } => TableReference::Bare {
-                                table: (table.to_string() + "__pos__delta__").into(),
-                            },
-                            TableReference::Partial { table, schema } => TableReference::Partial {
-                                table: (table.to_string() + "__pos__delta__").into(),
-                                schema,
-                            },
-                            TableReference::Full {
-                                table,
-                                schema,
-                                catalog,
-                            } => TableReference::Full {
-                                table: (table.to_string() + "__pos__delta__").into(),
-                                schema,
-                                catalog,
-                            },
-                        };
+                        let table = scan
+                            .source
+                            .as_any()
+                            .downcast_ref::<DefaultTableSource>()
+                            .ok_or(DataFusionError::Plan(format!(
+                                "Table scan {} doesn't target a Datafusion DefaultTableSource.",
+                                scan.table_name
+                            )))?
+                            .table_provider
+                            .as_any()
+                            .downcast_ref::<DataFusionTable>()
+                            .ok_or(DataFusionError::Plan(format!(
+                                "Table scan {} doesn't reference an Iceberg table.",
+                                scan.table_name
+                            )))?
+                            .clone();
+                        scan.source = Arc::new(DefaultTableSource::new(Arc::new(table)));
                         Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
                     }
                     x => Ok(Transformed::no(x.clone())),
