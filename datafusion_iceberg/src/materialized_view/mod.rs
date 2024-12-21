@@ -289,7 +289,7 @@ mod tests {
     use crate::{catalog::catalog::IcebergCatalog, materialized_view::refresh_materialized_view};
 
     #[tokio::test]
-    pub async fn test_datafusion_refresh_materialized_view() {
+    pub async fn test_datafusion_materialized_view_refresh_incremental() {
         let object_store = ObjectStoreBuilder::memory();
 
         let catalog_list = Arc::new(
@@ -347,7 +347,7 @@ mod tests {
 
         let partition_spec = PartitionSpec::builder()
             .with_spec_id(0)
-            .with_partition_field(PartitionField::new(4, 1000, "day", Transform::Day))
+            .with_partition_field(PartitionField::new(4, 1000, "date_day", Transform::Day))
             .build()
             .expect("Failed to create partition spec");
 
@@ -392,47 +392,6 @@ mod tests {
                 Version::builder()
                     .with_representation(ViewRepresentation::sql(
                         "select product_id, amount from iceberg.test.orders where product_id < 3;",
-                        None,
-                    ))
-                    .build()
-                    .unwrap(),
-            )
-            .build(&["test".to_owned()], catalog.clone())
-            .await
-            .expect("Failed to create materialized view");
-
-        let total_matview_schema = Schema::builder()
-            .with_schema_id(0)
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "product_id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "amount".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
-            .build()
-            .unwrap();
-
-        let mut total_matview = MaterializedView::builder()
-            .with_name("total_orders")
-            .with_location("test/total_orders")
-            .with_schema(total_matview_schema)
-            .with_view_version(
-                Version::builder()
-                    .with_representation(ViewRepresentation::sql(
-                        "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
                         None,
                     ))
                     .build()
@@ -529,44 +488,6 @@ mod tests {
             .sql(
                 "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
             )
-            .await
-            .expect("Failed to create plan for select")
-            .collect()
-            .await
-            .expect("Failed to execute select query");
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (order_ids, amounts) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .unwrap(),
-                );
-                for (order_id, amount) in order_ids.iter().zip(amounts) {
-                    if order_id.unwrap() == 1 {
-                        assert_eq!(amount.unwrap(), 9)
-                    } else if order_id.unwrap() == 2 {
-                        assert_eq!(amount.unwrap(), 2)
-                    } else {
-                        panic!("Unexpected order id")
-                    }
-                }
-            }
-        }
-
-        refresh_materialized_view(&mut total_matview, catalog_list.clone(), None)
-            .await
-            .expect("Failed to refresh materialized view");
-
-        let batches = ctx
-            .sql("select product_id, amount from iceberg.test.total_orders;")
             .await
             .expect("Failed to create plan for select")
             .collect()

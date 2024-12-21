@@ -4,6 +4,7 @@ Defining the [Table] struct that represents an iceberg table.
 
 use std::{io::Cursor, sync::Arc};
 
+use itertools::Itertools;
 use manifest::ManifestReader;
 use manifest_list::read_snapshot;
 use object_store::{path::Path, ObjectStore};
@@ -133,13 +134,7 @@ impl Table {
         let iter = read_snapshot(end_snapshot, metadata, self.object_store().clone()).await?;
         match start_sequence_number {
             Some(start) => iter
-                .filter(|manifest| {
-                    if let Ok(manifest) = manifest {
-                        manifest.sequence_number > start
-                    } else {
-                        true
-                    }
-                })
+                .filter_ok(|manifest| manifest.sequence_number > start)
                 .collect(),
             None => iter.collect(),
         }
