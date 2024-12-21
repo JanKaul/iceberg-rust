@@ -172,8 +172,8 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             manifest_length: 0,
             partition_spec_id: table_metadata.default_spec_id,
             content: manifest_list::Content::Data,
-            sequence_number: table_metadata.last_sequence_number,
-            min_sequence_number: 0,
+            sequence_number: table_metadata.last_sequence_number + 1,
+            min_sequence_number: table_metadata.last_sequence_number + 1,
             added_snapshot_id: snapshot_id,
             added_files_count: Some(0),
             existing_files_count: Some(0),
@@ -256,17 +256,17 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                         .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))?;
                     *entry.status_mut() = Status::Existing;
                     if entry.sequence_number().is_none() {
-                        *entry.sequence_number_mut() =
-                            table_metadata.sequence_number(entry.snapshot_id().ok_or(
-                                apache_avro::Error::DeserializeValue(
-                                    "Snapshot_id missing in Manifest Entry.".to_owned(),
-                                ),
-                            )?);
+                        *entry.sequence_number_mut() = Some(manifest.sequence_number);
+                    }
+                    if entry.snapshot_id().is_none() {
+                        *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
                     }
                     to_value(entry)
                 })
                 .filter_map(Result::ok),
         )?;
+
+        manifest.sequence_number = table_metadata.last_sequence_number + 1;
 
         manifest.existing_files_count = Some(
             manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
@@ -318,6 +318,12 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             manifest_entry.data_file().partition(),
             self.table_metadata.default_partition_spec()?.fields(),
         )?;
+
+        if let Some(sequence_number) = manifest_entry.sequence_number() {
+            if self.manifest.min_sequence_number > *sequence_number {
+                self.manifest.min_sequence_number = *sequence_number;
+            }
+        };
 
         self.writer.append_ser(manifest_entry)?;
 

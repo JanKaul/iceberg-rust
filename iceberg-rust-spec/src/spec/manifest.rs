@@ -52,6 +52,10 @@ impl ManifestEntry {
     pub fn sequence_number_mut(&mut self) -> &mut Option<i64> {
         &mut self.sequence_number
     }
+
+    pub fn snapshot_id_mut(&mut self) -> &mut Option<i64> {
+        &mut self.snapshot_id
+    }
 }
 
 impl ManifestEntry {

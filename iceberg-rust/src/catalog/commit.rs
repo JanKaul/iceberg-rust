@@ -12,6 +12,7 @@ use iceberg_rust_spec::{
         table_metadata::TableMetadata,
         view_metadata::{GeneralViewMetadata, Version},
     },
+    table_metadata::SnapshotLog,
     view_metadata::Materialization,
 };
 use serde_derive::{Deserialize, Serialize};
@@ -328,6 +329,11 @@ pub fn apply_table_updates(
                 metadata.default_sort_order_id = sort_order_id;
             }
             TableUpdate::AddSnapshot { snapshot } => {
+                metadata.snapshot_log.push(SnapshotLog {
+                    snapshot_id: *snapshot.snapshot_id(),
+                    timestamp_ms: *snapshot.timestamp_ms(),
+                });
+                metadata.last_sequence_number = *snapshot.sequence_number();
                 metadata.snapshots.insert(*snapshot.snapshot_id(), snapshot);
             }
             TableUpdate::SetSnapshotRef {
