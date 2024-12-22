@@ -274,6 +274,13 @@ impl TableMetadata {
         }
     }
 
+    /// Get sequence_number of snapshot
+    pub fn sequence_number(&self, snapshot_id: i64) -> Option<i64> {
+        self.snapshots
+            .get(&snapshot_id)
+            .map(|x| *x.sequence_number())
+    }
+
     pub fn as_ref(&self) -> TabularMetadataRef {
         TabularMetadataRef::Table(self)
     }

@@ -7,6 +7,7 @@ use chrono::DateTime;
 use core::panic;
 use datafusion_expr::{dml::InsertOp, utils::conjunction};
 use futures::TryStreamExt;
+use itertools::Itertools;
 use object_store::ObjectMeta;
 use std::{
     any::Any,
@@ -299,6 +300,12 @@ async fn table_scan(
         .collect::<Result<HashSet<_>, Error>>()
         .map_err(DataFusionIcebergError::from)?;
 
+    let sequence_number_range = [snapshot_range.0, snapshot_range.1]
+        .iter()
+        .map(|x| x.and_then(|y| table.metadata().sequence_number(y)))
+        .collect_tuple::<(Option<i64>, Option<i64>)>()
+        .unwrap();
+
     // If there is a filter expression the manifests to read are pruned based on the pruning statistics available in the manifest_list file.
     let physical_predicate = if let Some(predicate) = conjunction(filters.iter().cloned()) {
         Some(create_physical_expr(
@@ -343,7 +350,7 @@ async fn table_scan(
                 pruning_predicate.prune(&PruneManifests::new(partition_fields, &manifests))?;
 
             table
-                .datafiles(&manifests, Some(manifests_to_prune))
+                .datafiles(&manifests, Some(manifests_to_prune), sequence_number_range)
                 .await
                 .map_err(DataFusionIcebergError::from)?
                 .try_collect()
@@ -351,7 +358,7 @@ async fn table_scan(
                 .map_err(DataFusionIcebergError::from)?
         } else {
             table
-                .datafiles(&manifests, None)
+                .datafiles(&manifests, None, sequence_number_range)
                 .await
                 .map_err(DataFusionIcebergError::from)?
                 .try_collect()
@@ -424,7 +431,7 @@ async fn table_scan(
             .await
             .map_err(DataFusionIcebergError::from)?;
         let data_files: Vec<ManifestEntry> = table
-            .datafiles(&manifests, None)
+            .datafiles(&manifests, None, sequence_number_range)
             .await
             .map_err(DataFusionIcebergError::from)?
             .try_collect()
