@@ -7,7 +7,6 @@ use chrono::DateTime;
 use core::panic;
 use datafusion_expr::{dml::InsertOp, utils::conjunction};
 use futures::TryStreamExt;
-use itertools::Itertools;
 use object_store::ObjectMeta;
 use std::{
     any::Any,
