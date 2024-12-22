@@ -4,6 +4,7 @@ Defining the [Table] struct that represents an iceberg table.
 
 use std::{io::Cursor, sync::Arc};
 
+use futures::future;
 use itertools::Itertools;
 use manifest::ManifestReader;
 use manifest_list::read_snapshot;
@@ -145,8 +146,15 @@ impl Table {
         &self,
         manifests: &[ManifestListEntry],
         filter: Option<Vec<bool>>,
+        sequence_number_range: (Option<i64>, Option<i64>),
     ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
-        datafiles(self.object_store(), manifests, filter).await
+        datafiles(
+            self.object_store(),
+            manifests,
+            filter,
+            sequence_number_range,
+        )
+        .await
     }
     /// Check if datafiles contain deletes
     pub async fn datafiles_contains_delete(
@@ -155,7 +163,7 @@ impl Table {
         end: Option<i64>,
     ) -> Result<bool, Error> {
         let manifests = self.manifests(start, end).await?;
-        let datafiles = self.datafiles(&manifests, None).await?;
+        let datafiles = self.datafiles(&manifests, None, (None, None)).await?;
         datafiles
             .try_any(|entry| async move { !matches!(entry.data_file().content(), Content::Data) })
             .await
@@ -170,6 +178,7 @@ async fn datafiles(
     object_store: Arc<dyn ObjectStore>,
     manifests: &[ManifestListEntry],
     filter: Option<Vec<bool>>,
+    sequence_number_range: (Option<i64>, Option<i64>),
 ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
     // filter manifest files according to filter vector
     let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
@@ -200,7 +209,22 @@ async fn datafiles(
                         .await?,
                 ));
                 let reader = ManifestReader::new(bytes)?;
-                sender.send(stream::iter(reader)).await?;
+                let sequence_number = file.sequence_number;
+                sender
+                    .send(stream::iter(reader).try_filter(move |x| {
+                        future::ready({
+                            let sequence_number = x.sequence_number().unwrap_or(sequence_number);
+                            match sequence_number_range {
+                                (Some(start), Some(end)) => {
+                                    start < sequence_number && sequence_number <= end
+                                }
+                                (Some(start), None) => start < sequence_number,
+                                (None, Some(end)) => sequence_number <= end,
+                                _ => true,
+                            }
+                        })
+                    }))
+                    .await?;
                 Ok(())
             }
         })
@@ -221,7 +245,7 @@ pub(crate) async fn delete_files(
         .await?
         .collect::<Result<_, _>>()?;
 
-    let datafiles = datafiles(object_store.clone(), &manifests, None).await?;
+    let datafiles = datafiles(object_store.clone(), &manifests, None, (None, None)).await?;
     let snapshots = &metadata.snapshots;
 
     // stream::iter(datafiles.into_iter())
