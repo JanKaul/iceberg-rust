@@ -727,14 +727,9 @@ pub mod tests {
         planner::{iceberg_transform, IcebergQueryPlanner},
     };
     use iceberg_rust::{
-        catalog::{identifier::Identifier, namespace::Namespace, Catalog},
+        catalog::{namespace::Namespace, Catalog},
         object_store::ObjectStoreBuilder,
-        spec::{
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
-            util::strip_prefix,
-        },
-        table::Table,
+        spec::util::strip_prefix,
     };
     use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
     use testcontainers_modules::{localstack::LocalStack, postgres::Postgres};
