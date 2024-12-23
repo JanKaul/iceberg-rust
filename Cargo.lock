@@ -3040,11 +3040,15 @@ name = "iceberg-sql-catalog"
 version = "0.6.1"
 dependencies = [
  "async-trait",
+ "datafusion",
+ "datafusion_iceberg",
  "futures",
  "iceberg-rust",
  "object_store",
  "serde_json",
  "sqlx",
+ "testcontainers",
+ "testcontainers-modules",
  "thiserror 2.0.4",
  "tokio",
  "url",
