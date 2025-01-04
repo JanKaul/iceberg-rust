@@ -16,7 +16,7 @@ use iceberg_rust::{
 use iceberg_sql_catalog::SqlCatalog;
 
 #[tokio::test]
-pub async fn test_materialized_view_incremental() {
+pub async fn test_insert_sequence_number() {
     let object_store = ObjectStoreBuilder::memory();
 
     let catalog: Arc<dyn Catalog> = Arc::new(
