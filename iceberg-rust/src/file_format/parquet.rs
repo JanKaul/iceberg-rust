@@ -33,6 +33,7 @@ pub fn parquet_to_datafile(
     file_metadata: &FileMetaData,
     schema: &Schema,
     partition_fields: &[BoundPartitionField<'_>],
+    equality_ids: Option<&[i32]>,
 ) -> Result<DataFile, Error> {
     let mut partition = partition_fields
         .iter()
@@ -233,8 +234,13 @@ pub fn parquet_to_datafile(
             }
         }
     }
-    let content = DataFile::builder()
-        .with_content(Content::Data)
+    let mut builder = DataFile::builder();
+    builder
+        .with_content(if equality_ids.is_none() {
+            Content::Data
+        } else {
+            Content::EqualityDeletes
+        })
         .with_file_path(location.to_string())
         .with_file_format(FileFormat::Parquet)
         .with_partition(partition)
@@ -246,7 +252,13 @@ pub fn parquet_to_datafile(
         .with_nan_value_counts(None)
         .with_distinct_counts(Some(distinct_counts))
         .with_lower_bounds(Some(lower_bounds))
-        .with_upper_bounds(Some(upper_bounds))
+        .with_upper_bounds(Some(upper_bounds));
+
+    if let Some(equality_ids) = equality_ids {
+        builder.with_equality_ids(Some(equality_ids.to_vec()));
+    }
+
+    let content = builder
         .build()
         .map_err(iceberg_rust_spec::error::Error::from)?;
     Ok(content)

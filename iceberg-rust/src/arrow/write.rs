@@ -35,12 +35,36 @@ use super::partition::partition_record_batches;
 
 const MAX_PARQUET_SIZE: usize = 512_000_000;
 
+#[inline]
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
 pub async fn write_parquet_partitioned(
     metadata: &TableMetadata,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
     branch: Option<&str>,
+) -> Result<Vec<DataFile>, ArrowError> {
+    store_parquet_partitioned(metadata, batches, object_store, branch, None).await
+}
+
+#[inline]
+/// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
+pub async fn equality_delete_parquet_partitioned(
+    metadata: &TableMetadata,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
+    object_store: Arc<dyn ObjectStore>,
+    branch: Option<&str>,
+    equality_ids: &[i32],
+) -> Result<Vec<DataFile>, ArrowError> {
+    store_parquet_partitioned(metadata, batches, object_store, branch, Some(equality_ids)).await
+}
+
+/// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
+pub async fn store_parquet_partitioned(
+    metadata: &TableMetadata,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
+    object_store: Arc<dyn ObjectStore>,
+    branch: Option<&str>,
+    equality_ids: Option<&[i32]>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let schema = metadata.current_schema(branch).map_err(Error::from)?;
     let partition_fields = &metadata
@@ -76,6 +100,7 @@ pub async fn write_parquet_partitioned(
             partition_path,
             batches,
             object_store.clone(),
+            equality_ids,
         )
         .await?;
         sender.send(files).await.map_err(Error::from)?;
@@ -109,6 +134,7 @@ pub async fn write_parquet_partitioned(
                         partition_path,
                         batches,
                         object_store.clone(),
+                        equality_ids,
                     )
                     .await?;
                     sender.send(files).await.map_err(Error::from)?;
@@ -141,6 +167,7 @@ async fn write_parquet_files(
     partition_path: Option<String>,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
+    equality_ids: Option<&[i32]>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let bucket = Bucket::from_path(data_location)?;
     let current_writer = Arc::new(Mutex::new(
@@ -221,6 +248,7 @@ async fn write_parquet_files(
                     &metadata,
                     schema,
                     partition_fields,
+                    equality_ids,
                 )?)
             }
         })
