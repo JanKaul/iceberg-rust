@@ -4,6 +4,7 @@
 
 use async_trait::async_trait;
 use chrono::DateTime;
+use core::panic;
 use datafusion_expr::{dml::InsertOp, utils::conjunction};
 use futures::TryStreamExt;
 use object_store::ObjectMeta;
@@ -48,7 +49,7 @@ use crate::{
 };
 
 use iceberg_rust::spec::{
-    manifest::{ManifestEntry, Status},
+    manifest::{Content, ManifestEntry, Status},
     util,
 };
 use iceberg_rust::spec::{
@@ -283,7 +284,9 @@ async fn table_scan(
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
-    let mut file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> = HashMap::new();
+    let mut data_file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> = HashMap::new();
+    let mut equality_delete_file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> =
+        HashMap::new();
 
     let partition_fields = &snapshot_range
         .1
@@ -396,10 +399,23 @@ async fn table_scan(
                         statistics: Some(manifest_statistics),
                         extensions: None,
                     };
-                    file_groups
-                        .entry(file.partition_values.clone())
-                        .or_default()
-                        .push(file);
+                    match manifest.data_file().content() {
+                        Content::Data => {
+                            data_file_groups
+                                .entry(file.partition_values.clone())
+                                .or_default()
+                                .push(file);
+                        }
+                        Content::EqualityDeletes => {
+                            equality_delete_file_groups
+                                .entry(file.partition_values.clone())
+                                .or_default()
+                                .push(file);
+                        }
+                        Content::PositionDeletes => {
+                            panic!("Position deletes not supported.")
+                        }
+                    }
                 };
             });
     } else {
@@ -445,10 +461,23 @@ async fn table_scan(
                     statistics: Some(manifest_statistics),
                     extensions: None,
                 };
-                file_groups
-                    .entry(file.partition_values.clone())
-                    .or_default()
-                    .push(file);
+                match manifest.data_file().content() {
+                    Content::Data => {
+                        data_file_groups
+                            .entry(file.partition_values.clone())
+                            .or_default()
+                            .push(file);
+                    }
+                    Content::EqualityDeletes => {
+                        equality_delete_file_groups
+                            .entry(file.partition_values.clone())
+                            .or_default()
+                            .push(file);
+                    }
+                    Content::PositionDeletes => {
+                        panic!("Position deletes not supported.")
+                    }
+                }
             }
         });
     };
@@ -505,7 +534,7 @@ async fn table_scan(
     let file_scan_config = FileScanConfig {
         object_store_url,
         file_schema,
-        file_groups: file_groups.into_values().collect(),
+        file_groups: data_file_groups.into_values().collect(),
         statistics,
         projection: projection.cloned(),
         limit,
