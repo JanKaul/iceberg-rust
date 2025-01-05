@@ -166,6 +166,7 @@ type ArrowSender = Sender<(String, SendableAsyncArrowWriter)>;
 type ArrowReciever = Receiver<(String, SendableAsyncArrowWriter)>;
 
 /// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
+#[allow(clippy::too_many_arguments)]
 async fn write_parquet_files(
     data_location: &str,
     schema: &Schema,
