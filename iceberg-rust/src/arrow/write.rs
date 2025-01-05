@@ -48,7 +48,7 @@ pub async fn write_parquet_partitioned(
 
 #[inline]
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
-pub async fn equality_delete_parquet_partitioned(
+pub async fn write_equality_deletes_parquet_partitioned(
     metadata: &TableMetadata,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
@@ -67,6 +67,13 @@ pub async fn store_parquet_partitioned(
     equality_ids: Option<&[i32]>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let schema = metadata.current_schema(branch).map_err(Error::from)?;
+    // project the schema on to the equality_ids for equality deletes
+    let schema = if let Some(equality_ids) = equality_ids {
+        &schema.project(equality_ids)
+    } else {
+        schema
+    };
+
     let partition_fields = &metadata
         .current_partition_fields(branch)
         .map_err(Error::from)?;

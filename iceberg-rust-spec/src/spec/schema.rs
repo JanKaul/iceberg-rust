@@ -43,8 +43,8 @@ impl Schema {
         SchemaBuilder::default()
     }
 
-    pub fn project(&self, ids: &[i32]) -> Result<Schema, Error> {
-        Ok(Schema {
+    pub fn project(&self, ids: &[i32]) -> Schema {
+        Schema {
             schema_id: self.schema_id,
             identifier_field_ids: self.identifier_field_ids.as_ref().map(|x| {
                 x.iter()
@@ -59,7 +59,7 @@ impl Schema {
                     .map(ToOwned::to_owned)
                     .collect(),
             ),
-        })
+        }
     }
 }
 
