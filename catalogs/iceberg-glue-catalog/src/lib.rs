@@ -914,7 +914,7 @@ impl Catalog for GlueCatalog {
 
 #[cfg(test)]
 pub mod tests {
-    use aws_config::BehaviorVersion;
+    use aws_config::{BehaviorVersion, Region};
     use datafusion::{
         arrow::array::{Float64Array, Int64Array},
         common::tree_node::{TransformedResult, TreeNode},
@@ -960,6 +960,7 @@ pub mod tests {
             .endpoint_url(
                 "http://".to_owned() + &moto_host.to_string() + ":" + &moto_port.to_string(),
             )
+            .region(Region::new("us-east-1"))
             .test_credentials()
             .load()
             .await;
@@ -1162,5 +1163,8 @@ pub mod tests {
         assert!(std::str::from_utf8(&version_hint)
             .unwrap()
             .ends_with(".metadata.json"));
+
+        moto.rm().await.unwrap();
+        localstack.rm().await.unwrap();
     }
 }
