@@ -211,16 +211,28 @@ async fn datafiles(
                 let reader = ManifestReader::new(bytes)?;
                 let sequence_number = file.sequence_number;
                 sender
-                    .send(stream::iter(reader).try_filter(move |x| {
+                    .send(stream::iter(reader).try_filter_map(move |mut x| {
                         future::ready({
-                            let sequence_number = x.sequence_number().unwrap_or(sequence_number);
-                            match sequence_number_range {
+                            let sequence_number = if let Some(sequence_number) = x.sequence_number()
+                            {
+                                *sequence_number
+                            } else {
+                                *x.sequence_number_mut() = Some(sequence_number);
+                                sequence_number
+                            };
+
+                            let filter = match sequence_number_range {
                                 (Some(start), Some(end)) => {
                                     start < sequence_number && sequence_number <= end
                                 }
                                 (Some(start), None) => start < sequence_number,
                                 (None, Some(end)) => sequence_number <= end,
                                 _ => true,
+                            };
+                            if filter {
+                                Ok(Some(x))
+                            } else {
+                                Ok(None)
                             }
                         })
                     }))
