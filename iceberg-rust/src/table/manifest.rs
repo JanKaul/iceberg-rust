@@ -13,7 +13,7 @@ use apache_avro::{
     Writer as AvroWriter,
 };
 use iceberg_rust_spec::{
-    manifest::{ManifestEntry, ManifestEntryV1, ManifestEntryV2, Status},
+    manifest::{Content, ManifestEntry, ManifestEntryV1, ManifestEntryV2, Status},
     manifest_list::{self, FieldSummary, ManifestListEntry},
     partition::{PartitionField, PartitionSpec},
     schema::{Schema, SchemaV1, SchemaV2},
@@ -284,6 +284,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// Add an manifest entry to the manifest
     pub fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
         let mut added_rows_count = 0;
+        let mut deleted_rows_count = 0;
 
         if self.manifest.partitions.is_none() {
             self.manifest.partitions = Some(
@@ -301,7 +302,15 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             );
         }
 
-        added_rows_count += manifest_entry.data_file().record_count();
+        match manifest_entry.data_file().content() {
+            Content::Data => {
+                added_rows_count += manifest_entry.data_file().record_count();
+            }
+            Content::EqualityDeletes => {
+                deleted_rows_count += manifest_entry.data_file().record_count();
+            }
+            _ => (),
+        }
         let status = *manifest_entry.status();
 
         update_partitions(
@@ -331,6 +340,11 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         self.manifest.added_rows_count = match self.manifest.added_rows_count {
             Some(count) => Some(count + added_rows_count),
             None => Some(added_rows_count),
+        };
+
+        self.manifest.deleted_rows_count = match self.manifest.deleted_rows_count {
+            Some(count) => Some(count + deleted_rows_count),
+            None => Some(deleted_rows_count),
         };
 
         Ok(())
