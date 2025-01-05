@@ -275,9 +275,8 @@ async fn table_scan(
         .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
 
     // Create a unique URI for this particular object store
-    let object_store_url = ObjectStoreUrl::parse(
-        "iceberg://".to_owned() + &util::strip_prefix(&table.metadata().location).replace('/', "-"),
-    )?;
+    let object_store_url = ObjectStoreUrl::parse(&table.metadata().location)
+        .unwrap_or_else(|_| ObjectStoreUrl::local_filesystem());
     session
         .runtime_env()
         .register_object_store(object_store_url.as_ref(), table.object_store());
