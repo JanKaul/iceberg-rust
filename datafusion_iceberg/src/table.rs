@@ -285,8 +285,9 @@ async fn table_scan(
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
-    let mut data_file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> = HashMap::new();
-    let mut equality_delete_file_groups: HashMap<Vec<ScalarValue>, Vec<PartitionedFile>> =
+    let mut data_file_groups: HashMap<Vec<ScalarValue>, Vec<(i64, PartitionedFile)>> =
+        HashMap::new();
+    let mut equality_delete_file_groups: HashMap<Vec<ScalarValue>, Vec<(i64, PartitionedFile)>> =
         HashMap::new();
 
     let partition_fields = &snapshot_range
@@ -411,13 +412,13 @@ async fn table_scan(
                             data_file_groups
                                 .entry(file.partition_values.clone())
                                 .or_default()
-                                .push(file);
+                                .push((manifest.sequence_number().unwrap(), file));
                         }
                         Content::EqualityDeletes => {
                             equality_delete_file_groups
                                 .entry(file.partition_values.clone())
                                 .or_default()
-                                .push(file);
+                                .push((manifest.sequence_number().unwrap(), file));
                         }
                         Content::PositionDeletes => {
                             panic!("Position deletes not supported.")
@@ -473,13 +474,13 @@ async fn table_scan(
                         data_file_groups
                             .entry(file.partition_values.clone())
                             .or_default()
-                            .push(file);
+                            .push((manifest.sequence_number().unwrap(), file));
                     }
                     Content::EqualityDeletes => {
                         equality_delete_file_groups
                             .entry(file.partition_values.clone())
                             .or_default()
-                            .push(file);
+                            .push((manifest.sequence_number().unwrap(), file));
                     }
                     Content::PositionDeletes => {
                         panic!("Position deletes not supported.")
@@ -541,7 +542,10 @@ async fn table_scan(
     let file_scan_config = FileScanConfig {
         object_store_url,
         file_schema,
-        file_groups: data_file_groups.into_values().collect(),
+        file_groups: data_file_groups
+            .into_values()
+            .map(|x| x.into_iter().map(|x| x.1).collect())
+            .collect(),
         statistics,
         projection: projection.cloned(),
         limit,
