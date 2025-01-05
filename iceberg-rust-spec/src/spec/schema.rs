@@ -42,6 +42,25 @@ impl Schema {
     pub fn builder() -> SchemaBuilder {
         SchemaBuilder::default()
     }
+
+    pub fn project(&self, ids: &[i32]) -> Result<Schema, Error> {
+        Ok(Schema {
+            schema_id: self.schema_id,
+            identifier_field_ids: self.identifier_field_ids.as_ref().map(|x| {
+                x.iter()
+                    .filter(|x| ids.contains(x))
+                    .map(ToOwned::to_owned)
+                    .collect()
+            }),
+            fields: StructType::new(
+                self.fields()
+                    .iter()
+                    .filter(|x| ids.contains(&x.id))
+                    .map(ToOwned::to_owned)
+                    .collect(),
+            ),
+        })
+    }
 }
 
 impl fmt::Display for Schema {
