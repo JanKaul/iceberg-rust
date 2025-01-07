@@ -5,8 +5,8 @@
 use async_trait::async_trait;
 use chrono::DateTime;
 use core::panic;
-use datafusion_expr::{dml::InsertOp, utils::conjunction};
-use futures::TryStreamExt;
+use datafusion_expr::{dml::InsertOp, utils::conjunction, JoinType};
+use futures::{future, stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use object_store::ObjectMeta;
 use std::{
@@ -34,8 +34,11 @@ use datafusion::{
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
     physical_plan::{
+        empty::EmptyExec,
         insert::{DataSink, DataSinkExec},
+        joins::{HashJoinExec, PartitionMode},
         metrics::MetricsSet,
+        union::UnionExec,
         DisplayAs, DisplayFormatType, ExecutionPlan, SendableRecordBatchStream, Statistics,
     },
     prelude::Expr,
@@ -508,36 +511,69 @@ async fn table_scan(
         .collect::<Result<Vec<_>, DataFusionError>>()
         .map_err(DataFusionIcebergError::from)?;
 
-    // Add the partition columns to the table schema
-    let mut schema_builder = StructType::builder();
-    for field in schema.fields().iter() {
-        schema_builder.with_struct_field(field.clone());
-    }
-    for partition_field in partition_fields {
-        schema_builder.with_struct_field(StructField {
-            id: partition_field.field_id(),
-            name: partition_field.name().to_owned() + "__partition",
-            field_type: partition_field
-                .field_type()
-                .tranform(partition_field.transform())
-                .unwrap(),
-            required: true,
-            doc: None,
-        });
-    }
-    let file_schema = Schema::builder()
-        .with_schema_id(*schema.schema_id())
-        .with_fields(
-            schema_builder
-                .build()
-                .map_err(iceberg_rust::spec::error::Error::from)
-                .map_err(DataFusionIcebergError::from)?,
-        )
-        .build()
-        .map_err(iceberg_rust::spec::error::Error::from)
-        .map_err(DataFusionIcebergError::from)?;
+    let file_schema: SchemaRef = Arc::new(
+        (file_schema(&schema, partition_fields)?.fields())
+            .try_into()
+            .unwrap(),
+    );
 
-    let file_schema: SchemaRef = Arc::new((file_schema.fields()).try_into().unwrap());
+    let mut delete_partitions = Vec::new();
+
+    for (partition_value, mut delete_files) in equality_delete_file_groups {
+        let mut data_files = data_file_groups
+            .remove(&partition_value)
+            .unwrap_or_default();
+
+        // Sort data & delete files by sequence_number
+        delete_files.sort_by(|x, y| x.0.cmp(&y.0));
+        data_files.sort_by(|x, y| x.0.cmp(&y.0));
+
+        let mut data_file_iter = data_files.into_iter().peekable();
+
+        let physical_plan: Arc<dyn ExecutionPlan> = stream::iter(delete_files.iter())
+            .map(Ok::<_, DataFusionError>)
+            .try_fold(
+                Arc::new(EmptyExec::new(file_schema.clone())) as Arc<dyn ExecutionPlan>,
+                |acc, (sequence_number, delete_file)| {
+                    let object_store_url = object_store_url.clone();
+                    let table_partition_cols = table_partition_cols.clone();
+                    let statistics = statistics.clone();
+                    let physical_predicate = physical_predicate.clone();
+                    let file_schema = file_schema.clone();
+                    let mut data_files = Vec::new();
+                    while let Some(data_file) = data_file_iter.next_if(|x| x.0 < *sequence_number) {
+                        data_files.push(data_file.1);
+                    }
+                    async move {
+                        let file_scan_config = FileScanConfig {
+                            object_store_url,
+                            file_schema: file_schema.clone(),
+                            file_groups: vec![data_files],
+                            statistics,
+                            projection: projection.cloned(),
+                            limit,
+                            table_partition_cols,
+                            output_ordering: vec![],
+                        };
+
+                        let data_files_scan = ParquetFormat::default()
+                            .create_physical_plan(
+                                session,
+                                file_scan_config,
+                                physical_predicate.as_ref(),
+                            )
+                            .await?;
+
+                        let right = Arc::new(UnionExec::new(vec![acc, data_files_scan]));
+                        // Arc::new(HashJoinExec::try_new(,right , ,None ,JoinType::RightAnti ,None ,PartitionMode::CollectLeft ,false )?)
+                        Ok(Arc::new(EmptyExec::new(file_schema.clone())) as Arc<dyn ExecutionPlan>)
+                    }
+                },
+            )
+            .await?;
+
+        delete_partitions.push(physical_plan);
+    }
 
     let file_scan_config = FileScanConfig {
         object_store_url,
@@ -623,6 +659,40 @@ impl DataSink for IcebergDataSink {
     fn metrics(&self) -> Option<MetricsSet> {
         None
     }
+}
+
+fn file_schema(
+    schema: &Schema,
+    partition_fields: &Vec<iceberg_rust::spec::partition::BoundPartitionField<'_>>,
+) -> Result<Schema, DataFusionError> {
+    let mut schema_builder = StructType::builder();
+    for field in schema.fields().iter() {
+        schema_builder.with_struct_field(field.clone());
+    }
+    for partition_field in partition_fields {
+        schema_builder.with_struct_field(StructField {
+            id: partition_field.field_id(),
+            name: partition_field.name().to_owned() + "__partition",
+            field_type: partition_field
+                .field_type()
+                .tranform(partition_field.transform())
+                .unwrap(),
+            required: true,
+            doc: None,
+        });
+    }
+    let file_schema = Schema::builder()
+        .with_schema_id(*schema.schema_id())
+        .with_fields(
+            schema_builder
+                .build()
+                .map_err(iceberg_rust::spec::error::Error::from)
+                .map_err(DataFusionIcebergError::from)?,
+        )
+        .build()
+        .map_err(iceberg_rust::spec::error::Error::from)
+        .map_err(DataFusionIcebergError::from)?;
+    Ok(file_schema)
 }
 
 #[cfg(test)]
