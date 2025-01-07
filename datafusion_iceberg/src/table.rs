@@ -286,23 +286,10 @@ async fn table_scan(
         .runtime_env()
         .register_object_store(object_store_url.as_ref(), table.object_store());
 
-    // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
-    // This way data files with the same partition value are mapped to the same vector.
-    let mut data_file_groups: HashMap<Vec<ScalarValue>, Vec<(i64, PartitionedFile)>> =
-        HashMap::new();
-    let mut equality_delete_file_groups: HashMap<Vec<ScalarValue>, Vec<(i64, PartitionedFile)>> =
-        HashMap::new();
-
     let partition_fields = &snapshot_range
         .1
         .and_then(|snapshot_id| table.metadata().partition_fields(snapshot_id).ok())
         .unwrap_or_else(|| table.metadata().current_partition_fields(None).unwrap());
-
-    let partition_column_names = partition_fields
-        .iter()
-        .map(|field| Ok(field.source_name().to_owned()))
-        .collect::<Result<HashSet<_>, Error>>()
-        .map_err(DataFusionIcebergError::from)?;
 
     let sequence_number_range = [snapshot_range.0, snapshot_range.1]
         .iter()
@@ -320,7 +307,21 @@ async fn table_scan(
     } else {
         None
     };
+
+    // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
+    // This way data files with the same partition value are mapped to the same vector.
+    let mut data_file_groups: HashMap<Vec<ScalarValue>, Vec<(i64, PartitionedFile)>> =
+        HashMap::new();
+    let mut equality_delete_file_groups: HashMap<Vec<ScalarValue>, Vec<(i64, PartitionedFile)>> =
+        HashMap::new();
+
     if let Some(physical_predicate) = physical_predicate.clone() {
+        let partition_column_names = partition_fields
+            .iter()
+            .map(|field| Ok(field.source_name().to_owned()))
+            .collect::<Result<HashSet<_>, Error>>()
+            .map_err(DataFusionIcebergError::from)?;
+
         let partition_predicates = conjunction(
             filters
                 .iter()
@@ -381,35 +382,8 @@ async fn table_scan(
             .zip(files_to_prune.into_iter())
             .for_each(|(manifest, prune_file)| {
                 if prune_file && *manifest.status() != Status::Deleted {
-                    let partition_values = manifest
-                        .data_file()
-                        .partition()
-                        .iter()
-                        .map(|value| match value {
-                            Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
-                            None => ScalarValue::Null,
-                        })
-                        .collect::<Vec<ScalarValue>>();
-                    let object_meta = ObjectMeta {
-                        location: util::strip_prefix(manifest.data_file().file_path()).into(),
-                        size: *manifest.data_file().file_size_in_bytes() as usize,
-                        last_modified: {
-                            let last_updated_ms = table.metadata().last_updated_ms;
-                            let secs = last_updated_ms / 1000;
-                            let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-                            DateTime::from_timestamp(secs, nsecs).unwrap()
-                        },
-                        e_tag: None,
-                        version: None,
-                    };
-                    let manifest_statistics = manifest_statistics(&schema, &manifest);
-                    let file = PartitionedFile {
-                        object_meta,
-                        partition_values,
-                        range: None,
-                        statistics: Some(manifest_statistics),
-                        extensions: None,
-                    };
+                    let last_updated_ms = table.metadata().last_updated_ms;
+                    let file = partitioned_file(&schema, &manifest, last_updated_ms);
                     match manifest.data_file().content() {
                         Content::Data => {
                             data_file_groups
@@ -443,35 +417,8 @@ async fn table_scan(
             .map_err(DataFusionIcebergError::from)?;
         data_files.into_iter().for_each(|manifest| {
             if *manifest.status() != Status::Deleted {
-                let partition_values = manifest
-                    .data_file()
-                    .partition()
-                    .iter()
-                    .map(|value| match value {
-                        Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
-                        None => ScalarValue::Null,
-                    })
-                    .collect::<Vec<ScalarValue>>();
-                let object_meta = ObjectMeta {
-                    location: util::strip_prefix(manifest.data_file().file_path()).into(),
-                    size: *manifest.data_file().file_size_in_bytes() as usize,
-                    last_modified: {
-                        let last_updated_ms = table.metadata().last_updated_ms;
-                        let secs = last_updated_ms / 1000;
-                        let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-                        DateTime::from_timestamp(secs, nsecs).unwrap()
-                    },
-                    e_tag: None,
-                    version: None,
-                };
-                let manifest_statistics = manifest_statistics(&schema, &manifest);
-                let file = PartitionedFile {
-                    object_meta,
-                    partition_values,
-                    range: None,
-                    statistics: Some(manifest_statistics),
-                    extensions: None,
-                };
+                let last_updated_ms = table.metadata().last_updated_ms;
+                let file = partitioned_file(&schema, &manifest, last_updated_ms);
                 match manifest.data_file().content() {
                     Content::Data => {
                         data_file_groups
@@ -592,6 +539,42 @@ async fn table_scan(
     ParquetFormat::default()
         .create_physical_plan(session, file_scan_config, physical_predicate.as_ref())
         .await
+}
+
+fn partitioned_file(
+    schema: &Schema,
+    manifest: &ManifestEntry,
+    last_updated_ms: i64,
+) -> PartitionedFile {
+    let manifest_statistics = manifest_statistics(schema, manifest);
+    let partition_values = manifest
+        .data_file()
+        .partition()
+        .iter()
+        .map(|value| match value {
+            Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
+            None => ScalarValue::Null,
+        })
+        .collect::<Vec<ScalarValue>>();
+    let object_meta = ObjectMeta {
+        location: util::strip_prefix(manifest.data_file().file_path()).into(),
+        size: *manifest.data_file().file_size_in_bytes() as usize,
+        last_modified: {
+            let secs = last_updated_ms / 1000;
+            let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
+            DateTime::from_timestamp(secs, nsecs).unwrap()
+        },
+        e_tag: None,
+        version: None,
+    };
+    let file = PartitionedFile {
+        object_meta,
+        partition_values,
+        range: None,
+        statistics: Some(manifest_statistics),
+        extensions: None,
+    };
+    file
 }
 
 impl DisplayAs for DataFusionTable {
