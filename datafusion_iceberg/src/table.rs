@@ -462,6 +462,12 @@ async fn table_scan(
             .unwrap(),
     );
 
+    let projected_schema = if let Some(projection) = &projection {
+        Arc::new(file_schema.project(&projection)?)
+    } else {
+        file_schema.clone()
+    };
+
     // Create plan for every parition with delete files
     let mut plans = stream::iter(equality_delete_file_groups.into_iter())
         .then(|(partition_value, mut delete_files)| {
@@ -471,6 +477,7 @@ async fn table_scan(
             let physical_predicate = physical_predicate.clone();
             let schema = &schema;
             let file_schema = file_schema.clone();
+            let projected_schema = projected_schema.clone();
             let mut data_files = data_file_groups
                 .remove(&partition_value)
                 .unwrap_or_default();
@@ -492,7 +499,7 @@ async fn table_scan(
                 stream::iter(delete_files.iter())
                     .map(Ok::<_, DataFusionError>)
                     .try_fold(
-                        Arc::new(EmptyExec::new(file_schema.clone())) as Arc<dyn ExecutionPlan>,
+                        Arc::new(EmptyExec::new(projected_schema)) as Arc<dyn ExecutionPlan>,
                         |acc, manifest| {
                             let object_store_url = object_store_url.clone();
                             let table_partition_cols = table_partition_cols.clone();
@@ -550,12 +557,12 @@ async fn table_scan(
                                     })
                                     .collect::<Result<Vec<_>, DataFusionError>>()?;
 
-                                let file_scan_config = FileScanConfig {
+                                let delete_file_scan_config = FileScanConfig {
                                     object_store_url: object_store_url.clone(),
                                     file_schema: delete_file_schema,
                                     file_groups: vec![vec![delete_file]],
                                     statistics: statistics.clone(),
-                                    projection: projection.cloned(),
+                                    projection: None,
                                     limit,
                                     table_partition_cols: table_partition_cols.clone(),
                                     output_ordering: vec![],
@@ -564,7 +571,7 @@ async fn table_scan(
                                 let left = ParquetFormat::default()
                                     .create_physical_plan(
                                         session,
-                                        file_scan_config,
+                                        delete_file_scan_config,
                                         physical_predicate.as_ref(),
                                     )
                                     .await?;
