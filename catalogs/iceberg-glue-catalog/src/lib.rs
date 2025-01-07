@@ -314,7 +314,7 @@ impl Catalog for GlueCatalog {
                             .set_columns(schema_to_glue(schema.fields()).ok())
                             .build()
                     )
-                    .set_parameters(Some(get_parameters(metadata_location)))
+                    .set_parameters(Some(get_parameters(&metadata_location)))
                     .build()
                     .map_err(Error::from)?,
             )
@@ -677,7 +677,7 @@ impl Catalog for GlueCatalog {
                 TableInput::builder()
                     .name(identifier.name())
                     .set_parameters(
-                        Some(get_parameters(metadata_location))
+                        Some(get_parameters(&metadata_location))
                     )
                     .build()
                     .map_err(Error::from)?,
@@ -782,7 +782,7 @@ impl Catalog for GlueCatalog {
                 TableInput::builder()
                     .name(identifier.name())
                     .set_parameters(
-                    Some(get_parameters(metadata_location))
+                    Some(get_parameters(&metadata_location))
                     )
                     .build()
                     .map_err(Error::from)?,
