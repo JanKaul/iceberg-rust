@@ -4,7 +4,6 @@
 
 use async_trait::async_trait;
 use chrono::DateTime;
-use core::panic;
 use datafusion_expr::{dml::InsertOp, utils::conjunction, JoinType};
 use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
@@ -34,11 +33,11 @@ use datafusion::{
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
     physical_plan::{
-        empty::EmptyExec,
         expressions::Column,
         insert::{DataSink, DataSinkExec},
         joins::{HashJoinExec, PartitionMode},
         metrics::MetricsSet,
+        projection::ProjectionExec,
         union::UnionExec,
         DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, SendableRecordBatchStream,
         Statistics,
@@ -55,15 +54,12 @@ use crate::{
 };
 
 use iceberg_rust::spec::{
+    arrow::schema::PARQUET_FIELD_ID_META_KEY,
     manifest::{Content, ManifestEntry, Status},
     util,
-    values::Struct,
+    values::{Struct, Value},
 };
-use iceberg_rust::spec::{
-    schema::Schema,
-    types::{StructField, StructType},
-    view_metadata::ViewRepresentation,
-};
+use iceberg_rust::spec::{schema::Schema, view_metadata::ViewRepresentation};
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned, catalog::tabular::Tabular, error::Error,
     materialized_view::MaterializedView, table::Table, view::View,
@@ -451,22 +447,30 @@ async fn table_scan(
                     .try_into()
                     .map_err(DataFusionIcebergError::from)?,
                 !partition_field.required(),
-            ))
+            )
+            .with_metadata(HashMap::from_iter(vec![(
+                PARQUET_FIELD_ID_META_KEY.to_string(),
+                partition_field.field_id().to_string(),
+            )])))
         })
         .collect::<Result<Vec<_>, DataFusionError>>()
         .map_err(DataFusionIcebergError::from)?;
 
-    let file_schema: SchemaRef = Arc::new(
-        (generate_file_schema(&schema, partition_fields)?.fields())
-            .try_into()
-            .unwrap(),
-    );
+    let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
 
-    let projected_schema = if let Some(projection) = &projection {
-        Arc::new(file_schema.project(&projection)?)
-    } else {
-        file_schema.clone()
-    };
+    let projection_expr: Option<Vec<_>> = projection.map(|projection| {
+        projection
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                let name = file_schema.fields[*id].name();
+                (
+                    Arc::new(Column::new(&name, i)) as Arc<dyn PhysicalExpr>,
+                    name.to_owned(),
+                )
+            })
+            .collect()
+    });
 
     // Create plan for every parition with delete files
     let mut plans = stream::iter(equality_delete_file_groups.into_iter())
@@ -477,7 +481,7 @@ async fn table_scan(
             let physical_predicate = physical_predicate.clone();
             let schema = &schema;
             let file_schema = file_schema.clone();
-            let projected_schema = projected_schema.clone();
+            let projection_expr = projection_expr.clone();
             let mut data_files = data_file_groups
                 .remove(&partition_value)
                 .unwrap_or_default();
@@ -496,121 +500,148 @@ async fn table_scan(
 
                 let mut data_file_iter = data_files.into_iter().peekable();
 
-                stream::iter(delete_files.iter())
+                let plan = stream::iter(delete_files.iter())
                     .map(Ok::<_, DataFusionError>)
-                    .try_fold(
-                        Arc::new(EmptyExec::new(projected_schema)) as Arc<dyn ExecutionPlan>,
-                        |acc, manifest| {
-                            let object_store_url = object_store_url.clone();
-                            let table_partition_cols = table_partition_cols.clone();
-                            let statistics = statistics.clone();
-                            let physical_predicate = physical_predicate.clone();
-                            let schema = &schema;
-                            let file_schema = file_schema.clone();
-                            let mut data_files = Vec::new();
-                            while let Some(data_manifest) = data_file_iter.next_if(|x| {
-                                x.sequence_number().unwrap() < manifest.sequence_number().unwrap()
-                            }) {
-                                let last_updated_ms = table.metadata().last_updated_ms;
-                                let data_file = generate_partitioned_file(
-                                    &schema,
-                                    &data_manifest,
-                                    last_updated_ms,
-                                );
-                                data_files.push(data_file);
-                            }
-                            async move {
-                                let delete_schema = schema.project(
-                                    &manifest.data_file().equality_ids().as_ref().unwrap(),
-                                );
-                                let delete_file_schema: SchemaRef = Arc::new(
-                                    (generate_file_schema(&delete_schema, partition_fields)?
-                                        .fields())
-                                    .try_into()
-                                    .unwrap(),
-                                );
-                                let last_updated_ms = table.metadata().last_updated_ms;
-                                let delete_file = generate_partitioned_file(
-                                    &delete_schema,
-                                    &manifest,
-                                    last_updated_ms,
-                                );
-
-                                let join_on = manifest
-                                    .data_file()
-                                    .equality_ids()
-                                    .as_ref()
-                                    .unwrap()
-                                    .iter()
-                                    .map(|id| {
-                                        let column_name =
-                                            &schema.get(*id as usize).as_ref().unwrap().name;
-                                        let left_column: Arc<dyn PhysicalExpr> =
-                                            Arc::new(Column::new_with_schema(
-                                                column_name,
-                                                &delete_file_schema,
-                                            )?);
-                                        let right_column: Arc<dyn PhysicalExpr> = Arc::new(
-                                            Column::new_with_schema(column_name, &file_schema)?,
-                                        );
-                                        Ok((left_column, right_column))
-                                    })
-                                    .collect::<Result<Vec<_>, DataFusionError>>()?;
-
-                                let delete_file_scan_config = FileScanConfig {
-                                    object_store_url: object_store_url.clone(),
-                                    file_schema: delete_file_schema,
-                                    file_groups: vec![vec![delete_file]],
-                                    statistics: statistics.clone(),
-                                    projection: None,
-                                    limit,
-                                    table_partition_cols: table_partition_cols.clone(),
-                                    output_ordering: vec![],
+                    .try_fold(None, |acc, manifest| {
+                        let object_store_url = object_store_url.clone();
+                        let table_partition_cols = table_partition_cols.clone();
+                        let statistics = statistics.clone();
+                        let physical_predicate = physical_predicate.clone();
+                        let schema = &schema;
+                        let file_schema = file_schema.clone();
+                        let mut data_files = Vec::new();
+                        while let Some(data_manifest) = data_file_iter.next_if(|x| {
+                            x.sequence_number().unwrap() < manifest.sequence_number().unwrap()
+                        }) {
+                            let last_updated_ms = table.metadata().last_updated_ms;
+                            let data_file =
+                                generate_partitioned_file(&schema, &data_manifest, last_updated_ms)
+                                    .unwrap();
+                            data_files.push(data_file);
+                        }
+                        async move {
+                            let delete_schema = schema
+                                .project(&manifest.data_file().equality_ids().as_ref().unwrap());
+                            let delete_file_schema: SchemaRef =
+                                Arc::new((delete_schema.fields()).try_into().unwrap());
+                            let equality_projection: Option<Vec<usize>> =
+                                match (&projection, manifest.data_file().equality_ids()) {
+                                    (Some(projection), Some(equality_ids)) => {
+                                        let collect: Vec<usize> = schema
+                                            .iter()
+                                            .enumerate()
+                                            .filter_map(|(id, x)| {
+                                                if equality_ids.contains(&x.id)
+                                                    && !projection.contains(&id)
+                                                {
+                                                    Some(id)
+                                                } else {
+                                                    None
+                                                }
+                                            })
+                                            .collect();
+                                        Some(Vec::from([projection.as_slice(), &collect].concat()))
+                                    }
+                                    _ => None,
                                 };
 
-                                let left = ParquetFormat::default()
-                                    .create_physical_plan(
-                                        session,
-                                        delete_file_scan_config,
-                                        physical_predicate.as_ref(),
-                                    )
-                                    .await?;
+                            let last_updated_ms = table.metadata().last_updated_ms;
+                            let delete_file = generate_partitioned_file(
+                                &delete_schema,
+                                &manifest,
+                                last_updated_ms,
+                            )?;
 
-                                let file_scan_config = FileScanConfig {
-                                    object_store_url,
-                                    file_schema: file_schema.clone(),
-                                    file_groups: vec![data_files],
-                                    statistics,
-                                    projection: projection.cloned(),
-                                    limit,
-                                    table_partition_cols,
-                                    output_ordering: vec![],
-                                };
+                            let delete_file_scan_config = FileScanConfig {
+                                object_store_url: object_store_url.clone(),
+                                file_schema: delete_file_schema,
+                                file_groups: vec![vec![delete_file]],
+                                statistics: statistics.clone(),
+                                projection: None,
+                                limit,
+                                table_partition_cols: table_partition_cols.clone(),
+                                output_ordering: vec![],
+                            };
 
-                                let data_files_scan = ParquetFormat::default()
-                                    .create_physical_plan(
-                                        session,
-                                        file_scan_config,
-                                        physical_predicate.as_ref(),
-                                    )
-                                    .await?;
+                            let left = ParquetFormat::default()
+                                .create_physical_plan(
+                                    session,
+                                    delete_file_scan_config,
+                                    physical_predicate.as_ref(),
+                                )
+                                .await?;
 
-                                let right = Arc::new(UnionExec::new(vec![acc, data_files_scan]));
-                                Ok(Arc::new(HashJoinExec::try_new(
-                                    left,
-                                    right,
-                                    join_on,
-                                    None,
-                                    &JoinType::RightAnti,
-                                    None,
-                                    PartitionMode::CollectLeft,
-                                    false,
-                                )?)
-                                    as Arc<dyn ExecutionPlan>)
-                            }
-                        },
-                    )
+                            let file_scan_config = FileScanConfig {
+                                object_store_url,
+                                file_schema: file_schema.clone(),
+                                file_groups: vec![data_files],
+                                statistics,
+                                projection: equality_projection,
+                                limit,
+                                table_partition_cols,
+                                output_ordering: vec![],
+                            };
+
+                            let data_files_scan = ParquetFormat::default()
+                                .create_physical_plan(
+                                    session,
+                                    file_scan_config,
+                                    physical_predicate.as_ref(),
+                                )
+                                .await?;
+
+                            let right = if let Some(acc) = acc {
+                                Arc::new(UnionExec::new(vec![acc, data_files_scan]))
+                            } else {
+                                data_files_scan
+                            };
+
+                            let join_on = manifest
+                                .data_file()
+                                .equality_ids()
+                                .as_ref()
+                                .unwrap()
+                                .iter()
+                                .map(|id| {
+                                    let column_name =
+                                        &schema.get(*id as usize).as_ref().unwrap().name;
+                                    let left_column: Arc<dyn PhysicalExpr> = Arc::new(
+                                        Column::new_with_schema(column_name, &left.schema())?,
+                                    );
+                                    let right_column: Arc<dyn PhysicalExpr> = Arc::new(
+                                        Column::new_with_schema(column_name, &right.schema())?,
+                                    );
+                                    Ok((left_column, right_column))
+                                })
+                                .collect::<Result<Vec<_>, DataFusionError>>()?;
+
+                            Ok(Some(Arc::new(HashJoinExec::try_new(
+                                left,
+                                right,
+                                join_on,
+                                None,
+                                &JoinType::RightAnti,
+                                None,
+                                PartitionMode::CollectLeft,
+                                false,
+                            )?)
+                                as Arc<dyn ExecutionPlan>))
+                        }
+                    })
                     .await
+                    .transpose()
+                    .ok_or(DataFusionError::External(Box::new(Error::InvalidFormat(
+                        "Delete plan".to_owned(),
+                    ))))??;
+
+                if let Some(projection_expr) = projection_expr {
+                    Ok::<_, DataFusionError>(Arc::new(ProjectionExec::try_new(
+                        projection_expr,
+                        plan,
+                    )?) as Arc<dyn ExecutionPlan>)
+                } else {
+                    Ok(plan)
+                }
             }
         })
         .try_collect::<Vec<_>>()
@@ -626,7 +657,7 @@ async fn table_scan(
                 x.into_iter()
                     .map(|x| {
                         let last_updated_ms = table.metadata().last_updated_ms;
-                        generate_partitioned_file(&schema, &x, last_updated_ms)
+                        generate_partitioned_file(&schema, &x, last_updated_ms).unwrap()
                     })
                     .collect()
             })
@@ -645,42 +676,6 @@ async fn table_scan(
     plans.push(other_plan);
 
     Ok(Arc::new(UnionExec::new(plans)))
-}
-
-fn generate_partitioned_file(
-    schema: &Schema,
-    manifest: &ManifestEntry,
-    last_updated_ms: i64,
-) -> PartitionedFile {
-    let manifest_statistics = manifest_statistics(schema, manifest);
-    let partition_values = manifest
-        .data_file()
-        .partition()
-        .iter()
-        .map(|value| match value {
-            Some(v) => ScalarValue::Utf8(Some(serde_json::to_string(v).unwrap())),
-            None => ScalarValue::Null,
-        })
-        .collect::<Vec<ScalarValue>>();
-    let object_meta = ObjectMeta {
-        location: util::strip_prefix(manifest.data_file().file_path()).into(),
-        size: *manifest.data_file().file_size_in_bytes() as usize,
-        last_modified: {
-            let secs = last_updated_ms / 1000;
-            let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
-            DateTime::from_timestamp(secs, nsecs).unwrap()
-        },
-        e_tag: None,
-        version: None,
-    };
-    let file = PartitionedFile {
-        object_meta,
-        partition_values,
-        range: None,
-        statistics: Some(manifest_statistics),
-        extensions: None,
-    };
-    file
 }
 
 impl DisplayAs for DataFusionTable {
@@ -750,38 +745,71 @@ impl DataSink for IcebergDataSink {
     }
 }
 
-fn generate_file_schema(
+fn generate_partitioned_file(
     schema: &Schema,
-    partition_fields: &Vec<iceberg_rust::spec::partition::BoundPartitionField<'_>>,
-) -> Result<Schema, DataFusionError> {
-    let mut schema_builder = StructType::builder();
-    for field in schema.fields().iter() {
-        schema_builder.with_struct_field(field.clone());
+    manifest: &ManifestEntry,
+    last_updated_ms: i64,
+) -> Result<PartitionedFile, DataFusionError> {
+    let manifest_statistics = manifest_statistics(schema, manifest);
+    let partition_values = manifest
+        .data_file()
+        .partition()
+        .iter()
+        .map(|x| {
+            x.as_ref()
+                .map(value_to_scalarvalue)
+                .unwrap_or(Ok(ScalarValue::Null))
+        })
+        .collect::<Result<Vec<ScalarValue>, _>>()?;
+    let object_meta = ObjectMeta {
+        location: util::strip_prefix(manifest.data_file().file_path()).into(),
+        size: *manifest.data_file().file_size_in_bytes() as usize,
+        last_modified: {
+            let secs = last_updated_ms / 1000;
+            let nsecs = (last_updated_ms % 1000) as u32 * 1000000;
+            DateTime::from_timestamp(secs, nsecs).unwrap()
+        },
+        e_tag: None,
+        version: None,
+    };
+    let file = PartitionedFile {
+        object_meta,
+        partition_values,
+        range: None,
+        statistics: Some(manifest_statistics),
+        extensions: None,
+    };
+    Ok(file)
+}
+
+fn value_to_scalarvalue(value: &Value) -> Result<ScalarValue, DataFusionError> {
+    match value {
+        Value::Boolean(b) => Ok(ScalarValue::Boolean(Some(*b))),
+        Value::Int(i) => Ok(ScalarValue::Int32(Some(*i))),
+        Value::LongInt(l) => Ok(ScalarValue::Int64(Some(*l))),
+        Value::Float(f) => Ok(ScalarValue::Float32(Some(f.into_inner()))),
+        Value::Double(d) => Ok(ScalarValue::Float64(Some(d.into_inner()))),
+        Value::Date(d) => Ok(ScalarValue::Date32(Some(*d))),
+        Value::Time(t) => Ok(ScalarValue::Time64Microsecond(Some(*t))),
+        Value::Timestamp(ts) => Ok(ScalarValue::TimestampMicrosecond(Some(*ts), None)),
+        Value::TimestampTZ(ts) => Ok(ScalarValue::TimestampMicrosecond(
+            Some(*ts),
+            Some("UTC".into()),
+        )),
+        Value::String(s) => Ok(ScalarValue::Utf8(Some(s.clone()))),
+        Value::UUID(u) => Ok(ScalarValue::FixedSizeBinary(
+            16,
+            Some(u.as_bytes().to_vec()),
+        )),
+        Value::Fixed(size, bytes) => Ok(ScalarValue::FixedSizeBinary(
+            *size as i32,
+            Some(bytes.clone()),
+        )),
+        Value::Binary(bytes) => Ok(ScalarValue::Binary(Some(bytes.clone()))),
+        x => Err(DataFusionError::External(Box::new(Error::NotSupported(
+            format!("Conversion from Value {x} to ScalarValue"),
+        )))),
     }
-    for partition_field in partition_fields {
-        schema_builder.with_struct_field(StructField {
-            id: partition_field.field_id(),
-            name: partition_field.name().to_owned() + "__partition",
-            field_type: partition_field
-                .field_type()
-                .tranform(partition_field.transform())
-                .unwrap(),
-            required: true,
-            doc: None,
-        });
-    }
-    let file_schema = Schema::builder()
-        .with_schema_id(*schema.schema_id())
-        .with_fields(
-            schema_builder
-                .build()
-                .map_err(iceberg_rust::spec::error::Error::from)
-                .map_err(DataFusionIcebergError::from)?,
-        )
-        .build()
-        .map_err(iceberg_rust::spec::error::Error::from)
-        .map_err(DataFusionIcebergError::from)?;
-    Ok(file_schema)
 }
 
 #[cfg(test)]
