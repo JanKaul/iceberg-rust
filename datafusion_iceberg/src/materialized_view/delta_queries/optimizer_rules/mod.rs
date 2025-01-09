@@ -7,12 +7,15 @@ use datafusion::{
     optimizer::AnalyzerRule,
     sql::TableReference,
 };
-use datafusion_expr::{Filter, Join, LogicalPlan, Projection, Union};
-use iceberg_rust::materialized_view::SourceTableState;
+use datafusion_expr::{
+    build_join_schema, Aggregate, Expr, Filter, Join, JoinConstraint, JoinType, LogicalPlan,
+    Projection, Union,
+};
+use iceberg_rust::{error::Error, materialized_view::SourceTableState};
 
 use crate::DataFusionTable;
 
-use super::delta_node::PosDeltaNode;
+use super::{aggregate_functions::incremental_aggregate_function, delta_node::PosDeltaNode};
 
 #[derive(Debug)]
 pub struct PosDelta {
@@ -145,6 +148,94 @@ impl AnalyzerRule for PosDelta {
                             Ok(LogicalPlan::Union(Union {
                                 inputs,
                                 schema: union.schema.clone(),
+                            }))
+                        }
+                        LogicalPlan::Aggregate(aggregate) => {
+                            let delta = self
+                                .analyze(
+                                    PosDeltaNode {
+                                        input: aggregate.input.clone(),
+                                    }
+                                    .into_logical_plan(),
+                                    config,
+                                )
+                                .map(|x| Arc::new(x))?;
+                            let delta_aggregate =
+                                Arc::new(LogicalPlan::Aggregate(Aggregate::try_new_with_schema(
+                                    delta,
+                                    aggregate.group_expr.clone(),
+                                    aggregate.aggr_expr.clone(),
+                                    aggregate.schema.clone(),
+                                )?));
+
+                            let join_schema = Arc::new(build_join_schema(
+                                delta_aggregate.schema(),
+                                aggregate.input.schema(),
+                                &JoinType::Inner,
+                            )?);
+
+                            let join_on = aggregate
+                                .group_expr
+                                .iter()
+                                .map(|x| (x.clone(), x.clone()))
+                                .collect::<Vec<_>>();
+
+                            let join = Arc::new(LogicalPlan::Join(Join {
+                                left: delta_aggregate.clone(),
+                                right: aggregate.input.clone(),
+                                schema: join_schema,
+                                on: join_on.clone(),
+                                filter: None,
+                                join_type: JoinType::Inner,
+                                join_constraint: JoinConstraint::On,
+                                null_equals_null: false,
+                            }));
+
+                            // TODO
+                            let aggregation_exprs = aggregate
+                                .aggr_expr
+                                .iter()
+                                .map(|x| {
+                                    let aggregate_expr = if let Expr::AggregateFunction(agg) = x {
+                                        Ok(agg)
+                                    } else {
+                                        Err(DataFusionError::External(Box::new(
+                                            Error::InvalidFormat(format!(
+                                                "Expr {x} for aggregation"
+                                            )),
+                                        )))
+                                    }?;
+                                    incremental_aggregate_function(
+                                        aggregate_expr.func.name(),
+                                        &aggregate_expr.args,
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+
+                            let aggregate_projection = Arc::new(LogicalPlan::Projection(
+                                Projection::try_new(aggregation_exprs, join)?,
+                            ));
+
+                            let anti_join_schema = Arc::new(build_join_schema(
+                                delta_aggregate.schema(),
+                                aggregate.input.schema(),
+                                &JoinType::LeftAnti,
+                            )?);
+
+                            let anti_join = Arc::new(LogicalPlan::Join(Join {
+                                left: delta_aggregate,
+                                right: aggregate.input.clone(),
+                                schema: anti_join_schema,
+                                on: join_on,
+                                filter: None,
+                                join_type: JoinType::LeftAnti,
+                                join_constraint: JoinConstraint::On,
+                                null_equals_null: false,
+                            }));
+
+                            Ok(LogicalPlan::Union(Union {
+                                inputs: vec![aggregate_projection, anti_join],
+                                schema: aggregate.schema.clone(),
                             }))
                         }
                         LogicalPlan::TableScan(scan) => {
