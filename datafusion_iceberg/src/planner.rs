@@ -239,7 +239,7 @@ async fn plan_create_view(
     let definition = lowercase.split_once(" as ").unwrap().1;
 
     #[cfg(test)]
-    let location = catalog_name.to_string() + "/" + namespace_name + "/" + table_name;
+    let location = "/tmp/".to_owned() + catalog_name + "/" + namespace_name + "/" + table_name;
 
     #[cfg(not(test))]
     let location = "s3://".to_string() + catalog_name + "/" + namespace_name + "/" + table_name;
