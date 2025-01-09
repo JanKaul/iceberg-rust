@@ -15,22 +15,25 @@ use iceberg_rust::{error::Error, materialized_view::SourceTableState};
 
 use crate::DataFusionTable;
 
-use super::{aggregate_functions::incremental_aggregate_function, delta_node::PosDeltaNode};
+use super::{
+    aggregate_functions::incremental_aggregate_function,
+    delta_node::{NegDeltaNode, PosDeltaNode},
+};
 
 #[derive(Debug)]
-pub struct PosDelta {
-    source_table_state: HashMap<TableReference, SourceTableState>,
+pub struct DeltaQueries {
+    source_table_state: Arc<HashMap<TableReference, SourceTableState>>,
 }
 
-impl PosDelta {
-    pub fn new(source_table_state: HashMap<TableReference, SourceTableState>) -> Self {
+impl DeltaQueries {
+    pub fn new(source_table_state: Arc<HashMap<TableReference, SourceTableState>>) -> Self {
         Self { source_table_state }
     }
 }
 
-impl AnalyzerRule for PosDelta {
+impl AnalyzerRule for DeltaQueries {
     fn name(&self) -> &str {
-        "PosDelta"
+        "DeltaQueries"
     }
     fn analyze(
         &self,
@@ -272,6 +275,200 @@ impl AnalyzerRule for PosDelta {
                         }
                         x => Ok(x.clone()),
                     }
+                } else if ext.node.name() == "NegDelta" {
+                    match ext.node.inputs()[0] {
+                        LogicalPlan::Projection(proj) => {
+                            let input = self
+                                .analyze(
+                                    NegDeltaNode {
+                                        input: proj.input.clone(),
+                                    }
+                                    .into_logical_plan(),
+                                    config,
+                                )
+                                .map(|x| Arc::new(x))?;
+                            Ok(LogicalPlan::Projection(Projection::try_new(
+                                proj.expr.clone(),
+                                input,
+                            )?))
+                        }
+                        LogicalPlan::Filter(filter) => {
+                            let input = self
+                                .analyze(
+                                    NegDeltaNode {
+                                        input: filter.input.clone(),
+                                    }
+                                    .into_logical_plan(),
+                                    config,
+                                )
+                                .map(|x| Arc::new(x))?;
+                            Ok(LogicalPlan::Filter(Filter::try_new(
+                                filter.predicate.clone(),
+                                input,
+                            )?))
+                        }
+                        LogicalPlan::Join(join) => {
+                            let delta_left = self
+                                .analyze(
+                                    NegDeltaNode {
+                                        input: join.left.clone(),
+                                    }
+                                    .into_logical_plan(),
+                                    config,
+                                )
+                                .map(|x| Arc::new(x))?;
+                            let delta_right = self
+                                .analyze(
+                                    NegDeltaNode {
+                                        input: join.right.clone(),
+                                    }
+                                    .into_logical_plan(),
+                                    config,
+                                )
+                                .map(|x| Arc::new(x))?;
+                            let delta_delta = LogicalPlan::Join(Join {
+                                left: delta_left.clone(),
+                                right: delta_right.clone(),
+                                schema: join.schema.clone(),
+                                on: join.on.clone(),
+                                filter: join.filter.clone(),
+                                join_type: join.join_type.clone(),
+                                join_constraint: join.join_constraint.clone(),
+                                null_equals_null: join.null_equals_null.clone(),
+                            });
+                            let left_delta = LogicalPlan::Join(Join {
+                                left: join.left.clone(),
+                                right: delta_right.clone(),
+                                schema: join.schema.clone(),
+                                on: join.on.clone(),
+                                filter: join.filter.clone(),
+                                join_type: join.join_type.clone(),
+                                join_constraint: join.join_constraint.clone(),
+                                null_equals_null: join.null_equals_null.clone(),
+                            });
+                            let right_delta = LogicalPlan::Join(Join {
+                                left: delta_left.clone(),
+                                right: join.right.clone(),
+                                schema: join.schema.clone(),
+                                on: join.on.clone(),
+                                filter: join.filter.clone(),
+                                join_type: join.join_type.clone(),
+                                join_constraint: join.join_constraint.clone(),
+                                null_equals_null: join.null_equals_null.clone(),
+                            });
+                            Ok(LogicalPlan::Union(Union {
+                                inputs: vec![
+                                    Arc::new(delta_delta),
+                                    Arc::new(left_delta),
+                                    Arc::new(right_delta),
+                                ],
+                                schema: join.schema.clone(),
+                            }))
+                        }
+                        LogicalPlan::Union(union) => {
+                            let inputs = union
+                                .inputs
+                                .iter()
+                                .map(|input| {
+                                    Ok(self
+                                        .analyze(
+                                            NegDeltaNode {
+                                                input: input.clone(),
+                                            }
+                                            .into_logical_plan(),
+                                            config,
+                                        )
+                                        .map(|x| Arc::new(x))?)
+                                })
+                                .collect::<datafusion::common::Result<_>>()?;
+                            Ok(LogicalPlan::Union(Union {
+                                inputs,
+                                schema: union.schema.clone(),
+                            }))
+                        }
+                        LogicalPlan::Aggregate(aggregate) => {
+                            let delta = self
+                                .analyze(
+                                    NegDeltaNode {
+                                        input: aggregate.input.clone(),
+                                    }
+                                    .into_logical_plan(),
+                                    config,
+                                )
+                                .map(|x| Arc::new(x))?;
+                            let delta_aggregate =
+                                Arc::new(LogicalPlan::Aggregate(Aggregate::try_new_with_schema(
+                                    delta,
+                                    aggregate.group_expr.clone(),
+                                    aggregate.aggr_expr.clone(),
+                                    aggregate.schema.clone(),
+                                )?));
+
+                            let join_schema = Arc::new(build_join_schema(
+                                delta_aggregate.schema(),
+                                aggregate.input.schema(),
+                                &JoinType::Inner,
+                            )?);
+
+                            let join_on = aggregate
+                                .group_expr
+                                .iter()
+                                .map(|x| (x.clone(), x.clone()))
+                                .collect::<Vec<_>>();
+
+                            let join = Arc::new(LogicalPlan::Join(Join {
+                                left: delta_aggregate.clone(),
+                                right: aggregate.input.clone(),
+                                schema: join_schema,
+                                on: join_on.clone(),
+                                filter: None,
+                                join_type: JoinType::Inner,
+                                join_constraint: JoinConstraint::On,
+                                null_equals_null: false,
+                            }));
+
+                            Ok(LogicalPlan::Projection(Projection::try_new(
+                                aggregate.group_expr.clone(),
+                                join,
+                            )?))
+                        }
+                        LogicalPlan::TableScan(scan) => {
+                            let mut scan = scan.clone();
+                            let table = scan
+                                .source
+                                .as_any()
+                                .downcast_ref::<DefaultTableSource>()
+                                .ok_or(DataFusionError::Plan(format!(
+                                    "Table scan {} doesn't target a Datafusion DefaultTableSource.",
+                                    scan.table_name
+                                )))?
+                                .table_provider
+                                .as_any()
+                                .downcast_ref::<DataFusionTable>()
+                                .ok_or(DataFusionError::Plan(format!(
+                                    "Table scan {} doesn't reference an Iceberg table.",
+                                    scan.table_name
+                                )))?
+                                .clone();
+                            // Currently deletes in source tables are not supported
+                            //
+                            // let table_provider: Arc<dyn TableProvider> =
+                            //     match self.source_table_state.get(&scan.table_name).unwrap() {
+                            //         SourceTableState::Fresh => {
+                            //             Arc::new(EmptyTable::new(table.schema))
+                            //         }
+                            //         SourceTableState::Outdated(id) => {
+                            //             table.snapshot_range = (Some(*id), None);
+                            //             Arc::new(table)
+                            //         }
+                            //         SourceTableState::Invalid => Arc::new(table),
+                            //     };
+                            let table_provider = Arc::new(EmptyTable::new(table.schema));
+                            scan.source = Arc::new(DefaultTableSource::new(table_provider));
+                            Ok(LogicalPlan::TableScan(scan))
+                        }
+                        x => Ok(x.clone()),
+                    }
                 } else {
                     Ok(plan)
                 }
@@ -330,7 +527,7 @@ mod tests {
     use iceberg_sql_catalog::SqlCatalog;
 
     use crate::materialized_view::delta_queries::{
-        delta_node::PosDeltaNode, optimizer_rules::PosDelta,
+        delta_node::PosDeltaNode, optimizer_rules::DeltaQueries,
     };
     use crate::DataFusionTable;
 
@@ -385,13 +582,14 @@ mod tests {
 
         let logical_plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
-        let delta_plan = PosDeltaNode::new(logical_plan).into_logical_plan();
+        let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
 
-        let analyzer = Analyzer::with_rules(vec![Arc::new(PosDelta {
+        let analyzer = Analyzer::with_rules(vec![Arc::new(DeltaQueries {
             source_table_state: HashMap::from_iter(vec![(
                 TableReference::parse_str("public.users"),
                 SourceTableState::Fresh,
-            )]),
+            )])
+            .into(),
         })]);
 
         let output = analyzer
@@ -462,13 +660,14 @@ mod tests {
 
         let logical_plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
-        let delta_plan = PosDeltaNode::new(logical_plan).into_logical_plan();
+        let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
 
-        let analyzer = Analyzer::with_rules(vec![Arc::new(PosDelta {
+        let analyzer = Analyzer::with_rules(vec![Arc::new(DeltaQueries {
             source_table_state: HashMap::from_iter(vec![(
                 TableReference::parse_str("public.users"),
                 SourceTableState::Fresh,
-            )]),
+            )])
+            .into(),
         })]);
 
         let output = analyzer
@@ -585,9 +784,9 @@ mod tests {
 
         let logical_plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
-        let delta_plan = PosDeltaNode::new(logical_plan).into_logical_plan();
+        let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
 
-        let analyzer = Analyzer::with_rules(vec![Arc::new(PosDelta {
+        let analyzer = Analyzer::with_rules(vec![Arc::new(DeltaQueries {
             source_table_state: HashMap::from_iter(vec![
                 (
                     TableReference::parse_str("public.users"),
@@ -597,7 +796,8 @@ mod tests {
                     TableReference::parse_str("public.homes"),
                     SourceTableState::Fresh,
                 ),
-            ]),
+            ])
+            .into(),
         })]);
 
         let output = analyzer
@@ -708,9 +908,9 @@ mod tests {
 
         let logical_plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
-        let delta_plan = PosDeltaNode::new(logical_plan).into_logical_plan();
+        let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
 
-        let analyzer = Analyzer::with_rules(vec![Arc::new(PosDelta {
+        let analyzer = Analyzer::with_rules(vec![Arc::new(DeltaQueries {
             source_table_state: HashMap::from_iter(vec![
                 (
                     TableReference::parse_str("public.users1"),
@@ -720,7 +920,8 @@ mod tests {
                     TableReference::parse_str("public.users2"),
                     SourceTableState::Fresh,
                 ),
-            ]),
+            ])
+            .into(),
         })]);
 
         let output = analyzer

@@ -6,10 +6,13 @@ use datafusion::{
     sql::TableReference,
 };
 use datafusion_expr::LogicalPlan;
-use delta_queries::{delta_node::PosDeltaNode, optimizer_rules::PosDelta};
+use delta_queries::{
+    delta_node::{NegDeltaNode, PosDeltaNode},
+    optimizer_rules::DeltaQueries,
+};
 use futures::{stream, StreamExt, TryStreamExt};
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned,
+    arrow::write::{write_equality_deletes_parquet_partitioned, write_parquet_partitioned},
     catalog::{identifier::Identifier, tabular::Tabular, CatalogList},
     materialized_view::{MaterializedView, SourceTableState},
     spec::materialized_view_metadata::{SourceTables, SourceViews},
@@ -135,6 +138,8 @@ pub async fn refresh_materialized_view(
         .try_collect::<(HashMap<TableReference, _>, HashMap<_, _>)>()
         .await?;
 
+    let source_tables = Arc::new(source_tables);
+
     // If all source table states are fresh, then nothing has to be done
     if source_tables
         .iter()
@@ -152,29 +157,6 @@ pub async fn refresh_materialized_view(
     let refresh_strategy =
         determine_refresh_strategy(&logical_plan).map_err(DatafusionIcebergError::from)?;
 
-    // Potentially register source table deltas and rewrite logical plan
-    let transformed_plan = match refresh_strategy {
-        RefreshStrategy::FullOverwrite => logical_plan,
-        RefreshStrategy::IncrementalAppend => {
-            let analyzer = Analyzer::with_rules(vec![Arc::new(PosDelta::new(source_tables))]);
-            let delta_plan = PosDeltaNode::new(logical_plan).into_logical_plan();
-            analyzer
-                .execute_and_check(delta_plan, &ConfigOptions::default(), |_x, _y| ())
-                .map_err(DatafusionIcebergError::from)?
-        }
-        RefreshStrategy::IncrementalOverwrite => logical_plan,
-    };
-
-    // Calculate arrow record batches from logical plan
-    let batches = ctx
-        .execute_logical_plan(transformed_plan)
-        .await
-        .map_err(DatafusionIcebergError::from)?
-        .execute_stream()
-        .await
-        .map_err(DatafusionIcebergError::from)?
-        .map_err(ArrowError::from);
-
     let refresh_version_id = matview.metadata().current_version_id;
 
     let refresh_state = RefreshState {
@@ -183,10 +165,34 @@ pub async fn refresh_materialized_view(
         source_view_states: SourceViews(HashMap::new()),
     };
 
+    // Potentially register source table deltas and rewrite logical plan
+    let pos_plan = match refresh_strategy {
+        RefreshStrategy::FullOverwrite => logical_plan.clone(),
+        RefreshStrategy::IncrementalAppend => {
+            let analyzer =
+                Analyzer::with_rules(vec![Arc::new(DeltaQueries::new(source_tables.clone()))]);
+            let delta_plan = PosDeltaNode::new(Arc::new(logical_plan.clone())).into_logical_plan();
+            analyzer
+                .execute_and_check(delta_plan, &ConfigOptions::default(), |_x, _y| ())
+                .map_err(DatafusionIcebergError::from)?
+        }
+        RefreshStrategy::IncrementalOverwrite => logical_plan.clone(),
+    };
+
+    // Calculate arrow record batches from logical plan
+    let pos_batches = ctx
+        .execute_logical_plan(pos_plan)
+        .await
+        .map_err(DatafusionIcebergError::from)?
+        .execute_stream()
+        .await
+        .map_err(DatafusionIcebergError::from)?
+        .map_err(ArrowError::from);
+
     // Write arrow record batches to datafiles
-    let files = write_parquet_partitioned(
+    let pos_files = write_parquet_partitioned(
         storage_table.metadata(),
-        batches,
+        pos_batches,
         matview.object_store(),
         branch.as_deref(),
     )
@@ -196,16 +202,61 @@ pub async fn refresh_materialized_view(
         RefreshStrategy::FullOverwrite | RefreshStrategy::IncrementalOverwrite => {
             matview
                 .new_transaction(branch.as_deref())
-                .full_refresh(files, refresh_state)?
+                .full_refresh(pos_files, refresh_state)?
                 .commit()
                 .await?;
         }
         RefreshStrategy::IncrementalAppend => {
-            matview
+            // Potentially register source table deltas and rewrite logical plan
+            let analyzer = Analyzer::with_rules(vec![Arc::new(DeltaQueries::new(source_tables))]);
+            let delta_plan = NegDeltaNode::new(Arc::new(logical_plan)).into_logical_plan();
+            let neg_plan = analyzer
+                .execute_and_check(delta_plan, &ConfigOptions::default(), |_x, _y| ())
+                .map_err(DatafusionIcebergError::from)?;
+
+            let delete_schema = neg_plan.schema();
+
+            let equality_ids = delete_schema
+                .fields()
+                .iter()
+                .map(|x| {
+                    let schema = storage_table.current_schema(branch.as_deref())?;
+                    Ok(schema
+                        .get_name(x.name())
+                        .ok_or(Error::Schema(x.name().to_string(), schema.to_string()))?
+                        .id)
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+
+            // Calculate arrow record batches from logical plan
+            let neg_batches = ctx
+                .execute_logical_plan(neg_plan)
+                .await
+                .map_err(DatafusionIcebergError::from)?
+                .execute_stream()
+                .await
+                .map_err(DatafusionIcebergError::from)?
+                .map_err(ArrowError::from);
+
+            // Write arrow record batches to datafiles
+            let neg_files = write_equality_deletes_parquet_partitioned(
+                storage_table.metadata(),
+                neg_batches,
+                matview.object_store(),
+                branch.as_deref(),
+                &equality_ids,
+            )
+            .await?;
+
+            let transaction = matview
                 .new_transaction(branch.as_deref())
-                .append(files, refresh_state)?
-                .commit()
-                .await?;
+                .append(pos_files, refresh_state.clone())?;
+            let transaction = if !neg_files.is_empty() {
+                transaction.append(neg_files, refresh_state)?
+            } else {
+                transaction
+            };
+            transaction.commit().await?;
         }
     }
 
@@ -254,12 +305,7 @@ fn requires_full_overwrite(node: &LogicalPlan) -> Result<bool, datafusion::error
 fn requires_overwrite_from_last(
     node: &LogicalPlan,
 ) -> Result<bool, datafusion::error::DataFusionError> {
-    node.exists(|node| {
-        Ok(matches!(
-            node,
-            &LogicalPlan::Aggregate(_) | &LogicalPlan::Sort(_)
-        ))
-    })
+    node.exists(|node| Ok(matches!(node, &LogicalPlan::Sort(_))))
 }
 
 #[cfg(test)]
