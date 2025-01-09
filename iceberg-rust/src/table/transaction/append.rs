@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
 use iceberg_rust_spec::{manifest::ManifestEntry, manifest_list::ManifestListEntry};
+use smallvec::SmallVec;
 
 use crate::{
     error::Error,
@@ -15,6 +16,16 @@ fn split_datafiles_once(
     rect: Rectangle,
     names: &[&str],
 ) -> Result<[(Vec<ManifestEntry>, Rectangle); 2], Error> {
+    if rect.min.is_empty() {
+        let mut smaller = files.collect::<Result<Vec<_>, Error>>()?;
+        let larger = smaller.split_off(smaller.len() / 2);
+
+        return Ok([
+            (smaller, Rectangle::new(SmallVec::new(), SmallVec::new())),
+            (larger, Rectangle::new(SmallVec::new(), SmallVec::new())),
+        ]);
+    }
+
     let mut smaller = Vec::new();
     let mut larger = Vec::new();
     let mut smaller_rect = None;
