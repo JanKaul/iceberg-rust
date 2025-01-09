@@ -263,6 +263,7 @@ pub async fn refresh_materialized_view(
     Ok(())
 }
 
+#[derive(Debug)]
 /// Refresh strategy that can be used for the operation
 enum RefreshStrategy {
     /// Changes can be computed incrementally and appended to the last state, i.e. Projection, Filter
@@ -297,6 +298,7 @@ fn requires_full_overwrite(node: &LogicalPlan) -> Result<bool, datafusion::error
                 | &LogicalPlan::Aggregate(_)
                 | &LogicalPlan::Sort(_)
                 | &LogicalPlan::TableScan(_)
+                | &LogicalPlan::SubqueryAlias(_)
         ))
     })
 }
