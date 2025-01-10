@@ -1,14 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
-    arrow::error::ArrowError, common::tree_node::TreeNode, config::ConfigOptions,
-    execution::SessionStateBuilder, optimizer::Analyzer, prelude::SessionContext,
-    sql::TableReference,
+    arrow::error::ArrowError, common::tree_node::TreeNode, execution::SessionStateBuilder,
+    prelude::SessionContext, sql::TableReference,
 };
 use datafusion_expr::LogicalPlan;
 use delta_queries::{
     delta_node::{NegDeltaNode, PosDeltaNode},
-    optimizer_rules::DeltaQueries,
+    transform::delta_transform_down,
 };
 use futures::{stream, StreamExt, TryStreamExt};
 use iceberg_rust::{
@@ -169,12 +168,11 @@ pub async fn refresh_materialized_view(
     let pos_plan = match refresh_strategy {
         RefreshStrategy::FullOverwrite => logical_plan.clone(),
         RefreshStrategy::IncrementalAppend => {
-            let analyzer =
-                Analyzer::with_rules(vec![Arc::new(DeltaQueries::new(source_tables.clone()))]);
             let delta_plan = PosDeltaNode::new(Arc::new(logical_plan.clone())).into_logical_plan();
-            analyzer
-                .execute_and_check(delta_plan, &ConfigOptions::default(), |_x, _y| ())
+            delta_plan
+                .transform_down(|plan| delta_transform_down(plan, &source_tables))
                 .map_err(DatafusionIcebergError::from)?
+                .data
         }
         RefreshStrategy::IncrementalOverwrite => logical_plan.clone(),
     };
@@ -208,11 +206,11 @@ pub async fn refresh_materialized_view(
         }
         RefreshStrategy::IncrementalAppend => {
             // Potentially register source table deltas and rewrite logical plan
-            let analyzer = Analyzer::with_rules(vec![Arc::new(DeltaQueries::new(source_tables))]);
             let delta_plan = NegDeltaNode::new(Arc::new(logical_plan)).into_logical_plan();
-            let neg_plan = analyzer
-                .execute_and_check(delta_plan, &ConfigOptions::default(), |_x, _y| ())
-                .map_err(DatafusionIcebergError::from)?;
+            let neg_plan = delta_plan
+                .transform_down(|plan| delta_transform_down(plan, &source_tables))
+                .map_err(DatafusionIcebergError::from)?
+                .data;
 
             let delete_schema = neg_plan.schema();
 
