@@ -62,7 +62,7 @@ pub struct TableMetadata {
     /// The tables highest sequence number
     pub last_sequence_number: i64,
     #[builder(
-        default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64"
+        default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64"
     )]
     /// Timestamp in milliseconds from the unix epoch when the table was last updated.
     pub last_updated_ms: i64,
