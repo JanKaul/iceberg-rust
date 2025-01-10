@@ -33,7 +33,7 @@ pub struct Snapshot {
     /// A timestamp when the snapshot was created, used for garbage
     /// collection and table inspection
     #[builder(
-        default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64"
+        default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64"
     )]
     timestamp_ms: i64,
     /// The location of a manifest list for this snapshot that

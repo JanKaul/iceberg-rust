@@ -281,7 +281,7 @@ pub struct Version<T: Materialization> {
     #[builder(default = "DEFAULT_SCHEMA_ID")]
     pub schema_id: i32,
     #[builder(
-        default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64"
+        default = "SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64"
     )]
     /// Timestamp expressed in ms since epoch at which the version of the view was created.
     pub timestamp_ms: i64,
