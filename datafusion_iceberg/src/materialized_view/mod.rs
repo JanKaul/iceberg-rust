@@ -313,156 +313,99 @@ fn requires_overwrite_from_last(
 #[cfg(test)]
 mod tests {
 
-    use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
-    use iceberg_rust::{
-        catalog::CatalogList,
-        materialized_view::MaterializedView,
-        spec::{
-            partition::PartitionSpec,
-            view_metadata::{Version, ViewRepresentation},
-        },
-        table::Table,
+    use datafusion::{
+        arrow::array::{Int32Array, Int64Array},
+        common::tree_node::{TransformedResult, TreeNode},
+        execution::SessionStateBuilder,
+        prelude::SessionContext,
     };
-    use iceberg_rust::{
-        object_store::ObjectStoreBuilder,
-        spec::{
-            partition::{PartitionField, Transform},
-            schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
-        },
-    };
+    use datafusion_expr::ScalarUDF;
+    use iceberg_rust::object_store::Bucket;
+    use iceberg_rust::object_store::ObjectStoreBuilder;
     use iceberg_sql_catalog::SqlCatalogList;
-    use std::sync::Arc;
+    use std::{sync::Arc, time::Duration};
+    use tokio::time::sleep;
+    use url::Url;
 
-    use crate::{catalog::catalog::IcebergCatalog, materialized_view::refresh_materialized_view};
+    use crate::{
+        catalog::catalog_list::IcebergCatalogList,
+        planner::{iceberg_transform, IcebergQueryPlanner, RefreshMaterializedView},
+    };
 
     #[tokio::test]
     pub async fn test_datafusion_materialized_view_refresh_incremental() {
         let object_store = ObjectStoreBuilder::memory();
 
-        let catalog_list = Arc::new(
-            SqlCatalogList::new("sqlite://", object_store)
+        let iceberg_catalog_list = Arc::new(
+            SqlCatalogList::new("sqlite://", object_store.clone())
                 .await
                 .unwrap(),
         );
 
-        let catalog = catalog_list.catalog("iceberg").unwrap();
-
-        let schema = Schema::builder()
-            .with_schema_id(0)
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "customer_id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 3,
-                        name: "product_id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 4,
-                        name: "date".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Date),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 5,
-                        name: "amount".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Int),
-                        doc: None,
-                    })
-                    .build()
+        let catalog_list = {
+            Arc::new(
+                IcebergCatalogList::new(iceberg_catalog_list.clone())
+                    .await
                     .unwrap(),
             )
-            .build()
-            .unwrap();
+        };
 
-        let partition_spec = PartitionSpec::builder()
-            .with_spec_id(0)
-            .with_partition_field(PartitionField::new(4, 1000, "date_day", Transform::Day))
-            .build()
-            .expect("Failed to create partition spec");
+        let state = SessionStateBuilder::default()
+            .with_default_features()
+            .with_catalog_list(catalog_list)
+            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .with_object_store(
+                &Url::try_from("file://").unwrap(),
+                object_store.build(Bucket::Local).unwrap(),
+            )
+            .build();
 
-        Table::builder()
-            .with_name("orders")
-            .with_location("/test/orders")
-            .with_schema(schema.clone())
-            .with_partition_spec(partition_spec)
-            .build(&["test".to_owned()], catalog.clone())
+        let ctx = SessionContext::new_with_state(state);
+
+        ctx.register_udf(ScalarUDF::from(RefreshMaterializedView::new(
+            iceberg_catalog_list,
+        )));
+
+        let sql = "CREATE EXTERNAL TABLE warehouse.public.orders (
+      id BIGINT NOT NULL,
+      order_date DATE NOT NULL,
+      customer_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      quantity INTEGER NOT NULL
+)
+STORED AS ICEBERG
+LOCATION '/warehouse/public/orders/';";
+
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+        ctx.execute_logical_plan(transformed)
             .await
-            .expect("Failed to create table");
-
-        let matview_schema = Schema::builder()
-            .with_schema_id(0)
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "product_id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "amount".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Int),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
-            .build()
-            .unwrap();
-
-        let mut matview = MaterializedView::builder()
-            .with_name("orders_view")
-            .with_location("test/orders_view")
-            .with_schema(matview_schema)
-            .with_view_version(
-                Version::builder()
-                    .with_representation(ViewRepresentation::sql(
-                        "select product_id, amount from iceberg.test.orders where product_id < 3;",
-                        None,
-                    ))
-                    .build()
-                    .unwrap(),
-            )
-            .build(&["test".to_owned()], catalog.clone())
+            .unwrap()
+            .collect()
             .await
-            .expect("Failed to create materialized view");
+            .expect("Failed to execute query plan.");
 
-        // Datafusion
+        let plan = ctx
+            .state()
+            .create_logical_plan(
+                "CREATE TEMPORARY VIEW warehouse.public.orders_view AS select product_id, quantity from warehouse.public.orders where product_id < 3;",
+            )
+            .await
+            .expect("Failed to create plan for select");
 
-        let datafusion_catalog = Arc::new(
-            IcebergCatalog::new(catalog, None)
-                .await
-                .expect("Failed to create datafusion catalog"),
-        );
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
 
-        let ctx = SessionContext::new();
-
-        ctx.register_catalog("iceberg", datafusion_catalog);
+        ctx.execute_logical_plan(transformed)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .expect("Failed to execute query plan.");
 
         ctx.sql(
-            "INSERT INTO iceberg.test.orders (id, customer_id, product_id, date, amount) VALUES 
+            "INSERT INTO warehouse.public.orders (id, customer_id, product_id, order_date, quantity) VALUES 
                 (1, 1, 1, '2020-01-01', 1),
                 (2, 2, 1, '2020-01-01', 1),
                 (3, 3, 1, '2020-01-01', 3),
@@ -476,13 +419,18 @@ mod tests {
         .await
         .expect("Failed to insert values into table");
 
-        refresh_materialized_view(&mut matview, catalog_list.clone(), None)
+        ctx.sql("select refresh_materialized_view('warehouse.public.orders_view');")
             .await
-            .expect("Failed to refresh materialized view");
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        sleep(Duration::from_millis(1_000)).await;
 
         let batches = ctx
             .sql(
-                "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
+                "select product_id, sum(quantity) from warehouse.public.orders_view group by product_id;",
             )
             .await
             .expect("Failed to create plan for select")
@@ -496,7 +444,7 @@ mod tests {
                     batch
                         .column(0)
                         .as_any()
-                        .downcast_ref::<Int64Array>()
+                        .downcast_ref::<Int32Array>()
                         .unwrap(),
                     batch
                         .column(1)
@@ -517,7 +465,7 @@ mod tests {
         }
 
         ctx.sql(
-            "INSERT INTO iceberg.test.orders (id, customer_id, product_id, date, amount) VALUES 
+            "INSERT INTO warehouse.public.orders (id, customer_id, product_id, order_date, quantity) VALUES 
                 (7, 1, 3, '2020-01-03', 1),
                 (8, 2, 1, '2020-01-03', 2),
                 (9, 2, 2, '2020-01-03', 1);",
@@ -528,13 +476,18 @@ mod tests {
         .await
         .expect("Failed to insert values into table");
 
-        refresh_materialized_view(&mut matview, catalog_list.clone(), None)
+        ctx.sql("select refresh_materialized_view('warehouse.public.orders_view');")
             .await
-            .expect("Failed to refresh materialized view");
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        sleep(Duration::from_millis(1_000)).await;
 
         let batches = ctx
             .sql(
-                "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
+                "select product_id, sum(quantity) from warehouse.public.orders_view group by product_id;",
             )
             .await
             .expect("Failed to create plan for select")
@@ -548,7 +501,7 @@ mod tests {
                     batch
                         .column(0)
                         .as_any()
-                        .downcast_ref::<Int64Array>()
+                        .downcast_ref::<Int32Array>()
                         .unwrap(),
                     batch
                         .column(1)

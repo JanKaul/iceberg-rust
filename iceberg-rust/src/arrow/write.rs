@@ -239,6 +239,18 @@ async fn write_parquet_files(
 
     writer_sender.close_channel();
 
+    if num_bytes.load(Ordering::Acquire) == 0 {
+        writer_reciever
+            .into_future()
+            .await
+            .0
+            .unwrap()
+            .1
+            .close()
+            .await?;
+        return Ok(Vec::new());
+    }
+
     writer_reciever
         .then(|writer| {
             let object_store = object_store.clone();
