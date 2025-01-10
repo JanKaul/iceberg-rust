@@ -4,7 +4,6 @@ pub mod optimizer_rules;
 
 #[cfg(test)]
 mod tests {
-    use core::panic;
     use std::{sync::Arc, time::Duration};
 
     use datafusion::{

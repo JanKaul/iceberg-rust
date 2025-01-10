@@ -9,7 +9,7 @@ use datafusion::{
 };
 use datafusion_expr::{
     build_join_schema, Aggregate, Expr, Filter, Join, JoinConstraint, JoinType, LogicalPlan,
-    Projection, Union,
+    Projection, SubqueryAlias, Union,
 };
 use iceberg_rust::{error::Error, materialized_view::SourceTableState};
 
@@ -241,6 +241,21 @@ impl AnalyzerRule for DeltaQueries {
                                 schema: aggregate.schema.clone(),
                             }))
                         }
+                        LogicalPlan::SubqueryAlias(alias) => {
+                            let input = self
+                                .analyze(
+                                    PosDeltaNode {
+                                        input: alias.input.clone(),
+                                    }
+                                    .into_logical_plan(),
+                                    config,
+                                )
+                                .map(|x| Arc::new(x))?;
+                            Ok(LogicalPlan::SubqueryAlias(SubqueryAlias::try_new(
+                                input,
+                                alias.alias.clone(),
+                            )?))
+                        }
                         LogicalPlan::TableScan(scan) => {
                             let mut scan = scan.clone();
                             let mut table = scan
@@ -273,7 +288,9 @@ impl AnalyzerRule for DeltaQueries {
                             scan.source = Arc::new(DefaultTableSource::new(table_provider));
                             Ok(LogicalPlan::TableScan(scan))
                         }
-                        x => Ok(x.clone()),
+                        x => Err(DataFusionError::External(Box::new(Error::NotSupported(
+                            format!("Logical plan {x}"),
+                        )))),
                     }
                 } else if ext.node.name() == "NegDelta" {
                     match ext.node.inputs()[0] {
@@ -432,6 +449,21 @@ impl AnalyzerRule for DeltaQueries {
                                 join,
                             )?))
                         }
+                        LogicalPlan::SubqueryAlias(alias) => {
+                            let input = self
+                                .analyze(
+                                    NegDeltaNode {
+                                        input: alias.input.clone(),
+                                    }
+                                    .into_logical_plan(),
+                                    config,
+                                )
+                                .map(|x| Arc::new(x))?;
+                            Ok(LogicalPlan::SubqueryAlias(SubqueryAlias::try_new(
+                                input,
+                                alias.alias.clone(),
+                            )?))
+                        }
                         LogicalPlan::TableScan(scan) => {
                             let mut scan = scan.clone();
                             let table = scan
@@ -467,7 +499,9 @@ impl AnalyzerRule for DeltaQueries {
                             scan.source = Arc::new(DefaultTableSource::new(table_provider));
                             Ok(LogicalPlan::TableScan(scan))
                         }
-                        x => Ok(x.clone()),
+                        x => Err(DataFusionError::External(Box::new(Error::NotSupported(
+                            format!("Logical plan {x}"),
+                        )))),
                     }
                 } else {
                     Ok(plan)
