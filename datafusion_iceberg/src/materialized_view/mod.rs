@@ -22,7 +22,10 @@ use iceberg_rust::{
     sql::find_relations,
 };
 
-use crate::{catalog::catalog_list::IcebergCatalogList, error::Error as DatafusionIcebergError};
+use crate::{
+    catalog::catalog_list::IcebergCatalogList, error::Error as DatafusionIcebergError,
+    DataFusionTable,
+};
 
 mod delta_queries;
 
@@ -164,13 +167,22 @@ pub async fn refresh_materialized_view(
         source_view_states: SourceViews(HashMap::new()),
     };
 
+    let storage_table_provider = Arc::new(DataFusionTable::new(
+        Tabular::Table(storage_table.clone()),
+        None,
+        None,
+        branch.as_deref(),
+    ));
+
     // Potentially register source table deltas and rewrite logical plan
     let pos_plan = match refresh_strategy {
         RefreshStrategy::FullOverwrite => logical_plan.clone(),
         RefreshStrategy::IncrementalAppend => {
             let delta_plan = PosDeltaNode::new(Arc::new(logical_plan.clone())).into_logical_plan();
             delta_plan
-                .transform_down(|plan| delta_transform_down(plan, &source_tables))
+                .transform_down(|plan| {
+                    delta_transform_down(plan, &source_tables, storage_table_provider.clone())
+                })
                 .map_err(DatafusionIcebergError::from)?
                 .data
         }
@@ -208,7 +220,9 @@ pub async fn refresh_materialized_view(
             // Potentially register source table deltas and rewrite logical plan
             let delta_plan = NegDeltaNode::new(Arc::new(logical_plan)).into_logical_plan();
             let neg_plan = delta_plan
-                .transform_down(|plan| delta_transform_down(plan, &source_tables))
+                .transform_down(|plan| {
+                    delta_transform_down(plan, &source_tables, storage_table_provider.clone())
+                })
                 .map_err(DatafusionIcebergError::from)?
                 .data;
 
