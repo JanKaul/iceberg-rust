@@ -658,7 +658,7 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
         let plan = ctx
             .state()
             .create_logical_plan(
-                "CREATE TEMPORARY VIEW warehouse.tpch.lineitem_orders AS select sum(L.L_QUANTITY), O.O_ORDERSTATUS from warehouse.tpch.lineitem L join warehouse.tpch.orders O ON O.O_ORDERKEY = L.L_ORDERKEY group by O.O_ORDERSTATUS;;
+                "CREATE TEMPORARY VIEW warehouse.tpch.lineitem_orders AS select sum(L.L_QUANTITY) AS total, O.O_ORDERSTATUS from warehouse.tpch.lineitem L join warehouse.tpch.orders O ON O.O_ORDERKEY = L.L_ORDERKEY group by O.O_ORDERSTATUS;;
 ",
             )
             .await

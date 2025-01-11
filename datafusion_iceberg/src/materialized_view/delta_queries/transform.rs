@@ -1,15 +1,18 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use datafusion::{
     catalog::TableProvider,
-    common::tree_node::Transformed,
+    common::{tree_node::Transformed, Column},
     datasource::{empty::EmptyTable, DefaultTableSource},
     error::DataFusionError,
     sql::TableReference,
 };
 use datafusion_expr::{
     build_join_schema, Aggregate, Expr, Filter, Join, JoinConstraint, JoinType, LogicalPlan,
-    Projection, SubqueryAlias, Union,
+    Projection, SubqueryAlias, TableScan, Union,
 };
 use iceberg_rust::{error::Error, materialized_view::SourceTableState};
 
@@ -23,47 +26,41 @@ use super::{
 pub(crate) fn delta_transform_down(
     plan: LogicalPlan,
     source_table_state: &HashMap<TableReference, SourceTableState>,
+    storage_table: Arc<dyn TableProvider>,
 ) -> Result<Transformed<LogicalPlan>, DataFusionError> {
     match &plan {
         LogicalPlan::Extension(ext) => {
             if ext.node.name() == "PosDelta" {
+                let node = ext.node.as_any().downcast_ref::<PosDeltaNode>().unwrap();
                 match ext.node.inputs()[0] {
-                    LogicalPlan::Projection(proj) => {
-                        let input = Arc::new(
-                            PosDeltaNode {
-                                input: proj.input.clone(),
-                            }
-                            .into_logical_plan(),
-                        );
-                        Ok(Transformed::yes(LogicalPlan::Projection(
-                            Projection::try_new(proj.expr.clone(), input)?,
-                        )))
-                    }
                     LogicalPlan::Filter(filter) => {
-                        let input = Arc::new(
-                            PosDeltaNode {
-                                input: filter.input.clone(),
-                            }
-                            .into_logical_plan(),
-                        );
+                        let input =
+                            Arc::new(PosDeltaNode::new(filter.input.clone()).into_logical_plan());
                         Ok(Transformed::yes(LogicalPlan::Filter(Filter::try_new(
                             filter.predicate.clone(),
                             input,
                         )?)))
                     }
+                    LogicalPlan::Projection(proj) => {
+                        let mut aliases = BTreeMap::new();
+                        for expr in proj.expr.iter() {
+                            if let Expr::Alias(alias) = expr {
+                                aliases.insert(alias.expr.name_for_alias()?, alias.name.clone());
+                            }
+                        }
+                        let input = Arc::new(
+                            PosDeltaNode::new_with_aliases(proj.input.clone(), aliases)
+                                .into_logical_plan(),
+                        );
+                        Ok(Transformed::yes(LogicalPlan::Projection(
+                            Projection::try_new(proj.expr.clone(), input)?,
+                        )))
+                    }
                     LogicalPlan::Join(join) => {
-                        let delta_left = Arc::new(
-                            PosDeltaNode {
-                                input: join.left.clone(),
-                            }
-                            .into_logical_plan(),
-                        );
-                        let delta_right = Arc::new(
-                            PosDeltaNode {
-                                input: join.right.clone(),
-                            }
-                            .into_logical_plan(),
-                        );
+                        let delta_left =
+                            Arc::new(PosDeltaNode::new(join.left.clone()).into_logical_plan());
+                        let delta_right =
+                            Arc::new(PosDeltaNode::new(join.right.clone()).into_logical_plan());
                         let delta_delta = LogicalPlan::Join(Join {
                             left: delta_left.clone(),
                             right: delta_right.clone(),
@@ -109,10 +106,7 @@ pub(crate) fn delta_transform_down(
                             .iter()
                             .map(|input| {
                                 Ok(Arc::new(
-                                    PosDeltaNode {
-                                        input: input.clone(),
-                                    }
-                                    .into_logical_plan(),
+                                    PosDeltaNode::new(input.clone()).into_logical_plan(),
                                 ))
                             })
                             .collect::<datafusion::common::Result<_>>()?;
@@ -121,12 +115,16 @@ pub(crate) fn delta_transform_down(
                             schema: union.schema.clone(),
                         })))
                     }
+                    LogicalPlan::SubqueryAlias(alias) => {
+                        let input =
+                            Arc::new(PosDeltaNode::new(alias.input.clone()).into_logical_plan());
+                        Ok(Transformed::yes(LogicalPlan::SubqueryAlias(
+                            SubqueryAlias::try_new(input, alias.alias.clone())?,
+                        )))
+                    }
                     LogicalPlan::Aggregate(aggregate) => {
                         let delta = Arc::new(
-                            PosDeltaNode {
-                                input: aggregate.input.clone(),
-                            }
-                            .into_logical_plan(),
+                            PosDeltaNode::new(aggregate.input.clone()).into_logical_plan(),
                         );
                         let delta_aggregate =
                             Arc::new(LogicalPlan::Aggregate(Aggregate::try_new_with_schema(
@@ -136,21 +134,39 @@ pub(crate) fn delta_transform_down(
                                 aggregate.schema.clone(),
                             )?));
 
+                        let storage_table_reference = TableReference::parse_str("storage_table");
+
+                        let storage_table_scan =
+                            Arc::new(LogicalPlan::TableScan(TableScan::try_new(
+                                storage_table_reference.clone(),
+                                Arc::new(DefaultTableSource::new(storage_table)),
+                                None,
+                                Vec::new(),
+                                None,
+                            )?));
+
                         let join_schema = Arc::new(build_join_schema(
                             delta_aggregate.schema(),
-                            aggregate.input.schema(),
+                            storage_table_scan.schema(),
                             &JoinType::Inner,
                         )?);
 
+                        let storage_table_group_exprs = storage_table_expressions(
+                            &aggregate.group_expr,
+                            &storage_table_reference,
+                            &node.aliases,
+                        )?;
+
                         let join_on = aggregate
                             .group_expr
-                            .iter()
-                            .map(|x| (x.clone(), x.clone()))
+                            .clone()
+                            .into_iter()
+                            .zip(storage_table_group_exprs.into_iter())
                             .collect::<Vec<_>>();
 
                         let join = Arc::new(LogicalPlan::Join(Join {
                             left: delta_aggregate.clone(),
-                            right: aggregate.input.clone(),
+                            right: storage_table_scan.clone(),
                             schema: join_schema,
                             on: join_on.clone(),
                             filter: None,
@@ -159,24 +175,23 @@ pub(crate) fn delta_transform_down(
                             null_equals_null: false,
                         }));
 
-                        // TODO
-                        let aggregation_exprs = aggregate
-                            .aggr_expr
-                            .iter()
-                            .map(|x| {
-                                let aggregate_expr = if let Expr::AggregateFunction(agg) = x {
-                                    Ok(agg)
-                                } else {
-                                    Err(DataFusionError::External(Box::new(Error::InvalidFormat(
-                                        format!("Expr {x} for aggregation"),
-                                    ))))
-                                }?;
-                                incremental_aggregate_function(
-                                    aggregate_expr.func.name(),
-                                    &aggregate_expr.args,
-                                )
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
+                        let storage_table_aggregate_exprs = storage_table_expressions(
+                            &aggregate.aggr_expr,
+                            &storage_table_reference,
+                            &node.aliases,
+                        )?;
+
+                        let mut aggregation_exprs = aggregate.group_expr.clone();
+
+                        aggregation_exprs.extend(
+                            aggregate
+                                .aggr_expr
+                                .clone()
+                                .into_iter()
+                                .zip(storage_table_aggregate_exprs.into_iter())
+                                .map(|(x, y)| incremental_aggregate_function(&vec![x], &vec![y]))
+                                .collect::<Result<Vec<_>, _>>()?,
+                        );
 
                         let aggregate_projection = Arc::new(LogicalPlan::Projection(
                             Projection::try_new(aggregation_exprs, join)?,
@@ -184,13 +199,13 @@ pub(crate) fn delta_transform_down(
 
                         let anti_join_schema = Arc::new(build_join_schema(
                             delta_aggregate.schema(),
-                            aggregate.input.schema(),
+                            storage_table_scan.schema(),
                             &JoinType::LeftAnti,
                         )?);
 
                         let anti_join = Arc::new(LogicalPlan::Join(Join {
                             left: delta_aggregate,
-                            right: aggregate.input.clone(),
+                            right: storage_table_scan,
                             schema: anti_join_schema,
                             on: join_on,
                             filter: None,
@@ -203,17 +218,6 @@ pub(crate) fn delta_transform_down(
                             inputs: vec![aggregate_projection, anti_join],
                             schema: aggregate.schema.clone(),
                         })))
-                    }
-                    LogicalPlan::SubqueryAlias(alias) => {
-                        let input = Arc::new(
-                            PosDeltaNode {
-                                input: alias.input.clone(),
-                            }
-                            .into_logical_plan(),
-                        );
-                        Ok(Transformed::yes(LogicalPlan::SubqueryAlias(
-                            SubqueryAlias::try_new(input, alias.alias.clone())?,
-                        )))
                     }
                     LogicalPlan::TableScan(scan) => {
                         let mut scan = scan.clone();
@@ -250,43 +254,36 @@ pub(crate) fn delta_transform_down(
                     )))),
                 }
             } else if ext.node.name() == "NegDelta" {
+                let node = ext.node.as_any().downcast_ref::<NegDeltaNode>().unwrap();
                 match ext.node.inputs()[0] {
                     LogicalPlan::Projection(proj) => {
-                        let input = Arc::new(
-                            NegDeltaNode {
-                                input: proj.input.clone(),
+                        let mut aliases = BTreeMap::new();
+                        for expr in proj.expr.iter() {
+                            if let Expr::Alias(alias) = expr {
+                                aliases.insert(alias.expr.name_for_alias()?, alias.name.clone());
                             }
-                            .into_logical_plan(),
+                        }
+                        let input = Arc::new(
+                            NegDeltaNode::new_with_aliases(proj.input.clone(), aliases)
+                                .into_logical_plan(),
                         );
                         Ok(Transformed::yes(LogicalPlan::Projection(
                             Projection::try_new(proj.expr.clone(), input)?,
                         )))
                     }
                     LogicalPlan::Filter(filter) => {
-                        let input = Arc::new(
-                            NegDeltaNode {
-                                input: filter.input.clone(),
-                            }
-                            .into_logical_plan(),
-                        );
+                        let input =
+                            Arc::new(NegDeltaNode::new(filter.input.clone()).into_logical_plan());
                         Ok(Transformed::yes(LogicalPlan::Filter(Filter::try_new(
                             filter.predicate.clone(),
                             input,
                         )?)))
                     }
                     LogicalPlan::Join(join) => {
-                        let delta_left = Arc::new(
-                            NegDeltaNode {
-                                input: join.left.clone(),
-                            }
-                            .into_logical_plan(),
-                        );
-                        let delta_right = Arc::new(
-                            NegDeltaNode {
-                                input: join.right.clone(),
-                            }
-                            .into_logical_plan(),
-                        );
+                        let delta_left =
+                            Arc::new(NegDeltaNode::new(join.left.clone()).into_logical_plan());
+                        let delta_right =
+                            Arc::new(NegDeltaNode::new(join.right.clone()).into_logical_plan());
                         let delta_delta = LogicalPlan::Join(Join {
                             left: delta_left.clone(),
                             right: delta_right.clone(),
@@ -332,10 +329,7 @@ pub(crate) fn delta_transform_down(
                             .iter()
                             .map(|input| {
                                 Ok(Arc::new(
-                                    NegDeltaNode {
-                                        input: input.clone(),
-                                    }
-                                    .into_logical_plan(),
+                                    NegDeltaNode::new(input.clone()).into_logical_plan(),
                                 ))
                             })
                             .collect::<datafusion::common::Result<_>>()?;
@@ -346,10 +340,7 @@ pub(crate) fn delta_transform_down(
                     }
                     LogicalPlan::Aggregate(aggregate) => {
                         let delta = Arc::new(
-                            NegDeltaNode {
-                                input: aggregate.input.clone(),
-                            }
-                            .into_logical_plan(),
+                            NegDeltaNode::new(aggregate.input.clone()).into_logical_plan(),
                         );
                         let delta_aggregate =
                             Arc::new(LogicalPlan::Aggregate(Aggregate::try_new_with_schema(
@@ -359,21 +350,39 @@ pub(crate) fn delta_transform_down(
                                 aggregate.schema.clone(),
                             )?));
 
+                        let storage_table_reference = TableReference::parse_str("storage_table");
+
+                        let storage_table_scan =
+                            Arc::new(LogicalPlan::TableScan(TableScan::try_new(
+                                storage_table_reference.clone(),
+                                Arc::new(DefaultTableSource::new(storage_table)),
+                                None,
+                                Vec::new(),
+                                None,
+                            )?));
+
                         let join_schema = Arc::new(build_join_schema(
                             delta_aggregate.schema(),
-                            aggregate.input.schema(),
+                            storage_table_scan.schema(),
                             &JoinType::Inner,
                         )?);
 
+                        let storage_table_group_exprs = storage_table_expressions(
+                            &aggregate.group_expr,
+                            &storage_table_reference,
+                            &node.aliases,
+                        )?;
+
                         let join_on = aggregate
                             .group_expr
-                            .iter()
-                            .map(|x| (x.clone(), x.clone()))
+                            .clone()
+                            .into_iter()
+                            .zip(storage_table_group_exprs.into_iter())
                             .collect::<Vec<_>>();
 
                         let join = Arc::new(LogicalPlan::Join(Join {
                             left: delta_aggregate.clone(),
-                            right: aggregate.input.clone(),
+                            right: storage_table_scan.clone(),
                             schema: join_schema,
                             on: join_on.clone(),
                             filter: None,
@@ -387,12 +396,8 @@ pub(crate) fn delta_transform_down(
                         )))
                     }
                     LogicalPlan::SubqueryAlias(alias) => {
-                        let input = Arc::new(
-                            NegDeltaNode {
-                                input: alias.input.clone(),
-                            }
-                            .into_logical_plan(),
-                        );
+                        let input =
+                            Arc::new(NegDeltaNode::new(alias.input.clone()).into_logical_plan());
                         Ok(Transformed::yes(LogicalPlan::SubqueryAlias(
                             SubqueryAlias::try_new(input, alias.alias.clone())?,
                         )))
@@ -415,19 +420,6 @@ pub(crate) fn delta_transform_down(
                                 scan.table_name
                             )))?
                             .clone();
-                        // Currently deletes in source tables are not supported
-                        //
-                        // let table_provider: Arc<dyn TableProvider> =
-                        //     match self.source_table_state.get(&scan.table_name).unwrap() {
-                        //         SourceTableState::Fresh => {
-                        //             Arc::new(EmptyTable::new(table.schema))
-                        //         }
-                        //         SourceTableState::Outdated(id) => {
-                        //             table.snapshot_range = (Some(*id), None);
-                        //             Arc::new(table)
-                        //         }
-                        //         SourceTableState::Invalid => Arc::new(table),
-                        //     };
                         let table_provider = Arc::new(EmptyTable::new(table.schema));
                         scan.source = Arc::new(DefaultTableSource::new(table_provider));
                         Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
@@ -441,6 +433,9 @@ pub(crate) fn delta_transform_down(
             }
         }
         LogicalPlan::TableScan(scan) => {
+            if scan.table_name.to_string() == "storage_table" {
+                return Ok(Transformed::no(plan));
+            }
             let mut scan = scan.clone();
             let mut table = scan
                 .source
@@ -474,12 +469,39 @@ pub(crate) fn delta_transform_down(
     }
 }
 
+fn storage_table_expressions(
+    exprs: &[Expr],
+    storage_table_reference: &TableReference,
+    aliases: &BTreeMap<String, String>,
+) -> Result<Vec<Expr>, DataFusionError> {
+    exprs
+        .iter()
+        .map(|x| match x {
+            Expr::Column(column) => Ok(Expr::Column(Column::new(
+                Some(storage_table_reference.clone()),
+                column.name.clone(),
+            ))),
+            x => {
+                let mut name = x.name_for_alias()?;
+                if let Some(alias) = aliases.get(&name) {
+                    name = alias.clone();
+                }
+                Ok(Expr::Column(Column::new(
+                    Some(storage_table_reference.clone()),
+                    name,
+                )))
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
     use std::{ops::Deref, sync::Arc};
 
     use datafusion::common::tree_node::TreeNode;
+    use datafusion::datasource::empty::EmptyTable;
     use datafusion::prelude::SessionContext;
     use datafusion::sql::TableReference;
     use datafusion_expr::LogicalPlan;
@@ -550,9 +572,16 @@ mod tests {
             TableReference::parse_str("public.users"),
             SourceTableState::Fresh,
         )]);
+
+        let storage_table = Arc::new(EmptyTable::new(Arc::new(
+            logical_plan.schema().as_arrow().clone(),
+        )));
+
         let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
         let output = delta_plan
-            .transform_down(|plan| delta_transform_down(plan, &source_table_state))
+            .transform_down(|plan| {
+                delta_transform_down(plan, &source_table_state, storage_table.clone())
+            })
             .unwrap()
             .data;
 
@@ -624,9 +653,16 @@ mod tests {
             TableReference::parse_str("public.users"),
             SourceTableState::Fresh,
         )]);
+        let storage_table = Arc::new(EmptyTable::new(Arc::new(
+            logical_plan.schema().as_arrow().clone(),
+        )));
+
         let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
+
         let output = delta_plan
-            .transform_down(|plan| delta_transform_down(plan, &source_table_state))
+            .transform_down(|plan| {
+                delta_transform_down(plan, &source_table_state, storage_table.clone())
+            })
             .unwrap()
             .data;
 
@@ -750,9 +786,15 @@ mod tests {
                 SourceTableState::Fresh,
             ),
         ]);
+        let storage_table = Arc::new(EmptyTable::new(Arc::new(
+            logical_plan.schema().as_arrow().clone(),
+        )));
+
         let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
         let output = delta_plan
-            .transform_down(|plan| delta_transform_down(plan, &source_table_state))
+            .transform_down(|plan| {
+                delta_transform_down(plan, &source_table_state, storage_table.clone())
+            })
             .unwrap()
             .data;
 
@@ -870,9 +912,16 @@ mod tests {
                 SourceTableState::Fresh,
             ),
         ]);
+
+        let storage_table = Arc::new(EmptyTable::new(Arc::new(
+            logical_plan.schema().as_arrow().clone(),
+        )));
+
         let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
         let output = delta_plan
-            .transform_down(|plan| delta_transform_down(plan, &source_table_state))
+            .transform_down(|plan| {
+                delta_transform_down(plan, &source_table_state, storage_table.clone())
+            })
             .unwrap()
             .data;
 

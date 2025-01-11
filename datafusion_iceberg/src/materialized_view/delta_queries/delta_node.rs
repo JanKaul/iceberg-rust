@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{fmt::Debug, sync::Arc};
+use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
 use datafusion::common::DFSchemaRef;
 use datafusion_expr::{Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
@@ -7,6 +7,7 @@ use datafusion_expr::{Expr, Extension, LogicalPlan, UserDefinedLogicalNodeCore};
 #[derive(PartialEq, Eq, Hash, PartialOrd)]
 pub struct PosDeltaNode {
     pub input: Arc<LogicalPlan>,
+    pub aliases: BTreeMap<String, String>,
 }
 
 impl Debug for PosDeltaNode {
@@ -41,6 +42,7 @@ impl UserDefinedLogicalNodeCore for PosDeltaNode {
         assert_eq!(exprs.len(), 0, "expression size inconsistent");
         Self {
             input: Arc::new(inputs[0].clone()),
+            aliases: BTreeMap::new(),
         }
     }
 
@@ -51,13 +53,24 @@ impl UserDefinedLogicalNodeCore for PosDeltaNode {
     ) -> datafusion::error::Result<Self> {
         Ok(Self {
             input: Arc::new(inputs[0].clone()),
+            aliases: BTreeMap::new(),
         })
     }
 }
 
 impl PosDeltaNode {
     pub fn new(plan: Arc<LogicalPlan>) -> Self {
-        Self { input: plan }
+        Self {
+            input: plan,
+            aliases: BTreeMap::new(),
+        }
+    }
+
+    pub fn new_with_aliases(plan: Arc<LogicalPlan>, aliases: BTreeMap<String, String>) -> Self {
+        Self {
+            input: plan,
+            aliases,
+        }
     }
 
     pub(crate) fn into_logical_plan(self) -> LogicalPlan {
@@ -70,6 +83,7 @@ impl PosDeltaNode {
 #[derive(PartialEq, Eq, Hash, PartialOrd)]
 pub struct NegDeltaNode {
     pub input: Arc<LogicalPlan>,
+    pub aliases: BTreeMap<String, String>,
 }
 
 impl Debug for NegDeltaNode {
@@ -104,6 +118,7 @@ impl UserDefinedLogicalNodeCore for NegDeltaNode {
         assert_eq!(exprs.len(), 0, "expression size inconsistent");
         Self {
             input: Arc::new(inputs[0].clone()),
+            aliases: BTreeMap::new(),
         }
     }
 
@@ -114,13 +129,24 @@ impl UserDefinedLogicalNodeCore for NegDeltaNode {
     ) -> datafusion::error::Result<Self> {
         Ok(Self {
             input: Arc::new(inputs[0].clone()),
+            aliases: BTreeMap::new(),
         })
     }
 }
 
 impl NegDeltaNode {
     pub fn new(plan: Arc<LogicalPlan>) -> Self {
-        Self { input: plan }
+        Self {
+            input: plan,
+            aliases: BTreeMap::new(),
+        }
+    }
+
+    pub fn new_with_aliases(plan: Arc<LogicalPlan>, aliases: BTreeMap<String, String>) -> Self {
+        Self {
+            input: plan,
+            aliases,
+        }
     }
 
     pub(crate) fn into_logical_plan(self) -> LogicalPlan {
