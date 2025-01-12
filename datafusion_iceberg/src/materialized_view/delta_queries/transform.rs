@@ -67,9 +67,9 @@ pub(crate) fn delta_transform_down(
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
-                            join_type: join.join_type.clone(),
-                            join_constraint: join.join_constraint.clone(),
-                            null_equals_null: join.null_equals_null.clone(),
+                            join_type: join.join_type,
+                            join_constraint: join.join_constraint,
+                            null_equals_null: join.null_equals_null,
                         });
                         let left_delta = LogicalPlan::Join(Join {
                             left: join.left.clone(),
@@ -77,9 +77,9 @@ pub(crate) fn delta_transform_down(
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
-                            join_type: join.join_type.clone(),
-                            join_constraint: join.join_constraint.clone(),
-                            null_equals_null: join.null_equals_null.clone(),
+                            join_type: join.join_type,
+                            join_constraint: join.join_constraint,
+                            null_equals_null: join.null_equals_null,
                         });
                         let right_delta = LogicalPlan::Join(Join {
                             left: delta_left.clone(),
@@ -87,9 +87,9 @@ pub(crate) fn delta_transform_down(
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
-                            join_type: join.join_type.clone(),
-                            join_constraint: join.join_constraint.clone(),
-                            null_equals_null: join.null_equals_null.clone(),
+                            join_type: join.join_type,
+                            join_constraint: join.join_constraint,
+                            null_equals_null: join.null_equals_null,
                         });
                         Ok(Transformed::yes(LogicalPlan::Union(Union {
                             inputs: vec![
@@ -161,7 +161,7 @@ pub(crate) fn delta_transform_down(
                             .group_expr
                             .clone()
                             .into_iter()
-                            .zip(storage_table_group_exprs.into_iter())
+                            .zip(storage_table_group_exprs)
                             .collect::<Vec<_>>();
 
                         let join = Arc::new(LogicalPlan::Join(Join {
@@ -296,9 +296,9 @@ pub(crate) fn delta_transform_down(
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
-                            join_type: join.join_type.clone(),
-                            join_constraint: join.join_constraint.clone(),
-                            null_equals_null: join.null_equals_null.clone(),
+                            join_type: join.join_type,
+                            join_constraint: join.join_constraint,
+                            null_equals_null: join.null_equals_null,
                         });
                         let left_delta = LogicalPlan::Join(Join {
                             left: join.left.clone(),
@@ -306,9 +306,9 @@ pub(crate) fn delta_transform_down(
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
-                            join_type: join.join_type.clone(),
-                            join_constraint: join.join_constraint.clone(),
-                            null_equals_null: join.null_equals_null.clone(),
+                            join_type: join.join_type,
+                            join_constraint: join.join_constraint,
+                            null_equals_null: join.null_equals_null,
                         });
                         let right_delta = LogicalPlan::Join(Join {
                             left: delta_left.clone(),
@@ -316,9 +316,9 @@ pub(crate) fn delta_transform_down(
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
-                            join_type: join.join_type.clone(),
-                            join_constraint: join.join_constraint.clone(),
-                            null_equals_null: join.null_equals_null.clone(),
+                            join_type: join.join_type,
+                            join_constraint: join.join_constraint,
+                            null_equals_null: join.null_equals_null,
                         });
                         Ok(Transformed::yes(LogicalPlan::Union(Union {
                             inputs: vec![
@@ -383,7 +383,7 @@ pub(crate) fn delta_transform_down(
                             .group_expr
                             .clone()
                             .into_iter()
-                            .zip(storage_table_group_exprs.into_iter())
+                            .zip(storage_table_group_exprs)
                             .collect::<Vec<_>>();
 
                         let join = Arc::new(LogicalPlan::Join(Join {

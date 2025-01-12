@@ -465,7 +465,7 @@ async fn table_scan(
             .map(|(i, id)| {
                 let name = file_schema.fields[*id].name();
                 (
-                    Arc::new(Column::new(&name, i)) as Arc<dyn PhysicalExpr>,
+                    Arc::new(Column::new(name, i)) as Arc<dyn PhysicalExpr>,
                     name.to_owned(),
                 )
             })
@@ -516,13 +516,13 @@ async fn table_scan(
                         }) {
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let data_file =
-                                generate_partitioned_file(&schema, &data_manifest, last_updated_ms)
+                                generate_partitioned_file(schema, &data_manifest, last_updated_ms)
                                     .unwrap();
                             data_files.push(data_file);
                         }
                         async move {
                             let delete_schema = schema.project(
-                                &delete_manifest.data_file().equality_ids().as_ref().unwrap(),
+                                delete_manifest.data_file().equality_ids().as_ref().unwrap(),
                             );
                             let delete_file_schema: SchemaRef =
                                 Arc::new((delete_schema.fields()).try_into().unwrap());
@@ -542,7 +542,7 @@ async fn table_scan(
                                                 }
                                             })
                                             .collect();
-                                        Some(Vec::from([projection.as_slice(), &collect].concat()))
+                                        Some([projection.as_slice(), &collect].concat())
                                     }
                                     _ => None,
                                 };
@@ -550,7 +550,7 @@ async fn table_scan(
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let delete_file = generate_partitioned_file(
                                 &delete_schema,
-                                &delete_manifest,
+                                delete_manifest,
                                 last_updated_ms,
                             )?;
 
@@ -639,7 +639,7 @@ async fn table_scan(
                 let additional_data_files = data_file_iter
                     .map(|x| {
                         let last_updated_ms = table.metadata().last_updated_ms;
-                        generate_partitioned_file(&schema, &x, last_updated_ms)
+                        generate_partitioned_file(schema, &x, last_updated_ms)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 

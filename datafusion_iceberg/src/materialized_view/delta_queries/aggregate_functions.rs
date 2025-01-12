@@ -90,7 +90,7 @@ pub fn incremental_aggregate_function(
         }
     } else {
         Err(DataFusionError::External(Box::new(Error::NotSupported(
-            format!("Aggregate functions with more than one arguments"),
+            "Aggregate functions with more than one arguments".to_string(),
         ))))
     }
 }
