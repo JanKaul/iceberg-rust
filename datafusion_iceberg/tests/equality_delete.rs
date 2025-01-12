@@ -159,7 +159,7 @@ pub async fn test_equality_delete() {
         stream::iter(batches.into_iter().map(Ok::<_, ArrowError>)),
         object_store.build(Bucket::Local).unwrap(),
         None,
-        &vec![1, 2, 3, 4],
+        &[1, 2, 3, 4],
     )
     .await
     .unwrap();
