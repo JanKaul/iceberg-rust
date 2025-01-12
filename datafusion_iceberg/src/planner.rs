@@ -925,7 +925,7 @@ OPTIONS ('has_header' 'true');";
         .await
         .expect("Failed to insert values into table");
 
-        let sql = "CREATE TEMPORARY VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) from iceberg.public.orders group by product_id;";
+        let sql = "CREATE TEMPORARY VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) as total from iceberg.public.orders group by product_id;";
 
         let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 

@@ -500,9 +500,9 @@ async fn table_scan(
 
                 let mut data_file_iter = data_files.into_iter().peekable();
 
-                let plan = stream::iter(delete_files.iter())
+                let mut plan = stream::iter(delete_files.iter())
                     .map(Ok::<_, DataFusionError>)
-                    .try_fold(None, |acc, manifest| {
+                    .try_fold(None, |acc, delete_manifest| {
                         let object_store_url = object_store_url.clone();
                         let table_partition_cols = table_partition_cols.clone();
                         let statistics = statistics.clone();
@@ -511,7 +511,8 @@ async fn table_scan(
                         let file_schema = file_schema.clone();
                         let mut data_files = Vec::new();
                         while let Some(data_manifest) = data_file_iter.next_if(|x| {
-                            x.sequence_number().unwrap() < manifest.sequence_number().unwrap()
+                            x.sequence_number().unwrap()
+                                < delete_manifest.sequence_number().unwrap()
                         }) {
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let data_file =
@@ -520,12 +521,13 @@ async fn table_scan(
                             data_files.push(data_file);
                         }
                         async move {
-                            let delete_schema = schema
-                                .project(&manifest.data_file().equality_ids().as_ref().unwrap());
+                            let delete_schema = schema.project(
+                                &delete_manifest.data_file().equality_ids().as_ref().unwrap(),
+                            );
                             let delete_file_schema: SchemaRef =
                                 Arc::new((delete_schema.fields()).try_into().unwrap());
                             let equality_projection: Option<Vec<usize>> =
-                                match (&projection, manifest.data_file().equality_ids()) {
+                                match (&projection, delete_manifest.data_file().equality_ids()) {
                                     (Some(projection), Some(equality_ids)) => {
                                         let collect: Vec<usize> = schema
                                             .iter()
@@ -548,7 +550,7 @@ async fn table_scan(
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let delete_file = generate_partitioned_file(
                                 &delete_schema,
-                                &manifest,
+                                &delete_manifest,
                                 last_updated_ms,
                             )?;
 
@@ -596,7 +598,7 @@ async fn table_scan(
                                 data_files_scan
                             };
 
-                            let join_on = manifest
+                            let join_on = delete_manifest
                                 .data_file()
                                 .equality_ids()
                                 .as_ref()
@@ -633,6 +635,36 @@ async fn table_scan(
                     .ok_or(DataFusionError::External(Box::new(Error::InvalidFormat(
                         "Delete plan".to_owned(),
                     ))))??;
+
+                let additional_data_files = data_file_iter
+                    .map(|x| {
+                        let last_updated_ms = table.metadata().last_updated_ms;
+                        generate_partitioned_file(&schema, &x, last_updated_ms)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                if !additional_data_files.is_empty() {
+                    let file_scan_config = FileScanConfig {
+                        object_store_url,
+                        file_schema: file_schema.clone(),
+                        file_groups: vec![additional_data_files],
+                        statistics,
+                        projection: projection.cloned(),
+                        limit,
+                        table_partition_cols,
+                        output_ordering: vec![],
+                    };
+
+                    let data_files_scan = ParquetFormat::default()
+                        .create_physical_plan(
+                            session,
+                            file_scan_config,
+                            physical_predicate.as_ref(),
+                        )
+                        .await?;
+
+                    plan = Arc::new(UnionExec::new(vec![plan, data_files_scan]));
+                }
 
                 if let Some(projection_expr) = projection_expr {
                     Ok::<_, DataFusionError>(Arc::new(ProjectionExec::try_new(
