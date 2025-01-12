@@ -346,7 +346,7 @@ pub(crate) fn delta_transform_down(
                     }
                     LogicalPlan::Aggregate(aggregate) => {
                         let delta = Arc::new(
-                            NegDeltaNode::new(aggregate.input.clone()).into_logical_plan(),
+                            PosDeltaNode::new(aggregate.input.clone()).into_logical_plan(),
                         );
                         let delta_aggregate =
                             Arc::new(LogicalPlan::Aggregate(Aggregate::try_new_with_schema(
