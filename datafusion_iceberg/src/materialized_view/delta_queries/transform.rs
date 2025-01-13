@@ -28,6 +28,16 @@ pub(crate) fn delta_transform_down(
     source_table_state: &HashMap<TableReference, SourceTableState>,
     storage_table: Arc<dyn TableProvider>,
 ) -> Result<Transformed<LogicalPlan>, DataFusionError> {
+    let storage_table_reference = TableReference::parse_str("storage_table");
+
+    let storage_table_scan = Arc::new(LogicalPlan::TableScan(TableScan::try_new(
+        storage_table_reference.clone(),
+        Arc::new(DefaultTableSource::new(storage_table)),
+        None,
+        Vec::new(),
+        None,
+    )?));
+
     match &plan {
         LogicalPlan::Extension(ext) => {
             if ext.node.name() == "PosDelta" {
@@ -132,17 +142,6 @@ pub(crate) fn delta_transform_down(
                                 aggregate.group_expr.clone(),
                                 aggregate.aggr_expr.clone(),
                                 aggregate.schema.clone(),
-                            )?));
-
-                        let storage_table_reference = TableReference::parse_str("storage_table");
-
-                        let storage_table_scan =
-                            Arc::new(LogicalPlan::TableScan(TableScan::try_new(
-                                storage_table_reference.clone(),
-                                Arc::new(DefaultTableSource::new(storage_table)),
-                                None,
-                                Vec::new(),
-                                None,
                             )?));
 
                         let join_schema = Arc::new(build_join_schema(
@@ -354,17 +353,6 @@ pub(crate) fn delta_transform_down(
                                 aggregate.group_expr.clone(),
                                 aggregate.aggr_expr.clone(),
                                 aggregate.schema.clone(),
-                            )?));
-
-                        let storage_table_reference = TableReference::parse_str("storage_table");
-
-                        let storage_table_scan =
-                            Arc::new(LogicalPlan::TableScan(TableScan::try_new(
-                                storage_table_reference.clone(),
-                                Arc::new(DefaultTableSource::new(storage_table)),
-                                None,
-                                Vec::new(),
-                                None,
                             )?));
 
                         let join_schema = Arc::new(build_join_schema(
