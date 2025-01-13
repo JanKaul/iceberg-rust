@@ -14,7 +14,7 @@ use datafusion_expr::{
     build_join_schema, Aggregate, Expr, Filter, Join, JoinConstraint, JoinType, LogicalPlan,
     Projection, SubqueryAlias, TableScan, Union,
 };
-use iceberg_rust::{error::Error, materialized_view::SourceTableState};
+use iceberg_rust::error::Error;
 
 use crate::DataFusionTable;
 
@@ -25,7 +25,13 @@ use super::{
 
 pub(crate) fn delta_transform_down(
     plan: LogicalPlan,
-    source_table_state: &HashMap<TableReference, SourceTableState>,
+    source_table_state: &HashMap<
+        TableReference,
+        (
+            Option<Arc<dyn TableProvider>>,
+            Option<Arc<dyn TableProvider>>,
+        ),
+    >,
     storage_table: Arc<dyn TableProvider>,
 ) -> Result<Transformed<LogicalPlan>, DataFusionError> {
     let storage_table_reference = TableReference::parse_str("storage_table");
@@ -220,32 +226,16 @@ pub(crate) fn delta_transform_down(
                     }
                     LogicalPlan::TableScan(scan) => {
                         let mut scan = scan.clone();
-                        let mut table = scan
-                            .source
-                            .as_any()
-                            .downcast_ref::<DefaultTableSource>()
-                            .ok_or(DataFusionError::Plan(format!(
-                                "Table scan {} doesn't target a Datafusion DefaultTableSource.",
-                                scan.table_name
-                            )))?
-                            .table_provider
-                            .as_any()
-                            .downcast_ref::<DataFusionTable>()
-                            .ok_or(DataFusionError::Plan(format!(
-                                "Table scan {} doesn't reference an Iceberg table.",
-                                scan.table_name
-                            )))?
-                            .clone();
-                        let table_provider: Arc<dyn TableProvider> =
-                            match source_table_state.get(&scan.table_name).unwrap() {
-                                SourceTableState::Fresh => Arc::new(EmptyTable::new(table.schema)),
-                                SourceTableState::Outdated(id) => {
-                                    table.snapshot_range = (Some(*id), None);
-                                    Arc::new(table)
-                                }
-                                SourceTableState::Invalid => Arc::new(table),
-                            };
-                        scan.source = Arc::new(DefaultTableSource::new(table_provider));
+                        let table_provider = source_table_state.get(&scan.table_name).unwrap();
+                        scan.source = Arc::new(DefaultTableSource::new(
+                            table_provider
+                                .1
+                                .as_ref()
+                                .map(Clone::clone)
+                                .unwrap_or(Arc::new(EmptyTable::new(Arc::new(
+                                    scan.projected_schema.as_arrow().clone(),
+                                )))),
+                        ));
                         Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
                     }
                     x => Err(DataFusionError::External(Box::new(Error::NotSupported(
@@ -431,32 +421,16 @@ pub(crate) fn delta_transform_down(
                 return Ok(Transformed::no(plan));
             }
             let mut scan = scan.clone();
-            let mut table = scan
-                .source
-                .as_any()
-                .downcast_ref::<DefaultTableSource>()
-                .ok_or(DataFusionError::Plan(format!(
-                    "Table scan {} doesn't target a Datafusion DefaultTableSource.",
-                    scan.table_name
-                )))?
-                .table_provider
-                .as_any()
-                .downcast_ref::<DataFusionTable>()
-                .ok_or(DataFusionError::Plan(format!(
-                    "Table scan {} doesn't reference an Iceberg table.",
-                    scan.table_name
-                )))?
-                .clone();
-            let table_provider: Arc<dyn TableProvider> =
-                match source_table_state.get(&scan.table_name).unwrap() {
-                    SourceTableState::Fresh => Arc::new(table),
-                    SourceTableState::Outdated(id) => {
-                        table.snapshot_range = (None, Some(*id));
-                        Arc::new(table)
-                    }
-                    SourceTableState::Invalid => Arc::new(EmptyTable::new(table.schema)),
-                };
-            scan.source = Arc::new(DefaultTableSource::new(table_provider));
+            let table_provider = source_table_state.get(&scan.table_name).unwrap();
+            scan.source = Arc::new(DefaultTableSource::new(
+                table_provider
+                    .0
+                    .as_ref()
+                    .map(Clone::clone)
+                    .unwrap_or(Arc::new(EmptyTable::new(Arc::new(
+                        scan.projected_schema.as_arrow().clone(),
+                    )))),
+            ));
             Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
         }
         _ => Ok(Transformed::no(plan)),
@@ -500,7 +474,6 @@ mod tests {
     use datafusion::sql::TableReference;
     use datafusion_expr::LogicalPlan;
     use iceberg_rust::catalog::Catalog;
-    use iceberg_rust::materialized_view::SourceTableState;
     use iceberg_rust::object_store::ObjectStoreBuilder;
     use iceberg_rust::spec::schema::Schema;
     use iceberg_rust::spec::types::{PrimitiveType, StructField, StructType, Type};
@@ -564,7 +537,7 @@ mod tests {
 
         let source_table_state = HashMap::from_iter(vec![(
             TableReference::parse_str("public.users"),
-            SourceTableState::Fresh,
+            (None, None),
         )]);
 
         let storage_table = Arc::new(EmptyTable::new(Arc::new(
@@ -645,7 +618,7 @@ mod tests {
 
         let source_table_state = HashMap::from_iter(vec![(
             TableReference::parse_str("public.users"),
-            SourceTableState::Fresh,
+            (None, None),
         )]);
         let storage_table = Arc::new(EmptyTable::new(Arc::new(
             logical_plan.schema().as_arrow().clone(),
@@ -771,14 +744,8 @@ mod tests {
         let logical_plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
         let source_table_state = HashMap::from_iter(vec![
-            (
-                TableReference::parse_str("public.users"),
-                SourceTableState::Fresh,
-            ),
-            (
-                TableReference::parse_str("public.homes"),
-                SourceTableState::Fresh,
-            ),
+            (TableReference::parse_str("public.users"), (None, None)),
+            (TableReference::parse_str("public.homes"), (None, None)),
         ]);
         let storage_table = Arc::new(EmptyTable::new(Arc::new(
             logical_plan.schema().as_arrow().clone(),
@@ -897,14 +864,8 @@ mod tests {
         let logical_plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
         let source_table_state = HashMap::from_iter(vec![
-            (
-                TableReference::parse_str("public.users1"),
-                SourceTableState::Fresh,
-            ),
-            (
-                TableReference::parse_str("public.users2"),
-                SourceTableState::Fresh,
-            ),
+            (TableReference::parse_str("public.users1"), (None, None)),
+            (TableReference::parse_str("public.users2"), (None, None)),
         ]);
 
         let storage_table = Arc::new(EmptyTable::new(Arc::new(
@@ -998,7 +959,7 @@ mod tests {
 
         let source_table_state = HashMap::from_iter(vec![(
             TableReference::parse_str("public.users"),
-            SourceTableState::Fresh,
+            (None, None),
         )]);
 
         let storage_table = Arc::new(EmptyTable::new(Arc::new(
@@ -1118,7 +1079,7 @@ mod tests {
 
         let source_table_state = HashMap::from_iter(vec![(
             TableReference::parse_str("public.users"),
-            SourceTableState::Fresh,
+            (None, None),
         )]);
 
         let storage_table = Arc::new(EmptyTable::new(Arc::new(

@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
-    arrow::error::ArrowError, common::tree_node::TreeNode, execution::SessionStateBuilder,
-    prelude::SessionContext, sql::TableReference,
+    arrow::error::ArrowError, catalog::TableProvider, common::tree_node::TreeNode,
+    execution::SessionStateBuilder, prelude::SessionContext, sql::TableReference,
 };
 use datafusion_expr::LogicalPlan;
 use delta_queries::{
@@ -13,7 +13,7 @@ use futures::{stream, StreamExt, TryStreamExt};
 use iceberg_rust::{
     arrow::write::{write_equality_deletes_parquet_partitioned, write_parquet_partitioned},
     catalog::{identifier::Identifier, tabular::Tabular, CatalogList},
-    materialized_view::{MaterializedView, SourceTableState},
+    materialized_view::MaterializedView,
     spec::materialized_view_metadata::{SourceTables, SourceViews},
 };
 use iceberg_rust::{
@@ -87,6 +87,7 @@ pub async fn refresh_materialized_view(
                     }
                     x => x,
                 };
+                let uuid = *tabular.metadata().as_ref().uuid();
                 let current_snapshot_id = match &tabular {
                     Tabular::Table(table) => Ok(*table
                         .metadata()
@@ -114,25 +115,76 @@ pub async fn refresh_materialized_view(
                     _ => Err(Error::InvalidFormat("storage table".to_string())),
                 }?;
 
-                let uuid = *tabular.metadata().as_ref().uuid();
-
-                let table_state = if let Some(old_refresh_state) = old_refresh_state.as_ref() {
+                let source_table_provider: (
+                    Option<Arc<dyn TableProvider>>,
+                    Option<Arc<dyn TableProvider>>,
+                ) = if let Some(old_refresh_state) = old_refresh_state.as_ref() {
                     let revision_id = old_refresh_state.source_table_states.get(&(uuid, None));
                     if Some(&current_snapshot_id) == revision_id {
-                        SourceTableState::Fresh
+                        // Fresh
+                        (
+                            Some(Arc::new(DataFusionTable::new(
+                                tabular,
+                                None,
+                                None,
+                                branch.as_deref(),
+                            ))),
+                            None,
+                        )
                     } else if Some(&-1) == revision_id {
-                        SourceTableState::Invalid
+                        // Invalid
+                        (
+                            None,
+                            Some(Arc::new(DataFusionTable::new(
+                                tabular,
+                                None,
+                                None,
+                                branch.as_deref(),
+                            ))),
+                        )
                     } else if let Some(revision_id) = revision_id {
-                        SourceTableState::Outdated(*revision_id)
+                        // Outdated
+                        (
+                            Some(Arc::new(DataFusionTable::new(
+                                tabular.clone(),
+                                None,
+                                Some(*revision_id),
+                                branch.as_deref(),
+                            ))),
+                            Some(Arc::new(DataFusionTable::new(
+                                tabular,
+                                Some(*revision_id),
+                                None,
+                                branch.as_deref(),
+                            ))),
+                        )
                     } else {
-                        SourceTableState::Invalid
+                        // Invalid
+                        (
+                            None,
+                            Some(Arc::new(DataFusionTable::new(
+                                tabular,
+                                None,
+                                None,
+                                branch.as_deref(),
+                            ))),
+                        )
                     }
                 } else {
-                    SourceTableState::Invalid
+                    // Invalid
+                    (
+                        None,
+                        Some(Arc::new(DataFusionTable::new(
+                            tabular,
+                            None,
+                            None,
+                            branch.as_deref(),
+                        ))),
+                    )
                 };
 
                 Ok((
-                    (reference, table_state),
+                    (reference, source_table_provider),
                     ((uuid, None), current_snapshot_id),
                 ))
             }
@@ -143,10 +195,7 @@ pub async fn refresh_materialized_view(
     let source_tables = Arc::new(source_tables);
 
     // If all source table states are fresh, then nothing has to be done
-    if source_tables
-        .iter()
-        .all(|x| matches!(x.1, SourceTableState::Fresh))
-    {
+    if source_tables.values().all(|x| x.1.is_none()) {
         return Ok(());
     }
 
