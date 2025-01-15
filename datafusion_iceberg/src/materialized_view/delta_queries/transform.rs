@@ -46,10 +46,11 @@ pub(crate) fn delta_transform_down(
     )?));
 
     let storage_table_schema = storage_table_scan.schema().clone();
-    let (storage_table_scan_one, storage_table_scan_two) = channel_nodes(storage_table_scan);
     match &plan {
         LogicalPlan::Extension(ext) => {
             if ext.node.name() == "PosDelta" {
+                let (storage_table_scan_one, storage_table_scan_two) =
+                    channel_nodes(storage_table_scan);
                 let node = ext.node.as_any().downcast_ref::<PosDeltaNode>().unwrap();
                 match ext.node.inputs()[0] {
                     LogicalPlan::Filter(filter) => {
@@ -357,7 +358,7 @@ pub(crate) fn delta_transform_down(
 
                         let join = Arc::new(LogicalPlan::Join(Join {
                             left: delta_aggregate.clone(),
-                            right: Arc::new(storage_table_scan_one.into()),
+                            right: storage_table_scan,
                             schema: join_schema,
                             on: join_on.clone(),
                             filter: None,
