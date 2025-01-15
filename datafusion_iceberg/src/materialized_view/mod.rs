@@ -24,10 +24,10 @@ use iceberg_rust::{
 
 use crate::{
     catalog::catalog_list::IcebergCatalogList, error::Error as DatafusionIcebergError,
-    DataFusionTable,
+    planner::IcebergQueryPlanner, DataFusionTable,
 };
 
-mod delta_queries;
+pub(crate) mod delta_queries;
 
 pub async fn refresh_materialized_view(
     matview: &mut MaterializedView,
@@ -38,6 +38,7 @@ pub async fn refresh_materialized_view(
         .with_catalog_list(Arc::new(
             IcebergCatalogList::new(catalog_list.clone()).await?,
         ))
+        .with_query_planner(Arc::new(IcebergQueryPlanner::new()))
         .with_default_features()
         .build();
     let ctx = SessionContext::new_with_state(state);
@@ -414,7 +415,7 @@ mod tests {
         let state = SessionStateBuilder::default()
             .with_default_features()
             .with_catalog_list(catalog_list)
-            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .with_query_planner(Arc::new(IcebergQueryPlanner::new()))
             .with_object_store(
                 &Url::try_from("file://").unwrap(),
                 object_store.build(Bucket::Local).unwrap(),

@@ -48,9 +48,11 @@ impl UserDefinedLogicalNodeCore for PosDeltaNode {
 
     fn with_exprs_and_inputs(
         &self,
-        _exprs: Vec<Expr>,
+        exprs: Vec<Expr>,
         inputs: Vec<LogicalPlan>,
     ) -> datafusion::error::Result<Self> {
+        assert_eq!(inputs.len(), 1, "input size inconsistent");
+        assert_eq!(exprs.len(), 0, "expression size inconsistent");
         Ok(Self {
             input: Arc::new(inputs[0].clone()),
             aliases: BTreeMap::new(),

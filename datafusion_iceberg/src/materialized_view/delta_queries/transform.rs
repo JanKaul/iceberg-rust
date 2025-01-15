@@ -21,6 +21,7 @@ use crate::DataFusionTable;
 use super::{
     aggregate_functions::incremental_aggregate_function,
     delta_node::{NegDeltaNode, PosDeltaNode},
+    fork_node::channel,
 };
 
 pub(crate) fn delta_transform_down(
@@ -44,6 +45,8 @@ pub(crate) fn delta_transform_down(
         None,
     )?));
 
+    let storage_table_schema = storage_table_scan.schema().clone();
+    let (storage_table_scan_one, storage_table_scan_two) = channel(storage_table_scan);
     match &plan {
         LogicalPlan::Extension(ext) => {
             if ext.node.name() == "PosDelta" {
@@ -77,9 +80,11 @@ pub(crate) fn delta_transform_down(
                             Arc::new(PosDeltaNode::new(join.left.clone()).into_logical_plan());
                         let delta_right =
                             Arc::new(PosDeltaNode::new(join.right.clone()).into_logical_plan());
+                        let (delta_left_one, delta_left_two) = channel(delta_left);
+                        let (delta_right_one, delta_right_two) = channel(delta_right);
                         let delta_delta = LogicalPlan::Join(Join {
-                            left: delta_left.clone(),
-                            right: delta_right.clone(),
+                            left: Arc::new(delta_left_one.into_logical_plan()),
+                            right: Arc::new(delta_right_one.into_logical_plan()),
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
@@ -89,7 +94,7 @@ pub(crate) fn delta_transform_down(
                         });
                         let left_delta = LogicalPlan::Join(Join {
                             left: join.left.clone(),
-                            right: delta_right.clone(),
+                            right: Arc::new(delta_right_two.into_logical_plan()),
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
@@ -98,7 +103,7 @@ pub(crate) fn delta_transform_down(
                             null_equals_null: join.null_equals_null,
                         });
                         let right_delta = LogicalPlan::Join(Join {
-                            left: delta_left.clone(),
+                            left: Arc::new(delta_left_two.into_logical_plan()),
                             right: join.right.clone(),
                             schema: join.schema.clone(),
                             on: join.on.clone(),
@@ -150,9 +155,13 @@ pub(crate) fn delta_transform_down(
                                 aggregate.schema.clone(),
                             )?));
 
+                        let delta_aggregate_schema = delta_aggregate.schema().clone();
+
+                        let (delta_aggregate_one, delta_aggregate_two) = channel(delta_aggregate);
+
                         let join_schema = Arc::new(build_join_schema(
-                            delta_aggregate.schema(),
-                            storage_table_scan.schema(),
+                            &delta_aggregate_schema,
+                            &storage_table_schema,
                             &JoinType::Inner,
                         )?);
 
@@ -170,8 +179,8 @@ pub(crate) fn delta_transform_down(
                             .collect::<Vec<_>>();
 
                         let join = Arc::new(LogicalPlan::Join(Join {
-                            left: delta_aggregate.clone(),
-                            right: storage_table_scan.clone(),
+                            left: Arc::new(delta_aggregate_one.into_logical_plan()),
+                            right: Arc::new(storage_table_scan_one.into_logical_plan()),
                             schema: join_schema,
                             on: join_on.clone(),
                             filter: None,
@@ -203,14 +212,14 @@ pub(crate) fn delta_transform_down(
                         ));
 
                         let anti_join_schema = Arc::new(build_join_schema(
-                            delta_aggregate.schema(),
-                            storage_table_scan.schema(),
+                            &delta_aggregate_schema,
+                            &storage_table_schema,
                             &JoinType::LeftAnti,
                         )?);
 
                         let anti_join = Arc::new(LogicalPlan::Join(Join {
-                            left: delta_aggregate,
-                            right: storage_table_scan,
+                            left: Arc::new(delta_aggregate_two.into_logical_plan()),
+                            right: Arc::new(storage_table_scan_two.into_logical_plan()),
                             schema: anti_join_schema,
                             on: join_on,
                             filter: None,
@@ -347,7 +356,7 @@ pub(crate) fn delta_transform_down(
 
                         let join_schema = Arc::new(build_join_schema(
                             delta_aggregate.schema(),
-                            storage_table_scan.schema(),
+                            &storage_table_schema,
                             &JoinType::Inner,
                         )?);
 
@@ -366,7 +375,7 @@ pub(crate) fn delta_transform_down(
 
                         let join = Arc::new(LogicalPlan::Join(Join {
                             left: delta_aggregate.clone(),
-                            right: storage_table_scan.clone(),
+                            right: Arc::new(storage_table_scan_one.into_logical_plan()),
                             schema: join_schema,
                             on: join_on.clone(),
                             filter: None,

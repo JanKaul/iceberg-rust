@@ -1025,7 +1025,7 @@ pub mod tests {
 
         let state = SessionStateBuilder::new()
             .with_default_features()
-            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .with_query_planner(Arc::new(IcebergQueryPlanner::new()))
             .build();
 
         let ctx = SessionContext::new_with_state(state);
