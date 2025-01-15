@@ -1,5 +1,6 @@
 pub mod aggregate_functions;
 pub mod delta_node;
+pub mod fork_node;
 pub mod transform;
 
 #[cfg(test)]
@@ -48,7 +49,7 @@ mod tests {
         let state = SessionStateBuilder::default()
             .with_default_features()
             .with_catalog_list(catalog_list)
-            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .with_query_planner(Arc::new(IcebergQueryPlanner::new()))
             .with_object_store(
                 &Url::try_from("file://").unwrap(),
                 object_store.build(Bucket::Local).unwrap(),
@@ -485,7 +486,7 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
         let state = SessionStateBuilder::default()
             .with_default_features()
             .with_catalog_list(catalog_list)
-            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .with_query_planner(Arc::new(IcebergQueryPlanner::new()))
             .with_object_store(
                 &Url::try_from("file://").unwrap(),
                 object_store.build(Bucket::Local).unwrap(),

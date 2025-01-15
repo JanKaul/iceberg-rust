@@ -8,7 +8,10 @@ use datafusion_expr::{
 use itertools::Itertools;
 use regex::Regex;
 
-use crate::{catalog::catalog::IcebergCatalog, materialized_view::refresh_materialized_view};
+use crate::{
+    catalog::catalog::IcebergCatalog,
+    materialized_view::{delta_queries::fork_node::ChannelNodePlanner, refresh_materialized_view},
+};
 use datafusion::{
     arrow::datatypes::{DataType, Schema as ArrowSchema},
     common::{tree_node::Transformed, SchemaReference},
@@ -39,8 +42,22 @@ use iceberg_rust::{
     view::View,
 };
 
-#[derive(Debug)]
-pub struct IcebergQueryPlanner {}
+pub struct IcebergQueryPlanner(DefaultPhysicalPlanner);
+
+impl Debug for IcebergQueryPlanner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IcebergQueryPlanner")
+    }
+}
+
+impl IcebergQueryPlanner {
+    pub fn new() -> Self {
+        IcebergQueryPlanner(DefaultPhysicalPlanner::with_extension_planners(vec![
+            Arc::new(IcebergExtensionPlanner {}),
+            Arc::new(ChannelNodePlanner::new()),
+        ]))
+    }
+}
 
 #[async_trait]
 impl QueryPlanner for IcebergQueryPlanner {
@@ -49,10 +66,7 @@ impl QueryPlanner for IcebergQueryPlanner {
         logical_plan: &LogicalPlan,
         session_state: &SessionState,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        let planner = DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(
-            IcebergExtensionPlanner {},
-        )]);
-        planner
+        self.0
             .create_physical_plan(logical_plan, session_state)
             .await
     }
@@ -879,7 +893,7 @@ mod tests {
         let state = SessionStateBuilder::default()
             .with_default_features()
             .with_catalog_list(catalog_list)
-            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .with_query_planner(Arc::new(IcebergQueryPlanner::new()))
             .build();
 
         let ctx = SessionContext::new_with_state(state);
