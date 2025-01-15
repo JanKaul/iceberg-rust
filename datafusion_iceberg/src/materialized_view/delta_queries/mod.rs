@@ -1,6 +1,6 @@
 pub mod aggregate_functions;
+pub mod channel_node;
 pub mod delta_node;
-pub mod fork_node;
 pub mod transform;
 
 #[cfg(test)]

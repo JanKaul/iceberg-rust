@@ -228,7 +228,7 @@ pub async fn refresh_materialized_view(
     let pos_plan = match refresh_strategy {
         RefreshStrategy::FullOverwrite => logical_plan.clone(),
         RefreshStrategy::IncrementalAppend => {
-            let delta_plan = PosDeltaNode::new(Arc::new(logical_plan.clone())).into_logical_plan();
+            let delta_plan: LogicalPlan = PosDeltaNode::new(Arc::new(logical_plan.clone())).into();
             delta_plan
                 .transform_down(|plan| {
                     delta_transform_down(plan, &source_tables, storage_table_provider.clone())
@@ -268,7 +268,7 @@ pub async fn refresh_materialized_view(
         }
         RefreshStrategy::IncrementalAppend => {
             // Potentially register source table deltas and rewrite logical plan
-            let delta_plan = NegDeltaNode::new(Arc::new(logical_plan)).into_logical_plan();
+            let delta_plan: LogicalPlan = NegDeltaNode::new(Arc::new(logical_plan)).into();
             let neg_plan = delta_plan
                 .transform_down(|plan| {
                     delta_transform_down(plan, &source_tables, storage_table_provider.clone())

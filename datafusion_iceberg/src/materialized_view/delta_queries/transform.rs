@@ -20,8 +20,8 @@ use crate::DataFusionTable;
 
 use super::{
     aggregate_functions::incremental_aggregate_function,
+    channel_node::channel_nodes,
     delta_node::{NegDeltaNode, PosDeltaNode},
-    fork_node::channel,
 };
 
 pub(crate) fn delta_transform_down(
@@ -46,15 +46,14 @@ pub(crate) fn delta_transform_down(
     )?));
 
     let storage_table_schema = storage_table_scan.schema().clone();
-    let (storage_table_scan_one, storage_table_scan_two) = channel(storage_table_scan);
+    let (storage_table_scan_one, storage_table_scan_two) = channel_nodes(storage_table_scan);
     match &plan {
         LogicalPlan::Extension(ext) => {
             if ext.node.name() == "PosDelta" {
                 let node = ext.node.as_any().downcast_ref::<PosDeltaNode>().unwrap();
                 match ext.node.inputs()[0] {
                     LogicalPlan::Filter(filter) => {
-                        let input =
-                            Arc::new(PosDeltaNode::new(filter.input.clone()).into_logical_plan());
+                        let input = Arc::new(PosDeltaNode::new(filter.input.clone()).into());
                         Ok(Transformed::yes(LogicalPlan::Filter(Filter::try_new(
                             filter.predicate.clone(),
                             input,
@@ -68,23 +67,20 @@ pub(crate) fn delta_transform_down(
                             }
                         }
                         let input = Arc::new(
-                            PosDeltaNode::new_with_aliases(proj.input.clone(), aliases)
-                                .into_logical_plan(),
+                            PosDeltaNode::new_with_aliases(proj.input.clone(), aliases).into(),
                         );
                         Ok(Transformed::yes(LogicalPlan::Projection(
                             Projection::try_new(proj.expr.clone(), input)?,
                         )))
                     }
                     LogicalPlan::Join(join) => {
-                        let delta_left =
-                            Arc::new(PosDeltaNode::new(join.left.clone()).into_logical_plan());
-                        let delta_right =
-                            Arc::new(PosDeltaNode::new(join.right.clone()).into_logical_plan());
-                        let (delta_left_one, delta_left_two) = channel(delta_left);
-                        let (delta_right_one, delta_right_two) = channel(delta_right);
+                        let delta_left = Arc::new(PosDeltaNode::new(join.left.clone()).into());
+                        let delta_right = Arc::new(PosDeltaNode::new(join.right.clone()).into());
+                        let (delta_left_one, delta_left_two) = channel_nodes(delta_left);
+                        let (delta_right_one, delta_right_two) = channel_nodes(delta_right);
                         let delta_delta = LogicalPlan::Join(Join {
-                            left: Arc::new(delta_left_one.into_logical_plan()),
-                            right: Arc::new(delta_right_one.into_logical_plan()),
+                            left: Arc::new(delta_left_one.into()),
+                            right: Arc::new(delta_right_one.into()),
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
@@ -94,7 +90,7 @@ pub(crate) fn delta_transform_down(
                         });
                         let left_delta = LogicalPlan::Join(Join {
                             left: join.left.clone(),
-                            right: Arc::new(delta_right_two.into_logical_plan()),
+                            right: Arc::new(delta_right_two.into()),
                             schema: join.schema.clone(),
                             on: join.on.clone(),
                             filter: join.filter.clone(),
@@ -103,7 +99,7 @@ pub(crate) fn delta_transform_down(
                             null_equals_null: join.null_equals_null,
                         });
                         let right_delta = LogicalPlan::Join(Join {
-                            left: Arc::new(delta_left_two.into_logical_plan()),
+                            left: Arc::new(delta_left_two.into()),
                             right: join.right.clone(),
                             schema: join.schema.clone(),
                             on: join.on.clone(),
@@ -125,11 +121,7 @@ pub(crate) fn delta_transform_down(
                         let inputs = union
                             .inputs
                             .iter()
-                            .map(|input| {
-                                Ok(Arc::new(
-                                    PosDeltaNode::new(input.clone()).into_logical_plan(),
-                                ))
-                            })
+                            .map(|input| Ok(Arc::new(PosDeltaNode::new(input.clone()).into())))
                             .collect::<datafusion::common::Result<_>>()?;
                         Ok(Transformed::yes(LogicalPlan::Union(Union {
                             inputs,
@@ -137,16 +129,13 @@ pub(crate) fn delta_transform_down(
                         })))
                     }
                     LogicalPlan::SubqueryAlias(alias) => {
-                        let input =
-                            Arc::new(PosDeltaNode::new(alias.input.clone()).into_logical_plan());
+                        let input = Arc::new(PosDeltaNode::new(alias.input.clone()).into());
                         Ok(Transformed::yes(LogicalPlan::SubqueryAlias(
                             SubqueryAlias::try_new(input, alias.alias.clone())?,
                         )))
                     }
                     LogicalPlan::Aggregate(aggregate) => {
-                        let delta = Arc::new(
-                            PosDeltaNode::new(aggregate.input.clone()).into_logical_plan(),
-                        );
+                        let delta = Arc::new(PosDeltaNode::new(aggregate.input.clone()).into());
                         let delta_aggregate =
                             Arc::new(LogicalPlan::Aggregate(Aggregate::try_new_with_schema(
                                 delta,
@@ -157,7 +146,8 @@ pub(crate) fn delta_transform_down(
 
                         let delta_aggregate_schema = delta_aggregate.schema().clone();
 
-                        let (delta_aggregate_one, delta_aggregate_two) = channel(delta_aggregate);
+                        let (delta_aggregate_one, delta_aggregate_two) =
+                            channel_nodes(delta_aggregate);
 
                         let join_schema = Arc::new(build_join_schema(
                             &delta_aggregate_schema,
@@ -179,8 +169,8 @@ pub(crate) fn delta_transform_down(
                             .collect::<Vec<_>>();
 
                         let join = Arc::new(LogicalPlan::Join(Join {
-                            left: Arc::new(delta_aggregate_one.into_logical_plan()),
-                            right: Arc::new(storage_table_scan_one.into_logical_plan()),
+                            left: Arc::new(delta_aggregate_one.into()),
+                            right: Arc::new(storage_table_scan_one.into()),
                             schema: join_schema,
                             on: join_on.clone(),
                             filter: None,
@@ -218,8 +208,8 @@ pub(crate) fn delta_transform_down(
                         )?);
 
                         let anti_join = Arc::new(LogicalPlan::Join(Join {
-                            left: Arc::new(delta_aggregate_two.into_logical_plan()),
-                            right: Arc::new(storage_table_scan_two.into_logical_plan()),
+                            left: Arc::new(delta_aggregate_two.into()),
+                            right: Arc::new(storage_table_scan_two.into()),
                             schema: anti_join_schema,
                             on: join_on,
                             filter: None,
@@ -268,26 +258,24 @@ pub(crate) fn delta_transform_down(
                             .filter(|x| matches!(x, Expr::Column(_)))
                             .collect();
                         let input = Arc::new(
-                            NegDeltaNode::new_with_aliases(proj.input.clone(), aliases)
-                                .into_logical_plan(),
+                            NegDeltaNode::new_with_aliases(proj.input.clone(), aliases).into(),
                         );
                         Ok(Transformed::yes(LogicalPlan::Projection(
                             Projection::try_new(expr, input)?,
                         )))
                     }
                     LogicalPlan::Filter(filter) => {
-                        let input =
-                            Arc::new(NegDeltaNode::new(filter.input.clone()).into_logical_plan());
+                        let input = Arc::new(NegDeltaNode::new(filter.input.clone()).into());
                         Ok(Transformed::yes(LogicalPlan::Filter(Filter::try_new(
                             filter.predicate.clone(),
                             input,
                         )?)))
                     }
                     LogicalPlan::Join(join) => {
-                        let delta_left =
-                            Arc::new(NegDeltaNode::new(join.left.clone()).into_logical_plan());
-                        let delta_right =
-                            Arc::new(NegDeltaNode::new(join.right.clone()).into_logical_plan());
+                        let delta_left: Arc<LogicalPlan> =
+                            Arc::new(NegDeltaNode::new(join.left.clone()).into());
+                        let delta_right: Arc<LogicalPlan> =
+                            Arc::new(NegDeltaNode::new(join.right.clone()).into());
                         let delta_delta = LogicalPlan::Join(Join {
                             left: delta_left.clone(),
                             right: delta_right.clone(),
@@ -331,11 +319,7 @@ pub(crate) fn delta_transform_down(
                         let inputs = union
                             .inputs
                             .iter()
-                            .map(|input| {
-                                Ok(Arc::new(
-                                    NegDeltaNode::new(input.clone()).into_logical_plan(),
-                                ))
-                            })
+                            .map(|input| Ok(Arc::new(NegDeltaNode::new(input.clone()).into())))
                             .collect::<datafusion::common::Result<_>>()?;
                         Ok(Transformed::yes(LogicalPlan::Union(Union {
                             inputs,
@@ -343,9 +327,7 @@ pub(crate) fn delta_transform_down(
                         })))
                     }
                     LogicalPlan::Aggregate(aggregate) => {
-                        let delta = Arc::new(
-                            PosDeltaNode::new(aggregate.input.clone()).into_logical_plan(),
-                        );
+                        let delta = Arc::new(PosDeltaNode::new(aggregate.input.clone()).into());
                         let delta_aggregate =
                             Arc::new(LogicalPlan::Aggregate(Aggregate::try_new_with_schema(
                                 delta,
@@ -375,7 +357,7 @@ pub(crate) fn delta_transform_down(
 
                         let join = Arc::new(LogicalPlan::Join(Join {
                             left: delta_aggregate.clone(),
-                            right: Arc::new(storage_table_scan_one.into_logical_plan()),
+                            right: Arc::new(storage_table_scan_one.into()),
                             schema: join_schema,
                             on: join_on.clone(),
                             filter: None,
@@ -389,8 +371,7 @@ pub(crate) fn delta_transform_down(
                         )))
                     }
                     LogicalPlan::SubqueryAlias(alias) => {
-                        let input =
-                            Arc::new(NegDeltaNode::new(alias.input.clone()).into_logical_plan());
+                        let input = Arc::new(NegDeltaNode::new(alias.input.clone()).into());
                         Ok(Transformed::yes(LogicalPlan::SubqueryAlias(
                             SubqueryAlias::try_new(input, alias.alias.clone())?,
                         )))
@@ -553,7 +534,7 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
-        let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
+        let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
                 delta_transform_down(plan, &source_table_state, storage_table.clone())
@@ -633,7 +614,7 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
-        let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
+        let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
 
         let output = delta_plan
             .transform_down(|plan| {
@@ -760,7 +741,7 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
-        let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
+        let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
                 delta_transform_down(plan, &source_table_state, storage_table.clone())
@@ -881,7 +862,7 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
-        let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
+        let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
                 delta_transform_down(plan, &source_table_state, storage_table.clone())
@@ -975,7 +956,7 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
-        let delta_plan = PosDeltaNode::new(logical_plan.into()).into_logical_plan();
+        let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
                 delta_transform_down(plan, &source_table_state, storage_table.clone())
@@ -1095,7 +1076,7 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
-        let delta_plan = NegDeltaNode::new(logical_plan.into()).into_logical_plan();
+        let delta_plan: LogicalPlan = NegDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
                 delta_transform_down(plan, &source_table_state, storage_table.clone())
