@@ -96,8 +96,8 @@ impl UserDefinedLogicalNodeCore for SenderNode {
     }
 
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SenderNode")?;
-        Debug::fmt(&self.input, f)
+        writeln!(f, "SenderNode")?;
+        write!(f, "{}", self.input)
     }
 
     fn from_template(&self, _exprs: &[Expr], _inputs: &[LogicalPlan]) -> Self {
@@ -187,8 +187,8 @@ impl UserDefinedLogicalNodeCore for ReceiverNode {
     }
 
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "ReceiverNode")?;
-        Debug::fmt(&self.input, f)
+        writeln!(f, "ReceiverNode")?;
+        write!(f, "{}", self.input)
     }
 
     fn from_template(&self, _exprs: &[Expr], _inputs: &[LogicalPlan]) -> Self {
