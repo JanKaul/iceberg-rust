@@ -74,10 +74,12 @@ impl PosDeltaNode {
             aliases,
         }
     }
+}
 
-    pub(crate) fn into_logical_plan(self) -> LogicalPlan {
+impl From<PosDeltaNode> for LogicalPlan {
+    fn from(value: PosDeltaNode) -> Self {
         LogicalPlan::Extension(Extension {
-            node: Arc::new(self),
+            node: Arc::new(value),
         })
     }
 }
@@ -150,10 +152,12 @@ impl NegDeltaNode {
             aliases,
         }
     }
+}
 
-    pub(crate) fn into_logical_plan(self) -> LogicalPlan {
+impl From<NegDeltaNode> for LogicalPlan {
+    fn from(value: NegDeltaNode) -> Self {
         LogicalPlan::Extension(Extension {
-            node: Arc::new(self),
+            node: Arc::new(value),
         })
     }
 }

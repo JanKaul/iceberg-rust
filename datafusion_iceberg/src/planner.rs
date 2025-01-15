@@ -10,7 +10,9 @@ use regex::Regex;
 
 use crate::{
     catalog::catalog::IcebergCatalog,
-    materialized_view::{delta_queries::fork_node::ChannelNodePlanner, refresh_materialized_view},
+    materialized_view::{
+        delta_queries::channel_node::ChannelNodePlanner, refresh_materialized_view,
+    },
 };
 use datafusion::{
     arrow::datatypes::{DataType, Schema as ArrowSchema},
