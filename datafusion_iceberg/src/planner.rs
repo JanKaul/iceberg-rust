@@ -52,6 +52,12 @@ impl Debug for IcebergQueryPlanner {
     }
 }
 
+impl Default for IcebergQueryPlanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IcebergQueryPlanner {
     pub fn new() -> Self {
         IcebergQueryPlanner(DefaultPhysicalPlanner::with_extension_planners(vec![
