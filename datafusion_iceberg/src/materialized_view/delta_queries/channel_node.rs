@@ -45,9 +45,9 @@ pub fn channel_nodes(plan: Arc<LogicalPlan>) -> (SenderNode, ReceiverNode) {
 }
 
 pub struct SenderNode {
-    input: Arc<LogicalPlan>,
+    pub(crate) input: Arc<LogicalPlan>,
     sender: Sender<(
-        PlanProperties,
+        Arc<Mutex<PlanProperties>>,
         Vec<Arc<Mutex<Option<UnboundedReceiver<Result<RecordBatch, DataFusionError>>>>>>,
     )>,
 }
@@ -133,7 +133,7 @@ pub struct ReceiverNode {
         Mutex<
             Option<
                 Receiver<(
-                    PlanProperties,
+                    Arc<Mutex<PlanProperties>>,
                     Vec<
                         Arc<Mutex<Option<UnboundedReceiver<Result<RecordBatch, DataFusionError>>>>>,
                     >,
@@ -219,6 +219,7 @@ impl From<ReceiverNode> for LogicalPlan {
 
 pub(crate) struct PhysicalSenderNode {
     input: Arc<dyn ExecutionPlan>,
+    properties: Arc<Mutex<PlanProperties>>,
     sender: Vec<UnboundedSender<Result<RecordBatch, DataFusionError>>>,
 }
 
@@ -261,8 +262,11 @@ impl ExecutionPlan for PhysicalSenderNode {
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
         assert_eq!(children.len(), 1);
+        let properties = self.properties.clone();
+        *properties.lock().unwrap() = children[0].properties().clone();
         Ok(Arc::new(PhysicalSenderNode {
             input: children.pop().unwrap(),
+            properties,
             sender: self.sender.clone(),
         }))
     }
@@ -294,6 +298,7 @@ impl ExecutionPlan for PhysicalSenderNode {
 
 pub(crate) struct PhysicalReceiverNode {
     properties: PlanProperties,
+    sender_properties: Arc<Mutex<PlanProperties>>,
     receiver: Vec<Arc<Mutex<Option<UnboundedReceiver<Result<RecordBatch, DataFusionError>>>>>>,
 }
 
@@ -335,7 +340,12 @@ impl ExecutionPlan for PhysicalReceiverNode {
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
         assert_eq!(children.len(), 0);
-        Ok(Arc::clone(&self) as Arc<dyn ExecutionPlan>)
+        let properties = self.sender_properties.lock().unwrap().clone();
+        Ok(Arc::new(PhysicalReceiverNode {
+            receiver: self.receiver.clone(),
+            properties,
+            sender_properties: self.sender_properties.clone(),
+        }))
     }
 
     fn execute(
@@ -394,12 +404,13 @@ impl ExtensionPlanner for ChannelNodePlanner {
                     (sender, Arc::new(Mutex::new(Some(receiver))))
                 })
                 .unzip();
-            let properties = physical_inputs[0].properties().clone();
+            let properties = Arc::new(Mutex::new(physical_inputs[0].properties().clone()));
             let mut s = fork_node.sender.clone();
-            s.send((properties, receiver)).await.unwrap();
+            s.send((properties.clone(), receiver)).await.unwrap();
             s.close_channel();
             Ok(Some(Arc::new(PhysicalSenderNode {
                 input: physical_inputs[0].clone(),
+                properties,
                 sender,
             })))
         } else if let Some(fork_node) = node.as_any().downcast_ref::<ReceiverNode>() {
@@ -413,16 +424,18 @@ impl ExtensionPlanner for ChannelNodePlanner {
                 "Fork node can only be executed once.".to_string(),
             ))
             .unwrap();
-            let (properties, receiver) = receiver
+            let (sender_properties, receiver) = receiver
                 .next()
                 .await
                 .ok_or(DataFusionError::Internal(
                     "Fork node can only be executed once.".to_string(),
                 ))
                 .unwrap();
+            let properties = sender_properties.lock().unwrap().clone();
             Ok(Some(Arc::new(PhysicalReceiverNode {
                 receiver,
                 properties,
+                sender_properties,
             })))
         } else {
             Ok(None)
