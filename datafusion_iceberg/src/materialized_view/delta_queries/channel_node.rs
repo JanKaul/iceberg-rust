@@ -1,5 +1,6 @@
 use core::panic;
 use std::{
+    cmp::max,
     fmt::{self, Debug},
     hash::Hash,
     iter,
@@ -15,7 +16,7 @@ use datafusion::{
     error::DataFusionError,
     execution::{RecordBatchStream, SendableRecordBatchStream, SessionState},
     physical_plan::{
-        stream::RecordBatchStreamAdapter, DisplayAs, ExecutionPlan,
+        stream::RecordBatchStreamAdapter, DisplayAs, ExecutionPlan, ExecutionPlanProperties,
         PlanProperties,
     },
     physical_planner::{ExtensionPlanner, PhysicalPlanner},
@@ -382,11 +383,12 @@ impl ExtensionPlanner for ChannelNodePlanner {
                 .input
                 .schema()
                 .matches_arrow_schema(&physical_inputs[0].schema()));
-            let n_partitions = std::thread::available_parallelism().unwrap().get();
+            let parallelism = std::thread::available_parallelism().unwrap().get();
+            let n_partitions = physical_inputs[0].output_partitioning().partition_count();
             let (sender, receiver): (
                 Vec<UnboundedSender<Result<RecordBatch, DataFusionError>>>,
                 Vec<_>,
-            ) = iter::repeat_n((), n_partitions)
+            ) = iter::repeat_n((), max(n_partitions, parallelism))
                 .map(|_| {
                     let (sender, receiver) = unbounded();
                     (sender, Arc::new(Mutex::new(Some(receiver))))

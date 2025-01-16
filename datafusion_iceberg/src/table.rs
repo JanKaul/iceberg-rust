@@ -458,7 +458,11 @@ async fn table_scan(
 
     let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
 
-    let projection_expr: Option<Vec<_>> = projection.map(|projection| {
+    let projection = projection
+        .cloned()
+        .or_else(|| Some(schema.iter().enumerate().map(|(i, _)| i).collect()));
+
+    let projection_expr: Option<Vec<_>> = projection.as_ref().map(|projection| {
         projection
             .iter()
             .enumerate()
@@ -482,6 +486,7 @@ async fn table_scan(
             let schema = &schema;
             let file_schema = file_schema.clone();
             let projection_expr = projection_expr.clone();
+            let projection = &projection;
             let mut data_files = data_file_groups
                 .remove(&partition_value)
                 .unwrap_or_default();
@@ -649,7 +654,7 @@ async fn table_scan(
                         file_schema: file_schema.clone(),
                         file_groups: vec![additional_data_files],
                         statistics,
-                        projection: projection.cloned(),
+                        projection: projection.as_ref().cloned(),
                         limit,
                         table_partition_cols,
                         output_ordering: vec![],
@@ -695,7 +700,7 @@ async fn table_scan(
             })
             .collect(),
         statistics,
-        projection: projection.cloned(),
+        projection,
         limit,
         table_partition_cols,
         output_ordering: vec![],
