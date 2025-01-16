@@ -187,8 +187,7 @@ impl UserDefinedLogicalNodeCore for ReceiverNode {
     }
 
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "ReceiverNode")?;
-        write!(f, "{}", self.input)
+        writeln!(f, "ReceiverNode")
     }
 
     fn from_template(&self, _exprs: &[Expr], _inputs: &[LogicalPlan]) -> Self {
@@ -372,12 +371,18 @@ impl ExtensionPlanner for ChannelNodePlanner {
         &self,
         _planner: &dyn PhysicalPlanner,
         node: &dyn UserDefinedLogicalNode,
-        _logical_inputs: &[&LogicalPlan],
+        logical_inputs: &[&LogicalPlan],
         physical_inputs: &[Arc<dyn ExecutionPlan>],
         _session_state: &SessionState,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
         if let Some(fork_node) = node.as_any().downcast_ref::<SenderNode>() {
-            let n_partitions = physical_inputs[0].output_partitioning().partition_count();
+            assert_eq!(physical_inputs.len(), 1);
+            assert_eq!(logical_inputs.len(), 1);
+            assert!(fork_node
+                .input
+                .schema()
+                .matches_arrow_schema(&physical_inputs[0].schema()));
+            let n_partitions = std::thread::available_parallelism().unwrap().get();
             let (sender, receiver): (
                 Vec<UnboundedSender<Result<RecordBatch, DataFusionError>>>,
                 Vec<_>,
@@ -396,6 +401,8 @@ impl ExtensionPlanner for ChannelNodePlanner {
                 sender,
             })))
         } else if let Some(fork_node) = node.as_any().downcast_ref::<ReceiverNode>() {
+            assert_eq!(physical_inputs.len(), 0);
+            assert_eq!(logical_inputs.len(), 0);
             let mut receiver = {
                 let mut lock = fork_node.receiver.lock().unwrap();
                 lock.take()
