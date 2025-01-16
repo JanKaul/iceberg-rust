@@ -15,7 +15,7 @@ use datafusion::{
     error::DataFusionError,
     execution::{RecordBatchStream, SendableRecordBatchStream, SessionState},
     physical_plan::{
-        stream::RecordBatchStreamAdapter, DisplayAs, ExecutionPlan, ExecutionPlanProperties,
+        stream::RecordBatchStreamAdapter, DisplayAs, ExecutionPlan,
         PlanProperties,
     },
     physical_planner::{ExtensionPlanner, PhysicalPlanner},
