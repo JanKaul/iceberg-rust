@@ -883,6 +883,241 @@ mod tests {
             panic!("Node is not a projection.")
         }
     }
+    #[tokio::test]
+
+    async fn test_multi_join() {
+        let ctx = SessionContext::new();
+
+        let object_store = ObjectStoreBuilder::memory();
+
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "test", object_store)
+                .await
+                .unwrap(),
+        );
+
+        // Users table schema
+        let schema = Schema::builder()
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "name".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "address".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
+        let users_table = Table::builder()
+            .with_name("users")
+            .with_location("test/users")
+            .with_schema(schema)
+            .build(&["public".to_owned()], catalog.clone())
+            .await
+            .expect("Failed to build users table");
+
+        let users_table = Arc::new(DataFusionTable::from(users_table));
+
+        ctx.register_table("public.users", users_table).unwrap();
+
+        // Homes table schema
+        let schema = Schema::builder()
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "size".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "address".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 3,
+                        name: "city_id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
+        let homes_table = Table::builder()
+            .with_name("homes")
+            .with_location("test/homes")
+            .with_schema(schema)
+            .build(&["public".to_owned()], catalog.clone())
+            .await
+            .expect("Failed to build homes table");
+
+        let homes_table = Arc::new(DataFusionTable::from(homes_table));
+
+        ctx.register_table("public.homes", homes_table).unwrap();
+
+        // Cities table schema
+        let schema = Schema::builder()
+            .with_fields(
+                StructType::builder()
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                    })
+                    .with_struct_field(StructField {
+                        id: 2,
+                        name: "city_name".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::String),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )
+            .build()
+            .unwrap();
+
+        let cities_table = Table::builder()
+            .with_name("cities")
+            .with_location("test/cities")
+            .with_schema(schema)
+            .build(&["public".to_owned()], catalog)
+            .await
+            .expect("Failed to build cities table");
+
+        let cities_table = Arc::new(DataFusionTable::from(cities_table));
+
+        ctx.register_table("public.cities", cities_table).unwrap();
+
+        let sql = "select users.name, homes.size, cities.city_name \
+               from public.users \
+               join public.homes on users.address = homes.address \
+               join public.cities on homes.city_id = cities.id;";
+
+        let logical_plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+        let source_table_state = HashMap::from_iter(vec![
+            (TableReference::parse_str("public.users"), (None, None)),
+            (TableReference::parse_str("public.homes"), (None, None)),
+            (TableReference::parse_str("public.cities"), (None, None)),
+        ]);
+
+        let storage_table = Arc::new(EmptyTable::new(Arc::new(
+            logical_plan.schema().as_arrow().clone(),
+        )));
+
+        let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
+        let output = delta_plan
+            .transform_down(|plan| {
+                delta_transform_down(plan, &source_table_state, storage_table.clone())
+            })
+            .unwrap()
+            .data;
+
+        dbg!(&output);
+
+        if let LogicalPlan::Projection(proj) = output {
+            if let LogicalPlan::Union(union) = proj.input.deref() {
+                if let LogicalPlan::Join(join) = union.inputs[0].deref() {
+                    if let LogicalPlan::Extension(ext) = join.left.deref() {
+                        if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                            if let LogicalPlan::TableScan(table) = ext.input.deref() {
+                                assert_eq!(table.table_name.table(), "users")
+                            } else {
+                                panic!("Node is not a table scan.")
+                            }
+                        } else {
+                            panic!("Node is not a SenderNode")
+                        }
+                    } else {
+                        panic!("Node is not an extension")
+                    }
+                    if let LogicalPlan::Extension(ext) = join.right.deref() {
+                        if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                            if let LogicalPlan::TableScan(table) = ext.input.deref() {
+                                assert_eq!(table.table_name.table(), "homes")
+                            } else {
+                                panic!("Node is not a table scan.")
+                            }
+                        } else {
+                            panic!("Node is not a SenderNode")
+                        }
+                    } else {
+                        panic!("Node is not an extension")
+                    }
+                } else {
+                    panic!("Node is not a CrossJoin.")
+                }
+                if let LogicalPlan::Join(join) = union.inputs[1].deref() {
+                    if let LogicalPlan::TableScan(table) = join.left.deref() {
+                        assert_eq!(table.table_name.table(), "users")
+                    } else {
+                        panic!("Node is not a table scan.")
+                    }
+                    if let LogicalPlan::Extension(ext) = join.right.deref() {
+                        if let Some(_) = ext.node.as_any().downcast_ref::<ReceiverNode>() {
+                        } else {
+                            panic!("Node is not a ReceiverNode")
+                        }
+                    } else {
+                        panic!("Node is not an extension")
+                    }
+                } else {
+                    panic!("Node is not a CrossJoin.")
+                }
+                if let LogicalPlan::Join(join) = union.inputs[2].deref() {
+                    if let LogicalPlan::Extension(ext) = join.left.deref() {
+                        if let Some(_) = ext.node.as_any().downcast_ref::<ReceiverNode>() {
+                        } else {
+                            panic!("Node is not a RecveiverNode")
+                        }
+                    } else {
+                        panic!("Node is not an extension")
+                    }
+                    if let LogicalPlan::TableScan(table) = join.right.deref() {
+                        assert_eq!(table.table_name.table(), "homes")
+                    } else {
+                        panic!("Node is not a table scan.")
+                    }
+                } else {
+                    panic!("Node is not a CrossJoin.")
+                }
+            } else {
+                panic!("Node is not a filter.")
+            }
+        } else {
+            panic!("Node is not a projection.")
+        }
+    }
 
     #[tokio::test]
     async fn test_union() {
