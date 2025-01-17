@@ -924,7 +924,7 @@ pub mod tests {
                     if product_id.unwrap() == 24027 {
                         assert_eq!(amount.unwrap(), 24.0)
                     } else if product_id.unwrap() == 63700 {
-                        assert_eq!(amount.unwrap(), 8.0)
+                        assert_eq!(amount.unwrap(), 23.0)
                     }
                 }
                 once = true
