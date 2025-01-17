@@ -1241,7 +1241,7 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
             .await
             .expect("Failed to execute select query");
 
-        sleep(Duration::from_millis(100_000)).await;
+        sleep(Duration::from_millis(10_000)).await;
 
         let batches = ctx
             .sql("select * from warehouse.tpch.query3;")
