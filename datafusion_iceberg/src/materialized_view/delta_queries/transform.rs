@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    ops::Deref,
     sync::Arc,
 };
 
@@ -75,48 +76,8 @@ pub(crate) fn delta_transform_down(
                         )))
                     }
                     LogicalPlan::Join(join) => {
-                        let delta_left = Arc::new(PosDeltaNode::new(join.left.clone()).into());
-                        let delta_right = Arc::new(PosDeltaNode::new(join.right.clone()).into());
-                        let (delta_left_one, delta_left_two) = channel_nodes(delta_left);
-                        let (delta_right_one, delta_right_two) = channel_nodes(delta_right);
-                        let delta_delta = LogicalPlan::Join(Join {
-                            left: Arc::new(delta_left_one.into()),
-                            right: Arc::new(delta_right_one.into()),
-                            schema: join.schema.clone(),
-                            on: join.on.clone(),
-                            filter: join.filter.clone(),
-                            join_type: join.join_type,
-                            join_constraint: join.join_constraint,
-                            null_equals_null: join.null_equals_null,
-                        });
-                        let left_delta = LogicalPlan::Join(Join {
-                            left: join.left.clone(),
-                            right: Arc::new(delta_right_two.into()),
-                            schema: join.schema.clone(),
-                            on: join.on.clone(),
-                            filter: join.filter.clone(),
-                            join_type: join.join_type,
-                            join_constraint: join.join_constraint,
-                            null_equals_null: join.null_equals_null,
-                        });
-                        let right_delta = LogicalPlan::Join(Join {
-                            left: Arc::new(delta_left_two.into()),
-                            right: join.right.clone(),
-                            schema: join.schema.clone(),
-                            on: join.on.clone(),
-                            filter: join.filter.clone(),
-                            join_type: join.join_type,
-                            join_constraint: join.join_constraint,
-                            null_equals_null: join.null_equals_null,
-                        });
-                        Ok(Transformed::yes(LogicalPlan::Union(Union {
-                            inputs: vec![
-                                Arc::new(delta_delta),
-                                Arc::new(left_delta),
-                                Arc::new(right_delta),
-                            ],
-                            schema: join.schema.clone(),
-                        })))
+                        let data = transform_join(join);
+                        Ok(Transformed::yes(data?.0))
                     }
                     LogicalPlan::Union(union) => {
                         let inputs = union
@@ -426,6 +387,94 @@ pub(crate) fn delta_transform_down(
         }
         _ => Ok(Transformed::no(plan)),
     }
+}
+
+fn transform_join(join: &Join) -> Result<(LogicalPlan, Arc<LogicalPlan>), DataFusionError> {
+    let (delta_left, left, delta_right, right): (
+        Arc<LogicalPlan>,
+        Arc<LogicalPlan>,
+        Arc<LogicalPlan>,
+        Arc<LogicalPlan>,
+    ) = match (join.left.deref(), join.right.deref()) {
+        (LogicalPlan::Join(_), LogicalPlan::Join(_)) => Err(DataFusionError::External(Box::new(
+            Error::NotSupported("Materialzied views cannot join two joins.".to_owned()),
+        ))),
+        (LogicalPlan::Join(left), _) => {
+            let (delta_x, x) = transform_join(left)?;
+            Ok((
+                Arc::new(delta_x),
+                x,
+                Arc::new(PosDeltaNode::new(join.right.clone()).into()),
+                join.right.clone(),
+            ))
+        }
+        (_, LogicalPlan::Join(right)) => {
+            let (delta_x, x) = transform_join(right)?;
+            Ok((
+                Arc::new(PosDeltaNode::new(join.left.clone()).into()),
+                join.left.clone(),
+                Arc::new(delta_x),
+                x,
+            ))
+        }
+        _ => Ok((
+            Arc::new(PosDeltaNode::new(join.left.clone()).into()),
+            join.left.clone(),
+            Arc::new(PosDeltaNode::new(join.right.clone()).into()),
+            join.right.clone(),
+        )),
+    }?;
+    let (delta_left_one, delta_left_two) = channel_nodes(delta_left);
+    let (delta_right_one, delta_right_two) = channel_nodes(delta_right);
+    let delta_delta = LogicalPlan::Join(Join {
+        left: Arc::new(delta_left_one.into()),
+        right: Arc::new(delta_right_one.into()),
+        schema: join.schema.clone(),
+        on: join.on.clone(),
+        filter: join.filter.clone(),
+        join_type: join.join_type,
+        join_constraint: join.join_constraint,
+        null_equals_null: join.null_equals_null,
+    });
+    let left_delta = LogicalPlan::Join(Join {
+        left: left.clone(),
+        right: Arc::new(delta_right_two.into()),
+        schema: join.schema.clone(),
+        on: join.on.clone(),
+        filter: join.filter.clone(),
+        join_type: join.join_type,
+        join_constraint: join.join_constraint,
+        null_equals_null: join.null_equals_null,
+    });
+    let right_delta = LogicalPlan::Join(Join {
+        left: Arc::new(delta_left_two.into()),
+        right: right.clone(),
+        schema: join.schema.clone(),
+        on: join.on.clone(),
+        filter: join.filter.clone(),
+        join_type: join.join_type,
+        join_constraint: join.join_constraint,
+        null_equals_null: join.null_equals_null,
+    });
+    let left_right = LogicalPlan::Join(Join {
+        left,
+        right,
+        schema: join.schema.clone(),
+        on: join.on.clone(),
+        filter: join.filter.clone(),
+        join_type: join.join_type,
+        join_constraint: join.join_constraint,
+        null_equals_null: join.null_equals_null,
+    });
+    let data = LogicalPlan::Union(Union {
+        inputs: vec![
+            Arc::new(delta_delta),
+            Arc::new(left_delta),
+            Arc::new(right_delta),
+        ],
+        schema: join.schema.clone(),
+    });
+    Ok((data, Arc::new(left_right)))
 }
 
 fn storage_table_expressions(
@@ -787,10 +836,18 @@ mod tests {
                     panic!("Node is not a CrossJoin.")
                 }
                 if let LogicalPlan::Join(join) = union.inputs[1].deref() {
-                    if let LogicalPlan::TableScan(table) = join.left.deref() {
-                        assert_eq!(table.table_name.table(), "users")
+                    if let LogicalPlan::Extension(ext) = join.left.deref() {
+                        if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                            if let LogicalPlan::TableScan(table) = ext.input.deref() {
+                                assert_eq!(table.table_name.table(), "users")
+                            } else {
+                                panic!("Node is not a table scan.")
+                            }
+                        } else {
+                            panic!("Node is not a SenderNode")
+                        }
                     } else {
-                        panic!("Node is not a table scan.")
+                        panic!("Node is not an extension")
                     }
                     if let LogicalPlan::Extension(ext) = join.right.deref() {
                         if let Some(_) = ext.node.as_any().downcast_ref::<ReceiverNode>() {
@@ -812,10 +869,18 @@ mod tests {
                     } else {
                         panic!("Node is not an extension")
                     }
-                    if let LogicalPlan::TableScan(table) = join.right.deref() {
-                        assert_eq!(table.table_name.table(), "homes")
+                    if let LogicalPlan::Extension(ext) = join.right.deref() {
+                        if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                            if let LogicalPlan::TableScan(table) = ext.input.deref() {
+                                assert_eq!(table.table_name.table(), "homes")
+                            } else {
+                                panic!("Node is not a table scan.")
+                            }
+                        } else {
+                            panic!("Node is not a SenderNode")
+                        }
                     } else {
-                        panic!("Node is not a table scan.")
+                        panic!("Node is not an extension")
                     }
                 } else {
                     panic!("Node is not a CrossJoin.")
