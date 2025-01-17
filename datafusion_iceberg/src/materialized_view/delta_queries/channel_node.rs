@@ -1,11 +1,11 @@
 use core::panic;
 use std::{
-    cmp::max,
+    cmp::min,
     fmt::{self, Debug},
     hash::Hash,
     iter,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicUsize, Arc, Mutex},
     task::{Context, Poll},
 };
 
@@ -17,7 +17,7 @@ use datafusion::{
     execution::{RecordBatchStream, SendableRecordBatchStream, SessionState},
     physical_plan::{
         stream::RecordBatchStreamAdapter, DisplayAs, ExecutionPlan, ExecutionPlanProperties,
-        PlanProperties,
+        Partitioning, PlanProperties,
     },
     physical_planner::{ExtensionPlanner, PhysicalPlanner},
 };
@@ -47,7 +47,7 @@ pub fn channel_nodes(plan: Arc<LogicalPlan>) -> (SenderNode, ReceiverNode) {
 pub struct SenderNode {
     pub(crate) input: Arc<LogicalPlan>,
     sender: Sender<(
-        Arc<Mutex<PlanProperties>>,
+        PlanProperties,
         Vec<Arc<Mutex<Option<UnboundedReceiver<Result<RecordBatch, DataFusionError>>>>>>,
     )>,
 }
@@ -133,7 +133,7 @@ pub struct ReceiverNode {
         Mutex<
             Option<
                 Receiver<(
-                    Arc<Mutex<PlanProperties>>,
+                    PlanProperties,
                     Vec<
                         Arc<Mutex<Option<UnboundedReceiver<Result<RecordBatch, DataFusionError>>>>>,
                     >,
@@ -219,8 +219,8 @@ impl From<ReceiverNode> for LogicalPlan {
 
 pub(crate) struct PhysicalSenderNode {
     input: Arc<dyn ExecutionPlan>,
-    properties: Arc<Mutex<PlanProperties>>,
     sender: Vec<UnboundedSender<Result<RecordBatch, DataFusionError>>>,
+    closed_sender: Vec<Arc<AtomicUsize>>,
 }
 
 impl Debug for PhysicalSenderNode {
@@ -262,12 +262,13 @@ impl ExecutionPlan for PhysicalSenderNode {
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
         assert_eq!(children.len(), 1);
-        let properties = self.properties.clone();
-        *properties.lock().unwrap() = children[0].properties().clone();
+        let closed_sender = iter::repeat_n((), self.closed_sender.len())
+            .map(|_| Arc::new(AtomicUsize::new(0)))
+            .collect();
         Ok(Arc::new(PhysicalSenderNode {
             input: children.pop().unwrap(),
-            properties,
             sender: self.sender.clone(),
+            closed_sender,
         }))
     }
 
@@ -278,10 +279,19 @@ impl ExecutionPlan for PhysicalSenderNode {
     ) -> Result<SendableRecordBatchStream, DataFusionError> {
         let pin = self.input.clone().execute(partition, context.clone())?;
         let schema = pin.schema().clone();
-        let unbounded_sender = self.sender[partition].clone();
+        let n_partitions = self.properties().partitioning.partition_count();
+        let n_receiver_partitions = self.closed_sender.len();
+        let index = partition.rem_euclid(n_receiver_partitions);
+        let mut count = n_partitions / n_receiver_partitions;
+        if index < n_partitions % n_receiver_partitions {
+            count += 1;
+        }
+        let unbounded_sender = self.sender[index].clone();
         Ok(Box::pin(RecordBatchStreamSender::new(
             schema,
             unbounded_sender.clone(),
+            self.closed_sender[index].clone(),
+            count,
             pin.and_then(move |batch| {
                 let mut unbounded_sender = unbounded_sender.clone();
                 async move {
@@ -298,7 +308,6 @@ impl ExecutionPlan for PhysicalSenderNode {
 
 pub(crate) struct PhysicalReceiverNode {
     properties: PlanProperties,
-    sender_properties: Arc<Mutex<PlanProperties>>,
     receiver: Vec<Arc<Mutex<Option<UnboundedReceiver<Result<RecordBatch, DataFusionError>>>>>>,
 }
 
@@ -340,11 +349,9 @@ impl ExecutionPlan for PhysicalReceiverNode {
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
         assert_eq!(children.len(), 0);
-        let properties = self.sender_properties.lock().unwrap().clone();
         Ok(Arc::new(PhysicalReceiverNode {
             receiver: self.receiver.clone(),
-            properties,
-            sender_properties: self.sender_properties.clone(),
+            properties: self.properties.clone(),
         }))
     }
 
@@ -395,23 +402,33 @@ impl ExtensionPlanner for ChannelNodePlanner {
                 .matches_arrow_schema(&physical_inputs[0].schema()));
             let parallelism = std::thread::available_parallelism().unwrap().get();
             let n_partitions = physical_inputs[0].output_partitioning().partition_count();
+            let n_receiver_partitions = min(n_partitions, parallelism);
             let (sender, receiver): (
                 Vec<UnboundedSender<Result<RecordBatch, DataFusionError>>>,
                 Vec<_>,
-            ) = iter::repeat_n((), max(n_partitions, parallelism))
+            ) = iter::repeat_n((), n_receiver_partitions)
                 .map(|_| {
                     let (sender, receiver) = unbounded();
                     (sender, Arc::new(Mutex::new(Some(receiver))))
                 })
                 .unzip();
-            let properties = Arc::new(Mutex::new(physical_inputs[0].properties().clone()));
+            let closed_sender = iter::repeat_n((), n_receiver_partitions)
+                .map(|_| Arc::new(AtomicUsize::new(0)))
+                .collect();
+            let properties = physical_inputs[0].properties().clone();
             let mut s = fork_node.sender.clone();
-            s.send((properties.clone(), receiver)).await.unwrap();
+            s.send((
+                properties
+                    .with_partitioning(Partitioning::UnknownPartitioning(n_receiver_partitions)),
+                receiver,
+            ))
+            .await
+            .unwrap();
             s.close_channel();
             Ok(Some(Arc::new(PhysicalSenderNode {
                 input: physical_inputs[0].clone(),
-                properties,
                 sender,
+                closed_sender,
             })))
         } else if let Some(fork_node) = node.as_any().downcast_ref::<ReceiverNode>() {
             assert_eq!(physical_inputs.len(), 0);
@@ -424,18 +441,16 @@ impl ExtensionPlanner for ChannelNodePlanner {
                 "Fork node can only be executed once.".to_string(),
             ))
             .unwrap();
-            let (sender_properties, receiver) = receiver
+            let (properties, receiver) = receiver
                 .next()
                 .await
                 .ok_or(DataFusionError::Internal(
                     "Fork node can only be executed once.".to_string(),
                 ))
                 .unwrap();
-            let properties = sender_properties.lock().unwrap().clone();
             Ok(Some(Arc::new(PhysicalReceiverNode {
                 receiver,
                 properties,
-                sender_properties,
             })))
         } else {
             Ok(None)
@@ -447,6 +462,8 @@ pin_project! {
     pub struct RecordBatchStreamSender<S> {
         schema: SchemaRef,
         sender: UnboundedSender<Result<RecordBatch, DataFusionError>>,
+        n_closed: Arc<AtomicUsize>,
+        count: usize,
 
         #[pin]
         stream: S,
@@ -457,11 +474,15 @@ impl<S> RecordBatchStreamSender<S> {
     pub fn new(
         schema: SchemaRef,
         sender: UnboundedSender<Result<RecordBatch, DataFusionError>>,
+        n_closed: Arc<AtomicUsize>,
+        count: usize,
         stream: S,
     ) -> Self {
         Self {
             schema,
             sender,
+            n_closed,
+            count,
             stream,
         }
     }
@@ -485,8 +506,13 @@ where
         let project = self.project();
         match project.stream.poll_next(cx) {
             Poll::Ready(None) => {
-                let unbounded_sender = project.sender.clone();
-                unbounded_sender.close_channel();
+                let n_closed = project
+                    .n_closed
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if n_closed + 1 == *project.count {
+                    let unbounded_sender = project.sender.clone();
+                    unbounded_sender.close_channel();
+                }
                 Poll::Ready(None)
             }
             x => x,
