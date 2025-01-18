@@ -16,7 +16,7 @@ fn split_datafiles_once(
     rect: Rectangle,
     names: &[&str],
 ) -> Result<[(Vec<ManifestEntry>, Rectangle); 2], Error> {
-    if rect.min.is_empty() {
+    if let Ordering::Equal = cmp_with_priority(&rect.min, &rect.max)? {
         let mut smaller = files.collect::<Result<Vec<_>, Error>>()?;
         let larger = smaller.split_off(smaller.len() / 2);
 
