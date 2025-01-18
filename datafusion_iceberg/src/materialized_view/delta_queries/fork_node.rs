@@ -246,15 +246,15 @@ impl ExecutionPlan for PhysicalForkNode {
             )));
         }
 
+        self.own_sender[partition].close_channel();
+
         let schema = self.schema().clone();
         let sender = self.sender[partition].clone();
-        let own_sender = self.own_sender[partition].clone();
 
         if partition >= input_partitions {
             return Ok(Box::pin(RecordBatchStreamSender::new(
                 schema,
                 sender,
-                own_sender,
                 stream::empty(),
             )));
         }
@@ -280,7 +280,6 @@ impl ExecutionPlan for PhysicalForkNode {
         Ok(Box::pin(RecordBatchStreamSender::new(
             schema,
             sender.clone(),
-            own_sender,
             stream.and_then(move |batch| {
                 let mut sender = sender.clone();
                 async move {
@@ -340,8 +339,6 @@ pin_project! {
     pub struct RecordBatchStreamSender<S> {
         schema: SchemaRef,
         sender: UnboundedSender<Result<RecordBatch, DataFusionError>>,
-        own: UnboundedSender<Result<RecordBatch, DataFusionError>>,
-        own_closed: bool,
 
         #[pin]
         stream: S,
@@ -352,15 +349,12 @@ impl<S> RecordBatchStreamSender<S> {
     fn new(
         schema: SchemaRef,
         sender: UnboundedSender<Result<RecordBatch, DataFusionError>>,
-        own: UnboundedSender<Result<RecordBatch, DataFusionError>>,
         stream: S,
     ) -> Self {
         RecordBatchStreamSender {
             schema,
             sender,
-            own,
             stream,
-            own_closed: false,
         }
     }
 }
@@ -381,10 +375,6 @@ where
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let project = self.project();
-        if !*project.own_closed {
-            project.own.close_channel();
-            *project.own_closed = true;
-        }
         match project.stream.poll_next(cx) {
             Poll::Ready(None) => {
                 project.sender.close_channel();
