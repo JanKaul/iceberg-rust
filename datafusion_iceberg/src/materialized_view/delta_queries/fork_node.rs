@@ -338,7 +338,7 @@ impl ExtensionPlanner for ForkNodePlanner {
 pin_project! {
     pub struct RecordBatchStreamSender<S> {
         schema: SchemaRef,
-        sender: Sender<Result<RecordBatch, DataFusionError>>,
+        sender: ClosingSender,
 
         #[pin]
         stream: S,
@@ -353,7 +353,7 @@ impl<S> RecordBatchStreamSender<S> {
     ) -> Self {
         RecordBatchStreamSender {
             schema,
-            sender,
+            sender: ClosingSender(sender),
             stream,
         }
     }
@@ -377,7 +377,7 @@ where
         let project = self.project();
         match project.stream.poll_next(cx) {
             Poll::Ready(None) => {
-                project.sender.close_channel();
+                project.sender.0.close_channel();
                 Poll::Ready(None)
             }
             x => x,
@@ -395,5 +395,15 @@ where
 {
     fn schema(&self) -> SchemaRef {
         Arc::clone(&self.schema)
+    }
+}
+
+struct ClosingSender(Sender<Result<RecordBatch, DataFusionError>>);
+
+impl Drop for ClosingSender {
+    fn drop(&mut self) {
+        if !self.0.is_closed() {
+            self.0.close_channel();
+        }
     }
 }
