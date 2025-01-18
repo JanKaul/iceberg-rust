@@ -888,7 +888,7 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
     }
 
     #[tokio::test]
-    async fn test_materialized_view_incremental_tpch_query3() {
+    async fn test_materialized_view_incremental_tpch_query12() {
         let temp_dir = TempDir::new().unwrap();
 
         let object_store = ObjectStoreBuilder::Filesystem(Arc::new(LocalFileSystem::new()));
@@ -1140,25 +1140,31 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
         let batches = ctx
             .sql(
                 "SELECT
-        l_orderkey,
-        sum(l_extended_price * (1 - l_discount)) as revenue,
-        o_orderdate,
-        o_shippriority
-    FROM
-        customer,
-        orders,
-        lineitem1
-    WHERE
-        c_mktsegment = 'BUILDING'
-        AND c_custkey = o_custkey
-        AND l_orderkey = o_orderkey
-        AND o_orderdate < date '1995-03-15'
-        AND l_shipdate > date '1995-03-15'
-    GROUP BY
-        l_orderkey,
-        o_orderdate,
-        o_shippriority;
-    ",
+    l_shipmode,
+    sum(case
+        when o_orderpriority = '1-URGENT'
+            OR o_orderpriority = '2-HIGH'
+            then 1
+        else 0
+    end) as high_line_count,
+    sum(case
+        when o_orderpriority <> '1-URGENT'
+            AND o_orderpriority <> '2-HIGH'
+            then 1
+        else 0
+    end) AS low_line_count
+FROM
+    orders,
+    lineitem
+WHERE
+    o_orderkey = l_orderkey
+    AND l_shipmode in ('MAIL', 'SHIP')
+    AND l_commitdate < l_receiptdate
+    AND l_shipdate < l_commitdate
+    AND l_receiptdate >= date '1994-01-01'
+    AND l_receiptdate < date '1994-01-01' + interval '1' year
+GROUP BY
+    l_shipmode;",
             )
             .await
             .expect("Failed to create plan for select")
@@ -1172,24 +1178,24 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
 
         for batch in batches {
             if batch.num_rows() != 0 {
-                let (orderkeys, revenue) = (
+                let (shipmode, revenue) = (
                     batch
                         .column(0)
                         .as_any()
-                        .downcast_ref::<Int64Array>()
+                        .downcast_ref::<StringArray>()
                         .unwrap(),
                     batch
                         .column(1)
                         .as_any()
-                        .downcast_ref::<Float64Array>()
+                        .downcast_ref::<Int64Array>()
                         .unwrap(),
                 );
-                for (orderkey, revenue) in orderkeys.iter().zip(revenue) {
-                    if orderkey.unwrap() == 17668 {
-                        assert_eq!(revenue.unwrap(), 13956.3645);
+                for (shipmode, revenue) in shipmode.iter().zip(revenue) {
+                    if shipmode.unwrap() == "MAIL" {
+                        assert_eq!(revenue.unwrap(), 44);
                         once = true
-                    } else if orderkey.unwrap() == 36258 {
-                        assert_eq!(revenue.unwrap(), 77431.6224);
+                    } else if shipmode.unwrap() == "SHIP" {
+                        assert_eq!(revenue.unwrap(), 44);
                         once = true
                     }
                 }
@@ -1202,25 +1208,32 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
             .state()
             .create_logical_plan(
                 "CREATE TEMPORARY VIEW warehouse.tpch.query3 AS SELECT
-        l_orderkey,
-        sum(l_extended_price * (1 - l_discount)) as revenue,
-        o_orderdate,
-        o_shippriority
-    FROM
-        warehouse.tpch.customer,
-        warehouse.tpch.orders,
-        warehouse.tpch.lineitem
-    WHERE
-        c_mktsegment = 'BUILDING'
-        AND c_custkey = o_custkey
-        AND l_orderkey = o_orderkey
-        AND o_orderdate < date '1995-03-15'
-        AND l_shipdate > date '1995-03-15'
-    GROUP BY
-        l_orderkey,
-        o_orderdate,
-        o_shippriority;
-    ",
+    l_shipmode,
+    sum(case
+        when o_orderpriority = '1-URGENT'
+            OR o_orderpriority = '2-HIGH'
+            then 1
+        else 0
+    end) as high_line_count,
+    sum(case
+        when o_orderpriority <> '1-URGENT'
+            AND o_orderpriority <> '2-HIGH'
+            then 1
+        else 0
+    end) AS low_line_count
+FROM
+    warehouse.tpch.orders,
+    warehouse.tpch.lineitem
+WHERE
+    o_orderkey = l_orderkey
+    AND l_shipmode in ('MAIL', 'SHIP')
+    AND l_commitdate < l_receiptdate
+    AND l_shipdate < l_commitdate
+    AND l_receiptdate >= date '1994-01-01'
+    AND l_receiptdate < date '1994-01-01' + interval '1' year
+GROUP BY
+    l_shipmode;
+        ",
             )
             .await
             .expect("Failed to create plan for select");
@@ -1241,7 +1254,7 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
             .await
             .expect("Failed to execute select query");
 
-        sleep(Duration::from_millis(20_000)).await;
+        sleep(Duration::from_millis(30_000)).await;
 
         let batches = ctx
             .sql("select * from warehouse.tpch.query3;")
@@ -1257,24 +1270,24 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
 
         for batch in batches {
             if batch.num_rows() != 0 {
-                let (orderkeys, revenue) = (
+                let (shipmode, revenue) = (
                     batch
                         .column(0)
                         .as_any()
-                        .downcast_ref::<Int64Array>()
+                        .downcast_ref::<StringArray>()
                         .unwrap(),
                     batch
                         .column(1)
                         .as_any()
-                        .downcast_ref::<Float64Array>()
+                        .downcast_ref::<Int64Array>()
                         .unwrap(),
                 );
-                for (orderkey, revenue) in orderkeys.iter().zip(revenue) {
-                    if orderkey.unwrap() == 64 {
-                        assert_eq!(revenue.unwrap(), 4296.0);
+                for (shipmode, revenue) in shipmode.iter().zip(revenue) {
+                    if shipmode.unwrap() == "MAIL" {
+                        assert_eq!(revenue.unwrap(), 44);
                         once = true
-                    } else if orderkey.unwrap() == 1 {
-                        assert_eq!(revenue.unwrap(), 61350.0);
+                    } else if shipmode.unwrap() == "SHIP" {
+                        assert_eq!(revenue.unwrap(), 44);
                         once = true
                     }
                 }
@@ -1375,25 +1388,31 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
         let batches = ctx
             .sql(
                 "SELECT
-        l_orderkey,
-        sum(l_extended_price * (1 - l_discount)) as revenue,
-        o_orderdate,
-        o_shippriority
-    FROM
-        customer,
-        orders,
-        lineitem
-    WHERE
-        c_mktsegment = 'BUILDING'
-        AND c_custkey = o_custkey
-        AND l_orderkey = o_orderkey
-        AND o_orderdate < date '1995-03-15'
-        AND l_shipdate > date '1995-03-15'
-    GROUP BY
-        l_orderkey,
-        o_orderdate,
-        o_shippriority;
-    ",
+    l_shipmode,
+    sum(case
+        when o_orderpriority = '1-URGENT'
+            OR o_orderpriority = '2-HIGH'
+            then 1
+        else 0
+    end) as high_line_count,
+    sum(case
+        when o_orderpriority <> '1-URGENT'
+            AND o_orderpriority <> '2-HIGH'
+            then 1
+        else 0
+    end) AS low_line_count
+FROM
+    orders,
+    lineitem
+WHERE
+    o_orderkey = l_orderkey
+    AND l_shipmode in ('MAIL', 'SHIP')
+    AND l_commitdate < l_receiptdate
+    AND l_shipdate < l_commitdate
+    AND l_receiptdate >= date '1994-01-01'
+    AND l_receiptdate < date '1994-01-01' + interval '1' year
+GROUP BY
+    l_shipmode;",
             )
             .await
             .expect("Failed to create plan for select")
