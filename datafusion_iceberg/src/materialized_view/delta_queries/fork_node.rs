@@ -26,7 +26,7 @@ use datafusion_expr::{
     Expr, Extension, LogicalPlan, UserDefinedLogicalNode, UserDefinedLogicalNodeCore,
 };
 use futures::{
-    channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
+    channel::mpsc::{channel, Receiver, Sender},
     stream, SinkExt, Stream, StreamExt, TryStreamExt,
 };
 use pin_project_lite::pin_project;
@@ -38,8 +38,8 @@ pub fn fork_node(plan: Arc<LogicalPlan>) -> (ForkNode, ForkNode) {
         (Vec<_>, (Vec<_>, Vec<_>)),
     ) = iter::repeat_n((), parallelism)
         .map(|_| {
-            let (left_sender, left_receiver) = unbounded();
-            let (right_sender, right_receiver) = unbounded();
+            let (left_sender, left_receiver) = channel(8);
+            let (right_sender, right_receiver) = channel(8);
             (
                 left_sender,
                 (
@@ -72,9 +72,9 @@ pub fn fork_node(plan: Arc<LogicalPlan>) -> (ForkNode, ForkNode) {
 
 pub struct ForkNode {
     pub(crate) input: Arc<LogicalPlan>,
-    sender: Vec<UnboundedSender<Result<RecordBatch, DataFusionError>>>,
-    receiver: Vec<Arc<Mutex<Option<UnboundedReceiver<Result<RecordBatch, DataFusionError>>>>>>,
-    own_sender: Vec<UnboundedSender<Result<RecordBatch, DataFusionError>>>,
+    sender: Vec<Sender<Result<RecordBatch, DataFusionError>>>,
+    receiver: Vec<Arc<Mutex<Option<Receiver<Result<RecordBatch, DataFusionError>>>>>>,
+    own_sender: Vec<Sender<Result<RecordBatch, DataFusionError>>>,
     executed: Vec<Arc<AtomicBool>>,
 }
 
@@ -159,9 +159,9 @@ impl From<ForkNode> for LogicalPlan {
 pub(crate) struct PhysicalForkNode {
     input: Arc<dyn ExecutionPlan>,
     properties: PlanProperties,
-    sender: Vec<UnboundedSender<Result<RecordBatch, DataFusionError>>>,
-    receiver: Vec<Arc<Mutex<Option<UnboundedReceiver<Result<RecordBatch, DataFusionError>>>>>>,
-    own_sender: Vec<UnboundedSender<Result<RecordBatch, DataFusionError>>>,
+    sender: Vec<Sender<Result<RecordBatch, DataFusionError>>>,
+    receiver: Vec<Arc<Mutex<Option<Receiver<Result<RecordBatch, DataFusionError>>>>>>,
+    own_sender: Vec<Sender<Result<RecordBatch, DataFusionError>>>,
     executed: Vec<Arc<AtomicBool>>,
 }
 
@@ -246,7 +246,7 @@ impl ExecutionPlan for PhysicalForkNode {
             )));
         }
 
-        self.own_sender[partition].close_channel();
+        self.own_sender[partition].clone().close_channel();
 
         let schema = self.schema().clone();
         let sender = self.sender[partition].clone();
@@ -338,7 +338,7 @@ impl ExtensionPlanner for ForkNodePlanner {
 pin_project! {
     pub struct RecordBatchStreamSender<S> {
         schema: SchemaRef,
-        sender: UnboundedSender<Result<RecordBatch, DataFusionError>>,
+        sender: Sender<Result<RecordBatch, DataFusionError>>,
 
         #[pin]
         stream: S,
@@ -348,7 +348,7 @@ pin_project! {
 impl<S> RecordBatchStreamSender<S> {
     fn new(
         schema: SchemaRef,
-        sender: UnboundedSender<Result<RecordBatch, DataFusionError>>,
+        sender: Sender<Result<RecordBatch, DataFusionError>>,
         stream: S,
     ) -> Self {
         RecordBatchStreamSender {
