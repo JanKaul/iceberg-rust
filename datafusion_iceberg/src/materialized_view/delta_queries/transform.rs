@@ -21,8 +21,8 @@ use crate::DataFusionTable;
 
 use super::{
     aggregate_functions::incremental_aggregate_function,
-    channel_node::channel_nodes,
     delta_node::{NegDeltaNode, PosDeltaNode},
+    fork_node::fork_node,
 };
 
 pub(crate) fn delta_transform_down(
@@ -51,7 +51,7 @@ pub(crate) fn delta_transform_down(
         LogicalPlan::Extension(ext) => {
             if ext.node.name() == "PosDelta" {
                 let (storage_table_scan_one, storage_table_scan_two) =
-                    channel_nodes(storage_table_scan);
+                    fork_node(storage_table_scan);
                 let node = ext.node.as_any().downcast_ref::<PosDeltaNode>().unwrap();
                 match ext.node.inputs()[0] {
                     LogicalPlan::Filter(filter) => {
@@ -113,8 +113,7 @@ pub(crate) fn delta_transform_down(
 
                         let delta_aggregate_schema = delta_aggregate.schema().clone();
 
-                        let (delta_aggregate_one, delta_aggregate_two) =
-                            channel_nodes(delta_aggregate);
+                        let (delta_aggregate_one, delta_aggregate_two) = fork_node(delta_aggregate);
 
                         let join_schema = Arc::new(build_join_schema(
                             &delta_aggregate_schema,
@@ -434,8 +433,8 @@ fn transform_join(
     let mut inputs = Vec::new();
     for delta_left in delta_left_vec.iter() {
         for delta_right in delta_right_vec.iter() {
-            let (delta_left_one, delta_left_two) = channel_nodes(delta_left.clone());
-            let (delta_right_one, delta_right_two) = channel_nodes(delta_right.clone());
+            let (delta_left_one, delta_left_two) = fork_node(delta_left.clone());
+            let (delta_right_one, delta_right_two) = fork_node(delta_right.clone());
             let delta_delta = LogicalPlan::Join(Join {
                 left: Arc::new(delta_left_one.into()),
                 right: Arc::new(delta_right_one.into()),
@@ -528,8 +527,8 @@ mod tests {
     use iceberg_rust::table::Table;
     use iceberg_sql_catalog::SqlCatalog;
 
-    use crate::materialized_view::delta_queries::channel_node::{ReceiverNode, SenderNode};
     use crate::materialized_view::delta_queries::delta_node::{NegDeltaNode, PosDeltaNode};
+    use crate::materialized_view::delta_queries::fork_node::ForkNode;
     use crate::materialized_view::delta_queries::transform::delta_transform_down;
     use crate::DataFusionTable;
 
@@ -814,27 +813,27 @@ mod tests {
             if let LogicalPlan::Union(union) = proj.input.deref() {
                 if let LogicalPlan::Join(join) = union.inputs[0].deref() {
                     if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                        if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
                             if let LogicalPlan::TableScan(table) = ext.input.deref() {
                                 assert_eq!(table.table_name.table(), "users")
                             } else {
                                 panic!("Node is not a table scan.")
                             }
                         } else {
-                            panic!("Node is not a SenderNode")
+                            panic!("Node is not a ForkNode")
                         }
                     } else {
                         panic!("Node is not an extension")
                     }
                     if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                        if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
                             if let LogicalPlan::TableScan(table) = ext.input.deref() {
                                 assert_eq!(table.table_name.table(), "homes")
                             } else {
                                 panic!("Node is not a table scan.")
                             }
                         } else {
-                            panic!("Node is not a SenderNode")
+                            panic!("Node is not a ForkNode")
                         }
                     } else {
                         panic!("Node is not an extension")
@@ -849,9 +848,9 @@ mod tests {
                         panic!("Node is not a table scan.")
                     }
                     if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ReceiverNode>() {
+                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
                         } else {
-                            panic!("Node is not a ReceiverNode")
+                            panic!("Node is not a ForkNode")
                         }
                     } else {
                         panic!("Node is not an extension")
@@ -861,7 +860,7 @@ mod tests {
                 }
                 if let LogicalPlan::Join(join) = union.inputs[2].deref() {
                     if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ReceiverNode>() {
+                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
                         } else {
                             panic!("Node is not a RecveiverNode")
                         }
@@ -1049,27 +1048,27 @@ mod tests {
             if let LogicalPlan::Union(union) = proj.input.deref() {
                 if let LogicalPlan::Join(join) = union.inputs[0].deref() {
                     if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                        if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
                             if let LogicalPlan::TableScan(table) = ext.input.deref() {
                                 assert_eq!(table.table_name.table(), "users")
                             } else {
                                 panic!("Node is not a table scan.")
                             }
                         } else {
-                            panic!("Node is not a SenderNode")
+                            panic!("Node is not a ForkNode")
                         }
                     } else {
                         panic!("Node is not an extension")
                     }
                     if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                        if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
                             if let LogicalPlan::TableScan(table) = ext.input.deref() {
                                 assert_eq!(table.table_name.table(), "homes")
                             } else {
                                 panic!("Node is not a table scan.")
                             }
                         } else {
-                            panic!("Node is not a SenderNode")
+                            panic!("Node is not a ForkNode")
                         }
                     } else {
                         panic!("Node is not an extension")
@@ -1084,9 +1083,9 @@ mod tests {
                         panic!("Node is not a table scan.")
                     }
                     if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ReceiverNode>() {
+                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
                         } else {
-                            panic!("Node is not a ReceiverNode")
+                            panic!("Node is not a ForkNode")
                         }
                     } else {
                         panic!("Node is not an extension")
@@ -1096,7 +1095,7 @@ mod tests {
                 }
                 if let LogicalPlan::Join(join) = union.inputs[2].deref() {
                     if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ReceiverNode>() {
+                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
                         } else {
                             panic!("Node is not a RecveiverNode")
                         }
@@ -1293,7 +1292,7 @@ mod tests {
                 if let LogicalPlan::Projection(proj) = union.inputs[0].deref() {
                     if let LogicalPlan::Join(join) = proj.input.deref() {
                         if let LogicalPlan::Extension(ext) = join.left.deref() {
-                            if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                            if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
                                 if let LogicalPlan::Aggregate(aggregate) = ext.input.deref() {
                                     if let LogicalPlan::TableScan(table) = aggregate.input.deref() {
                                         assert_eq!(table.table_name.table(), "users")
@@ -1304,20 +1303,20 @@ mod tests {
                                     panic!("Node is not an aggregate.")
                                 }
                             } else {
-                                panic!("Node is not a SenderNode")
+                                panic!("Node is not a ForkNode")
                             }
                         } else {
                             panic!("Node is not an extension")
                         }
                         if let LogicalPlan::Extension(ext) = join.right.deref() {
-                            if let Some(ext) = ext.node.as_any().downcast_ref::<SenderNode>() {
+                            if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
                                 if let LogicalPlan::TableScan(table) = ext.input.deref() {
                                     assert_eq!(table.table_name.table(), "storage_table")
                                 } else {
                                     panic!("Node is not a table scan.")
                                 }
                             } else {
-                                panic!("Node is not a SenderNode")
+                                panic!("Node is not a ForkNode")
                             }
                         } else {
                             panic!("Node is not an extension")
@@ -1330,17 +1329,17 @@ mod tests {
                 }
                 if let LogicalPlan::Join(join) = union.inputs[1].deref() {
                     if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ReceiverNode>() {
+                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
                         } else {
-                            panic!("Node is not a ReceiverNode")
+                            panic!("Node is not a ForkNode")
                         }
                     } else {
                         panic!("Node is not an extension")
                     }
                     if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ReceiverNode>() {
+                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
                         } else {
-                            panic!("Node is not a ReceiverNode")
+                            panic!("Node is not a ForkNode")
                         }
                     } else {
                         panic!("Node is not an extension")

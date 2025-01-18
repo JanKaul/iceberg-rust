@@ -1,6 +1,6 @@
 pub mod aggregate_functions;
-pub mod channel_node;
 pub mod delta_node;
+pub mod fork_node;
 pub mod transform;
 
 #[cfg(test)]
@@ -1241,7 +1241,7 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
             .await
             .expect("Failed to execute select query");
 
-        sleep(Duration::from_millis(10_000)).await;
+        sleep(Duration::from_millis(20_000)).await;
 
         let batches = ctx
             .sql("select * from warehouse.tpch.query3;")
