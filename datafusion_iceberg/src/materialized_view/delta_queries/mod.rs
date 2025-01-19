@@ -1155,7 +1155,7 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
     end) AS low_line_count
 FROM
     orders,
-    lineitem
+    lineitem1
 WHERE
     o_orderkey = l_orderkey
     AND l_shipmode in ('MAIL', 'SHIP')
@@ -1192,10 +1192,10 @@ GROUP BY
                 );
                 for (shipmode, revenue) in shipmode.iter().zip(revenue) {
                     if shipmode.unwrap() == "MAIL" {
-                        assert_eq!(revenue.unwrap(), 44);
+                        assert_eq!(revenue.unwrap(), 22);
                         once = true
                     } else if shipmode.unwrap() == "SHIP" {
-                        assert_eq!(revenue.unwrap(), 44);
+                        assert_eq!(revenue.unwrap(), 22);
                         once = true
                     }
                 }
