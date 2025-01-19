@@ -219,6 +219,44 @@ mod tests {
             .await
             .expect("Failed to execute query plan.");
 
+        let batches = ctx
+        .sql("select sum(L.L_QUANTITY), O.O_ORDERSTATUS from lineitem1 L join orders O ON O.O_ORDERKEY = L.L_ORDERKEY WHERE L_SHIPDATE >= date '1996-01-01' group by O.O_ORDERSTATUS;")
+        .await
+        .expect("Failed to create plan for select")
+        .collect()
+        .await
+        .expect("Failed to execute select query");
+
+        let mut once = false;
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (amounts, customer_id) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Float64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .unwrap(),
+                );
+                for (customer_id, amount) in customer_id.iter().zip(amounts) {
+                    if customer_id.unwrap() == "P" {
+                        assert_eq!(amount.unwrap(), 17654.0);
+                        once = true
+                    } else if customer_id.unwrap() == "O" {
+                        assert_eq!(amount.unwrap(), 252270.0);
+                        once = true
+                    }
+                }
+            }
+        }
+
+        assert!(once);
+
         let plan = ctx
             .state()
             .create_logical_plan(
@@ -236,7 +274,8 @@ mod tests {
     L.L_SHIPDATE
 FROM warehouse.tpch.orders O
 JOIN warehouse.tpch.lineitem L
-ON O.O_ORDERKEY = L.L_ORDERKEY;
+ON O.O_ORDERKEY = L.L_ORDERKEY
+WHERE L_SHIPDATE >= '1996-01-01';
 ",
             )
             .await
@@ -289,45 +328,7 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
                         assert_eq!(amount.unwrap(), 17654.0);
                         once = true
                     } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 293687.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
-
-        let batches = ctx
-        .sql("select sum(L.L_QUANTITY), O.O_ORDERSTATUS from lineitem1 L join orders O ON O.O_ORDERKEY = L.L_ORDERKEY group by O.O_ORDERSTATUS;")
-        .await
-        .expect("Failed to create plan for select")
-        .collect()
-        .await
-        .expect("Failed to execute select query");
-
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 17654.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 293687.0);
+                        assert_eq!(amount.unwrap(), 252270.0);
                         once = true
                     }
                 }
@@ -378,6 +379,44 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
             .await
             .expect("Failed to execute query plan.");
 
+        let batches = ctx
+        .sql("select sum(L.L_QUANTITY), O.O_ORDERSTATUS from lineitem L join orders O ON O.O_ORDERKEY = L.L_ORDERKEY WHERE L_SHIPDATE >= date '1996-01-01' group by O.O_ORDERSTATUS;")
+        .await
+        .expect("Failed to create plan for select")
+        .collect()
+        .await
+        .expect("Failed to execute select query");
+
+        let mut once = false;
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (amounts, customer_id) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Float64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .unwrap(),
+                );
+                for (customer_id, amount) in customer_id.iter().zip(amounts) {
+                    if customer_id.unwrap() == "P" {
+                        assert_eq!(amount.unwrap(), 36713.0);
+                        once = true
+                    } else if customer_id.unwrap() == "O" {
+                        assert_eq!(amount.unwrap(), 500446.0);
+                        once = true
+                    }
+                }
+            }
+        }
+
+        assert!(once);
+
         ctx.sql("select refresh_materialized_view('warehouse.tpch.lineitem_orders');")
             .await
             .expect("Failed to create plan for select")
@@ -416,45 +455,7 @@ ON O.O_ORDERKEY = L.L_ORDERKEY;
                         assert_eq!(amount.unwrap(), 36713.0);
                         once = true
                     } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 577719.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
-
-        let batches = ctx
-        .sql("select sum(L.L_QUANTITY), O.O_ORDERSTATUS from lineitem L join orders O ON O.O_ORDERKEY = L.L_ORDERKEY group by O.O_ORDERSTATUS;")
-        .await
-        .expect("Failed to create plan for select")
-        .collect()
-        .await
-        .expect("Failed to execute select query");
-
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 36713.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 577719.0);
+                        assert_eq!(amount.unwrap(), 500446.0);
                         once = true
                     }
                 }
