@@ -78,11 +78,10 @@ pub(crate) fn delta_transform_down(
                     LogicalPlan::Join(join) => {
                         let inputs = transform_join(join)?.0;
 
-                        let data = LogicalPlan::Union(Union {
+                        Ok(Transformed::yes(LogicalPlan::Union(Union {
                             inputs,
                             schema: join.schema.clone(),
-                        });
-                        Ok(Transformed::yes(data))
+                        })))
                     }
                     LogicalPlan::Union(union) => {
                         let inputs = union
@@ -121,10 +120,9 @@ pub(crate) fn delta_transform_down(
                             &JoinType::Inner,
                         )?);
 
-                        let storage_table_group_exprs = storage_table_expressions(
+                        let storage_table_group_exprs = storage_table_group_expressions(
                             &aggregate.group_expr,
                             &storage_table_reference,
-                            &node.aliases,
                         )?;
 
                         let join_on = aggregate
@@ -145,7 +143,7 @@ pub(crate) fn delta_transform_down(
                             null_equals_null: false,
                         }));
 
-                        let storage_table_aggregate_exprs = storage_table_expressions(
+                        let storage_table_aggregate_exprs = storage_table_aggregate_expressions(
                             &aggregate.aggr_expr,
                             &storage_table_reference,
                             &node.aliases,
@@ -208,7 +206,6 @@ pub(crate) fn delta_transform_down(
                     )))),
                 }
             } else if ext.node.name() == "NegDelta" {
-                let node = ext.node.as_any().downcast_ref::<NegDeltaNode>().unwrap();
                 match ext.node.inputs()[0] {
                     LogicalPlan::Projection(proj) => {
                         let mut aliases = BTreeMap::new();
@@ -308,10 +305,9 @@ pub(crate) fn delta_transform_down(
                             &JoinType::Inner,
                         )?);
 
-                        let storage_table_group_exprs = storage_table_expressions(
+                        let storage_table_group_exprs = storage_table_group_expressions(
                             &aggregate.group_expr,
                             &storage_table_reference,
-                            &node.aliases,
                         )?;
 
                         let join_on = aggregate
@@ -483,7 +479,7 @@ fn transform_join(
     Ok((inputs, Arc::new(left_right)))
 }
 
-fn storage_table_expressions(
+fn storage_table_aggregate_expressions(
     exprs: &[Expr],
     storage_table_reference: &TableReference,
     aliases: &BTreeMap<String, String>,
@@ -491,10 +487,6 @@ fn storage_table_expressions(
     exprs
         .iter()
         .map(|x| match x {
-            Expr::Column(column) => Ok(Expr::Column(Column::new(
-                Some(storage_table_reference.clone()),
-                column.name.clone(),
-            ))),
             x => {
                 let mut name = x.name_for_alias()?;
                 if let Some(alias) = aliases.get(&name) {
@@ -505,6 +497,24 @@ fn storage_table_expressions(
                     name,
                 )))
             }
+        })
+        .collect()
+}
+
+fn storage_table_group_expressions(
+    exprs: &[Expr],
+    storage_table_reference: &TableReference,
+) -> Result<Vec<Expr>, DataFusionError> {
+    exprs
+        .iter()
+        .map(|x| match x {
+            Expr::Column(column) => Ok(Expr::Column(Column::new(
+                Some(storage_table_reference.clone()),
+                column.name.clone(),
+            ))),
+            x => Err(DataFusionError::External(Box::new(Error::NotSupported(
+                format!("Expression {x} as group by"),
+            )))),
         })
         .collect()
 }
