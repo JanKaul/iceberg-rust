@@ -123,8 +123,7 @@ impl UserDefinedLogicalNodeCore for ForkNode {
     }
 
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "ForkNode")?;
-        write!(f, "{}", self.input)
+        write!(f, "ForkNode")
     }
 
     fn from_template(&self, _exprs: &[Expr], _inputs: &[LogicalPlan]) -> Self {
