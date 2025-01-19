@@ -17,8 +17,6 @@ use datafusion_expr::{
 };
 use iceberg_rust::error::Error;
 
-use crate::DataFusionTable;
-
 use super::{
     aggregate_functions::incremental_aggregate_function,
     delta_node::{NegDeltaNode, PosDeltaNode},
@@ -340,23 +338,9 @@ pub(crate) fn delta_transform_down(
                     }
                     LogicalPlan::TableScan(scan) => {
                         let mut scan = scan.clone();
-                        let table = scan
-                            .source
-                            .as_any()
-                            .downcast_ref::<DefaultTableSource>()
-                            .ok_or(DataFusionError::Plan(format!(
-                                "Table scan {} doesn't target a Datafusion DefaultTableSource.",
-                                scan.table_name
-                            )))?
-                            .table_provider
-                            .as_any()
-                            .downcast_ref::<DataFusionTable>()
-                            .ok_or(DataFusionError::Plan(format!(
-                                "Table scan {} doesn't reference an Iceberg table.",
-                                scan.table_name
-                            )))?
-                            .clone();
-                        let table_provider = Arc::new(EmptyTable::new(table.schema));
+                        let table_provider = Arc::new(EmptyTable::new(Arc::new(
+                            scan.projected_schema.as_arrow().clone(),
+                        )));
                         scan.source = Arc::new(DefaultTableSource::new(table_provider));
                         Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
                     }
@@ -392,10 +376,10 @@ pub(crate) fn delta_transform_down(
 fn transform_join(
     join: &Join,
 ) -> Result<(Vec<Arc<LogicalPlan>>, Arc<LogicalPlan>), DataFusionError> {
-    let (delta_left_vec, left, delta_right_vec, right): (
+    let (delta_left_vec, left, delta_right, right): (
         Vec<Arc<LogicalPlan>>,
         Arc<LogicalPlan>,
-        Vec<Arc<LogicalPlan>>,
+        Arc<LogicalPlan>,
         Arc<LogicalPlan>,
     ) = match (join.left.deref(), join.right.deref()) {
         (LogicalPlan::Join(_), LogicalPlan::Join(_)) => Err(DataFusionError::External(Box::new(
@@ -406,65 +390,63 @@ fn transform_join(
             Ok((
                 delta_x,
                 x,
-                vec![Arc::new(PosDeltaNode::new(join.right.clone()).into())],
+                Arc::new(PosDeltaNode::new(join.right.clone()).into()),
                 join.right.clone(),
             ))
         }
         (_, LogicalPlan::Join(right)) => {
             let (delta_x, x) = transform_join(right)?;
             Ok((
-                vec![Arc::new(PosDeltaNode::new(join.left.clone()).into())],
-                join.left.clone(),
                 delta_x,
                 x,
+                Arc::new(PosDeltaNode::new(join.left.clone()).into()),
+                join.left.clone(),
             ))
         }
         _ => Ok((
             vec![Arc::new(PosDeltaNode::new(join.left.clone()).into())],
             join.left.clone(),
-            vec![Arc::new(PosDeltaNode::new(join.right.clone()).into())],
+            Arc::new(PosDeltaNode::new(join.right.clone()).into()),
             join.right.clone(),
         )),
     }?;
     let mut inputs = Vec::new();
-    for delta_left in delta_left_vec.iter() {
-        for delta_right in delta_right_vec.iter() {
-            let (delta_left_one, delta_left_two) = fork_node(delta_left.clone());
-            let (delta_right_one, delta_right_two) = fork_node(delta_right.clone());
-            let delta_delta = LogicalPlan::Join(Join {
-                left: Arc::new(delta_left_one.into()),
-                right: Arc::new(delta_right_one.into()),
-                schema: join.schema.clone(),
-                on: join.on.clone(),
-                filter: join.filter.clone(),
-                join_type: join.join_type,
-                join_constraint: join.join_constraint,
-                null_equals_null: join.null_equals_null,
-            });
-            let left_delta = LogicalPlan::Join(Join {
-                left: left.clone(),
-                right: Arc::new(delta_right_two.into()),
-                schema: join.schema.clone(),
-                on: join.on.clone(),
-                filter: join.filter.clone(),
-                join_type: join.join_type,
-                join_constraint: join.join_constraint,
-                null_equals_null: join.null_equals_null,
-            });
-            let right_delta = LogicalPlan::Join(Join {
-                left: Arc::new(delta_left_two.into()),
-                right: right.clone(),
-                schema: join.schema.clone(),
-                on: join.on.clone(),
-                filter: join.filter.clone(),
-                join_type: join.join_type,
-                join_constraint: join.join_constraint,
-                null_equals_null: join.null_equals_null,
-            });
-            inputs.push(Arc::new(delta_delta));
-            inputs.push(Arc::new(left_delta));
-            inputs.push(Arc::new(right_delta));
-        }
+    for delta_left in delta_left_vec {
+        let (delta_left_one, delta_left_two) = fork_node(delta_left);
+        let (delta_right_one, delta_right_two) = fork_node(delta_right.clone());
+        let delta_delta = LogicalPlan::Join(Join {
+            left: Arc::new(delta_left_one.into()),
+            right: Arc::new(delta_right_one.into()),
+            schema: join.schema.clone(),
+            on: join.on.clone(),
+            filter: join.filter.clone(),
+            join_type: join.join_type,
+            join_constraint: join.join_constraint,
+            null_equals_null: join.null_equals_null,
+        });
+        let left_delta = LogicalPlan::Join(Join {
+            left: left.clone(),
+            right: Arc::new(delta_right_two.into()),
+            schema: join.schema.clone(),
+            on: join.on.clone(),
+            filter: join.filter.clone(),
+            join_type: join.join_type,
+            join_constraint: join.join_constraint,
+            null_equals_null: join.null_equals_null,
+        });
+        let right_delta = LogicalPlan::Join(Join {
+            left: Arc::new(delta_left_two.into()),
+            right: right.clone(),
+            schema: join.schema.clone(),
+            on: join.on.clone(),
+            filter: join.filter.clone(),
+            join_type: join.join_type,
+            join_constraint: join.join_constraint,
+            null_equals_null: join.null_equals_null,
+        });
+        inputs.push(Arc::new(delta_delta));
+        inputs.push(Arc::new(left_delta));
+        inputs.push(Arc::new(right_delta));
     }
     let left_right = LogicalPlan::Join(Join {
         left,
