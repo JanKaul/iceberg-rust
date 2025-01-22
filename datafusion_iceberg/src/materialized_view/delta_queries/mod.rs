@@ -3,6 +3,7 @@ pub mod delta_node;
 pub mod fork_node;
 pub mod transform;
 
+#[allow(clippy::if_same_then_else)]
 #[cfg(test)]
 mod tests {
     use std::{sync::Arc, time::Duration};

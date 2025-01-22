@@ -70,6 +70,7 @@ pub fn fork_node(plan: Arc<LogicalPlan>) -> (ForkNode, ForkNode) {
     )
 }
 
+#[allow(clippy::type_complexity)]
 pub struct ForkNode {
     pub(crate) input: Arc<LogicalPlan>,
     sender: Vec<Sender<Result<RecordBatch, DataFusionError>>>,
@@ -155,6 +156,7 @@ impl From<ForkNode> for LogicalPlan {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub(crate) struct PhysicalForkNode {
     input: Arc<dyn ExecutionPlan>,
     properties: PlanProperties,

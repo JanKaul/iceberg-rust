@@ -116,6 +116,7 @@ pub async fn refresh_materialized_view(
                     _ => Err(Error::InvalidFormat("storage table".to_string())),
                 }?;
 
+                #[allow(clippy::type_complexity)]
                 let source_table_provider: (
                     Option<Arc<dyn TableProvider>>,
                     Option<Arc<dyn TableProvider>>,

@@ -23,6 +23,7 @@ use super::{
     fork_node::fork_node,
 };
 
+#[allow(clippy::type_complexity)]
 pub(crate) fn delta_transform_down(
     plan: LogicalPlan,
     source_table_state: &HashMap<
@@ -482,17 +483,15 @@ fn storage_table_aggregate_expressions(
 ) -> Result<Vec<Expr>, DataFusionError> {
     exprs
         .iter()
-        .map(|x| match x {
-            x => {
-                let mut name = x.name_for_alias()?;
-                if let Some(alias) = aliases.get(&name) {
-                    name = alias.clone();
-                }
-                Ok(Expr::Column(Column::new(
-                    Some(storage_table_reference.clone()),
-                    name,
-                )))
+        .map(|x| {
+            let mut name = x.name_for_alias()?;
+            if let Some(alias) = aliases.get(&name) {
+                name = alias.clone();
             }
+            Ok(Expr::Column(Column::new(
+                Some(storage_table_reference.clone()),
+                name,
+            )))
         })
         .collect()
 }
