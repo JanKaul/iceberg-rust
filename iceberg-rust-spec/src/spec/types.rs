@@ -264,9 +264,35 @@ impl StructType {
             .get(&(index as i32))
             .map(|idx| &self.fields[*idx])
     }
-    /// Get structfield with certain name
     pub fn get_name(&self, name: &str) -> Option<&StructField> {
-        self.fields.iter().find(|field| field.name == name)
+        let res = self.fields.iter().find(|field| field.name == name);
+        if res.is_some() {
+            return res;
+        }
+        let parts: Vec<&str> = name.split('.').collect();
+        let mut current_struct = self;
+        let mut current_field = None;
+
+        for (i, part) in parts.iter().enumerate() {
+            current_field = current_struct
+                .fields
+                .iter()
+                .find(|field| field.name == *part);
+
+            if i == parts.len() - 1 || current_field.is_none() {
+                return current_field;
+            }
+
+            if let Some(field) = current_field {
+                if let Type::Struct(struct_type) = &field.field_type {
+                    current_struct = struct_type;
+                } else {
+                    return None;
+                }
+            }
+        }
+
+        current_field
     }
 
     pub fn len(&self) -> usize {
