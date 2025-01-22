@@ -255,8 +255,12 @@ async fn plan_create_view(
     ))
     .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
-    let lowercase = node.0.definition.as_ref().unwrap().to_lowercase();
-    let definition = lowercase.split_once(" as ").unwrap().1;
+    let definition = node.0.definition.as_ref().unwrap();
+    let definition = match (definition.split_once(" as "), definition.split_once(" AS ")) {
+        (Some(definition), None) => definition.1,
+        (None, Some(definition)) => definition.1,
+        _ => panic!("Something is wrong"),
+    };
 
     #[cfg(test)]
     let location = "/tmp/".to_owned() + catalog_name + "/" + namespace_name + "/" + table_name;
