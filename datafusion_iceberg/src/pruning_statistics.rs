@@ -12,21 +12,36 @@
  * For the second level the trait PruningStatistics is implemented for the Manifest
 */
 
-use std::any::Any;
+use std::{any::Any, sync::Arc};
 
+use crate::error::Error as DatafusionIcebergError;
 use datafusion::{
     arrow::{
         array::ArrayRef,
         datatypes::{DataType, Schema as ArrowSchema},
     },
-    common::DataFusionError,
+    common::{
+        tree_node::{Transformed, TreeNode},
+        DataFusionError,
+    },
     physical_optimizer::pruning::PruningStatistics,
     prelude::Column,
     scalar::ScalarValue,
 };
-use iceberg_rust::spec::{
-    manifest::ManifestEntry, manifest_list::ManifestListEntry, partition::BoundPartitionField,
-    schema::Schema,
+use datafusion_expr::{
+    expr::ScalarFunction, BinaryExpr, ColumnarValue, Expr, ScalarUDF, ScalarUDFImpl, Signature,
+    TypeSignature, Volatility,
+};
+use iceberg_rust::{
+    arrow::transform::transform_arrow,
+    error::Error,
+    spec::{
+        manifest::ManifestEntry,
+        manifest_list::ManifestListEntry,
+        partition::{BoundPartitionField, Transform},
+        schema::Schema,
+        values::Value,
+    },
 };
 
 pub(crate) struct PruneManifests<'table, 'manifests> {
@@ -52,7 +67,7 @@ impl PruningStatistics for PruneManifests<'_, '_> {
             .partition_fields
             .iter()
             .enumerate()
-            .find(|(_, field)| field.source_name() == column.name())?;
+            .find(|(_, field)| field.name() == column.name())?;
         let data_type = partition_field
             .field_type()
             .tranform(partition_field.transform())
@@ -72,7 +87,7 @@ impl PruningStatistics for PruneManifests<'_, '_> {
             .partition_fields
             .iter()
             .enumerate()
-            .find(|(_, field)| field.source_name() == column.name())?;
+            .find(|(_, field)| field.name() == column.name())?;
         let data_type = partition_field
             .field_type()
             .tranform(partition_field.transform())
@@ -264,5 +279,185 @@ fn any_iter_to_array(
         _ => Err(DataFusionError::Internal(
             "Arrow datatype not supported for pruning.".to_string(),
         )),
+    }
+}
+
+pub(crate) fn transform_predicate(
+    expr: Expr,
+    partition_fields: &[BoundPartitionField],
+) -> Result<Expr, DataFusionError> {
+    expr.transform_down(|expr| match expr {
+        Expr::BinaryExpr(bin) => match (*bin.left, *bin.right) {
+            (Expr::Column(column), right) => {
+                let field = partition_fields
+                    .iter()
+                    .find(|x| x.source_name() == column.name())
+                    .unwrap();
+                Ok(Transformed::yes(Expr::BinaryExpr(BinaryExpr::new(
+                    Box::new(Expr::Column(Column::new(
+                        column.relation,
+                        field.name().to_owned(),
+                    ))),
+                    bin.op,
+                    Box::new(transform_literal(right, field.transform())?),
+                ))))
+            }
+            (left, Expr::Column(column)) => {
+                let field = partition_fields
+                    .iter()
+                    .find(|x| x.source_name() == column.name())
+                    .unwrap();
+                Ok(Transformed::yes(Expr::BinaryExpr(BinaryExpr::new(
+                    Box::new(Expr::Column(Column::new(
+                        column.relation,
+                        field.name().to_owned(),
+                    ))),
+                    bin.op,
+                    Box::new(transform_literal(left, field.transform())?),
+                ))))
+            }
+            (left, right) => Ok(Transformed::no(Expr::BinaryExpr(BinaryExpr::new(
+                Box::new(left),
+                bin.op,
+                Box::new(right),
+            )))),
+        },
+        x => Ok(Transformed::no(x)),
+    })
+    .map(|x| x.data)
+}
+
+fn transform_literal(expr: Expr, transform: &Transform) -> Result<Expr, DataFusionError> {
+    match transform {
+        Transform::Year => Ok(Expr::ScalarFunction(ScalarFunction::new_udf(
+            Arc::new(ScalarUDF::new_from_impl(DateTransform::new())),
+            vec![Expr::Literal(ScalarValue::new_utf8("year")), expr],
+        ))),
+        Transform::Month => Ok(Expr::ScalarFunction(ScalarFunction::new_udf(
+            Arc::new(ScalarUDF::new_from_impl(DateTransform::new())),
+            vec![Expr::Literal(ScalarValue::new_utf8("month")), expr],
+        ))),
+        Transform::Day => Ok(Expr::ScalarFunction(ScalarFunction::new_udf(
+            Arc::new(ScalarUDF::new_from_impl(DateTransform::new())),
+            vec![Expr::Literal(ScalarValue::new_utf8("day")), expr],
+        ))),
+        Transform::Hour => Ok(Expr::ScalarFunction(ScalarFunction::new_udf(
+            Arc::new(ScalarUDF::new_from_impl(DateTransform::new())),
+            vec![Expr::Literal(ScalarValue::new_utf8("hour")), expr],
+        ))),
+        _ => Ok(expr),
+    }
+}
+
+#[derive(Debug)]
+struct DateTransform {
+    signature: Signature,
+}
+
+impl DateTransform {
+    fn new() -> Self {
+        let signature = Signature {
+            type_signature: TypeSignature::OneOf(vec![
+                TypeSignature::Exact(vec![DataType::Utf8, DataType::Date32]),
+                TypeSignature::Exact(vec![
+                    DataType::Utf8,
+                    DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None),
+                ]),
+            ]),
+            volatility: Volatility::Immutable,
+        };
+        Self { signature }
+    }
+}
+
+impl ScalarUDFImpl for DateTransform {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        "date_transform"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
+        Ok(DataType::Int32)
+    }
+
+    fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+        let transform = &args[0];
+        let array = &args[1];
+        let ColumnarValue::Scalar(ScalarValue::Utf8(Some(transform))) = transform else {
+            return Err(DataFusionError::External(Box::new(Error::InvalidFormat(
+                "Partition transform".to_owned(),
+            ))));
+        };
+        let transform = match transform.as_str() {
+            "year" => Ok(Transform::Year),
+            "month" => Ok(Transform::Month),
+            "day" => Ok(Transform::Day),
+            "hour" => Ok(Transform::Hour),
+            _ => Err(DataFusionError::External(Box::new(Error::InvalidFormat(
+                "Partition transform".to_owned(),
+            )))),
+        }?;
+        match array {
+            ColumnarValue::Array(array) => Ok(ColumnarValue::Array(transform_arrow(
+                array.clone(),
+                &transform,
+            )?)),
+            ColumnarValue::Scalar(scalar) => Ok(ColumnarValue::Scalar(
+                value_to_scalarvalue(
+                    scalarvalue_to_value(scalar)
+                        .map_err(DatafusionIcebergError::from)?
+                        .transform(&transform)
+                        .map_err(DatafusionIcebergError::from)?,
+                )
+                .map_err(DatafusionIcebergError::from)?,
+            )),
+        }
+    }
+}
+
+fn scalarvalue_to_value(scalar: &ScalarValue) -> Result<Value, Error> {
+    match scalar {
+        ScalarValue::Boolean(x) => Ok(Value::Boolean(x.ok_or(Error::InvalidFormat(
+            "Value can't be null when converting to iceberg value".to_owned(),
+        ))?)),
+        ScalarValue::Int32(x) => Ok(Value::Int(x.ok_or(Error::InvalidFormat(
+            "Value can't be null when converting to iceberg value".to_owned(),
+        ))?)),
+        ScalarValue::Int64(x) => Ok(Value::LongInt(x.ok_or(Error::InvalidFormat(
+            "Value can't be null when converting to iceberg value".to_owned(),
+        ))?)),
+        ScalarValue::Date32(x) => Ok(Value::Date(x.ok_or(Error::InvalidFormat(
+            "Value can't be null when converting to iceberg value".to_owned(),
+        ))?)),
+        ScalarValue::Time64Microsecond(x) => Ok(Value::Time(x.ok_or(Error::InvalidFormat(
+            "Value can't be null when converting to iceberg value".to_owned(),
+        ))?)),
+        ScalarValue::TimestampMicrosecond(x, _) => Ok(Value::Timestamp(x.ok_or(
+            Error::InvalidFormat("Value can't be null when converting to iceberg value".to_owned()),
+        )?)),
+        x => Err(Error::NotSupported(format!(
+            "Transforming {x} to iceberg value"
+        ))),
+    }
+}
+
+fn value_to_scalarvalue(value: Value) -> Result<ScalarValue, Error> {
+    match value {
+        Value::Boolean(x) => Ok(ScalarValue::Boolean(Some(x))),
+        Value::Int(x) => Ok(ScalarValue::Int32(Some(x))),
+        Value::LongInt(x) => Ok(ScalarValue::Int64(Some(x))),
+        Value::Date(x) => Ok(ScalarValue::Date32(Some(x))),
+        Value::Time(x) => Ok(ScalarValue::Time64Microsecond(Some(x))),
+        Value::Timestamp(x) => Ok(ScalarValue::TimestampMicrosecond(Some(x), None)),
+        x => Err(Error::NotSupported(format!(
+            "Transforming {x} to iceberg value"
+        ))),
     }
 }

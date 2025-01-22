@@ -15,10 +15,8 @@ use std::{
 
 use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use datetime::{
-    date_to_days, date_to_months, date_to_years, datetime_to_days, datetime_to_hours,
-    datetime_to_micros, datetime_to_months, days_to_date, days_to_datetime, hours_to_date,
-    hours_to_datetime, micros_to_datetime, months_to_date, months_to_datetime, years_to_date,
-    years_to_datetime,
+    date_to_months, date_to_years, datetime_to_days, datetime_to_hours, datetime_to_months,
+    days_to_date, micros_to_datetime,
 };
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
@@ -369,36 +367,6 @@ impl Value {
         }
     }
 
-    fn inverse_transform(&self, transform: &Transform, target_type: &Type) -> Result<Value, Error> {
-        match (self, transform, target_type) {
-            (Value::Int(value), Transform::Year, Type::Primitive(PrimitiveType::Date)) => {
-                Ok(Value::Date(date_to_days(&years_to_date(*value))))
-            }
-            (Value::Int(value), Transform::Month, Type::Primitive(PrimitiveType::Date)) => {
-                Ok(Value::Date(date_to_days(&months_to_date(*value))))
-            }
-            (Value::Int(value), Transform::Day, Type::Primitive(PrimitiveType::Date)) => {
-                Ok(Value::Date(*value))
-            }
-            (Value::Int(value), Transform::Hour, Type::Primitive(PrimitiveType::Date)) => {
-                Ok(Value::Date(date_to_days(&hours_to_date(*value as i64))))
-            }
-            (Value::Int(value), Transform::Year, Type::Primitive(PrimitiveType::Timestamp)) => Ok(
-                Value::Timestamp(datetime_to_micros(&years_to_datetime(*value))),
-            ),
-            (Value::Int(value), Transform::Month, Type::Primitive(PrimitiveType::Timestamp)) => Ok(
-                Value::Timestamp(datetime_to_micros(&months_to_datetime(*value))),
-            ),
-            (Value::Int(value), Transform::Day, Type::Primitive(PrimitiveType::Timestamp)) => Ok(
-                Value::Timestamp(datetime_to_micros(&days_to_datetime(*value as i64))),
-            ),
-            (Value::Int(value), Transform::Hour, Type::Primitive(PrimitiveType::Timestamp)) => Ok(
-                Value::Timestamp(datetime_to_micros(&hours_to_datetime(*value as i64))),
-            ),
-            (x, _, _) => Err(Error::NotSupported(format!("Inverse transforming {x}"))),
-        }
-    }
-
     #[inline]
     /// Create iceberg value from bytes
     pub fn try_from_bytes(bytes: &[u8], data_type: &Type) -> Result<Self, Error> {
@@ -742,24 +710,6 @@ mod datetime {
     }
 
     #[inline]
-    pub(crate) fn datetime_to_years(date: &NaiveDateTime) -> i32 {
-        date.year() - YEARS_BEFORE_UNIX_EPOCH
-    }
-
-    #[inline]
-    pub(crate) fn years_to_date(years: i32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(years + YEARS_BEFORE_UNIX_EPOCH, 1, 1).unwrap()
-    }
-
-    #[inline]
-    pub(crate) fn years_to_datetime(years: i32) -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(years + YEARS_BEFORE_UNIX_EPOCH, 0, 0)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-    }
-
-    #[inline]
     pub(crate) fn date_to_months(date: &NaiveDate) -> i32 {
         let years = date
             .years_since(
@@ -779,23 +729,6 @@ mod datetime {
     }
 
     #[inline]
-    pub(crate) fn months_to_date(months: i32) -> NaiveDate {
-        let years = months / 12;
-        let months = months % 12;
-        NaiveDate::from_ymd_opt(years + YEARS_BEFORE_UNIX_EPOCH, months as u32, 1).unwrap()
-    }
-
-    #[inline]
-    pub(crate) fn months_to_datetime(months: i32) -> NaiveDateTime {
-        let years = months / 12;
-        let months = months % 12;
-        NaiveDate::from_ymd_opt(years + YEARS_BEFORE_UNIX_EPOCH, months as u32, 1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-    }
-
-    #[inline]
     pub(crate) fn date_to_days(date: &NaiveDate) -> i32 {
         date.signed_duration_since(
             // This is always the same and shouldn't fail
@@ -811,39 +744,6 @@ mod datetime {
             .unwrap()
             .naive_utc()
             .date()
-    }
-
-    #[inline]
-    pub(crate) fn days_to_datetime(days: i64) -> NaiveDateTime {
-        DateTime::from_timestamp(days as i64 * 86_400, 0)
-            .unwrap()
-            .naive_utc()
-    }
-
-    #[inline]
-    pub(crate) fn date_to_hours(date: &NaiveDate) -> i64 {
-        date.signed_duration_since(
-            // This is always the same and shouldn't fail
-            NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
-        )
-        .num_hours()
-    }
-
-    #[inline]
-    pub(crate) fn hours_to_date(hours: i64) -> NaiveDate {
-        // This shouldn't fail until the year 262000
-        DateTime::from_timestamp(hours as i64 * 3_600, 0)
-            .unwrap()
-            .naive_utc()
-            .date()
-    }
-
-    #[inline]
-    pub(crate) fn hours_to_datetime(hours: i64) -> NaiveDateTime {
-        // This shouldn't fail until the year 262000
-        DateTime::from_timestamp(hours as i64 * 3_600, 0)
-            .unwrap()
-            .naive_utc()
     }
 
     #[inline]

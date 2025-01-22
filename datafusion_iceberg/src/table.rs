@@ -18,7 +18,7 @@ use std::{
 use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use datafusion::{
-    arrow::datatypes::{Field, SchemaRef},
+    arrow::datatypes::{Field, Schema as ArrowSchema, SchemaRef},
     catalog::Session,
     common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
     datasource::{
@@ -49,7 +49,7 @@ use datafusion::{
 
 use crate::{
     error::Error as DataFusionIcebergError,
-    pruning_statistics::{PruneDataFiles, PruneManifests},
+    pruning_statistics::{transform_predicate, PruneDataFiles, PruneManifests},
     statistics::manifest_statistics,
 };
 
@@ -307,6 +307,28 @@ async fn table_scan(
         None
     };
 
+    // Get all partition columns
+    let table_partition_cols: Vec<Field> = partition_fields
+        .iter()
+        .map(|partition_field| {
+            Ok(Field::new(
+                partition_field.name().to_owned(),
+                (&partition_field
+                    .field_type()
+                    .tranform(partition_field.transform())
+                    .map_err(DataFusionIcebergError::from)?)
+                    .try_into()
+                    .map_err(DataFusionIcebergError::from)?,
+                !partition_field.required(),
+            )
+            .with_metadata(HashMap::from_iter(vec![(
+                PARQUET_FIELD_ID_META_KEY.to_string(),
+                partition_field.field_id().to_string(),
+            )])))
+        })
+        .collect::<Result<Vec<_>, DataFusionError>>()
+        .map_err(DataFusionIcebergError::from)?;
+
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
     let mut data_file_groups: HashMap<Struct, Vec<ManifestEntry>> = HashMap::new();
@@ -314,6 +336,7 @@ async fn table_scan(
 
     // Prune data & delete file and insert them into the according map
     if let Some(physical_predicate) = physical_predicate.clone() {
+        let partition_schema = Arc::new(ArrowSchema::new(table_partition_cols.clone()));
         let partition_column_names = partition_fields
             .iter()
             .map(|field| Ok(field.source_name().to_owned()))
@@ -331,7 +354,8 @@ async fn table_scan(
                         .collect();
                     set.is_subset(&partition_column_names)
                 })
-                .cloned(),
+                .cloned()
+                .map(|x| transform_predicate(x, &partition_fields).unwrap()),
         );
 
         let manifests = table
@@ -344,11 +368,11 @@ async fn table_scan(
         let data_files: Vec<ManifestEntry> = if let Some(predicate) = partition_predicates {
             let physical_partition_predicate = create_physical_expr(
                 &predicate,
-                &arrow_schema.as_ref().clone().try_into()?,
+                &partition_schema.clone().try_into()?,
                 session.execution_props(),
             )?;
             let pruning_predicate =
-                PruningPredicate::try_new(physical_partition_predicate, arrow_schema.clone())?;
+                PruningPredicate::try_new(physical_partition_predicate, partition_schema.clone())?;
             let manifests_to_prune =
                 pruning_predicate.prune(&PruneManifests::new(partition_fields, &manifests))?;
 
@@ -372,8 +396,11 @@ async fn table_scan(
         let pruning_predicate =
             PruningPredicate::try_new(physical_predicate, arrow_schema.clone())?;
         // After the first pruning stage the data_files are pruned again based on the pruning statistics in the manifest files.
-        let files_to_prune =
-            pruning_predicate.prune(&PruneDataFiles::new(&schema, &arrow_schema, &data_files))?;
+        let files_to_prune = pruning_predicate.prune(&PruneDataFiles::new(
+            &schema,
+            &partition_schema,
+            &data_files,
+        ))?;
 
         data_files
             .into_iter()
@@ -433,28 +460,6 @@ async fn table_scan(
             }
         });
     };
-
-    // Get all partition columns
-    let table_partition_cols: Vec<Field> = partition_fields
-        .iter()
-        .map(|partition_field| {
-            Ok(Field::new(
-                partition_field.name().to_owned() + "__partition",
-                (&partition_field
-                    .field_type()
-                    .tranform(partition_field.transform())
-                    .map_err(DataFusionIcebergError::from)?)
-                    .try_into()
-                    .map_err(DataFusionIcebergError::from)?,
-                !partition_field.required(),
-            )
-            .with_metadata(HashMap::from_iter(vec![(
-                PARQUET_FIELD_ID_META_KEY.to_string(),
-                partition_field.field_id().to_string(),
-            )])))
-        })
-        .collect::<Result<Vec<_>, DataFusionError>>()
-        .map_err(DataFusionIcebergError::from)?;
 
     let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
 
