@@ -4,6 +4,8 @@ Defining the [Table] struct that represents an iceberg table.
 
 use std::{io::Cursor, sync::Arc};
 
+use futures::future;
+use itertools::Itertools;
 use manifest::ManifestReader;
 use manifest_list::read_snapshot;
 use object_store::{path::Path, ObjectStore};
@@ -36,7 +38,7 @@ pub mod manifest;
 pub mod manifest_list;
 pub mod transaction;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 /// Iceberg table
 pub struct Table {
     identifier: Identifier,
@@ -133,13 +135,7 @@ impl Table {
         let iter = read_snapshot(end_snapshot, metadata, self.object_store().clone()).await?;
         match start_sequence_number {
             Some(start) => iter
-                .filter(|manifest| {
-                    if let Ok(manifest) = manifest {
-                        manifest.sequence_number > start
-                    } else {
-                        true
-                    }
-                })
+                .filter_ok(|manifest| manifest.sequence_number > start)
                 .collect(),
             None => iter.collect(),
         }
@@ -150,8 +146,15 @@ impl Table {
         &self,
         manifests: &[ManifestListEntry],
         filter: Option<Vec<bool>>,
+        sequence_number_range: (Option<i64>, Option<i64>),
     ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
-        datafiles(self.object_store(), manifests, filter).await
+        datafiles(
+            self.object_store(),
+            manifests,
+            filter,
+            sequence_number_range,
+        )
+        .await
     }
     /// Check if datafiles contain deletes
     pub async fn datafiles_contains_delete(
@@ -160,7 +163,7 @@ impl Table {
         end: Option<i64>,
     ) -> Result<bool, Error> {
         let manifests = self.manifests(start, end).await?;
-        let datafiles = self.datafiles(&manifests, None).await?;
+        let datafiles = self.datafiles(&manifests, None, (None, None)).await?;
         datafiles
             .try_any(|entry| async move { !matches!(entry.data_file().content(), Content::Data) })
             .await
@@ -175,6 +178,7 @@ async fn datafiles(
     object_store: Arc<dyn ObjectStore>,
     manifests: &[ManifestListEntry],
     filter: Option<Vec<bool>>,
+    sequence_number_range: (Option<i64>, Option<i64>),
 ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
     // filter manifest files according to filter vector
     let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
@@ -205,7 +209,34 @@ async fn datafiles(
                         .await?,
                 ));
                 let reader = ManifestReader::new(bytes)?;
-                sender.send(stream::iter(reader)).await?;
+                let sequence_number = file.sequence_number;
+                sender
+                    .send(stream::iter(reader).try_filter_map(move |mut x| {
+                        future::ready({
+                            let sequence_number = if let Some(sequence_number) = x.sequence_number()
+                            {
+                                *sequence_number
+                            } else {
+                                *x.sequence_number_mut() = Some(sequence_number);
+                                sequence_number
+                            };
+
+                            let filter = match sequence_number_range {
+                                (Some(start), Some(end)) => {
+                                    start < sequence_number && sequence_number <= end
+                                }
+                                (Some(start), None) => start < sequence_number,
+                                (None, Some(end)) => sequence_number <= end,
+                                _ => true,
+                            };
+                            if filter {
+                                Ok(Some(x))
+                            } else {
+                                Ok(None)
+                            }
+                        })
+                    }))
+                    .await?;
                 Ok(())
             }
         })
@@ -226,7 +257,7 @@ pub(crate) async fn delete_files(
         .await?
         .collect::<Result<_, _>>()?;
 
-    let datafiles = datafiles(object_store.clone(), &manifests, None).await?;
+    let datafiles = datafiles(object_store.clone(), &manifests, None, (None, None)).await?;
     let snapshots = &metadata.snapshots;
 
     // stream::iter(datafiles.into_iter())

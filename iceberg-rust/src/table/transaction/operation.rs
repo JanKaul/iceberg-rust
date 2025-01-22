@@ -200,7 +200,6 @@ impl Operation {
                     ManifestEntry::builder()
                         .with_format_version(table_metadata.format_version)
                         .with_status(Status::Added)
-                        .with_snapshot_id(snapshot_id)
                         .with_data_file(data_file)
                         .build()
                         .map_err(crate::spec::error::Error::from)
@@ -273,12 +272,10 @@ impl Operation {
                                 let mut entry = entry?;
                                 *entry.status_mut() = Status::Existing;
                                 if entry.sequence_number().is_none() {
-                                    *entry.sequence_number_mut() =
-                                        table_metadata.sequence_number(entry.snapshot_id().ok_or(
-                                            apache_avro::Error::DeserializeValue(
-                                                "Snapshot_id missing in Manifest Entry.".to_owned(),
-                                            ),
-                                        )?);
+                                    *entry.sequence_number_mut() = Some(manifest.sequence_number);
+                                }
+                                if entry.snapshot_id().is_none() {
+                                    *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
                                 }
                                 Ok(entry)
                             });
@@ -333,11 +330,7 @@ impl Operation {
                 snapshot_builder
                     .with_snapshot_id(snapshot_id)
                     .with_manifest_list(new_manifest_list_location)
-                    .with_sequence_number(
-                        old_snapshot
-                            .map(|x| *x.sequence_number() + 1)
-                            .unwrap_or_default(),
-                    )
+                    .with_sequence_number(table_metadata.last_sequence_number + 1)
                     .with_summary(Summary {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
                         other: additional_summary.unwrap_or_default(),

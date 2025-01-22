@@ -8,7 +8,10 @@ use datafusion_expr::{
 use itertools::Itertools;
 use regex::Regex;
 
-use crate::{catalog::catalog::IcebergCatalog, materialized_view::refresh_materialized_view};
+use crate::{
+    catalog::catalog::IcebergCatalog,
+    materialized_view::{delta_queries::fork_node::ForkNodePlanner, refresh_materialized_view},
+};
 use datafusion::{
     arrow::datatypes::{DataType, Schema as ArrowSchema},
     common::{tree_node::Transformed, SchemaReference},
@@ -39,8 +42,28 @@ use iceberg_rust::{
     view::View,
 };
 
-#[derive(Debug)]
-pub struct IcebergQueryPlanner {}
+pub struct IcebergQueryPlanner(DefaultPhysicalPlanner);
+
+impl Debug for IcebergQueryPlanner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IcebergQueryPlanner")
+    }
+}
+
+impl Default for IcebergQueryPlanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl IcebergQueryPlanner {
+    pub fn new() -> Self {
+        IcebergQueryPlanner(DefaultPhysicalPlanner::with_extension_planners(vec![
+            Arc::new(IcebergExtensionPlanner {}),
+            Arc::new(ForkNodePlanner::new()),
+        ]))
+    }
+}
 
 #[async_trait]
 impl QueryPlanner for IcebergQueryPlanner {
@@ -49,10 +72,7 @@ impl QueryPlanner for IcebergQueryPlanner {
         logical_plan: &LogicalPlan,
         session_state: &SessionState,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        let planner = DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(
-            IcebergExtensionPlanner {},
-        )]);
-        planner
+        self.0
             .create_physical_plan(logical_plan, session_state)
             .await
     }
@@ -235,11 +255,15 @@ async fn plan_create_view(
     ))
     .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
-    let lowercase = node.0.definition.as_ref().unwrap().to_lowercase();
-    let definition = lowercase.split_once(" as ").unwrap().1;
+    let definition = node.0.definition.as_ref().unwrap();
+    let definition = match (definition.split_once(" as "), definition.split_once(" AS ")) {
+        (Some(definition), None) => definition.1,
+        (None, Some(definition)) => definition.1,
+        _ => panic!("Something is wrong"),
+    };
 
     #[cfg(test)]
-    let location = catalog_name.to_string() + "/" + namespace_name + "/" + table_name;
+    let location = "/tmp/".to_owned() + catalog_name + "/" + namespace_name + "/" + table_name;
 
     #[cfg(not(test))]
     let location = "s3://".to_string() + catalog_name + "/" + namespace_name + "/" + table_name;
@@ -876,10 +900,10 @@ mod tests {
             )
         };
 
-        let state = SessionStateBuilder::new()
+        let state = SessionStateBuilder::default()
             .with_default_features()
             .with_catalog_list(catalog_list)
-            .with_query_planner(Arc::new(IcebergQueryPlanner {}))
+            .with_query_planner(Arc::new(IcebergQueryPlanner::new()))
             .build();
 
         let ctx = SessionContext::new_with_state(state);
@@ -925,7 +949,7 @@ OPTIONS ('has_header' 'true');";
         .await
         .expect("Failed to insert values into table");
 
-        let sql = "CREATE TEMPORARY VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) from iceberg.public.orders group by product_id;";
+        let sql = "CREATE TEMPORARY VIEW iceberg.public.quantities_by_product AS select product_id, sum(quantity) as total from iceberg.public.orders group by product_id;";
 
         let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 

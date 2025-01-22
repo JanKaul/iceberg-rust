@@ -15,7 +15,7 @@ pub(crate) mod append;
 pub(crate) mod operation;
 
 pub(crate) static APPEND_KEY: &str = "append";
-pub(crate) static REWRITE_KEY: &str = "rewrite";
+pub(crate) static OVERWRITE_KEY: &str = "overwrite";
 pub(crate) static ADD_SCHEMA_KEY: &str = "add-schema";
 pub(crate) static SET_DEFAULT_SPEC_KEY: &str = "set-default-spec";
 pub(crate) static UPDATE_PROPERTIES_KEY: &str = "update-properties";
@@ -75,7 +75,7 @@ impl<'table> TableTransaction<'table> {
     /// Quickly append files to the table
     pub fn overwrite(mut self, files: Vec<DataFile>) -> Self {
         self.operations
-            .entry(REWRITE_KEY.to_owned())
+            .entry(OVERWRITE_KEY.to_owned())
             .and_modify(|mut x| {
                 if let Operation::Overwrite {
                     branch: _,
@@ -100,7 +100,7 @@ impl<'table> TableTransaction<'table> {
         additional_summary: HashMap<String, String>,
     ) -> Self {
         self.operations
-            .entry(REWRITE_KEY.to_owned())
+            .entry(OVERWRITE_KEY.to_owned())
             .and_modify(|mut x| {
                 if let Operation::Overwrite {
                     branch: _,

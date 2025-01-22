@@ -12,6 +12,7 @@ use iceberg_rust::spec::{
     values::Value,
 };
 use iceberg_rust::{catalog::tabular::Tabular, error::Error, table::Table};
+use itertools::Itertools;
 
 use super::table::DataFusionTable;
 
@@ -36,8 +37,17 @@ pub(crate) async fn table_statistics(
         .1
         .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
         .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
+
+    let sequence_number_range = [snapshot_range.0, snapshot_range.1]
+        .iter()
+        .map(|x| x.and_then(|y| table.metadata().sequence_number(y)))
+        .collect_tuple::<(Option<i64>, Option<i64>)>()
+        .unwrap();
+
     let manifests = table.manifests(snapshot_range.0, snapshot_range.1).await?;
-    let datafiles = table.datafiles(&manifests, None).await?;
+    let datafiles = table
+        .datafiles(&manifests, None, sequence_number_range)
+        .await?;
     datafiles
         .try_filter(|manifest| future::ready(!matches!(manifest.status(), Status::Deleted)))
         .try_fold(
