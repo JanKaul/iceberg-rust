@@ -13,7 +13,13 @@ use std::{
     slice::Iter,
 };
 
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use datetime::{
+    date_to_days, date_to_months, date_to_years, datetime_to_days, datetime_to_hours,
+    datetime_to_micros, datetime_to_months, days_to_date, days_to_datetime, hours_to_date,
+    hours_to_datetime, micros_to_datetime, months_to_date, months_to_datetime, years_to_date,
+    years_to_datetime,
+};
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
 use rust_decimal::Decimal;
@@ -33,8 +39,7 @@ use super::{
     types::{PrimitiveType, StructType, Type},
 };
 
-static DAYS_BEFORE_UNIX_EPOCH: i32 = 719163;
-static YEARS_BEFORE_UNIX_EPOCH: i32 = 1970;
+pub static YEARS_BEFORE_UNIX_EPOCH: i32 = 1970;
 
 /// Values present in iceberg type
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -312,87 +317,48 @@ impl Value {
                 )),
             },
             Transform::Year => match self {
-                Value::Date(date) => Ok(Value::Int(
-                    NaiveDate::from_num_days_from_ce_opt(*date + DAYS_BEFORE_UNIX_EPOCH)
-                        .ok_or(Error::InvalidFormat("Date".to_owned()))?
-                        .year()
-                        - YEARS_BEFORE_UNIX_EPOCH,
-                )),
+                Value::Date(date) => Ok(Value::Int(date_to_years(&days_to_date(*date)))),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    DateTime::from_timestamp_millis(time / 1000)
-                        .unwrap()
-                        .naive_utc()
-                        .year()
-                        - YEARS_BEFORE_UNIX_EPOCH,
+                    micros_to_datetime(*time).year() - YEARS_BEFORE_UNIX_EPOCH,
                 )),
                 Value::TimestampTZ(time) => Ok(Value::Int(
-                    DateTime::from_timestamp_millis(time / 1000)
-                        .unwrap()
-                        .naive_utc()
-                        .year()
-                        - YEARS_BEFORE_UNIX_EPOCH,
+                    micros_to_datetime(*time).year() - YEARS_BEFORE_UNIX_EPOCH,
                 )),
                 _ => Err(Error::NotSupported(
                     "Datatype for year partition transform.".to_string(),
                 )),
             },
             Transform::Month => match self {
-                Value::Date(date) => Ok(Value::Int(
-                    NaiveDate::from_num_days_from_ce_opt(*date + DAYS_BEFORE_UNIX_EPOCH)
-                        .ok_or(Error::InvalidFormat("Date".to_owned()))?
-                        .month() as i32,
-                )),
-                Value::Timestamp(time) => Ok(Value::Int(
-                    DateTime::from_timestamp_millis(time / 1000)
-                        .unwrap()
-                        .naive_utc()
-                        .month() as i32,
-                )),
-                Value::TimestampTZ(time) => Ok(Value::Int(
-                    DateTime::from_timestamp_millis(time / 1000)
-                        .unwrap()
-                        .naive_utc()
-                        .month() as i32,
-                )),
+                Value::Date(date) => Ok(Value::Int(date_to_months(&days_to_date(*date)))),
+                Value::Timestamp(time) => {
+                    Ok(Value::Int(datetime_to_months(&micros_to_datetime(*time))))
+                }
+                Value::TimestampTZ(time) => {
+                    Ok(Value::Int(datetime_to_months(&micros_to_datetime(*time))))
+                }
                 _ => Err(Error::NotSupported(
                     "Datatype for month partition transform.".to_string(),
                 )),
             },
             Transform::Day => match self {
-                Value::Date(date) => Ok(Value::Int(
-                    NaiveDate::from_num_days_from_ce_opt(*date + DAYS_BEFORE_UNIX_EPOCH)
-                        .ok_or(Error::InvalidFormat("Date".to_owned()))?
-                        .day() as i32,
-                )),
+                Value::Date(date) => Ok(Value::Int(*date)),
                 Value::Timestamp(time) => Ok(Value::Int(
-                    DateTime::from_timestamp_millis(time / 1000)
-                        .unwrap()
-                        .naive_utc()
-                        .day() as i32,
+                    datetime_to_days(&micros_to_datetime(*time)) as i32,
                 )),
-                Value::TimestampTZ(time) => Ok(Value::Int(
-                    DateTime::from_timestamp_millis(time / 1000)
-                        .unwrap()
-                        .naive_utc()
-                        .day() as i32,
-                )),
+                Value::TimestampTZ(time) => Ok(Value::Int(datetime_to_days(&micros_to_datetime(
+                    *time,
+                )) as i32)),
                 _ => Err(Error::NotSupported(
                     "Datatype for day partition transform.".to_string(),
                 )),
             },
             Transform::Hour => match self {
-                Value::Timestamp(time) => Ok(Value::Int(
-                    DateTime::from_timestamp_millis(time / 1000)
-                        .unwrap()
-                        .naive_utc()
-                        .hour() as i32,
-                )),
-                Value::TimestampTZ(time) => Ok(Value::Int(
-                    DateTime::from_timestamp_millis(time / 1000)
-                        .unwrap()
-                        .naive_utc()
-                        .hour() as i32,
-                )),
+                Value::Timestamp(time) => Ok(Value::Int(datetime_to_hours(&micros_to_datetime(
+                    *time,
+                )) as i32)),
+                Value::TimestampTZ(time) => Ok(Value::Int(datetime_to_hours(&micros_to_datetime(
+                    *time,
+                )) as i32)),
                 _ => Err(Error::NotSupported(
                     "Datatype for hour partition transform.".to_string(),
                 )),
@@ -400,6 +366,36 @@ impl Value {
             _ => Err(Error::NotSupported(
                 "Partition transform operation".to_string(),
             )),
+        }
+    }
+
+    fn inverse_transform(&self, transform: &Transform, target_type: &Type) -> Result<Value, Error> {
+        match (self, transform, target_type) {
+            (Value::Int(value), Transform::Year, Type::Primitive(PrimitiveType::Date)) => {
+                Ok(Value::Date(date_to_days(&years_to_date(*value))))
+            }
+            (Value::Int(value), Transform::Month, Type::Primitive(PrimitiveType::Date)) => {
+                Ok(Value::Date(date_to_days(&months_to_date(*value))))
+            }
+            (Value::Int(value), Transform::Day, Type::Primitive(PrimitiveType::Date)) => {
+                Ok(Value::Date(*value))
+            }
+            (Value::Int(value), Transform::Hour, Type::Primitive(PrimitiveType::Date)) => {
+                Ok(Value::Date(date_to_days(&hours_to_date(*value as i64))))
+            }
+            (Value::Int(value), Transform::Year, Type::Primitive(PrimitiveType::Timestamp)) => Ok(
+                Value::Timestamp(datetime_to_micros(&years_to_datetime(*value))),
+            ),
+            (Value::Int(value), Transform::Month, Type::Primitive(PrimitiveType::Timestamp)) => Ok(
+                Value::Timestamp(datetime_to_micros(&months_to_datetime(*value))),
+            ),
+            (Value::Int(value), Transform::Day, Type::Primitive(PrimitiveType::Timestamp)) => Ok(
+                Value::Timestamp(datetime_to_micros(&days_to_datetime(*value as i64))),
+            ),
+            (Value::Int(value), Transform::Hour, Type::Primitive(PrimitiveType::Timestamp)) => Ok(
+                Value::Timestamp(datetime_to_micros(&hours_to_datetime(*value as i64))),
+            ),
+            (x, _, _) => Err(Error::NotSupported(format!("Inverse transforming {x}"))),
         }
     }
 
@@ -480,12 +476,12 @@ impl Value {
                     datetime::time_to_microseconds(&NaiveTime::parse_from_str(&s, "%H:%M:%S%.f")?),
                 ))),
                 (PrimitiveType::Timestamp, JsonValue::String(s)) => {
-                    Ok(Some(Value::Timestamp(datetime::datetime_to_microseconds(
+                    Ok(Some(Value::Timestamp(datetime::datetime_to_micros(
                         &NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f")?,
                     ))))
                 }
                 (PrimitiveType::Timestamptz, JsonValue::String(s)) => Ok(Some(Value::TimestampTZ(
-                    datetime::datetimetz_to_microseconds(&Utc.from_utc_datetime(
+                    datetime::datetimetz_to_micros(&Utc.from_utc_datetime(
                         &NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.f+00:00")?,
                     )),
                 ))),
@@ -665,14 +661,14 @@ impl From<&Value> for JsonValue {
                 None => JsonValue::Null,
             },
             Value::Date(val) => JsonValue::String(datetime::days_to_date(*val).to_string()),
-            Value::Time(val) => JsonValue::String(datetime::microseconds_to_time(*val).to_string()),
+            Value::Time(val) => JsonValue::String(datetime::micros_to_time(*val).to_string()),
             Value::Timestamp(val) => JsonValue::String(
-                datetime::microseconds_to_datetime(*val)
+                datetime::micros_to_datetime(*val)
                     .format("%Y-%m-%dT%H:%M:%S%.f")
                     .to_string(),
             ),
             Value::TimestampTZ(val) => JsonValue::String(
-                datetime::microseconds_to_datetimetz(*val)
+                datetime::micros_to_datetimetz(*val)
                     .format("%Y-%m-%dT%H:%M:%S%.f+00:00")
                     .to_string(),
             ),
@@ -736,6 +732,70 @@ impl From<&Value> for JsonValue {
 }
 
 mod datetime {
+    #[inline]
+    pub(crate) fn date_to_years(date: &NaiveDate) -> i32 {
+        date.years_since(
+            // This is always the same and shouldn't fail
+            NaiveDate::from_ymd_opt(YEARS_BEFORE_UNIX_EPOCH, 1, 1).unwrap(),
+        )
+        .unwrap() as i32
+    }
+
+    #[inline]
+    pub(crate) fn datetime_to_years(date: &NaiveDateTime) -> i32 {
+        date.year() - YEARS_BEFORE_UNIX_EPOCH
+    }
+
+    #[inline]
+    pub(crate) fn years_to_date(years: i32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(years + YEARS_BEFORE_UNIX_EPOCH, 1, 1).unwrap()
+    }
+
+    #[inline]
+    pub(crate) fn years_to_datetime(years: i32) -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(years + YEARS_BEFORE_UNIX_EPOCH, 0, 0)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+    }
+
+    #[inline]
+    pub(crate) fn date_to_months(date: &NaiveDate) -> i32 {
+        let years = date
+            .years_since(
+                // This is always the same and shouldn't fail
+                NaiveDate::from_ymd_opt(YEARS_BEFORE_UNIX_EPOCH, 1, 1).unwrap(),
+            )
+            .unwrap() as i32;
+        let months = date.month();
+        years * 12 + months as i32
+    }
+
+    #[inline]
+    pub(crate) fn datetime_to_months(date: &NaiveDateTime) -> i32 {
+        let years = date.year() - YEARS_BEFORE_UNIX_EPOCH;
+        let months = date.month();
+        years * 12 + months as i32
+    }
+
+    #[inline]
+    pub(crate) fn months_to_date(months: i32) -> NaiveDate {
+        let years = months / 12;
+        let months = months % 12;
+        NaiveDate::from_ymd_opt(years + YEARS_BEFORE_UNIX_EPOCH, months as u32, 1).unwrap()
+    }
+
+    #[inline]
+    pub(crate) fn months_to_datetime(months: i32) -> NaiveDateTime {
+        let years = months / 12;
+        let months = months % 12;
+        NaiveDate::from_ymd_opt(years + YEARS_BEFORE_UNIX_EPOCH, months as u32, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+    }
+
+    #[inline]
     pub(crate) fn date_to_days(date: &NaiveDate) -> i32 {
         date.signed_duration_since(
             // This is always the same and shouldn't fail
@@ -744,6 +804,7 @@ mod datetime {
         .num_days() as i32
     }
 
+    #[inline]
     pub(crate) fn days_to_date(days: i32) -> NaiveDate {
         // This shouldn't fail until the year 262000
         DateTime::from_timestamp(days as i64 * 86_400, 0)
@@ -752,6 +813,40 @@ mod datetime {
             .date()
     }
 
+    #[inline]
+    pub(crate) fn days_to_datetime(days: i64) -> NaiveDateTime {
+        DateTime::from_timestamp(days as i64 * 86_400, 0)
+            .unwrap()
+            .naive_utc()
+    }
+
+    #[inline]
+    pub(crate) fn date_to_hours(date: &NaiveDate) -> i64 {
+        date.signed_duration_since(
+            // This is always the same and shouldn't fail
+            NaiveDate::from_ymd_opt(1970, 1, 1).unwrap(),
+        )
+        .num_hours()
+    }
+
+    #[inline]
+    pub(crate) fn hours_to_date(hours: i64) -> NaiveDate {
+        // This shouldn't fail until the year 262000
+        DateTime::from_timestamp(hours as i64 * 3_600, 0)
+            .unwrap()
+            .naive_utc()
+            .date()
+    }
+
+    #[inline]
+    pub(crate) fn hours_to_datetime(hours: i64) -> NaiveDateTime {
+        // This shouldn't fail until the year 262000
+        DateTime::from_timestamp(hours as i64 * 3_600, 0)
+            .unwrap()
+            .naive_utc()
+    }
+
+    #[inline]
     pub(crate) fn time_to_microseconds(time: &NaiveTime) -> i64 {
         time.signed_duration_since(
             // This is always the same and shouldn't fail
@@ -761,32 +856,52 @@ mod datetime {
         .unwrap()
     }
 
-    pub(crate) fn microseconds_to_time(micros: i64) -> NaiveTime {
+    #[inline]
+    pub(crate) fn micros_to_time(micros: i64) -> NaiveTime {
         let (secs, rem) = (micros / 1_000_000, micros % 1_000_000);
 
         NaiveTime::from_num_seconds_from_midnight_opt(secs as u32, rem as u32 * 1_000).unwrap()
     }
 
-    pub(crate) fn datetime_to_microseconds(time: &NaiveDateTime) -> i64 {
+    #[inline]
+    pub(crate) fn datetime_to_micros(time: &NaiveDateTime) -> i64 {
         time.and_utc().timestamp_micros()
     }
 
-    pub(crate) fn microseconds_to_datetime(micros: i64) -> NaiveDateTime {
-        let (secs, rem) = (micros / 1_000_000, micros % 1_000_000);
-
-        // This shouldn't fail until the year 262000
-        DateTime::from_timestamp(secs, rem as u32 * 1_000)
-            .unwrap()
-            .naive_utc()
+    #[inline]
+    pub(crate) fn micros_to_datetime(time: i64) -> NaiveDateTime {
+        DateTime::from_timestamp_micros(time).unwrap().naive_utc()
     }
 
-    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+    #[inline]
+    pub(crate) fn datetime_to_days(time: &NaiveDateTime) -> i64 {
+        time.signed_duration_since(
+            // This is always the same and shouldn't fail
+            DateTime::from_timestamp_micros(0).unwrap().naive_utc(),
+        )
+        .num_days()
+    }
 
-    pub(crate) fn datetimetz_to_microseconds(time: &DateTime<Utc>) -> i64 {
+    #[inline]
+    pub(crate) fn datetime_to_hours(time: &NaiveDateTime) -> i64 {
+        time.signed_duration_since(
+            // This is always the same and shouldn't fail
+            DateTime::from_timestamp_micros(0).unwrap().naive_utc(),
+        )
+        .num_hours()
+    }
+
+    use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+
+    use super::YEARS_BEFORE_UNIX_EPOCH;
+
+    #[inline]
+    pub(crate) fn datetimetz_to_micros(time: &DateTime<Utc>) -> i64 {
         time.timestamp_micros()
     }
 
-    pub(crate) fn microseconds_to_datetimetz(micros: i64) -> DateTime<Utc> {
+    #[inline]
+    pub(crate) fn micros_to_datetimetz(micros: i64) -> DateTime<Utc> {
         let (secs, rem) = (micros / 1_000_000, micros % 1_000_000);
 
         Utc.from_utc_datetime(
@@ -1258,30 +1373,30 @@ mod tests {
     fn test_transform_month_date() {
         let value = Value::Date(19478);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(5)); // 0-based month index
+        assert_eq!(result, Value::Int(641)); // 0-based month index
 
         let value = Value::Date(19523);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(6)); // 0-based month index
+        assert_eq!(result, Value::Int(642)); // 0-based month index
 
         let value = Value::Date(19723);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(1)); // 0-based month index
+        assert_eq!(result, Value::Int(649)); // 0-based month index
     }
 
     #[test]
     fn test_transform_month_timestamp() {
         let value = Value::Timestamp(1682937000000000);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(5)); // 0-based month index
+        assert_eq!(result, Value::Int(641)); // 0-based month index
 
         let value = Value::Timestamp(1686840330000000);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(6)); // 0-based month index
+        assert_eq!(result, Value::Int(642)); // 0-based month index
 
         let value = Value::Timestamp(1704067200000000);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(1)); // 0-based month index
+        assert_eq!(result, Value::Int(649)); // 0-based month index
     }
 
     #[test]
@@ -1303,30 +1418,30 @@ mod tests {
     fn test_transform_day_date() {
         let value = Value::Date(19478);
         let result = value.transform(&Transform::Day).unwrap();
-        assert_eq!(result, Value::Int(1)); // 0-based day index
+        assert_eq!(result, Value::Int(19478)); // 0-based day index
 
         let value = Value::Date(19523);
         let result = value.transform(&Transform::Day).unwrap();
-        assert_eq!(result, Value::Int(15)); // 0-based day index
+        assert_eq!(result, Value::Int(19523)); // 0-based day index
 
         let value = Value::Date(19723);
         let result = value.transform(&Transform::Day).unwrap();
-        assert_eq!(result, Value::Int(1)); // 0-based day index
+        assert_eq!(result, Value::Int(19723)); // 0-based day index
     }
 
     #[test]
     fn test_transform_day_timestamp() {
         let value = Value::Timestamp(1682937000000000);
         let result = value.transform(&Transform::Day).unwrap();
-        assert_eq!(result, Value::Int(1)); // 0-based day index
+        assert_eq!(result, Value::Int(19478)); // 0-based day index
 
         let value = Value::Timestamp(1686840330000000);
         let result = value.transform(&Transform::Day).unwrap();
-        assert_eq!(result, Value::Int(15)); // 0-based day index
+        assert_eq!(result, Value::Int(19523)); // 0-based day index
 
         let value = Value::Timestamp(1704067200000000);
         let result = value.transform(&Transform::Day).unwrap();
-        assert_eq!(result, Value::Int(1)); // 0-based day index
+        assert_eq!(result, Value::Int(19723)); // 0-based day index
     }
 
     #[test]
@@ -1340,15 +1455,15 @@ mod tests {
     fn test_transform_hour_timestamp() {
         let value = Value::Timestamp(1682937000000000);
         let result = value.transform(&Transform::Hour).unwrap();
-        assert_eq!(result, Value::Int(10)); // Assuming the timestamp is at 12:00 UTC
+        assert_eq!(result, Value::Int(467482)); // Assuming the timestamp is at 12:00 UTC
 
         let value = Value::Timestamp(1686840330000000);
         let result = value.transform(&Transform::Hour).unwrap();
-        assert_eq!(result, Value::Int(14)); // Assuming the timestamp is at 12:00 UTC
+        assert_eq!(result, Value::Int(468566)); // Assuming the timestamp is at 12:00 UTC
 
         let value = Value::Timestamp(1704067200000000);
         let result = value.transform(&Transform::Hour).unwrap();
-        assert_eq!(result, Value::Int(0)); // Assuming the timestamp is at 12:00 UTC
+        assert_eq!(result, Value::Int(473352)); // Assuming the timestamp is at 12:00 UTC
     }
 
     #[test]

@@ -6,58 +6,99 @@ use std::sync::Arc;
 
 use arrow::{
     array::{as_primitive_array, Array, ArrayRef},
-    compute::{date_part, DatePart},
-    datatypes::{DataType, Date32Type, TimeUnit, TimestampMicrosecondType},
+    compute::{binary, cast, date_part, unary, DatePart},
+    datatypes::{DataType, Date32Type, Int32Type, Int64Type, TimeUnit, TimestampMicrosecondType},
     error::ArrowError,
 };
 
-use iceberg_rust_spec::spec::partition::Transform;
+use iceberg_rust_spec::{spec::partition::Transform, values::YEARS_BEFORE_UNIX_EPOCH};
+
+static MICROS_IN_HOUR: i64 = 3_600_000_000;
+static MICROS_IN_DAY: i64 = 86_400_000_000;
 
 /// Perform iceberg transform on arrow array
 pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRef, ArrowError> {
     match (array.data_type(), transform) {
         (_, Transform::Identity) => Ok(array),
-        (DataType::Date32, Transform::Day) => Ok(Arc::new(date_part(
-            as_primitive_array::<Date32Type>(&array),
-            DatePart::Day,
-        )?) as Arc<dyn Array>),
-        (DataType::Date32, Transform::Month) => Ok(Arc::new(date_part(
-            as_primitive_array::<Date32Type>(&array),
-            DatePart::Month,
-        )?) as Arc<dyn Array>),
-        (DataType::Date32, Transform::Year) => Ok(Arc::new(date_part(
-            as_primitive_array::<Date32Type>(&array),
-            DatePart::Year,
-        )?) as Arc<dyn Array>),
+        (DataType::Date32, Transform::Day) => cast(&array, &DataType::Int32),
+        (DataType::Date32, Transform::Month) => {
+            let year = date_part(as_primitive_array::<Date32Type>(&array), DatePart::Year)?;
+            let month = date_part(as_primitive_array::<Date32Type>(&array), DatePart::Month)?;
+            Ok(Arc::new(binary::<_, _, _, Int32Type>(
+                &as_primitive_array::<Int32Type>(&year),
+                &as_primitive_array::<Int32Type>(&month),
+                datepart_to_months,
+            )?))
+        }
+        (DataType::Date32, Transform::Year) => Ok(Arc::new(unary::<_, _, Int32Type>(
+            &as_primitive_array::<Int32Type>(&date_part(
+                as_primitive_array::<Date32Type>(&array),
+                DatePart::Year,
+            )?),
+            datepart_to_years,
+        ))),
         (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Hour) => {
-            Ok(Arc::new(date_part(
-                as_primitive_array::<TimestampMicrosecondType>(&array),
-                DatePart::Hour,
-            )?) as Arc<dyn Array>)
+            Ok(Arc::new(unary::<_, _, Int32Type>(
+                &as_primitive_array::<Int64Type>(&cast(&array, &DataType::Int64)?),
+                micros_to_hours,
+            )) as Arc<dyn Array>)
         }
         (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Day) => {
-            Ok(Arc::new(date_part(
-                as_primitive_array::<TimestampMicrosecondType>(&array),
-                DatePart::Day,
-            )?) as Arc<dyn Array>)
+            Ok(Arc::new(unary::<_, _, Int32Type>(
+                &as_primitive_array::<Int64Type>(&cast(&array, &DataType::Int64)?),
+                micros_to_days,
+            )) as Arc<dyn Array>)
         }
         (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Month) => {
-            Ok(Arc::new(date_part(
-                as_primitive_array::<TimestampMicrosecondType>(&array),
-                DatePart::Month,
-            )?) as Arc<dyn Array>)
-        }
-        (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Year) => {
-            Ok(Arc::new(date_part(
+            let year = date_part(
                 as_primitive_array::<TimestampMicrosecondType>(&array),
                 DatePart::Year,
-            )?) as Arc<dyn Array>)
+            )?;
+            let month = date_part(
+                as_primitive_array::<TimestampMicrosecondType>(&array),
+                DatePart::Month,
+            )?;
+            Ok(Arc::new(binary::<_, _, _, Int32Type>(
+                &as_primitive_array::<Int32Type>(&year),
+                &as_primitive_array::<Int32Type>(&month),
+                datepart_to_months,
+            )?))
+        }
+        (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Year) => {
+            Ok(Arc::new(unary::<_, _, Int32Type>(
+                &as_primitive_array::<Int32Type>(&date_part(
+                    as_primitive_array::<TimestampMicrosecondType>(&array),
+                    DatePart::Year,
+                )?),
+                datepart_to_years,
+            )))
         }
         _ => Err(ArrowError::ComputeError(
             "Failed to perform transform for datatype".to_string(),
         )),
     }
 }
+
+#[inline]
+fn micros_to_days(a: i64) -> i32 {
+    (a / MICROS_IN_DAY) as i32
+}
+
+#[inline]
+fn micros_to_hours(a: i64) -> i32 {
+    (a / MICROS_IN_HOUR) as i32
+}
+
+#[inline]
+fn datepart_to_years(year: i32) -> i32 {
+    year - YEARS_BEFORE_UNIX_EPOCH
+}
+
+#[inline]
+fn datepart_to_months(year: i32, month: i32) -> i32 {
+    12 * (year - YEARS_BEFORE_UNIX_EPOCH) + month
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -94,9 +135,9 @@ mod tests {
         let array = create_date32_array();
         let result = transform_arrow(array, &Transform::Day).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(1),
-            Some(15),
-            Some(1),
+            Some(19478),
+            Some(19523),
+            Some(19723),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -107,9 +148,9 @@ mod tests {
         let array = create_date32_array();
         let result = transform_arrow(array, &Transform::Month).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(5),
-            Some(6),
-            Some(1),
+            Some(641),
+            Some(642),
+            Some(649),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -120,9 +161,9 @@ mod tests {
         let array = create_date32_array();
         let result = transform_arrow(array, &Transform::Year).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(2023),
-            Some(2023),
-            Some(2024),
+            Some(53),
+            Some(53),
+            Some(54),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -133,9 +174,9 @@ mod tests {
         let array = create_timestamp_micro_array();
         let result = transform_arrow(array, &Transform::Hour).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(10),
-            Some(14),
-            Some(0),
+            Some(467482),
+            Some(468566),
+            Some(473352),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -146,9 +187,9 @@ mod tests {
         let array = create_timestamp_micro_array();
         let result = transform_arrow(array, &Transform::Day).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(1),
-            Some(15),
-            Some(1),
+            Some(19478),
+            Some(19523),
+            Some(19723),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -159,9 +200,9 @@ mod tests {
         let array = create_timestamp_micro_array();
         let result = transform_arrow(array, &Transform::Month).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(5),
-            Some(6),
-            Some(1),
+            Some(641),
+            Some(642),
+            Some(649),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -172,9 +213,9 @@ mod tests {
         let array = create_timestamp_micro_array();
         let result = transform_arrow(array, &Transform::Year).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(2023),
-            Some(2023),
-            Some(2024),
+            Some(53),
+            Some(53),
+            Some(54),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
