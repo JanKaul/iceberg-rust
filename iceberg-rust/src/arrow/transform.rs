@@ -25,13 +25,13 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
             let year = date_part(as_primitive_array::<Date32Type>(&array), DatePart::Year)?;
             let month = date_part(as_primitive_array::<Date32Type>(&array), DatePart::Month)?;
             Ok(Arc::new(binary::<_, _, _, Int32Type>(
-                &as_primitive_array::<Int32Type>(&year),
-                &as_primitive_array::<Int32Type>(&month),
+                as_primitive_array::<Int32Type>(&year),
+                as_primitive_array::<Int32Type>(&month),
                 datepart_to_months,
             )?))
         }
         (DataType::Date32, Transform::Year) => Ok(Arc::new(unary::<_, _, Int32Type>(
-            &as_primitive_array::<Int32Type>(&date_part(
+            as_primitive_array::<Int32Type>(&date_part(
                 as_primitive_array::<Date32Type>(&array),
                 DatePart::Year,
             )?),
@@ -39,13 +39,13 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
         ))),
         (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Hour) => {
             Ok(Arc::new(unary::<_, _, Int32Type>(
-                &as_primitive_array::<Int64Type>(&cast(&array, &DataType::Int64)?),
+                as_primitive_array::<Int64Type>(&cast(&array, &DataType::Int64)?),
                 micros_to_hours,
             )) as Arc<dyn Array>)
         }
         (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Day) => {
             Ok(Arc::new(unary::<_, _, Int32Type>(
-                &as_primitive_array::<Int64Type>(&cast(&array, &DataType::Int64)?),
+                as_primitive_array::<Int64Type>(&cast(&array, &DataType::Int64)?),
                 micros_to_days,
             )) as Arc<dyn Array>)
         }
@@ -59,14 +59,14 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
                 DatePart::Month,
             )?;
             Ok(Arc::new(binary::<_, _, _, Int32Type>(
-                &as_primitive_array::<Int32Type>(&year),
-                &as_primitive_array::<Int32Type>(&month),
+                as_primitive_array::<Int32Type>(&year),
+                as_primitive_array::<Int32Type>(&month),
                 datepart_to_months,
             )?))
         }
         (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Year) => {
             Ok(Arc::new(unary::<_, _, Int32Type>(
-                &as_primitive_array::<Int32Type>(&date_part(
+                as_primitive_array::<Int32Type>(&date_part(
                     as_primitive_array::<TimestampMicrosecondType>(&array),
                     DatePart::Year,
                 )?),

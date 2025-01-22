@@ -355,7 +355,7 @@ async fn table_scan(
                     set.is_subset(&partition_column_names)
                 })
                 .cloned()
-                .map(|x| transform_predicate(x, &partition_fields).unwrap()),
+                .map(|x| transform_predicate(x, partition_fields).unwrap()),
         );
 
         let manifests = table

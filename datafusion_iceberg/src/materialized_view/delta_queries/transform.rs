@@ -854,7 +854,7 @@ mod tests {
                         panic!("Node is not a table scan.")
                     }
                     if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
+                        if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
                         } else {
                             panic!("Node is not a ForkNode")
                         }
@@ -866,7 +866,7 @@ mod tests {
                 }
                 if let LogicalPlan::Join(join) = union.inputs[2].deref() {
                     if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
+                        if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
                         } else {
                             panic!("Node is not a RecveiverNode")
                         }
@@ -1100,7 +1100,7 @@ mod tests {
                 }
                 if let LogicalPlan::Join(join) = union.inputs[1].deref() {
                     if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
+                        if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
                         } else {
                             panic!("Node is not a ForkNode")
                         }
@@ -1108,7 +1108,7 @@ mod tests {
                         panic!("Node is not an extension")
                     }
                     if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if let Some(_) = ext.node.as_any().downcast_ref::<ForkNode>() {
+                        if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
                         } else {
                             panic!("Node is not a ForkNode")
                         }

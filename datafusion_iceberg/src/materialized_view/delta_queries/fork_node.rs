@@ -229,7 +229,7 @@ impl ExecutionPlan for PhysicalForkNode {
             .compare_exchange(false, true, Ordering::Release, Ordering::Acquire)
             .is_err();
 
-        if executed == true {
+        if executed {
             let receiver = {
                 let mut lock = self.receiver[partition].lock().unwrap();
                 lock.take()
