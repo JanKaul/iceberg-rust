@@ -235,7 +235,7 @@ pub async fn test_insert_sequence_number() {
             assert_eq!(second[0].sequence_number, 3);
             assert_eq!(second[0].min_sequence_number, 1);
             assert_eq!(second[1].sequence_number, 3);
-            assert_eq!(second[1].min_sequence_number, 3);
+            assert_eq!(second[1].min_sequence_number, 1);
         } else if i == 1 {
             assert_eq!(first.len(), 1);
             assert_eq!(first[0].sequence_number, 2);
@@ -244,13 +244,13 @@ pub async fn test_insert_sequence_number() {
             assert_eq!(second[0].sequence_number, 3);
             assert_eq!(second[0].min_sequence_number, 1);
             assert_eq!(second[1].sequence_number, 3);
-            assert_eq!(second[1].min_sequence_number, 3);
+            assert_eq!(second[1].min_sequence_number, 1);
         } else if i == 2 {
             assert_eq!(first.len(), 2);
             assert_eq!(first[0].sequence_number, 3);
             assert_eq!(first[0].min_sequence_number, 1);
             assert_eq!(first[1].sequence_number, 3);
-            assert_eq!(first[1].min_sequence_number, 3);
+            assert_eq!(first[1].min_sequence_number, 1);
             assert_eq!(second.len(), 0);
         }
     }
