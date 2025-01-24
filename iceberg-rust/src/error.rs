@@ -65,6 +65,9 @@ pub enum Error {
     /// Channel error
     #[error(transparent)]
     FuturesChannel(#[from] futures::channel::mpsc::SendError),
+    /// Tokio error
+    #[error(transparent)]
+    TokioJoinError(#[from] tokio::task::JoinError),
     /// Objectstore error
     #[error(transparent)]
     ObjectStore(#[from] object_store::Error),

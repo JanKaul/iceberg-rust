@@ -26,6 +26,7 @@ use parquet::{
     arrow::AsyncArrowWriter,
     basic::{Compression, ZstdLevel},
     file::properties::WriterProperties,
+    format::FileMetaData,
 };
 use uuid::Uuid;
 
@@ -161,9 +162,8 @@ pub async fn store_parquet_partitioned(
         .await)
 }
 
-type SendableAsyncArrowWriter = AsyncArrowWriter<BufWriter>;
-type ArrowSender = Sender<(String, SendableAsyncArrowWriter)>;
-type ArrowReciever = Receiver<(String, SendableAsyncArrowWriter)>;
+type ArrowSender = Sender<(String, FileMetaData)>;
+type ArrowReciever = Receiver<(String, FileMetaData)>;
 
 /// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
 #[allow(clippy::too_many_arguments)]
@@ -221,11 +221,17 @@ async fn write_parquet_files(
                         .await
                         .unwrap(),
                     );
+                    let file = finished_writer.1.close().await?;
                     writer_sender
-                        .try_send(finished_writer)
+                        .try_send((finished_writer.0, file))
                         .map_err(|err| ArrowError::ComputeError(err.to_string()))?;
                 }
                 current_writer.1.write(&batch).await?;
+                if let Err(size) = current {
+                    if size % 64_000_000 >= 32_000_000 {
+                        current_writer.1.flush().await?;
+                    }
+                }
                 let batch_size = record_batch_size(&batch);
                 num_bytes.fetch_add(batch_size, Ordering::AcqRel);
                 Ok(())
@@ -235,19 +241,13 @@ async fn write_parquet_files(
 
     let last = Arc::try_unwrap(current_writer).unwrap().into_inner();
 
-    writer_sender.try_send(last).unwrap();
+    let file = last.1.close().await?;
+
+    writer_sender.try_send((last.0, file)).unwrap();
 
     writer_sender.close_channel();
 
     if num_bytes.load(Ordering::Acquire) == 0 {
-        writer_reciever
-            .into_future()
-            .await
-            .0
-            .unwrap()
-            .1
-            .close()
-            .await?;
         return Ok(Vec::new());
     }
 
@@ -256,7 +256,7 @@ async fn write_parquet_files(
             let object_store = object_store.clone();
             let bucket = bucket.to_string();
             async move {
-                let metadata = writer.1.close().await?;
+                let metadata = writer.1;
                 let size = object_store
                     .head(&writer.0.as_str().into())
                     .await
