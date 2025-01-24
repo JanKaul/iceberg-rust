@@ -298,7 +298,7 @@ WHERE L_SHIPDATE >= '1996-01-01';
             .await
             .expect("Failed to execute select query");
 
-        sleep(Duration::from_millis(1_000)).await;
+        sleep(Duration::from_millis(10_000)).await;
 
         let batches = ctx
         .sql("select sum(L_QUANTITY), O_ORDERSTATUS from warehouse.tpch.lineitem_orders group by O_ORDERSTATUS;")
