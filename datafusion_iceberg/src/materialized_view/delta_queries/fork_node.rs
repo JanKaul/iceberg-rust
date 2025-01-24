@@ -33,19 +33,12 @@ use pin_project_lite::pin_project;
 
 pub fn fork_node(plan: Arc<LogicalPlan>) -> (ForkNode, ForkNode) {
     let parallelism = std::thread::available_parallelism().unwrap().get();
-    let (left_sender, (left_receiver, (right_sender, right_receiver))): (
-        Vec<_>,
-        (Vec<_>, (Vec<_>, Vec<_>)),
-    ) = iter::repeat_n((), parallelism)
+    let (sender, receiver): (Vec<_>, Vec<_>) = iter::repeat_n((), parallelism)
         .map(|_| {
-            let (left_sender, left_receiver) = channel(8);
-            let (right_sender, right_receiver) = channel(8);
+            let (sender, receiver) = channel(8);
             (
-                left_sender,
-                (
-                    Arc::new(Mutex::new(Some(left_receiver))),
-                    (right_sender, Arc::new(Mutex::new(Some(right_receiver)))),
-                ),
+                Arc::new(Mutex::new(Some(sender))),
+                Arc::new(Mutex::new(Some(receiver))),
             )
         })
         .unzip();
@@ -55,16 +48,14 @@ pub fn fork_node(plan: Arc<LogicalPlan>) -> (ForkNode, ForkNode) {
     (
         ForkNode {
             input: plan.clone(),
-            sender: right_sender.clone(),
-            receiver: left_receiver,
-            own_sender: left_sender.clone(),
+            sender: sender.clone(),
+            receiver: receiver.clone(),
             executed: executed.clone(),
         },
         ForkNode {
             input: plan,
-            sender: left_sender,
-            receiver: right_receiver,
-            own_sender: right_sender,
+            sender,
+            receiver,
             executed,
         },
     )
@@ -73,9 +64,8 @@ pub fn fork_node(plan: Arc<LogicalPlan>) -> (ForkNode, ForkNode) {
 #[allow(clippy::type_complexity)]
 pub struct ForkNode {
     pub(crate) input: Arc<LogicalPlan>,
-    sender: Vec<Sender<Result<RecordBatch, DataFusionError>>>,
+    sender: Vec<Arc<Mutex<Option<Sender<Result<RecordBatch, DataFusionError>>>>>>,
     receiver: Vec<Arc<Mutex<Option<Receiver<Result<RecordBatch, DataFusionError>>>>>>,
-    own_sender: Vec<Sender<Result<RecordBatch, DataFusionError>>>,
     executed: Vec<Arc<AtomicBool>>,
 }
 
@@ -142,7 +132,6 @@ impl UserDefinedLogicalNodeCore for ForkNode {
             input: Arc::new(inputs.pop().unwrap()),
             sender: self.sender.clone(),
             receiver: self.receiver.clone(),
-            own_sender: self.own_sender.clone(),
             executed: self.executed.clone(),
         })
     }
@@ -160,9 +149,8 @@ impl From<ForkNode> for LogicalPlan {
 pub(crate) struct PhysicalForkNode {
     input: Arc<dyn ExecutionPlan>,
     properties: PlanProperties,
-    sender: Vec<Sender<Result<RecordBatch, DataFusionError>>>,
+    sender: Vec<Arc<Mutex<Option<Sender<Result<RecordBatch, DataFusionError>>>>>>,
     receiver: Vec<Arc<Mutex<Option<Receiver<Result<RecordBatch, DataFusionError>>>>>>,
-    own_sender: Vec<Sender<Result<RecordBatch, DataFusionError>>>,
     executed: Vec<Arc<AtomicBool>>,
 }
 
@@ -214,7 +202,6 @@ impl ExecutionPlan for PhysicalForkNode {
             properties,
             sender: self.sender.clone(),
             receiver: self.receiver.clone(),
-            own_sender: self.own_sender.clone(),
             executed: self.executed.clone(),
         }))
     }
@@ -247,10 +234,16 @@ impl ExecutionPlan for PhysicalForkNode {
             )));
         }
 
-        self.own_sender[partition].clone().close_channel();
+        let sender = {
+            let mut lock = self.sender[partition].lock().unwrap();
+            lock.take()
+        }
+        .ok_or(DataFusionError::Internal(
+            "Fork node can only be executed once.".to_string(),
+        ))
+        .unwrap();
 
         let schema = self.schema().clone();
-        let sender = self.sender[partition].clone();
 
         if partition >= input_partitions {
             return Ok(Box::pin(RecordBatchStreamSender::new(
@@ -327,7 +320,6 @@ impl ExtensionPlanner for ForkNodePlanner {
                 properties,
                 sender: fork_node.sender.clone(),
                 receiver: fork_node.receiver.clone(),
-                own_sender: fork_node.own_sender.clone(),
                 executed: fork_node.executed.clone(),
             })))
         } else {
