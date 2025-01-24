@@ -523,7 +523,21 @@ impl FileCatalog {
             .try_collect()
             .await
             .map_err(IcebergError::from)?;
-        files.sort_unstable();
+        files.sort_by(|x, y| {
+            let x = x
+                .trim_start_matches((strip_prefix(&path) + "/v").trim_start_matches("/"))
+                .trim_end_matches("/")
+                .trim_end_matches(".metadata.json")
+                .parse::<usize>()
+                .unwrap();
+            let y = y
+                .trim_start_matches((strip_prefix(&path) + "/v").trim_start_matches("/"))
+                .trim_end_matches("/")
+                .trim_end_matches(".metadata.json")
+                .parse::<usize>()
+                .unwrap();
+            x.cmp(&y)
+        });
         files
             .into_iter()
             .last()
