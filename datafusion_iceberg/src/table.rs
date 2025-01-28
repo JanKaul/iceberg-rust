@@ -820,6 +820,7 @@ fn generate_partitioned_file(
         range: None,
         statistics: Some(manifest_statistics),
         extensions: None,
+        metadata_size_hint: None,
     };
     Ok(file)
 }
