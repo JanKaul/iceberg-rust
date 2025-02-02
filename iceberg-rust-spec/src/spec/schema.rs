@@ -3,9 +3,9 @@
 */
 use std::{fmt, ops::Deref, str};
 
-use derive_builder::Builder;
 use derive_getters::Getters;
 use serde::{Deserialize, Serialize};
+use super::types::{StructType, StructTypeBuilder};
 
 use crate::error::Error;
 
@@ -15,7 +15,6 @@ pub static DEFAULT_SCHEMA_ID: i32 = 0;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Getters)]
 #[serde(rename_all = "kebab-case")]
-#[builder(setter(prefix = "with"))]
 /// Names and types of fields in a table.
 pub struct Schema {
     /// Identifier of the schema
@@ -38,9 +37,50 @@ impl Deref for Schema {
     }
 }
 
+#[derive(Default)]
+pub struct SchemaBuilder {
+    schema_id: Option<i32>,
+    identifier_field_ids: Option<Vec<i32>>,
+    fields: Option<StructTypeBuilder>,
+}
+
+impl SchemaBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_schema_id(&mut self, schema_id: i32) -> &mut Self {
+        self.schema_id = Some(schema_id);
+        self
+    }
+
+    pub fn with_identifier_field_ids(&mut self, ids: Vec<i32>) -> &mut Self {
+        self.identifier_field_ids = Some(ids);
+        self
+    }
+
+    pub fn with_fields(&mut self, fields: StructTypeBuilder) -> &mut Self {
+        self.fields = Some(fields);
+        self
+    }
+
+    pub fn build(&mut self) -> Result<Schema, Error> {
+        let fields = self.fields
+            .take()
+            .ok_or_else(|| Error::InvalidFormat("Schema fields must be set".to_string()))?
+            .build()?;
+
+        Ok(Schema {
+            schema_id: self.schema_id.unwrap_or(DEFAULT_SCHEMA_ID),
+            identifier_field_ids: self.identifier_field_ids.take(),
+            fields,
+        })
+    }
+}
+
 impl Schema {
     pub fn builder() -> SchemaBuilder {
-        SchemaBuilder::default()
+        SchemaBuilder::new()
     }
 
     pub fn project(&self, ids: &[i32]) -> Schema {
