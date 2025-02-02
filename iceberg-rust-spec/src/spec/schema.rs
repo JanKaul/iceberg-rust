@@ -13,7 +13,7 @@ use super::types::StructType;
 
 pub static DEFAULT_SCHEMA_ID: i32 = 0;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder, Getters)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Getters)]
 #[serde(rename_all = "kebab-case")]
 #[builder(setter(prefix = "with"))]
 /// Names and types of fields in a table.
