@@ -12,7 +12,8 @@ use super::{
     materialized_view_metadata::MaterializedViewMetadata, table_metadata::TableMetadata,
     view_metadata::ViewMetadata,
 };
-/// Metadata of an iceberg relation
+
+//AI! Create comment
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 #[allow(clippy::large_enum_variant)]
