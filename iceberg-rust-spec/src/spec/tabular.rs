@@ -118,7 +118,11 @@ impl TabularMetadataRef<'_> {
             TabularMetadataRef::MaterializedView(matview) => &matview.location,
         }
     }
-    //AI! Create comment
+    /// Returns the current sequence number or version ID of the tabular object
+    ///
+    /// # Returns
+    /// * For tables: The last sequence number used to create a snapshot
+    /// * For views and materialized views: The current version ID
     pub fn sequence_number(&self) -> i64 {
         match self {
             TabularMetadataRef::Table(table) => table.last_sequence_number,
