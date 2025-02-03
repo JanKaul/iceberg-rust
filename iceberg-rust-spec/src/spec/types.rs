@@ -268,7 +268,14 @@ impl StructType {
         StructTypeBuilder::default()
     }
 
-    //AI! Create comment
+    /// Gets a reference to the StructField at the given index
+    ///
+    /// # Arguments
+    /// * `index` - The index of the field to retrieve
+    ///
+    /// # Returns
+    /// * `Some(&StructField)` if a field exists at that index
+    /// * `None` if no field exists at that index
     pub fn get(&self, index: usize) -> Option<&StructField> {
         self.lookup
             .get(&(index as i32))
