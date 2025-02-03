@@ -241,7 +241,7 @@ impl TableMetadata {
             .collect()
     }
 
-    /// Get current snapshot
+    //AI! Create comment
     #[inline]
     pub fn current_snapshot(&self, snapshot_ref: Option<&str>) -> Result<Option<&Snapshot>, Error> {
         let snapshot_id = match snapshot_ref {
