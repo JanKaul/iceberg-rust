@@ -47,7 +47,12 @@ pub struct SourceTables(pub HashMap<(Uuid, Option<String>), i64>);
 #[serde(from = "Vec<SourceView>", into = "Vec<SourceView>")]
 pub struct SourceViews(pub HashMap<(Uuid, Option<String>), i64>);
 
-//AI! Create comment
+/// Represents a source table state in a materialized view refresh
+///
+/// # Fields
+/// * `uuid` - The UUID of the source table
+/// * `snapshot_id` - The snapshot ID of the source table at refresh time
+/// * `ref` - Optional reference name (e.g. branch or tag) used to access the source table
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct SourceTable {
