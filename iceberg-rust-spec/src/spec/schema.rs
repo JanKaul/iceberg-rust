@@ -38,6 +38,18 @@ impl Schema {
         SchemaBuilder::default()
     }
 
+    pub fn from_struct_type(
+        fields: StructType,
+        schema_id: i32,
+        identifier_field_ids: Option<Vec<i32>>,
+    ) -> Self {
+        Schema {
+            schema_id,
+            identifier_field_ids,
+            fields,
+        }
+    }
+
     pub fn project(&self, ids: &[i32]) -> Schema {
         Schema {
             schema_id: self.schema_id,
