@@ -1,4 +1,17 @@
-//AI! Create module documentation
+//! Snapshot management and versioning for Iceberg tables.
+//!
+//! This module provides the core types and implementations for managing table snapshots, which
+//! represent the state of a table at specific points in time. Key components include:
+//!
+//! - [`Snapshot`] - Represents a point-in-time state of the table
+//! - [`Operation`] - Types of operations that can create new snapshots
+//! - [`Summary`] - Metadata about changes made in a snapshot
+//! - [`SnapshotReference`] - Named references to snapshots (branches and tags)
+//! - [`SnapshotRetention`] - Policies for snapshot retention and cleanup
+//!
+//! Snapshots are fundamental to Iceberg's time travel and version control capabilities,
+//! allowing tables to maintain their history and enabling features like rollbacks
+//! and incremental processing.
 
 use std::{
     collections::HashMap,
