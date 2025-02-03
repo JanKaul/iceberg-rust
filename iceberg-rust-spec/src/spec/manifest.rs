@@ -52,6 +52,7 @@ impl ManifestEntry {
         ManifestEntryBuilder::default()
     }
 
+    //AI! Crate comment
     pub fn status_mut(&mut self) -> &mut Status {
         &mut self.status
     }
