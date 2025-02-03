@@ -466,7 +466,7 @@ impl Value {
         }
     }
 
-    /// Create iceberg value from a json value
+    //AI! Create comment
     pub fn try_from_json(value: JsonValue, data_type: &Type) -> Result<Option<Self>, Error> {
         match data_type {
             Type::Primitive(primitive) => match (primitive, value) {
