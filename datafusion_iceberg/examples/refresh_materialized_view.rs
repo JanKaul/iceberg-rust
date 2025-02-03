@@ -9,7 +9,7 @@ use iceberg_rust::spec::view_metadata::{Version, ViewRepresentation};
 use iceberg_rust::spec::{
     partition::{PartitionField, Transform},
     schema::Schema,
-    types::{PrimitiveType, StructField, StructType, Type},
+    types::{PrimitiveType, StructField, Type},
 };
 use iceberg_rust::table::Table;
 use iceberg_sql_catalog::SqlCatalogList;
@@ -28,46 +28,41 @@ pub(crate) async fn main() {
     let catalog = catalog_list.catalog("iceberg").unwrap();
 
     let schema = Schema::builder()
-        .with_fields(
-            StructType::builder()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "customer_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 3,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 4,
-                    name: "date".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Date),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 5,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        )
+        .with_struct_field(StructField {
+            id: 1,
+            name: "id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 2,
+            name: "customer_id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 3,
+            name: "product_id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 4,
+            name: "date".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Date),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 5,
+            name: "amount".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Int),
+            doc: None,
+        })
         .build()
         .unwrap();
 
@@ -86,25 +81,20 @@ pub(crate) async fn main() {
         .expect("Failed to create table");
 
     let matview_schema = Schema::builder()
-        .with_fields(
-            StructType::builder()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        )
+        .with_struct_field(StructField {
+            id: 1,
+            name: "product_id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 2,
+            name: "amount".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Int),
+            doc: None,
+        })
         .build()
         .unwrap();
 
@@ -126,25 +116,20 @@ pub(crate) async fn main() {
         .expect("Failed to create materialized view");
 
     let total_matview_schema = Schema::builder()
-        .with_fields(
-            StructType::builder()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        )
+        .with_struct_field(StructField {
+            id: 1,
+            name: "product_id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 2,
+            name: "amount".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+        })
         .build()
         .unwrap();
 

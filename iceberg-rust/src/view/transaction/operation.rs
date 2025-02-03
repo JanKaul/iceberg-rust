@@ -3,8 +3,8 @@
 */
 
 use iceberg_rust_spec::{
+    schema::Schema,
     spec::{
-        schema::SchemaBuilder,
         types::StructType,
         view_metadata::{GeneralViewMetadata, Summary, Version, ViewRepresentation, REF_PREFIX},
     },
@@ -84,11 +84,7 @@ impl Operation {
                             view_version_id: version_id,
                         },
                         ViewUpdate::AddSchema {
-                            schema: SchemaBuilder::default()
-                                .with_schema_id(schema_id)
-                                .with_fields(schema)
-                                .build()
-                                .map_err(iceberg_rust_spec::error::Error::from)?,
+                            schema: Schema::from_struct_type(schema, schema_id, None),
                             last_column_id: Some(last_column_id),
                         },
                         ViewUpdate::SetProperties {

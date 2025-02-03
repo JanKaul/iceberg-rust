@@ -3,27 +3,22 @@
 */
 use std::{fmt, ops::Deref, str};
 
-use derive_builder::Builder;
+use super::types::{StructField, StructType, StructTypeBuilder};
 use derive_getters::Getters;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 
-use super::types::StructType;
-
 pub static DEFAULT_SCHEMA_ID: i32 = 0;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Builder, Getters)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Getters)]
 #[serde(rename_all = "kebab-case")]
-#[builder(setter(prefix = "with"))]
 /// Names and types of fields in a table.
 pub struct Schema {
     /// Identifier of the schema
-    #[builder(default = "DEFAULT_SCHEMA_ID")]
     schema_id: i32,
     /// Set of primitive fields that identify rows in a table.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[builder(setter(into, strip_option), default)]
     identifier_field_ids: Option<Vec<i32>>,
 
     #[serde(flatten)]
@@ -41,6 +36,18 @@ impl Deref for Schema {
 impl Schema {
     pub fn builder() -> SchemaBuilder {
         SchemaBuilder::default()
+    }
+
+    pub fn from_struct_type(
+        fields: StructType,
+        schema_id: i32,
+        identifier_field_ids: Option<Vec<i32>>,
+    ) -> Self {
+        Schema {
+            schema_id,
+            identifier_field_ids,
+            fields,
+        }
     }
 
     pub fn project(&self, ids: &[i32]) -> Schema {
@@ -77,6 +84,40 @@ impl str::FromStr for Schema {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         serde_json::from_str(s).map_err(Error::from)
+    }
+}
+
+#[derive(Default)]
+pub struct SchemaBuilder {
+    schema_id: Option<i32>,
+    identifier_field_ids: Option<Vec<i32>>,
+    fields: StructTypeBuilder,
+}
+
+impl SchemaBuilder {
+    pub fn with_schema_id(&mut self, schema_id: i32) -> &mut Self {
+        self.schema_id = Some(schema_id);
+        self
+    }
+
+    pub fn with_identifier_field_ids(&mut self, ids: impl Into<Vec<i32>>) -> &mut Self {
+        self.identifier_field_ids = Some(ids.into());
+        self
+    }
+
+    pub fn with_struct_field(&mut self, field: StructField) -> &mut Self {
+        self.fields.with_struct_field(field);
+        self
+    }
+
+    pub fn build(&mut self) -> Result<Schema, Error> {
+        let fields = self.fields.build()?;
+
+        Ok(Schema {
+            schema_id: self.schema_id.unwrap_or(DEFAULT_SCHEMA_ID),
+            identifier_field_ids: self.identifier_field_ids.take(),
+            fields,
+        })
     }
 }
 

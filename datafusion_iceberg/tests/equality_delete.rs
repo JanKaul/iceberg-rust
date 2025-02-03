@@ -13,7 +13,7 @@ use iceberg_rust::{
     spec::{
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
-        types::{PrimitiveType, StructField, StructType, Type},
+        types::{PrimitiveType, StructField, Type},
     },
     table::Table,
 };
@@ -30,46 +30,41 @@ pub async fn test_equality_delete() {
     );
 
     let schema = Schema::builder()
-        .with_fields(
-            StructType::builder()
-                .with_struct_field(StructField {
-                    id: 1,
-                    name: "id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 2,
-                    name: "customer_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 3,
-                    name: "product_id".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Long),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 4,
-                    name: "date".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Date),
-                    doc: None,
-                })
-                .with_struct_field(StructField {
-                    id: 5,
-                    name: "amount".to_string(),
-                    required: true,
-                    field_type: Type::Primitive(PrimitiveType::Int),
-                    doc: None,
-                })
-                .build()
-                .unwrap(),
-        )
+        .with_struct_field(StructField {
+            id: 1,
+            name: "id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 2,
+            name: "customer_id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 3,
+            name: "product_id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 4,
+            name: "date".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Date),
+            doc: None,
+        })
+        .with_struct_field(StructField {
+            id: 5,
+            name: "amount".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Int),
+            doc: None,
+        })
         .build()
         .unwrap();
 
