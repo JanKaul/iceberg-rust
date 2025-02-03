@@ -310,7 +310,14 @@ pub struct StructField {
 }
 
 impl StructField {
-    //AI! Write documentation for this method
+    /// Creates a new StructField with the given parameters
+    /// 
+    /// # Arguments
+    /// * `id` - Unique identifier for this field within the table schema
+    /// * `name` - Name of the field
+    /// * `required` - Whether this field is required (true) or optional (false)
+    /// * `field_type` - The data type of this field
+    /// * `doc` - Optional documentation string for this field
     pub fn new(id: i32, name: &str, required: bool, field_type: Type, doc: Option<String>) -> Self {
         Self {
             id,
