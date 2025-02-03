@@ -34,6 +34,7 @@ impl Deref for Schema {
 }
 
 impl Schema {
+    //AI! Create comment
     pub fn builder() -> SchemaBuilder {
         SchemaBuilder::default()
     }
