@@ -36,7 +36,16 @@ type SendableRecordBatchStream =
 
 type RecordBatchSender = UnboundedSender<Result<RecordBatch, ArrowError>>;
 
-//AI! Create comment
+/// Partitions a stream of Arrow RecordBatches according to partition fields
+///
+/// # Arguments
+/// * `record_batches` - Input stream of RecordBatches to partition
+/// * `partition_fields` - List of partition fields that define how to partition the data
+///
+/// # Returns
+/// A stream of tuples containing:
+/// * The partition values that identify each partition
+/// * A stream of RecordBatches belonging to that partition
 pub async fn partition_record_batches(
     record_batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     partition_fields: &[BoundPartitionField<'_>],
