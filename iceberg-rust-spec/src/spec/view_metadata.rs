@@ -69,7 +69,13 @@ pub struct GeneralViewMetadata<T: Materialization> {
 }
 
 impl<T: Materialization> GeneralViewMetadata<T> {
-    //AI! Create comment
+    /// Gets the current schema for a given branch, or the view's current schema if no branch is specified
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to get the schema for
+    ///
+    /// # Returns
+    /// * `Result<&Schema, Error>` - The current schema, or an error if the schema cannot be found
     #[inline]
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         let id = self.current_version(branch)?.schema_id;
