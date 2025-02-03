@@ -980,7 +980,18 @@ impl TrySub for Value {
     }
 }
 
-//AI! Create comment
+/// Calculates a numeric distance between two strings
+///
+/// # Arguments
+/// * `left` - First string to compare
+/// * `right` - Second string to compare
+///
+/// # Returns
+/// * For strings that can be converted to base-36 numbers, returns sum of squared differences
+/// * For other strings, returns difference of their hash values
+///
+/// First attempts to compare up to 256 characters as base-36 numbers.
+/// Falls back to hash-based comparison if conversion fails.
 fn sub_string(left: &str, right: &str) -> u64 {
     if let Some(distance) = left
         .chars()
