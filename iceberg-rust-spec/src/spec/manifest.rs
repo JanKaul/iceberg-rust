@@ -465,7 +465,13 @@ impl<'de, T: Serialize + DeserializeOwned + Clone> Deserialize<'de> for AvroMap<
 }
 
 impl AvroMap<ByteBuf> {
-    //AI! Create comment
+    /// Converts a map of byte buffers into a map of typed Iceberg values using the provided schema.
+    ///
+    /// # Arguments
+    /// * `schema` - The struct type schema used to determine the correct type for each value
+    ///
+    /// # Returns
+    /// * `Result<HashMap<i32, Value>, Error>` - A map of field IDs to their typed values, or an error if conversion fails
     fn into_value_map(self, schema: &StructType) -> Result<HashMap<i32, Value>, Error> {
         Ok(HashMap::from_iter(
             self.0
