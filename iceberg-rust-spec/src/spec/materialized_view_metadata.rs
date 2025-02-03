@@ -61,6 +61,7 @@ pub struct SourceTable {
     r#ref: Option<String>,
 }
 
+//AI! Create comment
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct SourceView {
