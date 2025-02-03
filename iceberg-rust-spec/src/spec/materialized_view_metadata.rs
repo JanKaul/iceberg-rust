@@ -47,7 +47,10 @@ pub struct RefreshState {
 #[serde(from = "Vec<SourceTable>", into = "Vec<SourceTable>")]
 pub struct SourceTables(pub HashMap<(Uuid, Option<String>), i64>);
 
-//AI! Create comment
+/// Represents a collection of source view states in a materialized view refresh
+///
+/// # Fields
+/// * `0` - A HashMap mapping (table UUID, optional reference) pairs to version IDs
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(from = "Vec<SourceView>", into = "Vec<SourceView>")]
 pub struct SourceViews(pub HashMap<(Uuid, Option<String>), i64>);
