@@ -206,20 +206,8 @@ impl TableMetadata {
         branch: Option<&str>,
     ) -> Result<Vec<BoundPartitionField>, Error> {
         let schema = self.current_schema(branch)?;
-        self.default_partition_spec()?
-            .fields()
-            .iter()
-            .map(|partition_field| {
-                let field =
-                    schema
-                        .get(*partition_field.source_id() as usize)
-                        .ok_or(Error::NotFound(format!(
-                            "Schema field with id {}",
-                            partition_field.source_id()
-                        )))?;
-                Ok(BoundPartitionField::new(partition_field, field))
-            })
-            .collect()
+        let partition_spec = self.default_partition_spec()?;
+        partition_fields(partition_spec, schema)
     }
 
     /// Gets the partition fields for a specific snapshot, binding them to their source schema fields
@@ -340,6 +328,26 @@ impl TableMetadata {
     pub fn as_ref(&self) -> TabularMetadataRef {
         TabularMetadataRef::Table(self)
     }
+}
+
+pub fn partition_fields<'a>(
+    partition_spec: &'a PartitionSpec,
+    schema: &'a Schema,
+) -> Result<Vec<BoundPartitionField<'a>>, Error> {
+    partition_spec
+        .fields()
+        .iter()
+        .map(|partition_field| {
+            let field =
+                schema
+                    .get(*partition_field.source_id() as usize)
+                    .ok_or(Error::NotFound(format!(
+                        "Schema field with id {}",
+                        partition_field.source_id()
+                    )))?;
+            Ok(BoundPartitionField::new(partition_field, field))
+        })
+        .collect()
 }
 
 /// Creates a new metadata file location for a table

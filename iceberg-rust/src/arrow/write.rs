@@ -3,9 +3,9 @@
 */
 
 use futures::{
-    channel::mpsc::{channel, unbounded, Receiver, Sender},
+    channel::mpsc::{channel, Receiver, Sender},
     lock::Mutex,
-    SinkExt, StreamExt, TryStreamExt,
+    StreamExt, TryStreamExt,
 };
 use object_store::{buffered::BufWriter, ObjectStore};
 use std::fmt::Write;
@@ -13,13 +13,14 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
+use tokio::task::JoinSet;
 
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
 use iceberg_rust_spec::{
     partition::BoundPartitionField,
     spec::{manifest::DataFile, schema::Schema, values::Value},
-    table_metadata::{WRITE_DATA_PATH, WRITE_OBJECT_STORAGE_ENABLED},
+    table_metadata::{self, WRITE_DATA_PATH, WRITE_OBJECT_STORAGE_ENABLED},
     util::strip_prefix,
 };
 use parquet::{
@@ -42,7 +43,7 @@ const MAX_PARQUET_SIZE: usize = 512_000_000;
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
 pub async fn write_parquet_partitioned(
     table: &Table,
-    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     store_parquet_partitioned(table, batches, branch, None).await
@@ -52,7 +53,7 @@ pub async fn write_parquet_partitioned(
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
 pub async fn write_equality_deletes_parquet_partitioned(
     table: &Table,
-    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
     branch: Option<&str>,
     equality_ids: &[i32],
 ) -> Result<Vec<DataFile>, ArrowError> {
@@ -62,19 +63,31 @@ pub async fn write_equality_deletes_parquet_partitioned(
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
 pub async fn store_parquet_partitioned(
     table: &Table,
-    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
     branch: Option<&str>,
     equality_ids: Option<&[i32]>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let metadata = table.metadata();
     let object_store = table.object_store();
-    let schema = metadata.current_schema(branch).map_err(Error::from)?;
+    let schema = Arc::new(
+        metadata
+            .current_schema(branch)
+            .map_err(Error::from)?
+            .clone(),
+    );
     // project the schema on to the equality_ids for equality deletes
     let schema = if let Some(equality_ids) = equality_ids {
-        &schema.project(equality_ids)
+        Arc::new(schema.project(equality_ids))
     } else {
         schema
     };
+
+    let partition_spec = Arc::new(
+        metadata
+            .default_partition_spec()
+            .map_err(Error::from)?
+            .clone(),
+    );
 
     let partition_fields = &metadata
         .current_partition_fields(branch)
@@ -89,8 +102,6 @@ pub async fn store_parquet_partitioned(
     let arrow_schema: Arc<ArrowSchema> =
         Arc::new((schema.fields()).try_into().map_err(Error::from)?);
 
-    let (mut sender, reciever) = unbounded();
-
     if partition_fields.is_empty() {
         let partition_path = if metadata
             .properties
@@ -103,7 +114,7 @@ pub async fn store_parquet_partitioned(
         };
         let files = write_parquet_files(
             data_location,
-            schema,
+            &schema,
             &arrow_schema,
             partition_fields,
             partition_path,
@@ -112,55 +123,60 @@ pub async fn store_parquet_partitioned(
             equality_ids,
         )
         .await?;
-        sender.send(files).await.map_err(Error::from)?;
+        Ok(files)
     } else {
-        let streams = partition_record_batches(batches, partition_fields).await?;
+        let mut streams = partition_record_batches(batches, partition_fields).await?;
 
-        streams
-            .map(Ok::<_, ArrowError>)
-            .try_for_each_concurrent(None, |(partition_values, batches)| {
+        let mut set = JoinSet::new();
+
+        while let Some((partition_values, batches)) = streams.next().await {
+            set.spawn({
                 let arrow_schema = arrow_schema.clone();
                 let object_store = object_store.clone();
-                let mut sender = sender.clone();
+                let data_location = data_location.clone();
+                let schema = schema.clone();
+                let partition_spec = partition_spec.clone();
+                let equality_ids = equality_ids.map(Vec::from);
+                let partition_path = if metadata
+                    .properties
+                    .get(WRITE_OBJECT_STORAGE_ENABLED)
+                    .is_some_and(|x| x == "true")
+                {
+                    None
+                } else {
+                    Some(generate_partition_path(
+                        &partition_fields,
+                        &partition_values,
+                    )?)
+                };
                 async move {
-                    let partition_path = if metadata
-                        .properties
-                        .get(WRITE_OBJECT_STORAGE_ENABLED)
-                        .is_some_and(|x| x == "true")
-                    {
-                        None
-                    } else {
-                        Some(generate_partition_path(
-                            partition_fields,
-                            &partition_values,
-                        )?)
-                    };
+                    let partition_fields =
+                        table_metadata::partition_fields(&partition_spec, &schema)
+                            .map_err(Error::from)?;
                     let files = write_parquet_files(
-                        data_location,
-                        schema,
+                        &data_location,
+                        &schema,
                         &arrow_schema,
-                        partition_fields,
+                        &partition_fields,
                         partition_path,
                         batches,
                         object_store.clone(),
-                        equality_ids,
+                        equality_ids.as_deref(),
                     )
                     .await?;
-                    sender.send(files).await.map_err(Error::from)?;
-                    Ok(())
+                    Ok::<_, Error>(files)
                 }
-            })
-            .await?;
+            });
+        }
+
+        let mut files = Vec::new();
+
+        while let Some(handle) = set.join_next().await {
+            files.extend(handle.map_err(Error::from)??);
+        }
+
+        Ok(files)
     }
-
-    sender.close_channel();
-
-    Ok(reciever
-        .fold(Vec::new(), |mut acc, x| async move {
-            acc.extend(x);
-            acc
-        })
-        .await)
 }
 
 type ArrowSender = Sender<(String, FileMetaData)>;
@@ -189,7 +205,7 @@ async fn write_parquet_files(
         .await?,
     ));
 
-    let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(32);
+    let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(1);
 
     let num_bytes = Arc::new(AtomicUsize::new(0));
 
