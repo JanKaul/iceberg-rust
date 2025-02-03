@@ -131,7 +131,13 @@ impl SchemaBuilder {
         self
     }
 
-    //AI! Create comment
+    /// Sets the identifier field IDs for this schema
+    ///
+    /// # Arguments
+    /// * `ids` - Collection of field IDs that identify rows in the table
+    ///
+    /// # Returns
+    /// * A mutable reference to self for method chaining
     pub fn with_identifier_field_ids(&mut self, ids: impl Into<Vec<i32>>) -> &mut Self {
         self.identifier_field_ids = Some(ids.into());
         self
