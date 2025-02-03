@@ -1,4 +1,13 @@
-//AI! Create module documentation
+//! View metadata implementation for Iceberg views
+//!
+//! This module contains the implementation of view metadata for Iceberg views, including:
+//! - View metadata structure and versioning (V1)
+//! - Schema management
+//! - View versions and history
+//! - View representations (SQL)
+//! - Metadata properties and logging
+//!
+//! The view metadata format is defined in the [Iceberg View Spec](https://iceberg.apache.org/spec/#view-metadata)
 
 use std::{
     collections::HashMap,
