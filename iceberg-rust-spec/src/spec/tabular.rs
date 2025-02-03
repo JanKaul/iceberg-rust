@@ -77,7 +77,11 @@ impl From<MaterializedViewMetadata> for TabularMetadata {
     }
 }
 
-//AI! Create comment
+/// A reference wrapper for different types of tabular metadata
+///
+/// This enum provides a way to reference the different types of tabular metadata
+/// (tables, views, materialized views) without taking ownership. It implements
+/// common functionality for accessing metadata properties across all tabular types.
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum TabularMetadataRef<'a> {
