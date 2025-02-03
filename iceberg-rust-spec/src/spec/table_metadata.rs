@@ -335,6 +335,7 @@ impl TableMetadata {
     }
 }
 
+//AI! Create comment
 pub fn new_metadata_location<'a, T: Into<TabularMetadataRef<'a>>>(metadata: T) -> String {
     let metadata: TabularMetadataRef = metadata.into();
     let transaction_uuid = Uuid::new_v4();
