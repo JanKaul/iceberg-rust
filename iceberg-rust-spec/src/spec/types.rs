@@ -302,6 +302,7 @@ impl StructType {
         self.fields.len()
     }
 
+    //AI! Create comment
     pub fn is_empty(&self) -> bool {
         self.fields.is_empty()
     }
