@@ -1,6 +1,5 @@
-/*!
- * Schemas
-*/
+//AI! Create module documentation
+
 use std::{fmt, ops::Deref, str};
 
 use super::types::{StructField, StructType, StructTypeBuilder};
