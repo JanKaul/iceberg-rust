@@ -207,6 +207,7 @@ impl str::FromStr for PartitionSpec {
     }
 }
 
+//AI! Create comment
 #[derive(Debug)]
 pub struct BoundPartitionField<'a> {
     partition_field: &'a PartitionField,
