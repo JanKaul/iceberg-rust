@@ -186,6 +186,7 @@ impl Struct {
         self.lookup.keys()
     }
 
+    //AI! Create comments
     pub(crate) fn cast(
         self,
         schema: &StructType,
