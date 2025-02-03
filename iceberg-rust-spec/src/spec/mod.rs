@@ -1,6 +1,5 @@
-/*!
- * Model
-*/
+//AI! Create module documentation
+
 pub mod identifier;
 pub mod manifest;
 pub mod manifest_list;
