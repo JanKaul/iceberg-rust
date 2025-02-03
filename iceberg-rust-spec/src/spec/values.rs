@@ -676,7 +676,19 @@ impl Value {
         }
     }
 
-    //AI! Create comment
+    /// Attempts to cast this Value to a different Type
+    ///
+    /// # Arguments
+    /// * `data_type` - The target Type to cast to
+    ///
+    /// # Returns
+    /// * `Ok(Value)` - Successfully cast Value of the target type
+    /// * `Err(Error)` - If the value cannot be cast to the target type
+    ///
+    /// # Note
+    /// Currently supports casting between numeric types (Int -> Long, Int -> Date, etc)
+    /// and temporal types (Long -> Time/Timestamp/TimestampTZ).
+    /// Returns the original value if the target type matches the current type.
     pub fn cast(self, data_type: &Type) -> Result<Self, Error> {
         if self.datatype() == *data_type {
             Ok(self)
