@@ -1,6 +1,4 @@
-/*!
- * A Struct for the view metadata   
-*/
+//AI! Create module documentation
 
 use std::{
     collections::HashMap,
