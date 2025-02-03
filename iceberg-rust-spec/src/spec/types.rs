@@ -244,7 +244,7 @@ impl<'de> Deserialize<'de> for StructType {
 }
 
 impl StructType {
-    /// Create new struct type
+    //AI! Create comment
     pub fn new(fields: Vec<StructField>) -> Self {
         let lookup = fields
             .iter()
@@ -311,7 +311,7 @@ pub struct StructField {
 
 impl StructField {
     /// Creates a new StructField with the given parameters
-    /// 
+    ///
     /// # Arguments
     /// * `id` - Unique identifier for this field within the table schema
     /// * `name` - Name of the field
