@@ -118,7 +118,7 @@ impl TabularMetadataRef<'_> {
             TabularMetadataRef::MaterializedView(matview) => &matview.location,
         }
     }
-    /// Get sequence number for tabular
+    //AI! Create comment
     pub fn sequence_number(&self) -> i64 {
         match self {
             TabularMetadataRef::Table(table) => table.last_sequence_number,
