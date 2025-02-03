@@ -302,7 +302,11 @@ impl StructType {
         self.fields.len()
     }
 
-    //AI! Create comment
+    /// Returns true if the struct contains no fields
+    ///
+    /// # Returns
+    /// * `true` if this struct has no fields
+    /// * `false` if this struct has at least one field
     pub fn is_empty(&self) -> bool {
         self.fields.is_empty()
     }
