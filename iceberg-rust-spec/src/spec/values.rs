@@ -178,7 +178,10 @@ impl Struct {
         self.fields.iter()
     }
 
-    //AI! Create comment
+    /// Returns an iterator over all field names in this struct
+    ///
+    /// # Returns
+    /// * An iterator yielding references to each field name in sorted order
     pub fn keys(&self) -> Keys<'_, String, usize> {
         self.lookup.keys()
     }
