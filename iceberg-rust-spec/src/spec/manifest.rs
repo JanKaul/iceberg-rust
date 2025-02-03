@@ -41,7 +41,13 @@ pub struct ManifestEntry {
 }
 
 impl ManifestEntry {
-    //AI! Create comment
+    /// Creates a new builder for constructing a ManifestEntry.
+    ///
+    /// The builder provides a fluent interface for setting all the fields of a ManifestEntry.
+    /// Use this when you need to create a new manifest entry with custom values.
+    ///
+    /// # Returns
+    /// * A new ManifestEntryBuilder instance with default values
     pub fn builder() -> ManifestEntryBuilder {
         ManifestEntryBuilder::default()
     }
