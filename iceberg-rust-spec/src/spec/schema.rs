@@ -119,6 +119,7 @@ pub struct SchemaBuilder {
 }
 
 impl SchemaBuilder {
+    //AI! Create comment
     pub fn with_schema_id(&mut self, schema_id: i32) -> &mut Self {
         self.schema_id = Some(schema_id);
         self
