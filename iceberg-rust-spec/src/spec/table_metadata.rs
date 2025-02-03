@@ -1,7 +1,4 @@
-/*!
-Defines the [table metadata](https://iceberg.apache.org/spec/#table-metadata).
-The main struct here is [TableMetadataV2] which defines the data for a table.
-*/
+//AI! Create module documentation
 
 use std::{
     collections::HashMap,
