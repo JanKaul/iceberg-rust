@@ -83,6 +83,7 @@ impl<T: Materialization> GeneralViewMetadata<T> {
             .get(&id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
+
     /// Gets the schema for a specific version ID
     ///
     /// # Arguments
@@ -101,7 +102,7 @@ impl<T: Materialization> GeneralViewMetadata<T> {
             .get(&id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
-    /// Get current version
+    //AI! Create comment
     #[inline]
     pub fn current_version(&self, snapshot_ref: Option<&str>) -> Result<&Version<T>, Error> {
         let version_id: i64 = match snapshot_ref {
