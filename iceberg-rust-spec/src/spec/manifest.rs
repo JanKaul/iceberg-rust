@@ -67,6 +67,7 @@ impl ManifestEntry {
         &mut self.sequence_number
     }
 
+    //AI! Create comment
     pub fn snapshot_id_mut(&mut self) -> &mut Option<i64> {
         &mut self.snapshot_id
     }
