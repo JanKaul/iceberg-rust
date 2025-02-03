@@ -52,7 +52,9 @@ impl ManifestEntry {
         ManifestEntryBuilder::default()
     }
 
-    //AI! Crate comment
+    /// Returns a mutable reference to the status field of this manifest entry.
+    ///
+    /// This allows modifying the status to track additions and deletions of data files.
     pub fn status_mut(&mut self) -> &mut Status {
         &mut self.status
     }
