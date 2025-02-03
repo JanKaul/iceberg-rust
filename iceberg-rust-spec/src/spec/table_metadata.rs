@@ -156,7 +156,7 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
 
-    /// Get schema for snapshot
+    //AI! Create comment
     #[inline]
     pub fn schema(&self, snapshot_id: i64) -> Result<&Schema, Error> {
         let schema_id = self
