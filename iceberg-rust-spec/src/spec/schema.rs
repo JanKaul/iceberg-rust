@@ -119,7 +119,13 @@ pub struct SchemaBuilder {
 }
 
 impl SchemaBuilder {
-    //AI! Create comment
+    /// Sets the schema ID for this schema
+    ///
+    /// # Arguments
+    /// * `schema_id` - The unique identifier for this schema
+    ///
+    /// # Returns
+    /// * A mutable reference to self for method chaining
     pub fn with_schema_id(&mut self, schema_id: i32) -> &mut Self {
         self.schema_id = Some(schema_id);
         self
