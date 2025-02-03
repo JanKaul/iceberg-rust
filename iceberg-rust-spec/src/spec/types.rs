@@ -244,7 +244,13 @@ impl<'de> Deserialize<'de> for StructType {
 }
 
 impl StructType {
-    //AI! Create comment
+    /// Creates a new StructType with the given fields
+    ///
+    /// # Arguments
+    /// * `fields` - Vector of StructField that define the structure
+    ///
+    /// The method automatically builds a lookup table mapping field IDs to their position
+    /// in the fields vector for efficient field access by ID.
     pub fn new(fields: Vec<StructField>) -> Self {
         let lookup = fields
             .iter()
