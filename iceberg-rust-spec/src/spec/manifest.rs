@@ -1,6 +1,5 @@
-/*!
-Manifest files
-*/
+//AI! Create module documentation
+
 use std::collections::HashMap;
 
 use apache_avro::Schema as AvroSchema;
