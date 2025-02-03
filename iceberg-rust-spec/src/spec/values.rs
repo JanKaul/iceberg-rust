@@ -147,7 +147,14 @@ pub struct Struct {
 }
 
 impl Struct {
-    //AI! Create comment
+    /// Gets a reference to the value associated with the given field name
+    ///
+    /// # Arguments
+    /// * `name` - The name of the field to retrieve
+    ///
+    /// # Returns
+    /// * `Some(&Option<Value>)` if the field exists
+    /// * `None` if the field doesn't exist
     pub fn get(&self, name: &str) -> Option<&Option<Value>> {
         self.fields.get(*self.lookup.get(name)?)
     }
