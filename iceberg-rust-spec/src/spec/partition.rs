@@ -1,4 +1,15 @@
-//AI! Create module documentation
+//! Partition specification and transformation functionality for Iceberg tables.
+//!
+//! This module provides the core types and implementations for defining how data is partitioned
+//! in Iceberg tables. It includes:
+//!
+//! - [`Transform`] - Transformations that can be applied to partition columns
+//! - [`PartitionField`] - Definition of individual partition fields
+//! - [`PartitionSpec`] - Complete specification of table partitioning
+//! - [`BoundPartitionField`] - Runtime binding of partition fields to schema fields
+//!
+//! Partitioning is a key concept in Iceberg that determines how data files are organized
+//! and enables efficient querying through partition pruning.
 
 use std::{
     fmt::{self, Display},
