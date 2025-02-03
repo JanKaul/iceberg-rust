@@ -310,6 +310,7 @@ pub struct StructField {
 }
 
 impl StructField {
+    //AI! Write documentation for this method
     pub fn new(id: i32, name: &str, required: bool, field_type: Type, doc: Option<String>) -> Self {
         Self {
             id,
