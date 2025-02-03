@@ -45,7 +45,15 @@ impl Schema {
         SchemaBuilder::default()
     }
 
-    //AI! Create comment
+    /// Creates a new Schema from a StructType and associated metadata
+    ///
+    /// # Arguments
+    /// * `fields` - The StructType containing the schema's fields
+    /// * `schema_id` - Unique identifier for this schema
+    /// * `identifier_field_ids` - Optional list of field IDs that identify rows in the table
+    ///
+    /// # Returns
+    /// * A new Schema instance with the provided fields and metadata
     pub fn from_struct_type(
         fields: StructType,
         schema_id: i32,
