@@ -294,7 +294,10 @@ impl StructType {
         self.fields.iter().find(|field| field.name == name)
     }
 
-    //AI! Create comment
+    /// Returns the number of fields in this struct
+    ///
+    /// # Returns
+    /// * The total count of StructFields contained in this struct
     pub fn len(&self) -> usize {
         self.fields.len()
     }
