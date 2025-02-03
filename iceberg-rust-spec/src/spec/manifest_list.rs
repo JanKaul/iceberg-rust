@@ -1,6 +1,4 @@
-/*!
- * Manifest lists
-*/
+//AI! Create module documentation
 
 use std::sync::OnceLock;
 
