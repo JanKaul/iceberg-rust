@@ -178,6 +178,7 @@ impl Struct {
         self.fields.iter()
     }
 
+    //AI! Create comment
     pub fn keys(&self) -> Keys<'_, String, usize> {
         self.lookup.keys()
     }
