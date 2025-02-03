@@ -241,7 +241,14 @@ impl TableMetadata {
             .collect()
     }
 
-    //AI! Create comment
+    /// Gets the current snapshot for a given reference, or the table's current snapshot if no reference is specified
+    ///
+    /// # Arguments
+    /// * `snapshot_ref` - Optional snapshot reference name to get the snapshot for
+    ///
+    /// # Returns
+    /// * `Result<Option<&Snapshot>, Error>` - The current snapshot if it exists, None if there are no snapshots,
+    ///   or an error if the snapshots are in an invalid state
     #[inline]
     pub fn current_snapshot(&self, snapshot_ref: Option<&str>) -> Result<Option<&Snapshot>, Error> {
         let snapshot_id = match snapshot_ref {
