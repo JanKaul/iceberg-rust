@@ -215,7 +215,7 @@ impl TableMetadata {
             .collect()
     }
 
-    /// Get partition fields for snapshot
+    //AI! Create comment
     pub fn partition_fields(&self, snapshot_id: i64) -> Result<Vec<BoundPartitionField>, Error> {
         let schema = self.schema(snapshot_id)?;
         self.default_partition_spec()?
