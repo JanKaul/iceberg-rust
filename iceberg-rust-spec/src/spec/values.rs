@@ -980,6 +980,7 @@ impl TrySub for Value {
     }
 }
 
+//AI! Create comment
 fn sub_string(left: &str, right: &str) -> u64 {
     if let Some(distance) = left
         .chars()
