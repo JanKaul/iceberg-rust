@@ -147,7 +147,7 @@ pub struct Struct {
 }
 
 impl Struct {
-    /// Get reference to partition value
+    //AI! Create comment
     pub fn get(&self, name: &str) -> Option<&Option<Value>> {
         self.fields.get(*self.lookup.get(name)?)
     }
