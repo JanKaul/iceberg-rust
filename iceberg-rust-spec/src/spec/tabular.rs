@@ -94,7 +94,7 @@ pub enum TabularMetadataRef<'a> {
 }
 
 impl TabularMetadataRef<'_> {
-    /// Get uuid of tabular
+    //AI! Create comment
     pub fn uuid(&self) -> &Uuid {
         match self {
             TabularMetadataRef::Table(table) => &table.table_uuid,
