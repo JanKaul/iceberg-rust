@@ -186,7 +186,14 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("partition spec".to_string()))
     }
 
-    //AI! Create comment
+    /// Gets the current partition fields for a given branch, binding them to their source schema fields
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to get the partition fields for
+    ///
+    /// # Returns
+    /// * `Result<Vec<BoundPartitionField>, Error>` - Vector of partition fields bound to their source schema fields,
+    ///   or an error if the schema or partition spec cannot be found
     pub fn current_partition_fields(
         &self,
         branch: Option<&str>,
