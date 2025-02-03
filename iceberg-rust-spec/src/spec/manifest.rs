@@ -1,4 +1,16 @@
-//AI! Create module documentation
+//! Manifest file handling and data file tracking for Iceberg tables.
+//!
+//! This module provides the core types and implementations for working with manifest files,
+//! which track the data files that comprise an Iceberg table. Key components include:
+//!
+//! - [`ManifestEntry`] - Entries tracking data file additions and deletions
+//! - [`DataFile`] - Metadata about data files including statistics and metrics
+//! - [`Content`] - Types of content stored in data files (data vs deletes)
+//! - [`Status`] - Tracking additions and deletions of files
+//! - [`FileFormat`] - Supported file formats (Avro, ORC, Parquet)
+//!
+//! Manifest files are a key part of Iceberg's architecture, providing metadata about
+//! data files and enabling efficient file pruning during queries.
 
 use std::collections::HashMap;
 
