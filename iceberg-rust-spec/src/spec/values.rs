@@ -414,7 +414,19 @@ impl Value {
         }
     }
 
-    //AI! Create comment
+    /// Attempts to create a Value from raw bytes according to a specified type
+    ///
+    /// # Arguments
+    /// * `bytes` - The raw byte slice to parse
+    /// * `data_type` - The expected type of the value
+    ///
+    /// # Returns
+    /// * `Ok(Value)` - Successfully parsed value of the specified type
+    /// * `Err(Error)` - If the bytes cannot be parsed as the specified type
+    ///
+    /// # Note
+    /// Currently only supports primitive types. Complex types like structs, lists,
+    /// and maps are not supported and will return an error.
     #[inline]
     pub fn try_from_bytes(bytes: &[u8], data_type: &Type) -> Result<Self, Error> {
         match data_type {
