@@ -1,6 +1,5 @@
-/*!
- * Sorting
-*/
+//AI! Create module documentation
+
 use std::{fmt, str};
 
 use derive_builder::Builder;
