@@ -175,7 +175,7 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
 
-    /// Get default partition spec
+    //AI! Create comment
     #[inline]
     pub fn default_partition_spec(&self) -> Result<&PartitionSpec, Error> {
         self.partition_specs
