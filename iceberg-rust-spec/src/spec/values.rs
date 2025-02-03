@@ -617,7 +617,7 @@ impl Value {
         }
     }
 
-    /// Get datatype of value
+    //AI! Create comment
     pub fn datatype(&self) -> Type {
         match self {
             Value::Boolean(_) => Type::Primitive(PrimitiveType::Boolean),
