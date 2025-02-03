@@ -83,7 +83,13 @@ impl<T: Materialization> GeneralViewMetadata<T> {
             .get(&id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
-    //AI! Create comment
+    /// Gets the schema for a specific version ID
+    ///
+    /// # Arguments
+    /// * `version_id` - The ID of the version to get the schema for
+    ///
+    /// # Returns
+    /// * `Result<&Schema, Error>` - The schema for the version, or an error if the schema cannot be found
     #[inline]
     pub fn schema(&self, version_id: i64) -> Result<&Schema, Error> {
         let id = self
