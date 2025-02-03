@@ -1,6 +1,5 @@
-/*!
- * Snapshots
-*/
+//AI! Create module documentation
+
 use std::{
     collections::HashMap,
     fmt, str,
@@ -48,7 +47,7 @@ pub struct Snapshot {
 }
 
 /// Generates a random snapshot ID using a cryptographically secure random number generator.
-/// 
+///
 /// The function generates 8 random bytes and converts them to a positive i64 value.
 /// This ensures unique snapshot IDs across the table's history.
 pub fn generate_snapshot_id() -> i64 {
