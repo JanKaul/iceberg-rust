@@ -282,7 +282,14 @@ impl StructType {
             .map(|idx| &self.fields[*idx])
     }
 
-    //AI! Create comment
+    /// Gets a reference to the StructField with the given name
+    ///
+    /// # Arguments
+    /// * `name` - The name of the field to retrieve
+    ///
+    /// # Returns
+    /// * `Some(&StructField)` if a field with the given name exists
+    /// * `None` if no field with that name exists
     pub fn get_name(&self, name: &str) -> Option<&StructField> {
         self.fields.iter().find(|field| field.name == name)
     }
