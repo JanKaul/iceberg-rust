@@ -617,7 +617,14 @@ impl Value {
         }
     }
 
-    //AI! Create comment
+    /// Returns the Iceberg Type that corresponds to this Value
+    ///
+    /// # Returns
+    /// * The Type (primitive or complex) that matches this Value's variant
+    ///
+    /// # Note
+    /// Currently only implemented for primitive types. Complex types like
+    /// structs, lists, and maps will cause a panic.
     pub fn datatype(&self) -> Type {
         match self {
             Value::Boolean(_) => Type::Primitive(PrimitiveType::Boolean),
