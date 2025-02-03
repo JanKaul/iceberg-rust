@@ -47,6 +47,7 @@ pub struct RefreshState {
 #[serde(from = "Vec<SourceTable>", into = "Vec<SourceTable>")]
 pub struct SourceTables(pub HashMap<(Uuid, Option<String>), i64>);
 
+//AI! Create comment
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(from = "Vec<SourceView>", into = "Vec<SourceView>")]
 pub struct SourceViews(pub HashMap<(Uuid, Option<String>), i64>);
