@@ -170,7 +170,10 @@ impl Struct {
         self.fields.get_mut(*self.lookup.get(name)?)
     }
 
-    //AI! Create comment
+    /// Returns an iterator over all field values in this struct
+    ///
+    /// # Returns
+    /// * An iterator yielding references to each optional Value in order
     pub fn iter(&self) -> Iter<'_, Option<Value>> {
         self.fields.iter()
     }
