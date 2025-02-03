@@ -125,7 +125,10 @@ impl<T: Materialization> GeneralViewMetadata<T> {
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
 
-    //AI! Create comment
+    /// Adds a new schema to the view metadata
+    ///
+    /// # Arguments
+    /// * `schema` - The schema to add
     #[inline]
     pub fn add_schema(&mut self, schema: Schema) {
         self.schemas.insert(*schema.schema_id(), schema);
