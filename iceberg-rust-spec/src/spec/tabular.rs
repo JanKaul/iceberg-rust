@@ -1,5 +1,4 @@
-/*! Enum for Metadata of Table, View or Materialized View
-*/
+//AI! Create module documentation
 
 use std::{fmt, str};
 
