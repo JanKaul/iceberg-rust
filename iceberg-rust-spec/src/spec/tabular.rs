@@ -94,7 +94,10 @@ pub enum TabularMetadataRef<'a> {
 }
 
 impl TabularMetadataRef<'_> {
-    //AI! Create comment
+    /// Returns the UUID of the tabular object
+    ///
+    /// # Returns
+    /// * A reference to the UUID that uniquely identifies this table, view, or materialized view
     pub fn uuid(&self) -> &Uuid {
         match self {
             TabularMetadataRef::Table(table) => &table.table_uuid,
