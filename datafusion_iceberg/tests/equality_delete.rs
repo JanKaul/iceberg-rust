@@ -9,7 +9,7 @@ use futures::stream;
 use iceberg_rust::{
     arrow::write::write_equality_deletes_parquet_partitioned,
     catalog::Catalog,
-    object_store::{Bucket, ObjectStoreBuilder},
+    object_store::ObjectStoreBuilder,
     spec::{
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
@@ -150,9 +150,8 @@ pub async fn test_equality_delete() {
         .expect("Failed to insert values into table");
 
     let files = write_equality_deletes_parquet_partitioned(
-        table.metadata(),
+        &table,
         stream::iter(batches.into_iter().map(Ok::<_, ArrowError>)),
-        object_store.build(Bucket::Local).unwrap(),
         None,
         &[1, 2, 3, 4],
     )

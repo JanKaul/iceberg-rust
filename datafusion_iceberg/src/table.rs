@@ -763,15 +763,9 @@ impl DataSink for IcebergDataSink {
         }
         .map_err(DataFusionIcebergError::from)?;
 
-        let object_store = table.object_store().clone();
-
-        let metadata_files = write_parquet_partitioned(
-            table.metadata(),
-            data.map_err(Into::into),
-            object_store,
-            self.0.branch.as_deref(),
-        )
-        .await?;
+        let metadata_files =
+            write_parquet_partitioned(&table, data.map_err(Into::into), self.0.branch.as_deref())
+                .await?;
 
         table
             .new_transaction(self.0.branch.as_deref())

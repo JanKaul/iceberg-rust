@@ -18,7 +18,7 @@ use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::R
 use futures::Stream;
 use iceberg_rust_spec::{
     partition::BoundPartitionField,
-    spec::{manifest::DataFile, schema::Schema, table_metadata::TableMetadata, values::Value},
+    spec::{manifest::DataFile, schema::Schema, values::Value},
     table_metadata::{WRITE_DATA_PATH, WRITE_OBJECT_STORAGE_ENABLED},
     util::strip_prefix,
 };
@@ -30,7 +30,9 @@ use parquet::{
 };
 use uuid::Uuid;
 
-use crate::{error::Error, file_format::parquet::parquet_to_datafile, object_store::Bucket};
+use crate::{
+    error::Error, file_format::parquet::parquet_to_datafile, object_store::Bucket, table::Table,
+};
 
 use super::partition::partition_record_batches;
 
@@ -39,34 +41,33 @@ const MAX_PARQUET_SIZE: usize = 512_000_000;
 #[inline]
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
 pub async fn write_parquet_partitioned(
-    metadata: &TableMetadata,
+    table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
-    object_store: Arc<dyn ObjectStore>,
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, ArrowError> {
-    store_parquet_partitioned(metadata, batches, object_store, branch, None).await
+    store_parquet_partitioned(table, batches, branch, None).await
 }
 
 #[inline]
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
 pub async fn write_equality_deletes_parquet_partitioned(
-    metadata: &TableMetadata,
+    table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
-    object_store: Arc<dyn ObjectStore>,
     branch: Option<&str>,
     equality_ids: &[i32],
 ) -> Result<Vec<DataFile>, ArrowError> {
-    store_parquet_partitioned(metadata, batches, object_store, branch, Some(equality_ids)).await
+    store_parquet_partitioned(table, batches, branch, Some(equality_ids)).await
 }
 
 /// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
 pub async fn store_parquet_partitioned(
-    metadata: &TableMetadata,
+    table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
-    object_store: Arc<dyn ObjectStore>,
     branch: Option<&str>,
     equality_ids: Option<&[i32]>,
 ) -> Result<Vec<DataFile>, ArrowError> {
+    let metadata = table.metadata();
+    let object_store = table.object_store();
     let schema = metadata.current_schema(branch).map_err(Error::from)?;
     // project the schema on to the equality_ids for equality deletes
     let schema = if let Some(equality_ids) = equality_ids {
