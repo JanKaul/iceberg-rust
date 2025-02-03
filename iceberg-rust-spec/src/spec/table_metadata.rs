@@ -138,7 +138,13 @@ pub struct TableMetadata {
 }
 
 impl TableMetadata {
-    //AI! Create comment
+    /// Gets the current schema for a given branch, or the table's current schema if no branch is specified.
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to get the schema for
+    ///
+    /// # Returns
+    /// * `Result<&Schema, Error>` - The current schema, or an error if the schema cannot be found
     #[inline]
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         let schema_id = self
