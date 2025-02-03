@@ -131,6 +131,7 @@ impl SchemaBuilder {
         self
     }
 
+    //AI! Create comment
     pub fn with_identifier_field_ids(&mut self, ids: impl Into<Vec<i32>>) -> &mut Self {
         self.identifier_field_ids = Some(ids.into());
         self
