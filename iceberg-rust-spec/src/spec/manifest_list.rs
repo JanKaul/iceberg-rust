@@ -1,4 +1,16 @@
-//AI! Create module documentation
+//! Manifest list handling and management for Iceberg tables.
+//!
+//! This module provides the core types and implementations for working with manifest lists,
+//! which track all manifest files in a table snapshot. Key components include:
+//!
+//! - [`ManifestListEntry`] - Entries describing manifest files and their contents
+//! - [`Content`] - Types of content tracked by manifests (data vs deletes)
+//! - [`FieldSummary`] - Statistics and metadata about partition fields
+//!
+//! Manifest lists are a critical part of Iceberg's metadata hierarchy, providing an
+//! index of all manifest files and enabling efficient manifest pruning during scans.
+//! They include summary statistics that can be used to skip reading manifests that
+//! don't contain relevant data for a query.
 
 use std::sync::OnceLock;
 
