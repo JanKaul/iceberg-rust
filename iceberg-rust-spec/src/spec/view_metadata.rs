@@ -102,7 +102,13 @@ impl<T: Materialization> GeneralViewMetadata<T> {
             .get(&id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
-    //AI! Create comment
+    /// Gets the current version for a given reference, or the view's current version if no reference is specified
+    ///
+    /// # Arguments
+    /// * `snapshot_ref` - Optional snapshot reference name to get the version for
+    ///
+    /// # Returns
+    /// * `Result<&Version<T>, Error>` - The current version, or an error if the version cannot be found
     #[inline]
     pub fn current_version(&self, snapshot_ref: Option<&str>) -> Result<&Version<T>, Error> {
         let version_id: i64 = match snapshot_ref {
