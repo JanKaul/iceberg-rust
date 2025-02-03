@@ -465,6 +465,7 @@ impl<'de, T: Serialize + DeserializeOwned + Clone> Deserialize<'de> for AvroMap<
 }
 
 impl AvroMap<ByteBuf> {
+    //AI! Create comment
     fn into_value_map(self, schema: &StructType) -> Result<HashMap<i32, Value>, Error> {
         Ok(HashMap::from_iter(
             self.0
