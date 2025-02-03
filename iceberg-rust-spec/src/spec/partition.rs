@@ -216,6 +216,7 @@ pub struct BoundPartitionField<'a> {
 }
 
 impl<'a> BoundPartitionField<'a> {
+    //AI! Create comment
     pub fn new(partition_field: &'a PartitionField, struct_field: &'a StructField) -> Self {
         Self {
             partition_field,
