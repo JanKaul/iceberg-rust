@@ -106,7 +106,11 @@ impl TabularMetadataRef<'_> {
         }
     }
 
-    //AI! Creat comment
+    /// Returns the storage location of the tabular object
+    ///
+    /// # Returns
+    /// * A string reference to the base storage location (e.g. S3 path, file path)
+    /// where this table, view, or materialized view's data is stored
     pub fn location(&self) -> &str {
         match self {
             TabularMetadataRef::Table(table) => &table.location,
