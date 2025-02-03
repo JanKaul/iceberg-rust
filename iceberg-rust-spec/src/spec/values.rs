@@ -414,8 +414,8 @@ impl Value {
         }
     }
 
+    //AI! Create comment
     #[inline]
-    /// Create iceberg value from bytes
     pub fn try_from_bytes(bytes: &[u8], data_type: &Type) -> Result<Self, Error> {
         match data_type {
             Type::Primitive(primitive) => match primitive {
