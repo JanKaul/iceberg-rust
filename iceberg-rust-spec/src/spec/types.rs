@@ -311,6 +311,7 @@ impl StructType {
         self.fields.is_empty()
     }
 
+    //AI! Create comment
     pub fn iter(&self) -> Iter<'_, StructField> {
         self.fields.iter()
     }
