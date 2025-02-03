@@ -69,7 +69,7 @@ pub struct GeneralViewMetadata<T: Materialization> {
 }
 
 impl<T: Materialization> GeneralViewMetadata<T> {
-    /// Get current schema
+    //AI! Create comment
     #[inline]
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         let id = self.current_version(branch)?.schema_id;
