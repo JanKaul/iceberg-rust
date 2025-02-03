@@ -138,7 +138,7 @@ pub struct TableMetadata {
 }
 
 impl TableMetadata {
-    /// Get current schema
+    //AI! Create comment
     #[inline]
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         let schema_id = self
