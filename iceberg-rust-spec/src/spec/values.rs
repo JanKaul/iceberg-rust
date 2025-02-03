@@ -466,7 +466,20 @@ impl Value {
         }
     }
 
-    //AI! Create comment
+    /// Attempts to create a Value from a JSON value according to a specified type
+    ///
+    /// # Arguments
+    /// * `value` - The JSON value to parse
+    /// * `data_type` - The expected Iceberg type
+    ///
+    /// # Returns
+    /// * `Ok(Some(Value))` - Successfully parsed value of the specified type
+    /// * `Ok(None)` - If the JSON value is null
+    /// * `Err(Error)` - If the JSON value cannot be parsed as the specified type
+    ///
+    /// # Note
+    /// Handles all primitive types as well as complex types like structs, lists and maps.
+    /// For complex types, recursively parses their contents according to their type specifications.
     pub fn try_from_json(value: JsonValue, data_type: &Type) -> Result<Option<Self>, Error> {
         match data_type {
             Type::Primitive(primitive) => match (primitive, value) {
