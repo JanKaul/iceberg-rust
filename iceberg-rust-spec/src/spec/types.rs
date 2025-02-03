@@ -260,7 +260,10 @@ impl StructType {
         StructType { fields, lookup }
     }
 
-    //AI! Create comment
+    /// Creates a new StructTypeBuilder to construct a StructType using the builder pattern
+    ///
+    /// This is the recommended way to construct complex StructType instances
+    /// when you need to add fields incrementally or conditionally.
     pub fn builder() -> StructTypeBuilder {
         StructTypeBuilder::default()
     }
