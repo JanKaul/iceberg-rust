@@ -143,6 +143,7 @@ impl SchemaBuilder {
         self
     }
 
+    //AI! Create comment
     pub fn with_struct_field(&mut self, field: StructField) -> &mut Self {
         self.fields.with_struct_field(field);
         self
