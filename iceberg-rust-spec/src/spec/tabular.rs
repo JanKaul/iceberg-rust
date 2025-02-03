@@ -13,7 +13,11 @@ use super::{
     view_metadata::ViewMetadata,
 };
 
-//AI! Create comment
+/// Represents metadata for different types of tabular data structures in Iceberg
+///
+/// This enum provides a unified way to handle metadata for tables, views, and materialized views.
+/// It allows working with different tabular types through a common interface while preserving
+/// their specific metadata structures.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 #[allow(clippy::large_enum_variant)]
