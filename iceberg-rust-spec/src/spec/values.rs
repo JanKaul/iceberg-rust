@@ -327,7 +327,20 @@ impl Hash for Struct {
 }
 
 impl Value {
-    //AI! Create comment
+    /// Applies a partition transform to the value
+    ///
+    /// # Arguments
+    /// * `transform` - The partition transform to apply
+    ///
+    /// # Returns
+    /// * `Ok(Value)` - The transformed value
+    /// * `Err(Error)` - If the transform cannot be applied to this value type
+    ///
+    /// Supported transforms include:
+    /// * Identity - Returns the value unchanged
+    /// * Bucket - Applies a hash function and returns bucket number
+    /// * Truncate - Truncates numbers or strings
+    /// * Year/Month/Day/Hour - Extracts time components from dates and timestamps
     pub fn transform(&self, transform: &Transform) -> Result<Value, Error> {
         match transform {
             Transform::Identity => Ok(self.clone()),
