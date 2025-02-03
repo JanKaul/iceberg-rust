@@ -294,6 +294,7 @@ impl StructType {
         self.fields.iter().find(|field| field.name == name)
     }
 
+    //AI! Create comment
     pub fn len(&self) -> usize {
         self.fields.len()
     }
