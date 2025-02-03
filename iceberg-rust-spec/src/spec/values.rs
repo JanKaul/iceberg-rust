@@ -1,6 +1,4 @@
-/*!
- * Value in iceberg
- */
+//AI! Create module documentation
 
 use core::panic;
 use std::{
