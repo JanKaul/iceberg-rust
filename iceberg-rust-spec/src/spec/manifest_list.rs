@@ -680,7 +680,7 @@ mod tests {
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         table_metadata::TableMetadataBuilder,
-        types::{PrimitiveType, StructField, StructType},
+        types::{PrimitiveType, StructField},
     };
 
     #[test]
@@ -692,18 +692,13 @@ mod tests {
                 1,
                 Schema::builder()
                     .with_schema_id(1)
-                    .with_fields(
-                        StructType::builder()
-                            .with_struct_field(StructField {
-                                id: 0,
-                                name: "date".to_string(),
-                                required: true,
-                                field_type: Type::Primitive(PrimitiveType::Date),
-                                doc: None,
-                            })
-                            .build()
-                            .unwrap(),
-                    )
+                    .with_struct_field(StructField {
+                        id: 0,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                    })
                     .build()
                     .unwrap(),
             )]))
@@ -772,18 +767,13 @@ mod tests {
                 1,
                 Schema::builder()
                     .with_schema_id(1)
-                    .with_fields(
-                        StructType::builder()
-                            .with_struct_field(StructField {
-                                id: 0,
-                                name: "date".to_string(),
-                                required: true,
-                                field_type: Type::Primitive(PrimitiveType::Date),
-                                doc: None,
-                            })
-                            .build()
-                            .unwrap(),
-                    )
+                    .with_struct_field(StructField {
+                        id: 0,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                    })
                     .build()
                     .unwrap(),
             )]))

@@ -577,25 +577,20 @@ pub mod tests {
         let schema = Schema::builder()
             .with_schema_id(1)
             .with_identifier_field_ids(vec![1, 2])
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "one".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "two".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "one".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "two".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
             .build()
             .unwrap();
 

@@ -1336,7 +1336,7 @@ mod tests {
     use crate::spec::{
         partition::{PartitionField, Transform},
         table_metadata::TableMetadataBuilder,
-        types::{PrimitiveType, StructField, StructType, Type},
+        types::{PrimitiveType, StructField, Type},
         values::Value,
     };
 
@@ -1351,18 +1351,13 @@ mod tests {
             .schemas(HashMap::from_iter(vec![(
                 0,
                 Schema::builder()
-                    .with_fields(
-                        StructType::builder()
-                            .with_struct_field(StructField {
-                                id: 0,
-                                name: "date".to_string(),
-                                required: true,
-                                field_type: Type::Primitive(PrimitiveType::Date),
-                                doc: None,
-                            })
-                            .build()
-                            .unwrap(),
-                    )
+                    .with_struct_field(StructField {
+                        id: 0,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                    })
                     .build()
                     .unwrap(),
             )]))
@@ -1477,18 +1472,13 @@ mod tests {
             .schemas(HashMap::from_iter(vec![(
                 0,
                 Schema::builder()
-                    .with_fields(
-                        StructType::builder()
-                            .with_struct_field(StructField {
-                                id: 0,
-                                name: "date".to_string(),
-                                required: true,
-                                field_type: Type::Primitive(PrimitiveType::Date),
-                                doc: None,
-                            })
-                            .build()
-                            .unwrap(),
-                    )
+                    .with_struct_field(StructField {
+                        id: 0,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                    })
                     .build()
                     .unwrap(),
             )]))

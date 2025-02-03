@@ -528,7 +528,7 @@ mod tests {
     use iceberg_rust::catalog::Catalog;
     use iceberg_rust::object_store::ObjectStoreBuilder;
     use iceberg_rust::spec::schema::Schema;
-    use iceberg_rust::spec::types::{PrimitiveType, StructField, StructType, Type};
+    use iceberg_rust::spec::types::{PrimitiveType, StructField, Type};
     use iceberg_rust::table::Table;
     use iceberg_sql_catalog::SqlCatalog;
 
@@ -550,25 +550,20 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "name".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "name".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
             .build()
             .unwrap();
 
@@ -631,25 +626,20 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "name".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "name".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
             .build()
             .unwrap();
 
@@ -716,32 +706,27 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "name".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 3,
-                        name: "address".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "name".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "address".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
             .build()
             .unwrap();
 
@@ -758,25 +743,20 @@ mod tests {
         ctx.register_table("public.users", table).unwrap();
 
         let schema = Schema::builder()
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "size".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "address".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "size".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "address".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
             .build()
             .unwrap();
 
@@ -901,25 +881,20 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "name".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "name".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
             .build()
             .unwrap();
 
@@ -1000,25 +975,20 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "name".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "name".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
             .build()
             .unwrap();
 
@@ -1138,25 +1108,20 @@ mod tests {
         );
 
         let schema = Schema::builder()
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "id".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "name".to_string(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "name".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
             .build()
             .unwrap();
 

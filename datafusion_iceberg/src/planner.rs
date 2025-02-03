@@ -34,7 +34,7 @@ use iceberg_rust::{
         identifier::Identifier,
         namespace::Namespace,
         partition::{PartitionField, PartitionSpec, Transform},
-        schema::Schema,
+        schema::{Schema, DEFAULT_SCHEMA_ID},
         types::StructType,
         view_metadata::{Version, ViewRepresentation},
     },
@@ -207,12 +207,7 @@ async fn plan_create_table(
     Table::builder()
         .with_name(table_name)
         .with_location(&node.0.location)
-        .with_schema(
-            Schema::builder()
-                .with_fields(schema)
-                .build()
-                .map_err(|err| DataFusionError::External(Box::new(err)))?,
-        )
+        .with_schema(Schema::from_struct_type(schema, DEFAULT_SCHEMA_ID, None))
         .with_partition_spec(partition_spec)
         .with_properties(node.0.options.clone())
         .build(&[namespace_name.as_ref().to_owned()], catalog)
@@ -272,12 +267,7 @@ async fn plan_create_view(
         MaterializedView::builder()
             .with_name(table_name)
             .with_location(location)
-            .with_schema(
-                Schema::builder()
-                    .with_fields(schema)
-                    .build()
-                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
-            )
+            .with_schema(Schema::from_struct_type(schema, DEFAULT_SCHEMA_ID, None))
             .with_view_version(
                 Version::builder()
                     .with_representation(ViewRepresentation::sql(definition, None))
@@ -291,12 +281,7 @@ async fn plan_create_view(
         View::builder()
             .with_name(table_name)
             .with_location(location)
-            .with_schema(
-                Schema::builder()
-                    .with_fields(schema)
-                    .build()
-                    .map_err(|err| DataFusionError::External(Box::new(err)))?,
-            )
+            .with_schema(Schema::from_struct_type(schema, DEFAULT_SCHEMA_ID, None))
             .with_view_version(
                 Version::builder()
                     .with_representation(ViewRepresentation::sql(definition, None))

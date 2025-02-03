@@ -836,7 +836,7 @@ mod tests {
             snapshot::{Operation, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary},
             sort::{NullOrder, SortDirection, SortField, SortOrderBuilder},
             table_metadata::TableMetadata,
-            types::{PrimitiveType, StructField, StructTypeBuilder, Type},
+            types::{PrimitiveType, StructField, Type},
         },
     };
 
@@ -1068,49 +1068,39 @@ mod tests {
 
         let schema1 = SchemaBuilder::default()
             .with_schema_id(0)
-            .with_fields(
-                StructTypeBuilder::default()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "x".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "x".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
             .build()
             .unwrap();
 
         let schema2 = SchemaBuilder::default()
             .with_schema_id(1)
-            .with_fields(
-                StructTypeBuilder::default()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "x".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "y".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: Some("comment".to_owned()),
-                    })
-                    .with_struct_field(StructField {
-                        id: 3,
-                        name: "z".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "x".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "y".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: Some("comment".to_owned()),
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "z".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
             .with_identifier_field_ids(vec![1, 2])
             .build()
             .unwrap();
@@ -1217,32 +1207,27 @@ mod tests {
 
         let schema = SchemaBuilder::default()
             .with_schema_id(0)
-            .with_fields(
-                StructTypeBuilder::default()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "x".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "y".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: Some("comment".to_owned()),
-                    })
-                    .with_struct_field(StructField {
-                        id: 3,
-                        name: "z".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "x".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "y".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: Some("comment".to_owned()),
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "z".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
             .build()
             .unwrap();
 
@@ -1300,32 +1285,27 @@ mod tests {
 
         let schema = SchemaBuilder::default()
             .with_schema_id(0)
-            .with_fields(
-                StructTypeBuilder::default()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "x".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "y".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: Some("comment".to_owned()),
-                    })
-                    .with_struct_field(StructField {
-                        id: 3,
-                        name: "z".to_owned(),
-                        required: true,
-                        field_type: Type::Primitive(PrimitiveType::Long),
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "x".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "y".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: Some("comment".to_owned()),
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "z".to_owned(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
             .build()
             .unwrap();
 

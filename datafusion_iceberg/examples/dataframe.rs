@@ -7,7 +7,7 @@ use iceberg_rust::catalog::identifier::Identifier;
 use iceberg_rust::catalog::Catalog;
 use iceberg_rust::object_store::ObjectStoreBuilder;
 use iceberg_rust::spec::schema::Schema;
-use iceberg_rust::spec::types::{StructField, StructType};
+use iceberg_rust::spec::types::StructField;
 use iceberg_rust::table::Table;
 use iceberg_sql_catalog::SqlCatalog;
 
@@ -31,29 +31,24 @@ pub(crate) async fn main() {
         .with_location("/bank_account")
         .with_schema(
             Schema::builder()
-                .with_fields(
-                    StructType::builder()
-                        .with_struct_field(StructField {
-                            id: 0,
-                            name: "id".to_owned(),
-                            required: true,
-                            field_type: iceberg_rust::spec::types::Type::Primitive(
-                                iceberg_rust::spec::types::PrimitiveType::Int,
-                            ),
-                            doc: None,
-                        })
-                        .with_struct_field(StructField {
-                            id: 1,
-                            name: "bank_account".to_owned(),
-                            required: false,
-                            field_type: iceberg_rust::spec::types::Type::Primitive(
-                                iceberg_rust::spec::types::PrimitiveType::Int,
-                            ),
-                            doc: None,
-                        })
-                        .build()
-                        .unwrap(),
-                )
+                .with_struct_field(StructField {
+                    id: 0,
+                    name: "id".to_owned(),
+                    required: true,
+                    field_type: iceberg_rust::spec::types::Type::Primitive(
+                        iceberg_rust::spec::types::PrimitiveType::Int,
+                    ),
+                    doc: None,
+                })
+                .with_struct_field(StructField {
+                    id: 1,
+                    name: "bank_account".to_owned(),
+                    required: false,
+                    field_type: iceberg_rust::spec::types::Type::Primitive(
+                        iceberg_rust::spec::types::PrimitiveType::Int,
+                    ),
+                    doc: None,
+                })
                 .build()
                 .unwrap(),
         )

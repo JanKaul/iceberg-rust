@@ -227,7 +227,7 @@ mod tests {
         spec::{
             partition::{PartitionField, PartitionSpec, Transform},
             schema::Schema,
-            types::{PrimitiveType, StructField, StructType, Type},
+            types::{PrimitiveType, StructField, Type},
         },
     };
 
@@ -273,32 +273,27 @@ mod tests {
 
         let schema = Schema::builder()
             .with_schema_id(0)
-            .with_fields(
-                StructType::builder()
-                    .with_struct_field(StructField {
-                        id: 1,
-                        name: "x".to_string(),
-                        field_type: Type::Primitive(PrimitiveType::Int),
-                        required: true,
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 2,
-                        name: "y".to_string(),
-                        field_type: Type::Primitive(PrimitiveType::Int),
-                        required: true,
-                        doc: None,
-                    })
-                    .with_struct_field(StructField {
-                        id: 3,
-                        name: "z".to_string(),
-                        field_type: Type::Primitive(PrimitiveType::String),
-                        required: true,
-                        doc: None,
-                    })
-                    .build()
-                    .unwrap(),
-            )
+            .with_struct_field(StructField {
+                id: 1,
+                name: "x".to_string(),
+                field_type: Type::Primitive(PrimitiveType::Int),
+                required: true,
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "y".to_string(),
+                field_type: Type::Primitive(PrimitiveType::Int),
+                required: true,
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "z".to_string(),
+                field_type: Type::Primitive(PrimitiveType::String),
+                required: true,
+                doc: None,
+            })
             .build()
             .unwrap();
 
