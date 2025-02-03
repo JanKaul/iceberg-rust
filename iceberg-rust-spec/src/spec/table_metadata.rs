@@ -273,7 +273,7 @@ impl TableMetadata {
         }
     }
 
-    /// Get current snapshot
+    //AI! Create comment
     #[inline]
     pub fn current_snapshot_mut(
         &mut self,
