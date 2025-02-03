@@ -59,7 +59,10 @@ impl ManifestEntry {
         &mut self.status
     }
 
-    //AI! Create comment
+    /// Returns a mutable reference to the sequence number field of this manifest entry.
+    ///
+    /// The sequence number tracks the order of changes to a table. Modifying this allows
+    /// updating the sequence number when new changes are made.
     pub fn sequence_number_mut(&mut self) -> &mut Option<i64> {
         &mut self.sequence_number
     }
