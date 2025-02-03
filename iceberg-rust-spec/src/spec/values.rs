@@ -912,7 +912,13 @@ mod datetime {
     }
 }
 
-//AI! Create comment
+/// A trait for types that support fallible subtraction
+///
+/// This trait is similar to the standard `Sub` trait, but returns a `Result`
+/// to handle cases where subtraction might fail.
+///
+/// # Type Parameters
+/// * `Sized` - Required to ensure the type can be used by value
 pub trait TrySub: Sized {
     fn try_sub(&self, other: &Self) -> Result<Self, Error>;
 }
