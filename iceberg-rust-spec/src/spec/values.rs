@@ -186,7 +186,18 @@ impl Struct {
         self.lookup.keys()
     }
 
-    //AI! Create comments
+    /// Casts the struct's values according to a schema and partition specification
+    ///
+    /// # Arguments
+    /// * `schema` - The StructType defining the expected types
+    /// * `partition_spec` - The partition fields specification
+    ///
+    /// # Returns
+    /// * `Ok(Struct)` - A new Struct with values cast to match the schema and partition spec
+    /// * `Err(Error)` - If casting fails or schema references are invalid
+    ///
+    /// This method transforms the struct's values based on the partition specification,
+    /// applying any necessary type conversions to match the target schema.
     pub(crate) fn cast(
         self,
         schema: &StructType,
