@@ -66,7 +66,14 @@ impl Schema {
         }
     }
 
-    //AI! Create comment
+    /// Creates a new Schema containing only the specified field IDs
+    ///
+    /// # Arguments
+    /// * `ids` - Array of field IDs to include in the projected schema
+    ///
+    /// # Returns
+    /// * A new Schema containing only the specified fields, maintaining the original
+    ///   schema ID and any identifier fields that were included in the projection
     pub fn project(&self, ids: &[i32]) -> Schema {
         Schema {
             schema_id: self.schema_id,
