@@ -47,6 +47,7 @@ pub struct Snapshot {
     schema_id: Option<i32>,
 }
 
+//AI! Create comment
 pub fn generate_snapshot_id() -> i64 {
     let mut bytes: [u8; 8] = [0u8; 8];
     getrandom::getrandom(&mut bytes).unwrap();
