@@ -311,7 +311,10 @@ impl StructType {
         self.fields.is_empty()
     }
 
-    //AI! Create comment
+    /// Returns an iterator over all fields in this struct
+    ///
+    /// # Returns
+    /// * An iterator yielding references to each StructField in order
     pub fn iter(&self) -> Iter<'_, StructField> {
         self.fields.iter()
     }
