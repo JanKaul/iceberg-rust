@@ -45,6 +45,7 @@ impl Schema {
         SchemaBuilder::default()
     }
 
+    //AI! Create comment
     pub fn from_struct_type(
         fields: StructType,
         schema_id: i32,
