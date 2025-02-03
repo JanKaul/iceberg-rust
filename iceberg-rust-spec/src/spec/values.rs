@@ -1,4 +1,19 @@
-//AI! Create module documentation
+/*!
+ * Value types and operations for Iceberg data
+ *
+ * This module implements the runtime value system for Iceberg, including:
+ * - Primitive values (boolean, numeric, string, binary, etc.)
+ * - Complex values (structs, lists, maps)
+ * - Value transformations for partitioning
+ * - Serialization/deserialization to/from various formats
+ * - Value comparison and manipulation operations
+ *
+ * The value system provides:
+ * - Type-safe data representation
+ * - Efficient value storage and access
+ * - Support for partition transforms
+ * - JSON/binary format conversions
+ */
 
 use core::panic;
 use std::{
