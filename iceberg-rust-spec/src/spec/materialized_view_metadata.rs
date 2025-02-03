@@ -39,7 +39,6 @@ pub struct RefreshState {
     pub source_view_states: SourceViews,
 }
 
-//AI! Create comment
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(from = "Vec<SourceTable>", into = "Vec<SourceTable>")]
 pub struct SourceTables(pub HashMap<(Uuid, Option<String>), i64>);
@@ -48,6 +47,7 @@ pub struct SourceTables(pub HashMap<(Uuid, Option<String>), i64>);
 #[serde(from = "Vec<SourceView>", into = "Vec<SourceView>")]
 pub struct SourceViews(pub HashMap<(Uuid, Option<String>), i64>);
 
+//AI! Create comment
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct SourceTable {
