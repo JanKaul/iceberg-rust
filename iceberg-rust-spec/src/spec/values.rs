@@ -648,7 +648,14 @@ impl Value {
         }
     }
 
-    //AI! Create comment
+    /// Converts this Value into a boxed Any trait object
+    ///
+    /// # Returns
+    /// * `Box<dyn Any>` containing the underlying value
+    ///
+    /// # Note
+    /// Currently only implemented for primitive types. Complex types like
+    /// structs, lists, and maps will panic with unimplemented!()
     pub fn into_any(self) -> Box<dyn Any> {
         match self {
             Value::Boolean(any) => Box::new(any),
