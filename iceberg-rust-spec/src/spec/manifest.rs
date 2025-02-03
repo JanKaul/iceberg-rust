@@ -41,6 +41,7 @@ pub struct ManifestEntry {
 }
 
 impl ManifestEntry {
+    //AI! Create comment
     pub fn builder() -> ManifestEntryBuilder {
         ManifestEntryBuilder::default()
     }
