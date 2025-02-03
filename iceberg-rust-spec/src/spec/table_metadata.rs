@@ -335,7 +335,13 @@ impl TableMetadata {
     }
 }
 
-//AI! Create comment
+/// Creates a new metadata file location for a table
+///
+/// # Arguments
+/// * `metadata` - The table metadata to create a location for
+///
+/// # Returns
+/// * `String` - The path where the new metadata file should be stored
 pub fn new_metadata_location<'a, T: Into<TabularMetadataRef<'a>>>(metadata: T) -> String {
     let metadata: TabularMetadataRef = metadata.into();
     let transaction_uuid = Uuid::new_v4();
