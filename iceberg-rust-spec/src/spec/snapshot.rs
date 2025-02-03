@@ -47,7 +47,10 @@ pub struct Snapshot {
     schema_id: Option<i32>,
 }
 
-//AI! Create comment
+/// Generates a random snapshot ID using a cryptographically secure random number generator.
+/// 
+/// The function generates 8 random bytes and converts them to a positive i64 value.
+/// This ensures unique snapshot IDs across the table's history.
 pub fn generate_snapshot_id() -> i64 {
     let mut bytes: [u8; 8] = [0u8; 8];
     getrandom::getrandom(&mut bytes).unwrap();
