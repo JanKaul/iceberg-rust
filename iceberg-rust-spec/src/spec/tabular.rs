@@ -77,6 +77,7 @@ impl From<MaterializedViewMetadata> for TabularMetadata {
     }
 }
 
+//AI! Create comment
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum TabularMetadataRef<'a> {
