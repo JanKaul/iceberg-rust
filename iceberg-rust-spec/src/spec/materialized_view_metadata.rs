@@ -1,6 +1,4 @@
-/*!
- * A Struct for the materialized view metadata   
-*/
+//AI! Create module documentation
 
 use std::{collections::HashMap, ops::Deref};
 
