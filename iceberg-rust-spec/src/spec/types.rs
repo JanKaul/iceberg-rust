@@ -268,7 +268,7 @@ impl StructType {
         StructTypeBuilder::default()
     }
 
-    /// Get structfield with certain id
+    //AI! Create comment
     pub fn get(&self, index: usize) -> Option<&StructField> {
         self.lookup
             .get(&(index as i32))
