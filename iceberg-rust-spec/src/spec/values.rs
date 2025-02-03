@@ -158,7 +158,7 @@ impl Struct {
     pub fn get(&self, name: &str) -> Option<&Option<Value>> {
         self.fields.get(*self.lookup.get(name)?)
     }
-    /// Get mutable reference to partition value
+    //AI! Create comment
     pub fn get_mut(&mut self, name: &str) -> Option<&mut Option<Value>> {
         self.fields.get_mut(*self.lookup.get(name)?)
     }
