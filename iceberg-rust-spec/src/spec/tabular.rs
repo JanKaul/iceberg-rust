@@ -105,7 +105,8 @@ impl TabularMetadataRef<'_> {
             TabularMetadataRef::MaterializedView(matview) => &matview.view_uuid,
         }
     }
-    /// Get location for tabular
+
+    //AI! Creat comment
     pub fn location(&self) -> &str {
         match self {
             TabularMetadataRef::Table(table) => &table.location,
