@@ -1,6 +1,4 @@
-/*!
- * Partitioning
-*/
+//AI! Create module documentation
 
 use std::{
     fmt::{self, Display},
