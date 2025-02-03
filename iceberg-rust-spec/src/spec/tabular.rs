@@ -1,14 +1,14 @@
 /*!
  * Tabular metadata types and traits
- * 
+ *
  * This module provides types for working with metadata for different tabular data structures
- * in Iceberg, including tables, views, and materialized views. It defines common traits and 
+ * in Iceberg, including tables, views, and materialized views. It defines common traits and
  * implementations that allow working with these different types through a unified interface.
- * 
+ *
  * The main types are:
  * - TabularMetadata: An enum for owned metadata of different tabular types
  * - TabularMetadataRef: A reference-based version for borrowed metadata
- * 
+ *
  * These types allow code to handle tables, views, and materialized views generically while
  * preserving their specific metadata structures and behaviors.
  */
@@ -122,7 +122,7 @@ impl TabularMetadataRef<'_> {
     ///
     /// # Returns
     /// * A string reference to the base storage location (e.g. S3 path, file path)
-    /// where this table, view, or materialized view's data is stored
+    ///   where this table, view, or materialized view's data is stored
     pub fn location(&self) -> &str {
         match self {
             TabularMetadataRef::Table(table) => &table.location,
