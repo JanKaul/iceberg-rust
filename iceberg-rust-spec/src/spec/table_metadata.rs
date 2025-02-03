@@ -186,7 +186,7 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("partition spec".to_string()))
     }
 
-    /// Get partition fields
+    //AI! Create comment
     pub fn current_partition_fields(
         &self,
         branch: Option<&str>,
