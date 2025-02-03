@@ -3,13 +3,11 @@
 */
 use std::{fmt, ops::Deref, str};
 
+use super::types::{StructField, StructType, StructTypeBuilder};
 use derive_getters::Getters;
 use serde::{Deserialize, Serialize};
-use super::types::{StructType, StructTypeBuilder};
 
 use crate::error::Error;
-
-use super::types::StructType;
 
 pub static DEFAULT_SCHEMA_ID: i32 = 0;
 
@@ -18,11 +16,9 @@ pub static DEFAULT_SCHEMA_ID: i32 = 0;
 /// Names and types of fields in a table.
 pub struct Schema {
     /// Identifier of the schema
-    #[builder(default = "DEFAULT_SCHEMA_ID")]
     schema_id: i32,
     /// Set of primitive fields that identify rows in a table.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[builder(setter(into, strip_option), default)]
     identifier_field_ids: Option<Vec<i32>>,
 
     #[serde(flatten)]
@@ -37,50 +33,9 @@ impl Deref for Schema {
     }
 }
 
-#[derive(Default)]
-pub struct SchemaBuilder {
-    schema_id: Option<i32>,
-    identifier_field_ids: Option<Vec<i32>>,
-    fields: Option<StructTypeBuilder>,
-}
-
-impl SchemaBuilder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_schema_id(&mut self, schema_id: i32) -> &mut Self {
-        self.schema_id = Some(schema_id);
-        self
-    }
-
-    pub fn with_identifier_field_ids(&mut self, ids: Vec<i32>) -> &mut Self {
-        self.identifier_field_ids = Some(ids);
-        self
-    }
-
-    pub fn with_fields(&mut self, fields: StructTypeBuilder) -> &mut Self {
-        self.fields = Some(fields);
-        self
-    }
-
-    pub fn build(&mut self) -> Result<Schema, Error> {
-        let fields = self.fields
-            .take()
-            .ok_or_else(|| Error::InvalidFormat("Schema fields must be set".to_string()))?
-            .build()?;
-
-        Ok(Schema {
-            schema_id: self.schema_id.unwrap_or(DEFAULT_SCHEMA_ID),
-            identifier_field_ids: self.identifier_field_ids.take(),
-            fields,
-        })
-    }
-}
-
 impl Schema {
     pub fn builder() -> SchemaBuilder {
-        SchemaBuilder::new()
+        SchemaBuilder::default()
     }
 
     pub fn project(&self, ids: &[i32]) -> Schema {
@@ -117,6 +72,40 @@ impl str::FromStr for Schema {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         serde_json::from_str(s).map_err(Error::from)
+    }
+}
+
+#[derive(Default)]
+pub struct SchemaBuilder {
+    schema_id: Option<i32>,
+    identifier_field_ids: Option<Vec<i32>>,
+    fields: StructTypeBuilder,
+}
+
+impl SchemaBuilder {
+    pub fn with_schema_id(&mut self, schema_id: i32) -> &mut Self {
+        self.schema_id = Some(schema_id);
+        self
+    }
+
+    pub fn with_identifier_field_ids(&mut self, ids: impl Into<Vec<i32>>) -> &mut Self {
+        self.identifier_field_ids = Some(ids.into());
+        self
+    }
+
+    pub fn with_struct_field(&mut self, field: StructField) -> &mut Self {
+        self.fields.with_struct_field(field);
+        self
+    }
+
+    pub fn build(&mut self) -> Result<Schema, Error> {
+        let fields = self.fields.build()?;
+
+        Ok(Schema {
+            schema_id: self.schema_id.unwrap_or(DEFAULT_SCHEMA_ID),
+            identifier_field_ids: self.identifier_field_ids.take(),
+            fields,
+        })
     }
 }
 
