@@ -260,6 +260,7 @@ impl StructType {
         StructType { fields, lookup }
     }
 
+    //AI! Create comment
     pub fn builder() -> StructTypeBuilder {
         StructTypeBuilder::default()
     }
