@@ -34,7 +34,13 @@ impl Deref for Schema {
 }
 
 impl Schema {
-    //AI! Create comment
+    /// Creates a new SchemaBuilder to construct a Schema using the builder pattern
+    ///
+    /// # Returns
+    /// * A SchemaBuilder instance configured with default values
+    ///
+    /// This is the recommended way to construct Schema instances when you need
+    /// to add fields incrementally or set optional parameters.
     pub fn builder() -> SchemaBuilder {
         SchemaBuilder::default()
     }
