@@ -1,6 +1,13 @@
-/*!
- * A Struct for the materialized view metadata   
-*/
+//! Materialized view metadata types and functionality
+//!
+//! This module contains the types and implementations for managing materialized view metadata in Apache Iceberg.
+//! It includes structures for tracking view states, source tables, and refresh operations.
+//!
+//! The main types are:
+//! - [`MaterializedViewMetadata`]: The top-level metadata for a materialized view
+//! - [`RefreshState`]: Information about the last refresh operation
+//! - [`SourceTables`]: Collection of source table states
+//! - [`SourceViews`]: Collection of source view states
 
 use std::{collections::HashMap, ops::Deref};
 
@@ -39,14 +46,28 @@ pub struct RefreshState {
     pub source_view_states: SourceViews,
 }
 
+/// Represents a collection of source table states in a materialized view refresh
+///
+/// # Fields
+/// * `0` - A HashMap mapping (table UUID, optional reference) pairs to snapshot IDs
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(from = "Vec<SourceTable>", into = "Vec<SourceTable>")]
 pub struct SourceTables(pub HashMap<(Uuid, Option<String>), i64>);
 
+/// Represents a collection of source view states in a materialized view refresh
+///
+/// # Fields
+/// * `0` - A HashMap mapping (table UUID, optional reference) pairs to version IDs
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(from = "Vec<SourceView>", into = "Vec<SourceView>")]
 pub struct SourceViews(pub HashMap<(Uuid, Option<String>), i64>);
 
+/// Represents a source table state in a materialized view refresh
+///
+/// # Fields
+/// * `uuid` - The UUID of the source table
+/// * `snapshot_id` - The snapshot ID of the source table at refresh time
+/// * `ref` - Optional reference name (e.g. branch or tag) used to access the source table
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct SourceTable {
@@ -55,6 +76,11 @@ pub struct SourceTable {
     r#ref: Option<String>,
 }
 
+/// Represents a source view state in a materialized view refresh
+///
+/// # Fields
+/// * `uuid` - The UUID of the source view
+/// * `version_id` - The version ID of the source view at refresh time
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct SourceView {

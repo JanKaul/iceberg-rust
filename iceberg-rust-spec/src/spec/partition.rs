@@ -1,6 +1,15 @@
-/*!
- * Partitioning
-*/
+//! Partition specification and transformation functionality for Iceberg tables.
+//!
+//! This module provides the core types and implementations for defining how data is partitioned
+//! in Iceberg tables. It includes:
+//!
+//! - [`Transform`] - Transformations that can be applied to partition columns
+//! - [`PartitionField`] - Definition of individual partition fields
+//! - [`PartitionSpec`] - Complete specification of table partitioning
+//! - [`BoundPartitionField`] - Runtime binding of partition fields to schema fields
+//!
+//! Partitioning is a key concept in Iceberg that determines how data files are organized
+//! and enables efficient querying through partition pruning.
 
 use std::{
     fmt::{self, Display},
@@ -207,6 +216,8 @@ impl str::FromStr for PartitionSpec {
     }
 }
 
+/// A partition field bound to its source schema field, providing access to both partition and source field information.
+/// This allows accessing the partition field definition along with the schema field it references.
 #[derive(Debug)]
 pub struct BoundPartitionField<'a> {
     partition_field: &'a PartitionField,
@@ -214,6 +225,11 @@ pub struct BoundPartitionField<'a> {
 }
 
 impl<'a> BoundPartitionField<'a> {
+    /// Creates a new BoundPartitionField by binding together a partition field with its corresponding schema field.
+    ///
+    /// # Arguments
+    /// * `partition_field` - The partition field definition
+    /// * `struct_field` - The source schema field that this partition is derived from
     pub fn new(partition_field: &'a PartitionField, struct_field: &'a StructField) -> Self {
         Self {
             partition_field,

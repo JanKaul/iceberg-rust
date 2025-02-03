@@ -1,6 +1,17 @@
-/*!
-Manifest files
-*/
+//! Manifest file handling and data file tracking for Iceberg tables.
+//!
+//! This module provides the core types and implementations for working with manifest files,
+//! which track the data files that comprise an Iceberg table. Key components include:
+//!
+//! - [`ManifestEntry`] - Entries tracking data file additions and deletions
+//! - [`DataFile`] - Metadata about data files including statistics and metrics
+//! - [`Content`] - Types of content stored in data files (data vs deletes)
+//! - [`Status`] - Tracking additions and deletions of files
+//! - [`FileFormat`] - Supported file formats (Avro, ORC, Parquet)
+//!
+//! Manifest files are a key part of Iceberg's architecture, providing metadata about
+//! data files and enabling efficient file pruning during queries.
+
 use std::collections::HashMap;
 
 use apache_avro::Schema as AvroSchema;
@@ -41,18 +52,36 @@ pub struct ManifestEntry {
 }
 
 impl ManifestEntry {
+    /// Creates a new builder for constructing a ManifestEntry.
+    ///
+    /// The builder provides a fluent interface for setting all the fields of a ManifestEntry.
+    /// Use this when you need to create a new manifest entry with custom values.
+    ///
+    /// # Returns
+    /// * A new ManifestEntryBuilder instance with default values
     pub fn builder() -> ManifestEntryBuilder {
         ManifestEntryBuilder::default()
     }
 
+    /// Returns a mutable reference to the status field of this manifest entry.
+    ///
+    /// This allows modifying the status to track additions and deletions of data files.
     pub fn status_mut(&mut self) -> &mut Status {
         &mut self.status
     }
 
+    /// Returns a mutable reference to the sequence number field of this manifest entry.
+    ///
+    /// The sequence number tracks the order of changes to a table. Modifying this allows
+    /// updating the sequence number when new changes are made.
     pub fn sequence_number_mut(&mut self) -> &mut Option<i64> {
         &mut self.sequence_number
     }
 
+    /// Returns a mutable reference to the snapshot ID field of this manifest entry.
+    ///
+    /// The snapshot ID identifies which snapshot added or deleted this data file.
+    /// Modifying this allows updating which snapshot this manifest entry belongs to.
     pub fn snapshot_id_mut(&mut self) -> &mut Option<i64> {
         &mut self.snapshot_id
     }
@@ -447,6 +476,13 @@ impl<'de, T: Serialize + DeserializeOwned + Clone> Deserialize<'de> for AvroMap<
 }
 
 impl AvroMap<ByteBuf> {
+    /// Converts a map of byte buffers into a map of typed Iceberg values using the provided schema.
+    ///
+    /// # Arguments
+    /// * `schema` - The struct type schema used to determine the correct type for each value
+    ///
+    /// # Returns
+    /// * `Result<HashMap<i32, Value>, Error>` - A map of field IDs to their typed values, or an error if conversion fails
     fn into_value_map(self, schema: &StructType) -> Result<HashMap<i32, Value>, Error> {
         Ok(HashMap::from_iter(
             self.0

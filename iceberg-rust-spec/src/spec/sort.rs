@@ -1,6 +1,18 @@
 /*!
- * Sorting
-*/
+ * Sort order specification for Iceberg tables
+ *
+ * This module defines the sort ordering capabilities of Iceberg tables, including:
+ * - Sort direction (ascending/descending)
+ * - Null ordering (nulls first/last)
+ * - Sort fields that specify which columns to sort by
+ * - Sort order specifications that combine multiple sort fields
+ *
+ * Sort orders are used to:
+ * - Optimize data layout for efficient querying
+ * - Support range predicates and partition pruning
+ * - Enable merge-on-read operations
+ */
+
 use std::{fmt, str};
 
 use derive_builder::Builder;

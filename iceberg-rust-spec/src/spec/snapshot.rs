@@ -1,6 +1,18 @@
-/*!
- * Snapshots
-*/
+//! Snapshot management and versioning for Iceberg tables.
+//!
+//! This module provides the core types and implementations for managing table snapshots, which
+//! represent the state of a table at specific points in time. Key components include:
+//!
+//! - [`Snapshot`] - Represents a point-in-time state of the table
+//! - [`Operation`] - Types of operations that can create new snapshots
+//! - [`Summary`] - Metadata about changes made in a snapshot
+//! - [`SnapshotReference`] - Named references to snapshots (branches and tags)
+//! - [`SnapshotRetention`] - Policies for snapshot retention and cleanup
+//!
+//! Snapshots are fundamental to Iceberg's time travel and version control capabilities,
+//! allowing tables to maintain their history and enabling features like rollbacks
+//! and incremental processing.
+
 use std::{
     collections::HashMap,
     fmt, str,
@@ -47,6 +59,10 @@ pub struct Snapshot {
     schema_id: Option<i32>,
 }
 
+/// Generates a random snapshot ID using a cryptographically secure random number generator.
+///
+/// The function generates 8 random bytes and converts them to a positive i64 value.
+/// This ensures unique snapshot IDs across the table's history.
 pub fn generate_snapshot_id() -> i64 {
     let mut bytes: [u8; 8] = [0u8; 8];
     getrandom::getrandom(&mut bytes).unwrap();

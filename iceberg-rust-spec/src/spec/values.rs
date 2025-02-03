@@ -1,5 +1,18 @@
 /*!
- * Value in iceberg
+ * Value types and operations for Iceberg data
+ *
+ * This module implements the runtime value system for Iceberg, including:
+ * - Primitive values (boolean, numeric, string, binary, etc.)
+ * - Complex values (structs, lists, maps)
+ * - Value transformations for partitioning
+ * - Serialization/deserialization to/from various formats
+ * - Value comparison and manipulation operations
+ *
+ * The value system provides:
+ * - Type-safe data representation
+ * - Efficient value storage and access
+ * - Support for partition transforms
+ * - JSON/binary format conversions
  */
 
 use core::panic;
@@ -147,23 +160,57 @@ pub struct Struct {
 }
 
 impl Struct {
-    /// Get reference to partition value
+    /// Gets a reference to the value associated with the given field name
+    ///
+    /// # Arguments
+    /// * `name` - The name of the field to retrieve
+    ///
+    /// # Returns
+    /// * `Some(&Option<Value>)` if the field exists
+    /// * `None` if the field doesn't exist
     pub fn get(&self, name: &str) -> Option<&Option<Value>> {
         self.fields.get(*self.lookup.get(name)?)
     }
-    /// Get mutable reference to partition value
+    /// Gets a mutable reference to the value associated with the given field name
+    ///
+    /// # Arguments
+    /// * `name` - The name of the field to retrieve
+    ///
+    /// # Returns
+    /// * `Some(&mut Option<Value>)` if the field exists
+    /// * `None` if the field doesn't exist
     pub fn get_mut(&mut self, name: &str) -> Option<&mut Option<Value>> {
         self.fields.get_mut(*self.lookup.get(name)?)
     }
 
+    /// Returns an iterator over all field values in this struct
+    ///
+    /// # Returns
+    /// * An iterator yielding references to each optional Value in order
     pub fn iter(&self) -> Iter<'_, Option<Value>> {
         self.fields.iter()
     }
 
+    /// Returns an iterator over all field names in this struct
+    ///
+    /// # Returns
+    /// * An iterator yielding references to each field name in sorted order
     pub fn keys(&self) -> Keys<'_, String, usize> {
         self.lookup.keys()
     }
 
+    /// Casts the struct's values according to a schema and partition specification
+    ///
+    /// # Arguments
+    /// * `schema` - The StructType defining the expected types
+    /// * `partition_spec` - The partition fields specification
+    ///
+    /// # Returns
+    /// * `Ok(Struct)` - A new Struct with values cast to match the schema and partition spec
+    /// * `Err(Error)` - If casting fails or schema references are invalid
+    ///
+    /// This method transforms the struct's values based on the partition specification,
+    /// applying any necessary type conversions to match the target schema.
     pub(crate) fn cast(
         self,
         schema: &StructType,
@@ -293,7 +340,20 @@ impl Hash for Struct {
 }
 
 impl Value {
-    /// Perform a partition transformation for the given value
+    /// Applies a partition transform to the value
+    ///
+    /// # Arguments
+    /// * `transform` - The partition transform to apply
+    ///
+    /// # Returns
+    /// * `Ok(Value)` - The transformed value
+    /// * `Err(Error)` - If the transform cannot be applied to this value type
+    ///
+    /// Supported transforms include:
+    /// * Identity - Returns the value unchanged
+    /// * Bucket - Applies a hash function and returns bucket number
+    /// * Truncate - Truncates numbers or strings
+    /// * Year/Month/Day/Hour - Extracts time components from dates and timestamps
     pub fn transform(&self, transform: &Transform) -> Result<Value, Error> {
         match transform {
             Transform::Identity => Ok(self.clone()),
@@ -367,8 +427,20 @@ impl Value {
         }
     }
 
+    /// Attempts to create a Value from raw bytes according to a specified type
+    ///
+    /// # Arguments
+    /// * `bytes` - The raw byte slice to parse
+    /// * `data_type` - The expected type of the value
+    ///
+    /// # Returns
+    /// * `Ok(Value)` - Successfully parsed value of the specified type
+    /// * `Err(Error)` - If the bytes cannot be parsed as the specified type
+    ///
+    /// # Note
+    /// Currently only supports primitive types. Complex types like structs, lists,
+    /// and maps are not supported and will return an error.
     #[inline]
-    /// Create iceberg value from bytes
     pub fn try_from_bytes(bytes: &[u8], data_type: &Type) -> Result<Self, Error> {
         match data_type {
             Type::Primitive(primitive) => match primitive {
@@ -407,7 +479,20 @@ impl Value {
         }
     }
 
-    /// Create iceberg value from a json value
+    /// Attempts to create a Value from a JSON value according to a specified type
+    ///
+    /// # Arguments
+    /// * `value` - The JSON value to parse
+    /// * `data_type` - The expected Iceberg type
+    ///
+    /// # Returns
+    /// * `Ok(Some(Value))` - Successfully parsed value of the specified type
+    /// * `Ok(None)` - If the JSON value is null
+    /// * `Err(Error)` - If the JSON value cannot be parsed as the specified type
+    ///
+    /// # Note
+    /// Handles all primitive types as well as complex types like structs, lists and maps.
+    /// For complex types, recursively parses their contents according to their type specifications.
     pub fn try_from_json(value: JsonValue, data_type: &Type) -> Result<Option<Self>, Error> {
         match data_type {
             Type::Primitive(primitive) => match (primitive, value) {
@@ -545,7 +630,14 @@ impl Value {
         }
     }
 
-    /// Get datatype of value
+    /// Returns the Iceberg Type that corresponds to this Value
+    ///
+    /// # Returns
+    /// * The Type (primitive or complex) that matches this Value's variant
+    ///
+    /// # Note
+    /// Currently only implemented for primitive types. Complex types like
+    /// structs, lists, and maps will cause a panic.
     pub fn datatype(&self) -> Type {
         match self {
             Value::Boolean(_) => Type::Primitive(PrimitiveType::Boolean),
@@ -569,7 +661,14 @@ impl Value {
         }
     }
 
-    /// Convert Value to the any type
+    /// Converts this Value into a boxed Any trait object
+    ///
+    /// # Returns
+    /// * `Box<dyn Any>` containing the underlying value
+    ///
+    /// # Note
+    /// Currently only implemented for primitive types. Complex types like
+    /// structs, lists, and maps will panic with unimplemented!()
     pub fn into_any(self) -> Box<dyn Any> {
         match self {
             Value::Boolean(any) => Box::new(any),
@@ -589,7 +688,20 @@ impl Value {
             _ => unimplemented!(),
         }
     }
-    /// Cast value to different type
+
+    /// Attempts to cast this Value to a different Type
+    ///
+    /// # Arguments
+    /// * `data_type` - The target Type to cast to
+    ///
+    /// # Returns
+    /// * `Ok(Value)` - Successfully cast Value of the target type
+    /// * `Err(Error)` - If the value cannot be cast to the target type
+    ///
+    /// # Note
+    /// Currently supports casting between numeric types (Int -> Long, Int -> Date, etc)
+    /// and temporal types (Long -> Time/Timestamp/TimestampTZ).
+    /// Returns the original value if the target type matches the current type.
     pub fn cast(self, data_type: &Type) -> Result<Self, Error> {
         if self.datatype() == *data_type {
             Ok(self)
@@ -813,6 +925,13 @@ mod datetime {
     }
 }
 
+/// A trait for types that support fallible subtraction
+///
+/// This trait is similar to the standard `Sub` trait, but returns a `Result`
+/// to handle cases where subtraction might fail.
+///
+/// # Type Parameters
+/// * `Sized` - Required to ensure the type can be used by value
 pub trait TrySub: Sized {
     fn try_sub(&self, other: &Self) -> Result<Self, Error>;
 }
@@ -874,6 +993,18 @@ impl TrySub for Value {
     }
 }
 
+/// Calculates a numeric distance between two strings
+///
+/// # Arguments
+/// * `left` - First string to compare
+/// * `right` - Second string to compare
+///
+/// # Returns
+/// * For strings that can be converted to base-36 numbers, returns sum of squared differences
+/// * For other strings, returns difference of their hash values
+///
+/// First attempts to compare up to 256 characters as base-36 numbers.
+/// Falls back to hash-based comparison if conversion fails.
 fn sub_string(left: &str, right: &str) -> u64 {
     if let Some(distance) = left
         .chars()

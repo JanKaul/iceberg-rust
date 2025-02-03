@@ -1,7 +1,14 @@
-/*!
-Defines the [table metadata](https://iceberg.apache.org/spec/#table-metadata).
-The main struct here is [TableMetadataV2] which defines the data for a table.
-*/
+//! Table metadata implementation for Iceberg tables
+//!
+//! This module contains the implementation of table metadata for Iceberg tables, including:
+//! - Table metadata structure and versioning (V1 and V2)
+//! - Schema management
+//! - Partition specifications
+//! - Sort orders
+//! - Snapshot management and history
+//! - Metadata properties and logging
+//!
+//! The table metadata format is defined in the [Iceberg Table Spec](https://iceberg.apache.org/spec/#table-metadata)
 
 use std::{
     collections::HashMap,
@@ -138,7 +145,13 @@ pub struct TableMetadata {
 }
 
 impl TableMetadata {
-    /// Get current schema
+    /// Gets the current schema for a given branch, or the table's current schema if no branch is specified.
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to get the schema for
+    ///
+    /// # Returns
+    /// * `Result<&Schema, Error>` - The current schema, or an error if the schema cannot be found
     #[inline]
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         let schema_id = self
@@ -150,7 +163,13 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
 
-    /// Get schema for snapshot
+    /// Gets the schema for a specific snapshot ID.
+    ///
+    /// # Arguments
+    /// * `snapshot_id` - The ID of the snapshot to get the schema for
+    ///
+    /// # Returns
+    /// * `Result<&Schema, Error>` - The schema for the snapshot, or an error if the schema cannot be found
     #[inline]
     pub fn schema(&self, snapshot_id: i64) -> Result<&Schema, Error> {
         let schema_id = self
@@ -163,7 +182,10 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
 
-    /// Get default partition spec
+    /// Gets the default partition specification for the table
+    ///
+    /// # Returns
+    /// * `Result<&PartitionSpec, Error>` - The default partition spec, or an error if it cannot be found
     #[inline]
     pub fn default_partition_spec(&self) -> Result<&PartitionSpec, Error> {
         self.partition_specs
@@ -171,7 +193,14 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("partition spec".to_string()))
     }
 
-    /// Get partition fields
+    /// Gets the current partition fields for a given branch, binding them to their source schema fields
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to get the partition fields for
+    ///
+    /// # Returns
+    /// * `Result<Vec<BoundPartitionField>, Error>` - Vector of partition fields bound to their source schema fields,
+    ///   or an error if the schema or partition spec cannot be found
     pub fn current_partition_fields(
         &self,
         branch: Option<&str>,
@@ -193,7 +222,14 @@ impl TableMetadata {
             .collect()
     }
 
-    /// Get partition fields for snapshot
+    /// Gets the partition fields for a specific snapshot, binding them to their source schema fields
+    ///
+    /// # Arguments
+    /// * `snapshot_id` - The ID of the snapshot to get the partition fields for
+    ///
+    /// # Returns
+    /// * `Result<Vec<BoundPartitionField>, Error>` - Vector of partition fields bound to their source schema fields,
+    ///   or an error if the schema or partition spec cannot be found
     pub fn partition_fields(&self, snapshot_id: i64) -> Result<Vec<BoundPartitionField>, Error> {
         let schema = self.schema(snapshot_id)?;
         self.default_partition_spec()?
@@ -212,7 +248,14 @@ impl TableMetadata {
             .collect()
     }
 
-    /// Get current snapshot
+    /// Gets the current snapshot for a given reference, or the table's current snapshot if no reference is specified
+    ///
+    /// # Arguments
+    /// * `snapshot_ref` - Optional snapshot reference name to get the snapshot for
+    ///
+    /// # Returns
+    /// * `Result<Option<&Snapshot>, Error>` - The current snapshot if it exists, None if there are no snapshots,
+    ///   or an error if the snapshots are in an invalid state
     #[inline]
     pub fn current_snapshot(&self, snapshot_ref: Option<&str>) -> Result<Option<&Snapshot>, Error> {
         let snapshot_id = match snapshot_ref {
@@ -237,7 +280,14 @@ impl TableMetadata {
         }
     }
 
-    /// Get current snapshot
+    /// Gets a mutable reference to the current snapshot for a given reference, or the table's current snapshot if no reference is specified
+    ///
+    /// # Arguments
+    /// * `snapshot_ref` - Optional snapshot reference name to get the snapshot for
+    ///
+    /// # Returns
+    /// * `Result<Option<&mut Snapshot>, Error>` - Mutable reference to the current snapshot if it exists, None if there are no snapshots,
+    ///   or an error if the snapshots are in an invalid state
     #[inline]
     pub fn current_snapshot_mut(
         &mut self,
@@ -274,7 +324,13 @@ impl TableMetadata {
         }
     }
 
-    /// Get sequence_number of snapshot
+    /// Gets the sequence number for a specific snapshot
+    ///
+    /// # Arguments
+    /// * `snapshot_id` - The ID of the snapshot to get the sequence number for
+    ///
+    /// # Returns
+    /// * `Option<i64>` - The sequence number if the snapshot exists, None otherwise
     pub fn sequence_number(&self, snapshot_id: i64) -> Option<i64> {
         self.snapshots
             .get(&snapshot_id)
@@ -286,6 +342,13 @@ impl TableMetadata {
     }
 }
 
+/// Creates a new metadata file location for a table
+///
+/// # Arguments
+/// * `metadata` - The table metadata to create a location for
+///
+/// # Returns
+/// * `String` - The path where the new metadata file should be stored
 pub fn new_metadata_location<'a, T: Into<TabularMetadataRef<'a>>>(metadata: T) -> String {
     let metadata: TabularMetadataRef = metadata.into();
     let transaction_uuid = Uuid::new_v4();
