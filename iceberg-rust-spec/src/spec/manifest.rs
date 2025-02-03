@@ -67,7 +67,10 @@ impl ManifestEntry {
         &mut self.sequence_number
     }
 
-    //AI! Create comment
+    /// Returns a mutable reference to the snapshot ID field of this manifest entry.
+    ///
+    /// The snapshot ID identifies which snapshot added or deleted this data file.
+    /// Modifying this allows updating which snapshot this manifest entry belongs to.
     pub fn snapshot_id_mut(&mut self) -> &mut Option<i64> {
         &mut self.snapshot_id
     }
