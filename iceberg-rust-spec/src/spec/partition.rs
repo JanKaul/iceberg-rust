@@ -216,7 +216,11 @@ pub struct BoundPartitionField<'a> {
 }
 
 impl<'a> BoundPartitionField<'a> {
-    //AI! Create comment
+    /// Creates a new BoundPartitionField by binding together a partition field with its corresponding schema field.
+    ///
+    /// # Arguments
+    /// * `partition_field` - The partition field definition
+    /// * `struct_field` - The source schema field that this partition is derived from
     pub fn new(partition_field: &'a PartitionField, struct_field: &'a StructField) -> Self {
         Self {
             partition_field,
