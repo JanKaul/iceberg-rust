@@ -66,6 +66,7 @@ impl Schema {
         }
     }
 
+    //AI! Create comment
     pub fn project(&self, ids: &[i32]) -> Schema {
         Schema {
             schema_id: self.schema_id,
