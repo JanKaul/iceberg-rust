@@ -207,7 +207,8 @@ impl str::FromStr for PartitionSpec {
     }
 }
 
-//AI! Create comment
+/// A partition field bound to its source schema field, providing access to both partition and source field information.
+/// This allows accessing the partition field definition along with the schema field it references.
 #[derive(Debug)]
 pub struct BoundPartitionField<'a> {
     partition_field: &'a PartitionField,
