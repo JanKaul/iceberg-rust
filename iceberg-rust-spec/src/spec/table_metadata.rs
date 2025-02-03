@@ -317,7 +317,13 @@ impl TableMetadata {
         }
     }
 
-    //AI! Create comment
+    /// Gets the sequence number for a specific snapshot
+    ///
+    /// # Arguments
+    /// * `snapshot_id` - The ID of the snapshot to get the sequence number for
+    ///
+    /// # Returns
+    /// * `Option<i64>` - The sequence number if the snapshot exists, None otherwise
     pub fn sequence_number(&self, snapshot_id: i64) -> Option<i64> {
         self.snapshots
             .get(&snapshot_id)
