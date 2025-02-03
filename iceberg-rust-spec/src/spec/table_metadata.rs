@@ -1,4 +1,14 @@
-//AI! Create module documentation
+//! Table metadata implementation for Iceberg tables
+//!
+//! This module contains the implementation of table metadata for Iceberg tables, including:
+//! - Table metadata structure and versioning (V1 and V2)
+//! - Schema management
+//! - Partition specifications
+//! - Sort orders
+//! - Snapshot management and history
+//! - Metadata properties and logging
+//!
+//! The table metadata format is defined in the [Iceberg Table Spec](https://iceberg.apache.org/spec/#table-metadata)
 
 use std::{
     collections::HashMap,
