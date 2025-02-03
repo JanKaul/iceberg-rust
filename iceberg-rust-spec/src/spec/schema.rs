@@ -155,7 +155,11 @@ impl SchemaBuilder {
         self
     }
 
-    //AI! Create comment
+    /// Builds and returns a new Schema from this builder's configuration
+    ///
+    /// # Returns
+    /// * `Ok(Schema)` - A new Schema instance with the configured fields and metadata
+    /// * `Err(Error)` - If there was an error building the schema
     pub fn build(&mut self) -> Result<Schema, Error> {
         let fields = self.fields.build()?;
 
