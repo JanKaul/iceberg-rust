@@ -1,4 +1,19 @@
-//AI! Create module documentation
+/*!
+ * Iceberg type system implementation
+ * 
+ * This module implements Iceberg's type system, which includes:
+ * 
+ * - Primitive types: boolean, numeric types, strings, binary, etc.
+ * - Complex types: structs, lists, and maps
+ * - Type conversion and validation logic
+ * - Serialization/deserialization support
+ * 
+ * The type system is used throughout the Iceberg format to:
+ * - Define table schemas
+ * - Validate data values
+ * - Support schema evolution
+ * - Enable efficient data access patterns
+ */
 
 use std::{collections::HashMap, fmt, ops::Index, slice::Iter};
 
