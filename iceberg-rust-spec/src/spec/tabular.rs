@@ -118,6 +118,7 @@ impl TabularMetadataRef<'_> {
             TabularMetadataRef::MaterializedView(matview) => &matview.location,
         }
     }
+
     /// Returns the current sequence number or version ID of the tabular object
     ///
     /// # Returns
@@ -130,6 +131,8 @@ impl TabularMetadataRef<'_> {
             TabularMetadataRef::MaterializedView(matview) => matview.current_version_id,
         }
     }
+
+    //AI! Create comment
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         match self {
             TabularMetadataRef::Table(table) => table.current_schema(branch),
