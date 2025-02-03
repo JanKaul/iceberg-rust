@@ -215,7 +215,14 @@ impl TableMetadata {
             .collect()
     }
 
-    //AI! Create comment
+    /// Gets the partition fields for a specific snapshot, binding them to their source schema fields
+    ///
+    /// # Arguments
+    /// * `snapshot_id` - The ID of the snapshot to get the partition fields for
+    ///
+    /// # Returns
+    /// * `Result<Vec<BoundPartitionField>, Error>` - Vector of partition fields bound to their source schema fields,
+    ///   or an error if the schema or partition spec cannot be found
     pub fn partition_fields(&self, snapshot_id: i64) -> Result<Vec<BoundPartitionField>, Error> {
         let schema = self.schema(snapshot_id)?;
         self.default_partition_spec()?
