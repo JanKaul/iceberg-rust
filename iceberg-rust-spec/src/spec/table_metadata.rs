@@ -273,7 +273,14 @@ impl TableMetadata {
         }
     }
 
-    //AI! Create comment
+    /// Gets a mutable reference to the current snapshot for a given reference, or the table's current snapshot if no reference is specified
+    ///
+    /// # Arguments
+    /// * `snapshot_ref` - Optional snapshot reference name to get the snapshot for
+    ///
+    /// # Returns
+    /// * `Result<Option<&mut Snapshot>, Error>` - Mutable reference to the current snapshot if it exists, None if there are no snapshots,
+    ///   or an error if the snapshots are in an invalid state
     #[inline]
     pub fn current_snapshot_mut(
         &mut self,
