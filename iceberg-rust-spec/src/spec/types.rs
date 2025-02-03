@@ -281,7 +281,8 @@ impl StructType {
             .get(&(index as i32))
             .map(|idx| &self.fields[*idx])
     }
-    /// Get structfield with certain name
+
+    //AI! Create comment
     pub fn get_name(&self, name: &str) -> Option<&StructField> {
         self.fields.iter().find(|field| field.name == name)
     }
