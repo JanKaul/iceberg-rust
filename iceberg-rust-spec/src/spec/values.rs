@@ -170,6 +170,7 @@ impl Struct {
         self.fields.get_mut(*self.lookup.get(name)?)
     }
 
+    //AI! Create comment
     pub fn iter(&self) -> Iter<'_, Option<Value>> {
         self.fields.iter()
     }
