@@ -61,7 +61,11 @@ pub struct SourceTable {
     r#ref: Option<String>,
 }
 
-//AI! Create comment
+/// Represents a source view state in a materialized view refresh
+///
+/// # Fields
+/// * `uuid` - The UUID of the source view
+/// * `version_id` - The version ID of the source view at refresh time
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct SourceView {
