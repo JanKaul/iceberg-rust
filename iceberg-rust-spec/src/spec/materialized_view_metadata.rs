@@ -1,4 +1,13 @@
-//AI! Create module documentation
+//! Materialized view metadata types and functionality
+//!
+//! This module contains the types and implementations for managing materialized view metadata in Apache Iceberg.
+//! It includes structures for tracking view states, source tables, and refresh operations.
+//!
+//! The main types are:
+//! - [`MaterializedViewMetadata`]: The top-level metadata for a materialized view
+//! - [`RefreshState`]: Information about the last refresh operation
+//! - [`SourceTables`]: Collection of source table states
+//! - [`SourceViews`]: Collection of source view states
 
 use std::{collections::HashMap, ops::Deref};
 
