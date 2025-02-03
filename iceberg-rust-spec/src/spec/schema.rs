@@ -155,6 +155,7 @@ impl SchemaBuilder {
         self
     }
 
+    //AI! Create comment
     pub fn build(&mut self) -> Result<Schema, Error> {
         let fields = self.fields.build()?;
 
