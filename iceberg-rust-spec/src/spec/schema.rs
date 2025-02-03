@@ -143,7 +143,13 @@ impl SchemaBuilder {
         self
     }
 
-    //AI! Create comment
+    /// Adds a struct field to this schema
+    ///
+    /// # Arguments
+    /// * `field` - The StructField to add to the schema
+    ///
+    /// # Returns
+    /// * A mutable reference to self for method chaining
     pub fn with_struct_field(&mut self, field: StructField) -> &mut Self {
         self.fields.with_struct_field(field);
         self
