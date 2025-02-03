@@ -102,6 +102,7 @@ impl<T: Materialization> GeneralViewMetadata<T> {
             .get(&id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
+
     /// Gets the current version for a given reference, or the view's current version if no reference is specified
     ///
     /// # Arguments
@@ -123,7 +124,8 @@ impl<T: Materialization> GeneralViewMetadata<T> {
             .get(&version_id)
             .ok_or_else(|| Error::InvalidFormat("view metadata".to_string()))
     }
-    /// Add schema to view metadata
+
+    //AI! Create comment
     #[inline]
     pub fn add_schema(&mut self, schema: Schema) {
         self.schemas.insert(*schema.schema_id(), schema);
