@@ -1,6 +1,5 @@
-/*!
- * Data Types
-*/
+//AI! Create module documentation
+
 use std::{collections::HashMap, fmt, ops::Index, slice::Iter};
 
 use derive_builder::Builder;
