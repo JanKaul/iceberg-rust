@@ -1,4 +1,19 @@
-//AI! Create module documentation
+/*!
+ * Schema definition and management for Iceberg tables
+ *
+ * This module provides the core schema functionality for Iceberg tables, including:
+ * - Schema versioning and evolution
+ * - Field definitions with unique IDs
+ * - Required vs optional field specifications
+ * - Schema builder patterns for constructing complex schemas
+ * - Schema projection for selecting subsets of fields
+ *
+ * The schema system is fundamental to Iceberg's data model, providing:
+ * - Type safety and validation
+ * - Schema evolution capabilities
+ * - Efficient field access via ID-based lookups
+ * - Support for nested data structures
+ */
 
 use std::{fmt, ops::Deref, str};
 
