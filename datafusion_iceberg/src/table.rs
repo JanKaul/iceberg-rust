@@ -764,7 +764,7 @@ impl DataSink for IcebergDataSink {
         .map_err(DataFusionIcebergError::from)?;
 
         let metadata_files =
-            write_parquet_partitioned(&table, data.map_err(Into::into), self.0.branch.as_deref())
+            write_parquet_partitioned(table, data.map_err(Into::into), self.0.branch.as_deref())
                 .await?;
 
         table

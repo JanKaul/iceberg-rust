@@ -146,7 +146,7 @@ pub async fn store_parquet_partitioned(
                     None
                 } else {
                     Some(generate_partition_path(
-                        &partition_fields,
+                        partition_fields,
                         &partition_values,
                     )?)
                 };

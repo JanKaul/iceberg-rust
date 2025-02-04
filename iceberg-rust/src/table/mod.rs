@@ -172,12 +172,12 @@ impl Table {
     }
 }
 
-async fn datafiles<'a>(
+async fn datafiles(
     object_store: Arc<dyn ObjectStore>,
-    manifests: &'a [ManifestListEntry],
+    manifests: &'_ [ManifestListEntry],
     filter: Option<Vec<bool>>,
     sequence_number_range: (Option<i64>, Option<i64>),
-) -> Result<impl Stream<Item = Result<ManifestEntry, Error>> + 'a, Error> {
+) -> Result<impl Stream<Item = Result<ManifestEntry, Error>> + '_, Error> {
     // filter manifest files according to filter vector
     let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
         Some(predicate) => {

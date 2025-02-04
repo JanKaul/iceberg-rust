@@ -63,7 +63,7 @@ impl<'a> PartitionStream<'a> {
     }
 }
 
-impl<'a> Stream for PartitionStream<'a> {
+impl Stream for PartitionStream<'_> {
     type Item = Result<(Vec<Value>, RecordBatchReceiver), Error>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -107,7 +107,7 @@ impl<'a> Stream for PartitionStream<'a> {
                     break Poll::Ready(Some(Err(err.into())));
                 }
                 Poll::Ready(Some(Ok(batch))) => {
-                    for result in partition_record_batch(&batch, &this.partition_fields)? {
+                    for result in partition_record_batch(&batch, this.partition_fields)? {
                         let (partition_values, batch) = result?;
 
                         let sender = if let Some(sender) =
@@ -193,7 +193,7 @@ fn partition_record_batch<'a>(
             },
         )?;
     Ok(predicates.into_iter().map(move |(values, predicate)| {
-        Ok((values, filter_record_batch(&record_batch, &predicate)?))
+        Ok((values, filter_record_batch(record_batch, &predicate)?))
     }))
 }
 
