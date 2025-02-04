@@ -21,7 +21,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use futures::{
-    channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
+    channel::mpsc::{channel, Receiver, Sender},
     Stream,
 };
 use itertools::{iproduct, Itertools};
@@ -34,10 +34,8 @@ use crate::error::Error;
 
 use super::transform::transform_arrow;
 
-type RecordBatchSender = UnboundedSender<Result<RecordBatch, ArrowError>>;
-type RecordBatchReceiver = UnboundedReceiver<Result<RecordBatch, ArrowError>>;
-
-static BUFFER_SIZE: usize = 1;
+type RecordBatchSender = Sender<Result<RecordBatch, ArrowError>>;
+type RecordBatchReceiver = Receiver<Result<RecordBatch, ArrowError>>;
 
 pin_project! {
     pub(crate) struct PartitionStream<'a> {
@@ -90,7 +88,7 @@ impl<'a> Stream for PartitionStream<'a> {
                 }
                 *this.sends = new_sends;
 
-                if this.sends.len() >= BUFFER_SIZE {
+                if !this.sends.is_empty() {
                     break Poll::Pending;
                 }
             }
@@ -101,7 +99,7 @@ impl<'a> Stream for PartitionStream<'a> {
                 }
                 Poll::Ready(None) => {
                     for sender in this.partition_streams.read_only_view().values() {
-                        sender.close_channel();
+                        sender.clone().close_channel();
                     }
                     break Poll::Ready(None);
                 }
@@ -119,7 +117,7 @@ impl<'a> Stream for PartitionStream<'a> {
                         } else {
                             this.partition_streams
                                 .insert_cloned(partition_values, |key| {
-                                    let (sender, reciever) = unbounded();
+                                    let (sender, reciever) = channel(1);
                                     this.queue.push_back(Ok((key.clone(), reciever)));
                                     sender
                                 })
