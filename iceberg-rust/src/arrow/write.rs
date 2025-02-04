@@ -35,7 +35,7 @@ use crate::{
     error::Error, file_format::parquet::parquet_to_datafile, object_store::Bucket, table::Table,
 };
 
-use super::partition::partition_record_batches;
+use super::partition::PartitionStream;
 
 const MAX_PARQUET_SIZE: usize = 512_000_000;
 
@@ -125,11 +125,12 @@ pub async fn store_parquet_partitioned(
         .await?;
         Ok(files)
     } else {
-        let mut streams = partition_record_batches(batches, partition_fields).await?;
+        let mut streams = PartitionStream::new(Box::pin(batches), partition_fields);
 
         let mut set = JoinSet::new();
 
-        while let Some((partition_values, batches)) = streams.next().await {
+        while let Some(result) = streams.next().await {
+            let (partition_values, batches) = result?;
             set.spawn({
                 let arrow_schema = arrow_schema.clone();
                 let object_store = object_store.clone();

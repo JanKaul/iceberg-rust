@@ -31,6 +31,8 @@ thiserror = { workspace = true }
 derive-getters = { workspace = true }
 iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.6.1" }
 smallvec = { version = "1.13.2", features = ["const_generics"] }
+once_map = { workspace = true }
+pin-project-lite = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }

@@ -3,10 +3,10 @@
 */
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashSet, VecDeque},
     hash::Hash,
     pin::Pin,
-    sync::Arc,
+    task::{Context, Poll},
 };
 
 use arrow::{
@@ -22,101 +22,114 @@ use arrow::{
 };
 use futures::{
     channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender},
-    lock::Mutex,
-    stream, SinkExt, Stream, StreamExt, TryStreamExt,
+    Stream,
 };
 use itertools::{iproduct, Itertools};
 
 use iceberg_rust_spec::{partition::BoundPartitionField, spec::values::Value};
+use once_map::OnceMap;
+use pin_project_lite::pin_project;
+
+use crate::error::Error;
 
 use super::transform::transform_arrow;
 
-type SendableRecordBatchStream =
-    Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>;
-
 type RecordBatchSender = UnboundedSender<Result<RecordBatch, ArrowError>>;
+type RecordBatchReceiver = UnboundedReceiver<Result<RecordBatch, ArrowError>>;
 
-/// Partitions a stream of Arrow RecordBatches according to partition fields
-///
-/// # Arguments
-/// * `record_batches` - Input stream of RecordBatches to partition
-/// * `partition_fields` - List of partition fields that define how to partition the data
-///
-/// # Returns
-/// A stream of tuples containing:
-/// * The partition values that identify each partition
-/// * A stream of RecordBatches belonging to that partition
-pub async fn partition_record_batches(
-    record_batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
-    partition_fields: &[BoundPartitionField<'_>],
-) -> Result<
-    impl Stream<
-        Item = (
-            Vec<Value>,
-            impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
-        ),
-    >,
-    ArrowError,
-> {
-    #[allow(clippy::type_complexity)]
-    let (partition_sender, partition_receiver): (
-        UnboundedSender<(Vec<Value>, SendableRecordBatchStream)>,
-        UnboundedReceiver<(Vec<Value>, SendableRecordBatchStream)>,
-    ) = unbounded();
-    let partition_streams: Arc<Mutex<HashMap<Vec<Value>, RecordBatchSender>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    record_batches
-        .try_for_each_concurrent(None, |record_batch| {
-            let partition_streams = partition_streams.clone();
-            let partition_sender = partition_sender.clone();
-            async move {
-                partition_record_batch( &record_batch,partition_fields)?
-                    .try_for_each_concurrent(None, |(values, batch)| {
-                        let partition_streams = partition_streams.clone();
-                        let mut partition_sender = partition_sender.clone();
-                        async move {
-                            let mut sender = {
-                                let mut partition_streams = partition_streams.lock().await;
-                                let entry = partition_streams.entry(values.clone());
-                                match entry {
-                                    Entry::Occupied(entry) => entry.get().clone(),
-                                    Entry::Vacant(entry) => {
-                                        let (sender, reciever) = unbounded();
-                                        entry.insert(sender.clone());
-                                        partition_sender.send((values,Box::pin(reciever))).await.map_err(
-                                            |err| ArrowError::ExternalError(Box::new(err)),
-                                        )?;
-                                        sender
-                                    }
-                                }
-                            };
-                            sender
-                                .send(Ok(batch))
-                                .await
-                                .map_err(|err| ArrowError::ExternalError(Box::new(err)))?;
-                            Ok::<_, ArrowError>(())
-                        }
-                    })
-                    .await?;
-                Ok(())
+pin_project! {
+    pub(crate) struct PartitionStream<'a> {
+        #[pin]
+        record_batches: Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>,
+        partition_fields: &'a [BoundPartitionField<'a>],
+        partition_streams: OnceMap<Vec<Value>, RecordBatchSender>,
+        queue: VecDeque<Result<(Vec<Value>, RecordBatchReceiver), Error>>,
+        sends: Vec<(RecordBatchSender, RecordBatch)>,
+    }
+}
+
+impl<'a> PartitionStream<'a> {
+    pub(crate) fn new(
+        record_batches: Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>,
+        partition_fields: &'a [BoundPartitionField<'a>],
+    ) -> Self {
+        Self {
+            record_batches,
+            partition_fields,
+            partition_streams: OnceMap::new(),
+            queue: VecDeque::new(),
+            sends: Vec::new(),
+        }
+    }
+}
+
+impl<'a> Stream for PartitionStream<'a> {
+    type Item = Result<(Vec<Value>, RecordBatchReceiver), Error>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+
+        if let Some(result) = this.queue.pop_front() {
+            return Poll::Ready(Some(result));
+        }
+
+        if !this.sends.is_empty() {
+            let mut new_sends = Vec::with_capacity(this.sends.len());
+            while let Some((mut sender, batch)) = this.sends.pop() {
+                match sender.poll_ready(cx) {
+                    Poll::Pending => {
+                        new_sends.push((sender, batch));
+                    }
+                    Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err.into()))),
+                    Poll::Ready(Ok(())) => {
+                        sender.start_send(Ok(batch))?;
+                    }
+                }
             }
-        })
-        .await?;
-    Arc::into_inner(partition_streams)
-        .ok_or(ArrowError::MemoryError(
-            "Couldn't close partition streams.".to_string(),
-        ))?
-        .into_inner()
-        .into_values()
-        .for_each(|sender| sender.close_channel());
-    partition_sender.close_channel();
-    Ok(partition_receiver)
+            *this.sends = new_sends;
+
+            if !this.sends.is_empty() {
+                return Poll::Pending;
+            }
+        }
+
+        match this.record_batches.poll_next(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => {
+                for sender in this.partition_streams.read_only_view().values() {
+                    sender.close_channel();
+                }
+                Poll::Ready(None)
+            }
+            Poll::Ready(Some(Err(err))) => Poll::Ready(Some(Err(err.into()))),
+            Poll::Ready(Some(Ok(batch))) => {
+                for result in partition_record_batch(&batch, &this.partition_fields)? {
+                    let (partition_values, batch) = result?;
+
+                    let sender = if let Some(sender) =
+                        this.partition_streams.get_cloned(&partition_values)
+                    {
+                        sender
+                    } else {
+                        this.partition_streams
+                            .insert_cloned(partition_values, |key| {
+                                let (sender, reciever) = unbounded();
+                                this.queue.push_back(Ok((key.clone(), reciever)));
+                                sender
+                            })
+                    };
+
+                    this.sends.push((sender, batch));
+                }
+                Poll::Pending
+            }
+        }
+    }
 }
 
 fn partition_record_batch<'a>(
     record_batch: &'a RecordBatch,
     partition_fields: &[BoundPartitionField<'_>],
-) -> Result<impl Stream<Item = Result<(Vec<Value>, RecordBatch), ArrowError>> + 'a, ArrowError> {
+) -> Result<impl Iterator<Item = Result<(Vec<Value>, RecordBatch), ArrowError>> + 'a, ArrowError> {
     let partition_columns: Vec<ArrayRef> = partition_fields
         .iter()
         .map(|field| {
@@ -174,8 +187,9 @@ fn partition_record_batch<'a>(
                     .collect::<Result<Vec<(Vec<Value>, _)>, ArrowError>>()
             },
         )?;
-    Ok(stream::iter(predicates.into_iter())
-        .map(|(values, predicate)| Ok((values, filter_record_batch(record_batch, &predicate)?))))
+    Ok(predicates.into_iter().map(move |(values, predicate)| {
+        Ok((values, filter_record_batch(&record_batch, &predicate)?))
+    }))
 }
 
 fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
@@ -245,9 +259,7 @@ mod tests {
         },
     };
 
-    use crate::error::Error;
-
-    use super::partition_record_batches;
+    use crate::{arrow::partition::PartitionStream, error::Error};
 
     #[tokio::test]
     async fn test_partition() {
@@ -330,11 +342,9 @@ mod tests {
             })
             .collect::<Result<Vec<_>, Error>>()
             .unwrap();
-        let streams = partition_record_batches(record_batches, &partition_fields)
-            .await
-            .unwrap();
+        let streams = PartitionStream::new(Box::pin(record_batches), &partition_fields);
         let output = streams
-            .then(|s| async move { s.1.collect::<Vec<_>>().await })
+            .then(|s| async move { s.unwrap().1.collect::<Vec<_>>().await })
             .collect::<Vec<_>>()
             .await;
 

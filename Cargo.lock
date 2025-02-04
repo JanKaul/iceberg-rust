@@ -3031,7 +3031,9 @@ dependencies = [
  "iceberg-rust-spec",
  "itertools 0.10.5",
  "object_store",
+ "once_map",
  "parquet",
+ "pin-project-lite",
  "serde",
  "serde_derive",
  "serde_json",
@@ -3808,6 +3810,18 @@ name = "once_cell"
 version = "1.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
+
+[[package]]
+name = "once_map"
+version = "0.4.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bd2cae3bec3936bbed1ccc5a3343b3738858182419f9c0522c7260c80c430b0"
+dependencies = [
+ "ahash 0.8.11",
+ "hashbrown 0.15.2",
+ "parking_lot",
+ "stable_deref_trait",
+]
 
 [[package]]
 name = "openssl"
