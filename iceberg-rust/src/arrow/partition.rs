@@ -37,6 +37,8 @@ use super::transform::transform_arrow;
 type RecordBatchSender = UnboundedSender<Result<RecordBatch, ArrowError>>;
 type RecordBatchReceiver = UnboundedReceiver<Result<RecordBatch, ArrowError>>;
 
+static BUFFER_SIZE: usize = 1;
+
 pin_project! {
     pub(crate) struct PartitionStream<'a> {
         #[pin]
@@ -66,61 +68,66 @@ impl<'a> PartitionStream<'a> {
 impl<'a> Stream for PartitionStream<'a> {
     type Item = Result<(Vec<Value>, RecordBatchReceiver), Error>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.project();
+        let mut this = self.project();
 
-        if let Some(result) = this.queue.pop_front() {
-            return Poll::Ready(Some(result));
-        }
-
-        if !this.sends.is_empty() {
-            let mut new_sends = Vec::with_capacity(this.sends.len());
-            while let Some((mut sender, batch)) = this.sends.pop() {
-                match sender.poll_ready(cx) {
-                    Poll::Pending => {
-                        new_sends.push((sender, batch));
-                    }
-                    Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err.into()))),
-                    Poll::Ready(Ok(())) => {
-                        sender.start_send(Ok(batch))?;
-                    }
-                }
+        loop {
+            if let Some(result) = this.queue.pop_front() {
+                break Poll::Ready(Some(result));
             }
-            *this.sends = new_sends;
 
             if !this.sends.is_empty() {
-                return Poll::Pending;
-            }
-        }
-
-        match this.record_batches.poll_next(cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(None) => {
-                for sender in this.partition_streams.read_only_view().values() {
-                    sender.close_channel();
+                let mut new_sends = Vec::with_capacity(this.sends.len());
+                while let Some((mut sender, batch)) = this.sends.pop() {
+                    match sender.poll_ready(cx) {
+                        Poll::Pending => {
+                            new_sends.push((sender, batch));
+                        }
+                        Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err.into()))),
+                        Poll::Ready(Ok(())) => {
+                            sender.start_send(Ok(batch))?;
+                        }
+                    }
                 }
-                Poll::Ready(None)
-            }
-            Poll::Ready(Some(Err(err))) => Poll::Ready(Some(Err(err.into()))),
-            Poll::Ready(Some(Ok(batch))) => {
-                for result in partition_record_batch(&batch, &this.partition_fields)? {
-                    let (partition_values, batch) = result?;
+                *this.sends = new_sends;
 
-                    let sender = if let Some(sender) =
-                        this.partition_streams.get_cloned(&partition_values)
-                    {
-                        sender
-                    } else {
-                        this.partition_streams
-                            .insert_cloned(partition_values, |key| {
-                                let (sender, reciever) = unbounded();
-                                this.queue.push_back(Ok((key.clone(), reciever)));
-                                sender
-                            })
-                    };
-
-                    this.sends.push((sender, batch));
+                if this.sends.len() >= BUFFER_SIZE {
+                    break Poll::Pending;
                 }
-                Poll::Pending
+            }
+
+            match this.record_batches.as_mut().poll_next(cx) {
+                Poll::Pending => {
+                    break Poll::Pending;
+                }
+                Poll::Ready(None) => {
+                    for sender in this.partition_streams.read_only_view().values() {
+                        sender.close_channel();
+                    }
+                    break Poll::Ready(None);
+                }
+                Poll::Ready(Some(Err(err))) => {
+                    break Poll::Ready(Some(Err(err.into())));
+                }
+                Poll::Ready(Some(Ok(batch))) => {
+                    for result in partition_record_batch(&batch, &this.partition_fields)? {
+                        let (partition_values, batch) = result?;
+
+                        let sender = if let Some(sender) =
+                            this.partition_streams.get_cloned(&partition_values)
+                        {
+                            sender
+                        } else {
+                            this.partition_streams
+                                .insert_cloned(partition_values, |key| {
+                                    let (sender, reciever) = unbounded();
+                                    this.queue.push_back(Ok((key.clone(), reciever)));
+                                    sender
+                                })
+                        };
+
+                        this.sends.push((sender, batch));
+                    }
+                }
             }
         }
     }
