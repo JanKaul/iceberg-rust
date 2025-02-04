@@ -70,67 +70,7 @@ pub async fn partition_record_batches(
             let partition_streams = partition_streams.clone();
             let partition_sender = partition_sender.clone();
             async move {
-                let partition_columns: Vec<ArrayRef> = partition_fields
-                    .iter()
-                    .map(|field| {
-                        let array = record_batch
-                            .column_by_name(field.source_name())
-                            .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?;
-                        transform_arrow(array.clone(), field.transform())
-                    })
-                    .collect::<Result<_, ArrowError>>()?;
-                let distinct_values: Vec<DistinctValues> = partition_columns
-                    .iter()
-                    .map(|x| distinct_values(x.clone()))
-                    .collect::<Result<Vec<_>, ArrowError>>()?;
-                let mut true_buffer = BooleanBufferBuilder::new(record_batch.num_rows());
-                true_buffer.append_n(record_batch.num_rows(), true);
-                let predicates = distinct_values
-                    .into_iter()
-                    .zip(partition_columns.iter())
-                    .map(|(distinct, value)| match distinct {
-                        DistinctValues::Int(set) => set
-                            .into_iter()
-                            .map(|x| {
-                                Ok((
-                                    Value::Int(x),
-                                    eq(&PrimitiveArray::<Int32Type>::new_scalar(x), value)?,
-                                ))
-                            })
-                            .collect::<Result<Vec<_>, ArrowError>>(),
-                        DistinctValues::Long(set) => set
-                            .into_iter()
-                            .map(|x| {
-                                Ok((
-                                    Value::LongInt(x),
-                                    eq(&PrimitiveArray::<Int64Type>::new_scalar(x), value)?,
-                                ))
-                            })
-                            .collect::<Result<Vec<_>, ArrowError>>(),
-                        DistinctValues::String(set) => set
-                            .into_iter()
-                            .map(|x| {
-                                let res = eq(&StringArray::new_scalar(&x), value)?;
-                                Ok((Value::String(x), res))
-                            })
-                            .collect::<Result<Vec<_>, ArrowError>>(),
-                    })
-                    .try_fold(
-                        vec![(vec![], BooleanArray::new(true_buffer.finish(), None))],
-                        |acc, predicates| {
-                            iproduct!(acc, predicates?.iter())
-                                .map(|((mut values, x), (value, y))| {
-                                    values.push(value.clone());
-                                    Ok((values, and(&x, y)?))
-                                })
-                                .filter_ok(|x| x.1.true_count() != 0)
-                                .collect::<Result<Vec<(Vec<Value>, _)>, ArrowError>>()
-                        },
-                    )?;
-                stream::iter(predicates.into_iter())
-                    .map(|(values, predicate)| {
-                        Ok((values, filter_record_batch(&record_batch, &predicate)?))
-                    })
+                partition_record_batch( &record_batch,partition_fields)?
                     .try_for_each_concurrent(None, |(values, batch)| {
                         let partition_streams = partition_streams.clone();
                         let mut partition_sender = partition_sender.clone();
@@ -171,6 +111,71 @@ pub async fn partition_record_batches(
         .for_each(|sender| sender.close_channel());
     partition_sender.close_channel();
     Ok(partition_receiver)
+}
+
+fn partition_record_batch<'a>(
+    record_batch: &'a RecordBatch,
+    partition_fields: &[BoundPartitionField<'_>],
+) -> Result<impl Stream<Item = Result<(Vec<Value>, RecordBatch), ArrowError>> + 'a, ArrowError> {
+    let partition_columns: Vec<ArrayRef> = partition_fields
+        .iter()
+        .map(|field| {
+            let array = record_batch
+                .column_by_name(field.source_name())
+                .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?;
+            transform_arrow(array.clone(), field.transform())
+        })
+        .collect::<Result<_, ArrowError>>()?;
+    let distinct_values: Vec<DistinctValues> = partition_columns
+        .iter()
+        .map(|x| distinct_values(x.clone()))
+        .collect::<Result<Vec<_>, ArrowError>>()?;
+    let mut true_buffer = BooleanBufferBuilder::new(record_batch.num_rows());
+    true_buffer.append_n(record_batch.num_rows(), true);
+    let predicates = distinct_values
+        .into_iter()
+        .zip(partition_columns.iter())
+        .map(|(distinct, value)| match distinct {
+            DistinctValues::Int(set) => set
+                .into_iter()
+                .map(|x| {
+                    Ok((
+                        Value::Int(x),
+                        eq(&PrimitiveArray::<Int32Type>::new_scalar(x), value)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, ArrowError>>(),
+            DistinctValues::Long(set) => set
+                .into_iter()
+                .map(|x| {
+                    Ok((
+                        Value::LongInt(x),
+                        eq(&PrimitiveArray::<Int64Type>::new_scalar(x), value)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, ArrowError>>(),
+            DistinctValues::String(set) => set
+                .into_iter()
+                .map(|x| {
+                    let res = eq(&StringArray::new_scalar(&x), value)?;
+                    Ok((Value::String(x), res))
+                })
+                .collect::<Result<Vec<_>, ArrowError>>(),
+        })
+        .try_fold(
+            vec![(vec![], BooleanArray::new(true_buffer.finish(), None))],
+            |acc, predicates| {
+                iproduct!(acc, predicates?.iter())
+                    .map(|((mut values, x), (value, y))| {
+                        values.push(value.clone());
+                        Ok((values, and(&x, y)?))
+                    })
+                    .filter_ok(|x| x.1.true_count() != 0)
+                    .collect::<Result<Vec<(Vec<Value>, _)>, ArrowError>>()
+            },
+        )?;
+    Ok(stream::iter(predicates.into_iter())
+        .map(|(values, predicate)| Ok((values, filter_record_batch(record_batch, &predicate)?))))
 }
 
 fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
