@@ -248,6 +248,7 @@ enum DistinctValues {
 mod tests {
     use futures::{stream, StreamExt};
     use std::sync::Arc;
+    use tokio::task::JoinSet;
 
     use arrow::{
         array::{ArrayRef, Int64Array, StringArray},
@@ -347,11 +348,12 @@ mod tests {
             })
             .collect::<Result<Vec<_>, Error>>()
             .unwrap();
-        let streams = PartitionStream::new(Box::pin(record_batches), &partition_fields);
-        let output = streams
-            .then(|s| async move { s.unwrap().1.collect::<Vec<_>>().await })
-            .collect::<Vec<_>>()
-            .await;
+        let mut streams = PartitionStream::new(Box::pin(record_batches), &partition_fields);
+        let mut set = JoinSet::new();
+        while let Some(Ok((_, receiver))) = streams.next().await {
+            set.spawn(async move { receiver.collect::<Vec<_>>().await });
+        }
+        let output = set.join_all().await;
 
         for x in output {
             for y in x {
