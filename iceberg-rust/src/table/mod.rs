@@ -10,9 +10,7 @@ use manifest::ManifestReader;
 use manifest_list::read_snapshot;
 use object_store::{path::Path, ObjectStore};
 
-use futures::{
-    channel::mpsc::unbounded, stream, SinkExt, Stream, StreamExt, TryFutureExt, TryStreamExt,
-};
+use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::util::{self};
 use iceberg_rust_spec::{
     spec::{
@@ -142,12 +140,12 @@ impl Table {
     }
     /// Get list of datafiles corresponding to the given manifest files
     #[inline]
-    pub async fn datafiles(
+    pub async fn datafiles<'a>(
         &self,
-        manifests: &[ManifestListEntry],
+        manifests: &'a [ManifestListEntry],
         filter: Option<Vec<bool>>,
         sequence_number_range: (Option<i64>, Option<i64>),
-    ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
+    ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>> + 'a, Error> {
         datafiles(
             self.object_store(),
             manifests,
@@ -174,12 +172,12 @@ impl Table {
     }
 }
 
-async fn datafiles(
+async fn datafiles<'a>(
     object_store: Arc<dyn ObjectStore>,
-    manifests: &[ManifestListEntry],
+    manifests: &'a [ManifestListEntry],
     filter: Option<Vec<bool>>,
     sequence_number_range: (Option<i64>, Option<i64>),
-) -> Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error> {
+) -> Result<impl Stream<Item = Result<ManifestEntry, Error>> + 'a, Error> {
     // filter manifest files according to filter vector
     let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
         Some(predicate) => {
@@ -193,13 +191,10 @@ async fn datafiles(
         None => Box::new(manifests.iter()),
     };
 
-    let (sender, reciever) = unbounded();
     // Collect a vector of data files by creating a stream over the manifst files, fetch their content and return a flatten stream over their entries.
-    stream::iter(iter)
-        .map(Ok::<_, Error>)
-        .try_for_each_concurrent(None, |file| {
+    Ok(stream::iter(iter)
+        .then(move |file| {
             let object_store = object_store.clone();
-            let mut sender = sender.clone();
             async move {
                 let path: Path = util::strip_prefix(&file.manifest_path).into();
                 let bytes = Cursor::new(Vec::from(
@@ -208,41 +203,38 @@ async fn datafiles(
                         .and_then(|file| file.bytes())
                         .await?,
                 ));
-                let reader = ManifestReader::new(bytes)?;
-                let sequence_number = file.sequence_number;
-                sender
-                    .send(stream::iter(reader).try_filter_map(move |mut x| {
-                        future::ready({
-                            let sequence_number = if let Some(sequence_number) = x.sequence_number()
-                            {
-                                *sequence_number
-                            } else {
-                                *x.sequence_number_mut() = Some(sequence_number);
-                                sequence_number
-                            };
-
-                            let filter = match sequence_number_range {
-                                (Some(start), Some(end)) => {
-                                    start < sequence_number && sequence_number <= end
-                                }
-                                (Some(start), None) => start < sequence_number,
-                                (None, Some(end)) => sequence_number <= end,
-                                _ => true,
-                            };
-                            if filter {
-                                Ok(Some(x))
-                            } else {
-                                Ok(None)
-                            }
-                        })
-                    }))
-                    .await?;
-                Ok(())
+                Ok::<_, Error>((bytes, file.sequence_number))
             }
         })
-        .await?;
-    sender.close_channel();
-    Ok(reciever.flatten().map_err(Error::from))
+        .flat_map_unordered(None, move |result| {
+            let (bytes, sequence_number) = result.unwrap();
+
+            let reader = ManifestReader::new(bytes).unwrap();
+            stream::iter(reader).try_filter_map(move |mut x| {
+                future::ready({
+                    let sequence_number = if let Some(sequence_number) = x.sequence_number() {
+                        *sequence_number
+                    } else {
+                        *x.sequence_number_mut() = Some(sequence_number);
+                        sequence_number
+                    };
+
+                    let filter = match sequence_number_range {
+                        (Some(start), Some(end)) => {
+                            start < sequence_number && sequence_number <= end
+                        }
+                        (Some(start), None) => start < sequence_number,
+                        (None, Some(end)) => sequence_number <= end,
+                        _ => true,
+                    };
+                    if filter {
+                        Ok(Some(x))
+                    } else {
+                        Ok(None)
+                    }
+                })
+            })
+        }))
 }
 
 /// delete all datafiles, manifests and metadata files, does not remove table from catalog
