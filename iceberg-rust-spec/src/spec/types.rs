@@ -1,13 +1,13 @@
 /*!
  * Iceberg type system implementation
- * 
+ *
  * This module implements Iceberg's type system, which includes:
- * 
+ *
  * - Primitive types: boolean, numeric types, strings, binary, etc.
  * - Complex types: structs, lists, and maps
  * - Type conversion and validation logic
  * - Serialization/deserialization support
- * 
+ *
  * The type system is used throughout the Iceberg format to:
  * - Define table schemas
  * - Validate data values
@@ -136,7 +136,7 @@ where
 
     Ok(PrimitiveType::Decimal {
         precision: precision.parse().map_err(D::Error::custom)?,
-        scale: scale.parse().map_err(D::Error::custom)?,
+        scale: scale.trim().parse().map_err(D::Error::custom)?,
     })
 }
 

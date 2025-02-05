@@ -473,7 +473,14 @@ impl Value {
                 )))),
                 PrimitiveType::Fixed(len) => Ok(Value::Fixed(*len as usize, Vec::from(bytes))),
                 PrimitiveType::Binary => Ok(Value::Binary(Vec::from(bytes))),
-                _ => Err(Error::Type("decimal".to_string(), "bytes".to_string())),
+                PrimitiveType::Decimal { scale, .. } => {
+                    let val = if bytes.len() <= 16 {
+                        i128::from_be_bytes(sign_extend_be(bytes))
+                    } else {
+                        return Err(Error::Type("decimal".to_string(), "bytes".to_string()));
+                    };
+                    Ok(Value::Decimal(Decimal::from_i128_with_scale(val, *scale)))
+                }
             },
             _ => Err(Error::NotSupported("Complex types as bytes".to_string())),
         }
@@ -724,6 +731,19 @@ impl Value {
             }
         }
     }
+}
+
+/// Performs big endian sign extension
+/// Copied from arrow-rs repo/parquet crate:
+/// https://github.com/apache/arrow-rs/blob/b25c441745602c9967b1e3cc4a28bc469cfb1311/parquet/src/arrow/buffer/bit_util.rs#L54
+pub fn sign_extend_be<const N: usize>(b: &[u8]) -> [u8; N] {
+    assert!(b.len() <= N, "Array too large, expected less than {N}");
+    let is_negative = (b[0] & 128u8) == 128u8;
+    let mut result = if is_negative { [255u8; N] } else { [0u8; N] };
+    for (d, s) in result.iter_mut().skip(N - b.len()).zip(b) {
+        *d = *s;
+    }
+    result
 }
 
 impl From<&Value> for JsonValue {
@@ -1325,6 +1345,20 @@ mod tests {
             bytes,
             Value::String("iceberg".to_string()),
             &Type::Primitive(PrimitiveType::String),
+        );
+    }
+
+    #[test]
+    fn avro_bytes_decimal() {
+        let bytes = vec![0u8, 160u8, 16u8, 94u8];
+
+        check_avro_bytes_serde(
+            bytes,
+            Value::Decimal(Decimal::from_str_exact("104899.50").unwrap()),
+            &Type::Primitive(PrimitiveType::Decimal {
+                precision: 15,
+                scale: 2,
+            }),
         );
     }
 
