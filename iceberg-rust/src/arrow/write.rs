@@ -264,6 +264,7 @@ async fn write_parquet_files(
     writer_sender
         .try_send((final_state.writer.0, file))
         .map_err(|err| ArrowError::ComputeError(err.to_string()))?;
+    writer_sender.close_channel();
 
     if final_state.bytes_written == 0 {
         return Ok(Vec::new());
