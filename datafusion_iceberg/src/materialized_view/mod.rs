@@ -251,13 +251,8 @@ pub async fn refresh_materialized_view(
         .map_err(ArrowError::from);
 
     // Write arrow record batches to datafiles
-    let pos_files = write_parquet_partitioned(
-        storage_table.metadata(),
-        pos_batches,
-        matview.object_store(),
-        branch.as_deref(),
-    )
-    .await?;
+    let pos_files =
+        write_parquet_partitioned(&storage_table, pos_batches, branch.as_deref()).await?;
 
     match refresh_strategy {
         RefreshStrategy::FullOverwrite | RefreshStrategy::IncrementalOverwrite => {
@@ -303,9 +298,8 @@ pub async fn refresh_materialized_view(
 
             // Write arrow record batches to datafiles
             let neg_files = write_equality_deletes_parquet_partitioned(
-                storage_table.metadata(),
+                &storage_table,
                 neg_batches,
-                matview.object_store(),
                 branch.as_deref(),
                 &equality_ids,
             )
