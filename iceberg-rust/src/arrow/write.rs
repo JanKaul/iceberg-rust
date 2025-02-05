@@ -4,15 +4,11 @@
 
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
-    lock::Mutex,
     StreamExt, TryStreamExt,
 };
 use object_store::{buffered::BufWriter, ObjectStore};
 use std::fmt::Write;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 use tokio::task::JoinSet;
 
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
@@ -196,76 +192,81 @@ async fn write_parquet_files(
     equality_ids: Option<&[i32]>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let bucket = Bucket::from_path(data_location)?;
-    let current_writer = Arc::new(Mutex::new(
-        create_arrow_writer(
-            data_location,
-            partition_path.clone(),
-            arrow_schema,
-            object_store.clone(),
-        )
-        .await?,
-    ));
-
     let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(1);
 
-    let num_bytes = Arc::new(AtomicUsize::new(0));
+    // Create initial writer
+    let initial_writer = create_arrow_writer(
+        data_location,
+        partition_path.clone(),
+        arrow_schema,
+        object_store.clone(),
+    )
+    .await?;
 
-    batches
-        .try_for_each_concurrent(None, |batch| {
-            let current_writer = current_writer.clone();
-            let mut writer_sender = writer_sender.clone();
-            let num_bytes = num_bytes.clone();
-            let object_store = object_store.clone();
-            let partition_path = partition_path.clone();
-            async move {
-                let mut current_writer = current_writer.lock().await;
-                let current =
-                    num_bytes.fetch_update(Ordering::Release, Ordering::Acquire, |current| {
-                        if current > MAX_PARQUET_SIZE {
-                            Some(0)
-                        } else {
-                            None
-                        }
-                    });
-                if current.is_ok() {
-                    let finished_writer = std::mem::replace(
-                        &mut *current_writer,
-                        create_arrow_writer(
-                            data_location,
+    // Structure to hold writer state
+    struct WriterState {
+        writer: (String, AsyncArrowWriter<BufWriter>),
+        bytes_written: usize,
+    }
+
+    let final_state = batches
+        .try_fold(
+            WriterState {
+                writer: initial_writer,
+                bytes_written: 0,
+            },
+            |mut state, batch| {
+                let object_store = object_store.clone();
+                let data_location = data_location.to_owned();
+                let partition_path = partition_path.clone();
+                let arrow_schema = arrow_schema.clone();
+                let mut writer_sender = writer_sender.clone();
+
+                async move {
+                    let batch_size = record_batch_size(&batch);
+                    let new_size = state.bytes_written + batch_size;
+
+                    if new_size > MAX_PARQUET_SIZE {
+                        // Send current writer to channel
+                        let finished_writer = state.writer;
+                        let file = finished_writer.1.close().await?;
+                        writer_sender
+                            .try_send((finished_writer.0, file))
+                            .map_err(|err| ArrowError::ComputeError(err.to_string()))?;
+
+                        // Create new writer
+                        let new_writer = create_arrow_writer(
+                            &data_location,
                             partition_path,
-                            arrow_schema,
+                            &arrow_schema,
                             object_store,
                         )
-                        .await
-                        .unwrap(),
-                    );
-                    let file = finished_writer.1.close().await?;
-                    writer_sender
-                        .try_send((finished_writer.0, file))
-                        .map_err(|err| ArrowError::ComputeError(err.to_string()))?;
-                }
-                current_writer.1.write(&batch).await?;
-                if let Err(size) = current {
-                    if size % 64_000_000 >= 32_000_000 {
-                        current_writer.1.flush().await?;
+                        .await?;
+
+                        state.writer = new_writer;
+                        state.bytes_written = batch_size;
+                    } else {
+                        state.bytes_written = new_size;
+                        if new_size % 64_000_000 >= 32_000_000 {
+                            state.writer.1.flush().await?;
+                        }
                     }
+
+                    state.writer.1.write(&batch).await?;
+                    Ok(state)
                 }
-                let batch_size = record_batch_size(&batch);
-                num_bytes.fetch_add(batch_size, Ordering::AcqRel);
-                Ok(())
-            }
-        })
+            },
+        )
         .await?;
 
-    let last = Arc::try_unwrap(current_writer).unwrap().into_inner();
-
-    let file = last.1.close().await?;
-
-    writer_sender.try_send((last.0, file)).unwrap();
-
+    // Handle the last writer
+    let file = final_state.writer.1.close().await?;
+    writer_sender
+        .try_send((final_state.writer.0, file))
+        .map_err(|err| ArrowError::ComputeError(err.to_string()))?;
     writer_sender.close_channel();
 
-    if num_bytes.load(Ordering::Acquire) == 0 {
+    if final_state.bytes_written == 0 {
         return Ok(Vec::new());
     }
 
