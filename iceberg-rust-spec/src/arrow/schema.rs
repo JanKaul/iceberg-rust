@@ -879,6 +879,6 @@ mod tests {
             .unwrap();
 
         let field_name = schema.get_name("nested_object.key1");
-        assert!(!field_name.is_none());
+        assert!(field_name.is_some());
     }
 }
