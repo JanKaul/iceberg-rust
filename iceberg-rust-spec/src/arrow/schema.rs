@@ -854,4 +854,31 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::NotSupported(_)));
     }
+
+    #[test]
+    fn test_nested_field_name() {
+        let schema = crate::schema::Schema::builder()
+            .with_schema_id(1)
+            .with_struct_field(StructField::new(
+                1,
+                "nested_object",
+                true,
+                Type::Struct(StructType::new(vec![
+                    StructField::new(
+                        2,
+                        "key1",
+                        true,
+                        Type::Primitive(PrimitiveType::String),
+                        None,
+                    ),
+                    StructField::new(3, "key2", true, Type::Primitive(PrimitiveType::Int), None),
+                ])),
+                None,
+            ))
+            .build()
+            .unwrap();
+
+        let field_name = schema.get_name("nested_object.key1");
+        assert!(field_name.is_some());
+    }
 }
