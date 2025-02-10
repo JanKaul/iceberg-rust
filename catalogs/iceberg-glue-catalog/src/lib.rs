@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use crate::utils::{get_parameters, METADATA_LOCATION};
 use async_trait::async_trait;
 use aws_config::SdkConfig;
 use aws_sdk_glue::{
@@ -51,6 +52,7 @@ pub struct GlueCatalog {
 
 pub mod error;
 pub mod schema;
+mod utils;
 
 impl GlueCatalog {
     pub fn new(
@@ -240,9 +242,12 @@ impl Catalog for GlueCatalog {
             ))?;
 
         let metadata_location = table
-            .storage_descriptor()
-            .and_then(|x| x.location())
-            .ok_or(IcebergError::NotFound(format!("Table {}", table.name())))?;
+            .parameters()
+            .and_then(|parameter| parameter.get(METADATA_LOCATION))
+            .ok_or(IcebergError::NotFound(format!(
+                "Glue table {} metadata location not found",
+                &table.name()
+            )))?;
 
         let version_id = table
             .version_id()
@@ -307,9 +312,10 @@ impl Catalog for GlueCatalog {
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
+                    .set_parameters(Some(get_parameters(&metadata_location)))
                     .storage_descriptor(
                         StorageDescriptor::builder()
-                            .location(&metadata_location)
+                            .location(&location)
                             .set_columns(schema_to_glue(schema.fields()).ok())
                             .build(),
                     )
@@ -376,9 +382,10 @@ impl Catalog for GlueCatalog {
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
+                    .set_parameters(Some(get_parameters(&metadata_location)))
                     .storage_descriptor(
                         StorageDescriptor::builder()
-                            .location(&metadata_location)
+                            .location(&location)
                             .set_columns(schema_to_glue(schema.fields()).ok())
                             .build(),
                     )
@@ -457,9 +464,10 @@ impl Catalog for GlueCatalog {
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
+                    .set_parameters(Some(get_parameters(&metadata_location)))
                     .storage_descriptor(
                         StorageDescriptor::builder()
-                            .location(&metadata_location)
+                            .location(&location)
                             .set_columns(schema_to_glue(schema.fields()).ok())
                             .build(),
                     )
@@ -477,9 +485,10 @@ impl Catalog for GlueCatalog {
             .table_input(
                 TableInput::builder()
                     .name(table_identifier.name())
+                    .set_parameters(Some(get_parameters(&table_metadata_location)))
                     .storage_descriptor(
                         StorageDescriptor::builder()
-                            .location(&table_metadata_location)
+                            .location(&location)
                             .set_columns(schema_to_glue(table_schema.fields()).ok())
                             .build(),
                     )
@@ -565,9 +574,10 @@ impl Catalog for GlueCatalog {
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
+                    .set_parameters(Some(get_parameters(&metadata_location)))
                     .storage_descriptor(
                         StorageDescriptor::builder()
-                            .location(&metadata_location)
+                            .location(&metadata.location)
                             .set_columns(schema_to_glue(schema.fields()).ok())
                             .build(),
                     )
@@ -599,14 +609,14 @@ impl Catalog for GlueCatalog {
             .to_string();
 
         let new_metadata_location = table
-            .storage_descriptor()
-            .and_then(|x| x.location())
+            .parameters()
+            .and_then(|parameter| parameter.get(METADATA_LOCATION))
             .ok_or(IcebergError::NotFound(format!(
                 "Location for table {} not found.",
                 identifier.name()
             )))?;
 
-        let metadata = if new_metadata_location == metadata_location {
+        let metadata = if new_metadata_location == &metadata_location {
             metadata
         } else {
             let bytes = object_store
@@ -674,9 +684,10 @@ impl Catalog for GlueCatalog {
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
+                    .set_parameters(Some(get_parameters(&metadata_location)))
                     .storage_descriptor(
                         StorageDescriptor::builder()
-                            .location(&metadata_location)
+                            .location(metadata_ref.location())
                             .set_columns(schema_to_glue(schema.fields()).ok())
                             .build(),
                     )
@@ -708,14 +719,14 @@ impl Catalog for GlueCatalog {
             .to_string();
 
         let new_metadata_location = table
-            .storage_descriptor()
-            .and_then(|x| x.location())
+            .parameters()
+            .and_then(|parameter| parameter.get(METADATA_LOCATION))
             .ok_or(IcebergError::NotFound(format!(
                 "Location for table {} not found.",
                 identifier.name()
             )))?;
 
-        let metadata = if new_metadata_location == metadata_location {
+        let metadata = if new_metadata_location == &metadata_location {
             metadata
         } else {
             object_store.get_metadata(new_metadata_location).await?
@@ -782,9 +793,10 @@ impl Catalog for GlueCatalog {
             .table_input(
                 TableInput::builder()
                     .name(identifier.name())
+                    .set_parameters(Some(get_parameters(&metadata_location)))
                     .storage_descriptor(
                         StorageDescriptor::builder()
-                            .location(&metadata_location)
+                            .location(metadata_ref.location())
                             .set_columns(schema_to_glue(schema.fields()).ok())
                             .build(),
                     )
@@ -816,14 +828,14 @@ impl Catalog for GlueCatalog {
             .to_string();
 
         let new_metadata_location = table
-            .storage_descriptor()
-            .and_then(|x| x.location())
+            .parameters()
+            .and_then(|parameter| parameter.get(METADATA_LOCATION))
             .ok_or(IcebergError::NotFound(format!(
                 "Location for table {} not found.",
                 identifier.name()
             )))?;
 
-        let metadata = if new_metadata_location == metadata_location {
+        let metadata = if new_metadata_location == &metadata_location {
             metadata
         } else {
             object_store.get_metadata(new_metadata_location).await?
@@ -868,10 +880,11 @@ impl Catalog for GlueCatalog {
                     .name(identifier.name())
                     .storage_descriptor(
                         StorageDescriptor::builder()
-                            .location(metadata_location)
+                            .location(metadata.location.clone())
                             .set_columns(schema_to_glue(schema.fields()).ok())
                             .build(),
                     )
+                    .set_parameters(Some(HashMap::from([])))
                     .build()
                     .map_err(Error::from)?,
             )
