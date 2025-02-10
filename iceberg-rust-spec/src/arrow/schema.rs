@@ -859,7 +859,7 @@ mod tests {
     fn test_nested_field_name() {
         let schema = crate::schema::Schema::builder()
             .with_schema_id(1)
-            .with_fields(StructType::new(vec![StructField::new(
+            .with_struct_field(StructField::new(
                 1,
                 "nested_object",
                 true,
@@ -874,7 +874,7 @@ mod tests {
                     StructField::new(3, "key2", true, Type::Primitive(PrimitiveType::Int), None),
                 ])),
                 None,
-            )]))
+            ))
             .build()
             .unwrap();
 
