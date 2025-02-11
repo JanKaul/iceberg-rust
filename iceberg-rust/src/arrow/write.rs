@@ -1,6 +1,4 @@
-/*!
- * Functions to write arrow record batches to an iceberg table
-*/
+//AI! Write module documentation
 
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
