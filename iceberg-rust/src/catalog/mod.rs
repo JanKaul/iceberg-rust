@@ -21,30 +21,6 @@
 //! - Managing storage locations
 //! - Performing atomic updates
 //!
-//! # Examples
-//!
-//! ```no_run
-//! # use std::sync::Arc;
-//! # use iceberg_rust::catalog::{Catalog, CatalogList};
-//! # use iceberg_rust::table::Table;
-//! # use iceberg_rust::catalog::identifier::Identifier;
-//! # async fn example(catalogs: Arc<dyn CatalogList>) {
-//! // Access a catalog
-//! let catalog = catalogs.catalog("my_catalog").unwrap();
-//!
-//! // Create a table
-//! let table = catalog.clone().create_table(
-//!     Identifier::new(&["ns", "table"]),
-//!     Table::builder().build()
-//! ).await.unwrap();
-//!
-//! // Load existing table
-//! let loaded = catalog.clone()
-//!     .load_tabular(&Identifier::new(&["ns", "table"]))
-//!     .await
-//!     .unwrap();
-//! # }
-//! ```
 
 use std::collections::HashMap;
 use std::fmt::Debug;
