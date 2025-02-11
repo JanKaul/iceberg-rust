@@ -307,7 +307,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog fails to update the metadata
     /// * Concurrent modifications conflict with this update
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;
-    /// perform commit view operation
+    //AI! Write documentation
     async fn update_view(self: Arc<Self>, commit: CommitView<Option<()>>) -> Result<View, Error>;
     /// perform commit view operation
     async fn update_materialized_view(
