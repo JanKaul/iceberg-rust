@@ -127,7 +127,19 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog cannot be accessed
     /// * The namespace check operation fails
     async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, Error>;
-    //AI! Write documentation
+    /// Lists all tables, views, and materialized views in the given namespace.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to list tabular objects from
+    ///
+    /// # Returns
+    /// * `Result<Vec<Identifier>, Error>` - List of identifiers for all tabular objects
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace doesn't exist
+    /// * The catalog cannot be accessed
+    /// * The listing operation fails
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error>;
     /// Lists all namespaces in the catalog.
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error>;
