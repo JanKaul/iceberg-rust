@@ -44,7 +44,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// - Reference this catalog in configuration
     /// - Identify the catalog in logging and error messages
     fn name(&self) -> &str;
-    /// Create a namespace in the catalog
+    //AI! Write documentation
     async fn create_namespace(
         &self,
         namespace: &Namespace,
