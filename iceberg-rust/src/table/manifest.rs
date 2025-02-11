@@ -446,7 +446,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         Ok(())
     }
 
-    /// Write the manifest to object storage and return the manifest-list-entry
+    //AI! Write documentation
     pub async fn finish(
         mut self,
         object_store: Arc<dyn ObjectStore>,
