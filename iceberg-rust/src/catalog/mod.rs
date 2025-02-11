@@ -1,4 +1,50 @@
-//AI! Write module documentation
+//! Catalog module providing interfaces for managing Iceberg tables and metadata.
+//!
+//! The catalog system is a core component of Apache Iceberg that manages:
+//! - Table metadata and schemas
+//! - Namespace organization
+//! - Storage locations and object stores
+//! - Atomic updates and versioning
+//!
+//! # Key Components
+//!
+//! - [`Catalog`]: Core trait for managing tables, views, and namespaces
+//! - [`CatalogList`]: Interface for managing multiple catalogs
+//! - [`namespace`]: Types for organizing tables into hierarchies
+//! - [`identifier`]: Types for uniquely identifying catalog objects
+//!
+//! # Common Operations
+//!
+//! - Creating and managing tables and views
+//! - Organizing tables into namespaces
+//! - Tracking table metadata and history
+//! - Managing storage locations
+//! - Performing atomic updates
+//!
+//! # Examples
+//!
+//! ```no_run
+//! # use std::sync::Arc;
+//! # use iceberg_rust::catalog::{Catalog, CatalogList};
+//! # use iceberg_rust::table::Table;
+//! # use iceberg_rust::catalog::identifier::Identifier;
+//! # async fn example(catalogs: Arc<dyn CatalogList>) {
+//! // Access a catalog
+//! let catalog = catalogs.catalog("my_catalog").unwrap();
+//!
+//! // Create a table
+//! let table = catalog.clone().create_table(
+//!     Identifier::new(&["ns", "table"]),
+//!     Table::builder().build()
+//! ).await.unwrap();
+//!
+//! // Load existing table
+//! let loaded = catalog.clone()
+//!     .load_tabular(&Identifier::new(&["ns", "table"]))
+//!     .await
+//!     .unwrap();
+//! # }
+//! ```
 
 use std::collections::HashMap;
 use std::fmt::Debug;
