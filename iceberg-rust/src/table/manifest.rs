@@ -36,7 +36,14 @@ type ReaderMap<'a, R> = Map<
     ) -> Result<ManifestEntry, Error>,
 >;
 
-//AI! Write documentation
+/// A reader for Iceberg manifest files that provides an iterator over manifest entries.
+/// 
+/// The reader handles both V1 and V2 manifest formats and automatically converts entries
+/// to the appropriate version based on the manifest metadata.
+///
+/// # Type Parameters
+/// * `'a` - The lifetime of the underlying reader
+/// * `R` - The type implementing `Read` that provides the manifest data
 pub struct ManifestReader<'a, R: Read> {
     reader: ReaderMap<'a, R>,
 }
