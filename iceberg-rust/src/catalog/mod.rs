@@ -44,7 +44,21 @@ pub trait Catalog: Send + Sync + Debug {
     /// - Reference this catalog in configuration
     /// - Identify the catalog in logging and error messages
     fn name(&self) -> &str;
-    //AI! Write documentation
+    /// Creates a new namespace in the catalog with optional properties.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to create
+    /// * `properties` - Optional key-value properties to associate with the namespace
+    ///
+    /// # Returns
+    /// * `Result<HashMap<String, String>, Error>` - The namespace properties after creation
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace already exists
+    /// * The namespace name is invalid
+    /// * The catalog fails to create the namespace
+    /// * Properties cannot be set
     async fn create_namespace(
         &self,
         namespace: &Namespace,
