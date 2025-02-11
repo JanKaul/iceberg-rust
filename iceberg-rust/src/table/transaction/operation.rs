@@ -4,7 +4,11 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use iceberg_rust_spec::manifest_list::{manifest_list_schema_v1, manifest_list_schema_v2};
+use bytes::Bytes;
+use iceberg_rust_spec::manifest_list::{
+    manifest_list_schema_v1, manifest_list_schema_v2, ManifestListEntry,
+};
+use iceberg_rust_spec::snapshot::Snapshot;
 use iceberg_rust_spec::spec::table_metadata::TableMetadata;
 use iceberg_rust_spec::spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
@@ -17,6 +21,7 @@ use iceberg_rust_spec::table_metadata::FormatVersion;
 use iceberg_rust_spec::util::strip_prefix;
 use object_store::ObjectStore;
 use smallvec::SmallVec;
+use tokio::task::JoinHandle;
 
 use crate::table::manifest::{ManifestReader, ManifestWriter};
 use crate::table::manifest_list::ManifestListReader;
@@ -98,6 +103,9 @@ impl Operation {
                 let schema = table_metadata.current_schema(branch.as_deref())?;
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
 
+                let old_manifest_list_bytes_opt =
+                    prefetch_manifest_list(old_snapshot, &object_store);
+
                 let partition_column_names = partition_fields
                     .iter()
                     .map(|x| x.name())
@@ -123,18 +131,12 @@ impl Operation {
                 let mut manifest_list_writer =
                     apache_avro::Writer::new(manifest_list_schema, Vec::new());
 
-                let old_manifest_list_location = old_snapshot.map(|x| x.manifest_list()).cloned();
-
                 // Find a manifest to add the new datafiles
                 let mut existing_file_count = 0;
-                let selected_manifest_opt = if let Some(old_manifest_list_location) =
-                    &old_manifest_list_location
+                let selected_manifest_opt = if let Some(old_manifest_list_bytes) =
+                    old_manifest_list_bytes_opt
                 {
-                    let old_manifest_list_bytes = object_store
-                        .get(&strip_prefix(old_manifest_list_location).as_str().into())
-                        .await?
-                        .bytes()
-                        .await?;
+                    let old_manifest_list_bytes = old_manifest_list_bytes.await??;
 
                     let manifest_list_reader =
                         ManifestListReader::new(old_manifest_list_bytes.as_ref(), table_metadata)?;
@@ -160,6 +162,9 @@ impl Operation {
                     // If manifest list doesn't exist, there is no manifest
                     None
                 };
+
+                let selected_manifest_bytes_opt =
+                    prefetch_manifest(&selected_manifest_opt, &object_store);
 
                 let selected_manifest_file_count = selected_manifest_opt
                     .as_ref()
@@ -221,14 +226,10 @@ impl Operation {
                 // Write manifest files
                 // Split manifest file if limit is exceeded
                 if n_splits == 0 {
-                    let mut manifest_writer = if let Some(manifest) = selected_manifest_opt {
-                        let manifest_bytes: Vec<u8> = object_store
-                            .get(&strip_prefix(&manifest.manifest_path).as_str().into())
-                            .await?
-                            .bytes()
-                            .await?
-                            .into();
-
+                    let mut manifest_writer = if let (Some(manifest), Some(manifest_bytes)) =
+                        (selected_manifest_opt, selected_manifest_bytes_opt)
+                    {
+                        let manifest_bytes = manifest_bytes.await??;
                         ManifestWriter::from_existing(
                             &manifest_bytes,
                             manifest,
@@ -258,14 +259,10 @@ impl Operation {
                     manifest_list_writer.append_ser(manifest)?;
                 } else {
                     // Split datafiles
-                    let splits = if let Some(manifest) = selected_manifest_opt {
-                        let manifest_bytes: Vec<u8> = object_store
-                            .get(&strip_prefix(&manifest.manifest_path).as_str().into())
-                            .await?
-                            .bytes()
-                            .await?
-                            .into();
-
+                    let splits = if let (Some(manifest), Some(manifest_bytes)) =
+                        (selected_manifest_opt, selected_manifest_bytes_opt)
+                    {
+                        let manifest_bytes = manifest_bytes.await??;
                         let manifest_reader = ManifestReader::new(&*manifest_bytes)?
                             .map(|x| x.map_err(Error::from))
                             .map(|entry| {
@@ -557,6 +554,48 @@ impl Operation {
                 Ok((None, vec![TableUpdate::SetDefaultSpec { spec_id }]))
             }
         }
+    }
+}
+
+fn prefetch_manifest(
+    selected_manifest_opt: &Option<ManifestListEntry>,
+    object_store: &Arc<dyn ObjectStore>,
+) -> Option<JoinHandle<Result<Bytes, object_store::Error>>> {
+    if let Some(selected_manifest) = selected_manifest_opt.as_ref() {
+        Some(tokio::task::spawn({
+            let object_store = object_store.clone();
+            let path = selected_manifest.manifest_path.clone();
+            async move {
+                object_store
+                    .get(&strip_prefix(&path).as_str().into())
+                    .await?
+                    .bytes()
+                    .await
+            }
+        }))
+    } else {
+        None
+    }
+}
+
+fn prefetch_manifest_list(
+    old_snapshot: Option<&Snapshot>,
+    object_store: &Arc<dyn ObjectStore>,
+) -> Option<JoinHandle<Result<Bytes, object_store::Error>>> {
+    if let Some(old_manifest_list_location) = &old_snapshot.map(|x| x.manifest_list()).cloned() {
+        Some(tokio::task::spawn({
+            let object_store = object_store.clone();
+            let old_manifest_list_location = old_manifest_list_location.clone();
+            async move {
+                object_store
+                    .get(&strip_prefix(&old_manifest_list_location).as_str().into())
+                    .await?
+                    .bytes()
+                    .await
+            }
+        }))
+    } else {
+        None
     }
 }
 
