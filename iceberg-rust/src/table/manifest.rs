@@ -146,7 +146,23 @@ pub struct ManifestWriter<'schema, 'metadata> {
 }
 
 impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
-    //AI! Write documentation
+    /// Creates a new ManifestWriter for writing manifest entries to a new manifest file.
+    ///
+    /// # Arguments
+    /// * `manifest_location` - The location where the manifest file will be written
+    /// * `snapshot_id` - The ID of the snapshot this manifest belongs to
+    /// * `schema` - The Avro schema used for serializing manifest entries
+    /// * `table_metadata` - The table metadata containing schema and partition information
+    /// * `branch` - Optional branch name to get the current schema from
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestWriter instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The Avro writer cannot be created
+    /// * Required metadata fields cannot be serialized
+    /// * The partition spec ID is not found in table metadata
     pub fn new(
         manifest_location: &str,
         snapshot_id: i64,
