@@ -81,8 +81,7 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
     }
 }
 
-/// Return all manifest files associated to the latest table snapshot. Reads the related manifest_list file and returns its entries.
-/// If the manifest list file is empty returns an empty vector.
+//AI! Write documentation
 pub(crate) async fn read_snapshot<'metadata>(
     snapshot: &Snapshot,
     table_metadata: &'metadata TableMetadata,
