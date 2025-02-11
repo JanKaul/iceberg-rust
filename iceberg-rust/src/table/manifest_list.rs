@@ -49,7 +49,7 @@ impl<R: Read> Iterator for ManifestListReader<'_, '_, R> {
 }
 
 impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
-    /// Create a new manifest list reader
+    //AI! Write documentation
     pub fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
         let schema: &AvroSchema = match table_metadata.format_version {
             FormatVersion::V1 => manifest_list_schema_v1(),
