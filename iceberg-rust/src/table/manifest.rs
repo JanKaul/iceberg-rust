@@ -126,7 +126,19 @@ impl<R: Read> ManifestReader<'_, R> {
     }
 }
 
-//AI! Write documentation
+/// A writer for Iceberg manifest files that handles creating and updating manifest entries.
+///
+/// ManifestWriter manages both creating new manifests and updating existing ones, handling
+/// the complexities of manifest metadata, entry tracking, and partition summaries.
+///
+/// # Type Parameters
+/// * `'schema` - The lifetime of the Avro schema used for writing entries
+/// * `'metadata` - The lifetime of the table metadata reference
+///
+/// # Fields
+/// * `table_metadata` - Reference to the table's metadata containing schema and partition information
+/// * `manifest` - The manifest list entry being built or modified
+/// * `writer` - The underlying Avro writer for serializing manifest entries
 pub struct ManifestWriter<'schema, 'metadata> {
     table_metadata: &'metadata TableMetadata,
     manifest: ManifestListEntry,
