@@ -37,7 +37,7 @@ pub mod tabular;
 /// Implementations must be Send + Sync for concurrent access and Debug for logging/debugging.
 #[async_trait::async_trait]
 pub trait Catalog: Send + Sync + Debug {
-    /// Name of the catalog
+    //AI! Write documentation
     fn name(&self) -> &str;
     /// Create a namespace in the catalog
     async fn create_namespace(
