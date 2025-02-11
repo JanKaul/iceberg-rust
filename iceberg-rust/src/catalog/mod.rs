@@ -93,7 +93,21 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The properties cannot be deserialized
     async fn load_namespace(&self, namespace: &Namespace)
         -> Result<HashMap<String, String>, Error>;
-    //AI! Write documentation
+    /// Updates a namespace's properties by applying updates and removals.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to update
+    /// * `updates` - Optional map of property key-value pairs to add or update
+    /// * `removals` - Optional list of property keys to remove
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the namespace was successfully updated
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace doesn't exist
+    /// * The properties cannot be updated
+    /// * The catalog fails to persist the changes
     async fn update_namespace(
         &self,
         namespace: &Namespace,
