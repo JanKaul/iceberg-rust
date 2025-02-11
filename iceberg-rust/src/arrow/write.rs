@@ -238,7 +238,30 @@ async fn store_parquet_partitioned(
 type ArrowSender = Sender<(String, FileMetaData)>;
 type ArrowReciever = Receiver<(String, FileMetaData)>;
 
-//AI! write documentation
+/// Writes a stream of Arrow record batches to multiple Parquet files.
+///
+/// This internal function handles the low-level details of writing record batches to Parquet files,
+/// managing file sizes, and collecting metadata.
+///
+/// # Arguments
+/// * `data_location` - Base path where data files should be written
+/// * `schema` - Iceberg schema for the data
+/// * `arrow_schema` - Arrow schema for the record batches
+/// * `partition_fields` - List of partition fields if data is partitioned
+/// * `partition_path` - Optional partition path component
+/// * `batches` - Stream of record batches to write
+/// * `object_store` - Object store to write files to
+/// * `equality_ids` - Optional list of field IDs for equality deletes
+///
+/// # Returns
+/// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written files
+///
+/// # Errors
+/// Returns an error if:
+/// * File creation fails
+/// * Writing record batches fails
+/// * Object store operations fail
+/// * Metadata collection fails
 #[allow(clippy::too_many_arguments)]
 async fn write_parquet_files(
     data_location: &str,
