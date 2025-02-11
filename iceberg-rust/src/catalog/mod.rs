@@ -184,7 +184,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog fails to delete the table metadata
     /// * The data files cannot be deleted
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error>;
-    /// Drop a table and delete all data and metadata files.
+    //AI! Write documentation
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Drop a table and delete all data and metadata files.
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error>;
