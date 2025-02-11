@@ -49,7 +49,23 @@ impl<R: Read> Iterator for ManifestListReader<'_, '_, R> {
 }
 
 impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
-    //AI! Write documentation
+    /// Creates a new ManifestListReader from a reader and table metadata.
+    ///
+    /// This method initializes a reader that can parse manifest list files according to
+    /// the table's format version (V1/V2). It uses the appropriate Avro schema based on
+    /// the format version from the table metadata.
+    ///
+    /// # Arguments
+    /// * `reader` - A type implementing the `Read` trait that provides the manifest list data
+    /// * `table_metadata` - Reference to the table metadata containing format version info
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestListReader instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The Avro reader cannot be created with the schema
+    /// * The manifest list format is invalid
     pub fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
         let schema: &AvroSchema = match table_metadata.format_version {
             FormatVersion::V1 => manifest_list_schema_v1(),
