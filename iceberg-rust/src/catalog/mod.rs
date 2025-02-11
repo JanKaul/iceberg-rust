@@ -343,7 +343,21 @@ pub trait Catalog: Send + Sync + Debug {
         self: Arc<Self>,
         commit: CommitView<FullIdentifier>,
     ) -> Result<MaterializedView, Error>;
-    //AI! Write documentation
+    /// Registers an existing table in the catalog using its metadata location.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier to register the table under
+    /// * `metadata_location` - Location of the table's metadata file
+    ///
+    /// # Returns
+    /// * `Result<Table, Error>` - The registered table object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * A table already exists with the given identifier
+    /// * The metadata location is invalid or inaccessible
+    /// * The metadata file cannot be read or parsed
+    /// * The catalog fails to register the table
     async fn register_table(
         self: Arc<Self>,
         identifier: Identifier,
