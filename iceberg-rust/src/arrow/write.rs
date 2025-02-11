@@ -467,6 +467,7 @@ async fn create_arrow_writer(
     ))
 }
 
+//AI! Write documentation
 #[inline]
 fn record_batch_size(batch: &RecordBatch) -> usize {
     batch
