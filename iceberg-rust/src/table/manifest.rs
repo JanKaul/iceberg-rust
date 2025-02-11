@@ -243,7 +243,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         })
     }
 
-    /// Create an manifest writer from an existing manifest
+    //AI! Write documentation
     pub fn from_existing(
         bytes: &[u8],
         mut manifest: ManifestListEntry,
