@@ -446,7 +446,23 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         Ok(())
     }
 
-    //AI! Write documentation
+    /// Finalizes the manifest writer and writes the manifest file to storage.
+    ///
+    /// This method:
+    /// 1. Completes writing all entries
+    /// 2. Updates the manifest length
+    /// 3. Writes the manifest file to the object store
+    ///
+    /// # Arguments
+    /// * `object_store` - The object store to write the manifest file to
+    ///
+    /// # Returns
+    /// * `Result<ManifestListEntry, Error>` - The completed manifest list entry or an error
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The writer cannot be finalized
+    /// * The manifest file cannot be written to storage
     pub async fn finish(
         mut self,
         object_store: Arc<dyn ObjectStore>,
