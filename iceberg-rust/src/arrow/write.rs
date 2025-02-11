@@ -1,4 +1,36 @@
-//AI! Write module documentation
+//! Arrow writing module for converting Arrow record batches to Iceberg data files.
+//!
+//! This module provides functionality to:
+//! - Write Arrow record batches to Parquet files
+//! - Handle partitioned data writing
+//! - Support equality delete files
+//! - Manage file sizes and buffering
+//!
+//! The main entry points are:
+//! - [`write_parquet_partitioned`]: Write regular data files
+//! - [`write_equality_deletes_parquet_partitioned`]: Write equality delete files
+//!
+//! The module handles:
+//! - Automatic file size management and splitting
+//! - Parquet compression and encoding
+//! - Partition path generation
+//! - Object store integration
+//! - Metadata collection for written files
+//!
+//! # Example
+//!
+//! ```no_run
+//! # use arrow::record_batch::RecordBatch;
+//! # use futures::Stream;
+//! # use iceberg_rust::table::Table;
+//! # async fn example(table: &Table, batches: impl Stream<Item = Result<RecordBatch, arrow::error::ArrowError>>) {
+//! let data_files = write_parquet_partitioned(
+//!     table,
+//!     batches,
+//!     None // no specific branch
+//! ).await.unwrap();
+//! # }
+//! ```
 
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
