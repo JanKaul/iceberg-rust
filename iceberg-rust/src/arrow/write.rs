@@ -377,6 +377,7 @@ async fn write_parquet_files(
         .await
 }
 
+//AI! Write documentation
 #[inline]
 fn generate_partition_path(
     partition_fields: &[BoundPartitionField<'_>],
