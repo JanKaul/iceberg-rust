@@ -343,7 +343,7 @@ pub trait Catalog: Send + Sync + Debug {
         self: Arc<Self>,
         commit: CommitView<FullIdentifier>,
     ) -> Result<MaterializedView, Error>;
-    /// Register a table with the catalog if it doesn't exist.
+    //AI! Write documentation
     async fn register_table(
         self: Arc<Self>,
         identifier: Identifier,
