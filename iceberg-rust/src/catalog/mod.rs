@@ -307,7 +307,21 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog fails to update the metadata
     /// * Concurrent modifications conflict with this update
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;
-    //AI! Write documentation
+    /// Updates a view's metadata by applying the specified commit operation.
+    ///
+    /// # Arguments
+    /// * `commit` - The commit operation containing metadata updates to apply
+    ///
+    /// # Returns
+    /// * `Result<View, Error>` - The updated view object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The view doesn't exist
+    /// * The view is locked by another operation
+    /// * The commit operation is invalid
+    /// * The catalog fails to update the metadata
+    /// * Concurrent modifications conflict with this update
     async fn update_view(self: Arc<Self>, commit: CommitView<Option<()>>) -> Result<View, Error>;
     /// perform commit view operation
     async fn update_materialized_view(
