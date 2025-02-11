@@ -56,7 +56,7 @@ pub async fn write_equality_deletes_parquet_partitioned(
     store_parquet_partitioned(table, batches, branch, Some(equality_ids)).await
 }
 
-/// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
+//AI! Write documentation
 pub async fn store_parquet_partitioned(
     table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
