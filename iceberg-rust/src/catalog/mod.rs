@@ -169,7 +169,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog cannot be accessed
     /// * The existence check operation fails
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error>;
-    /// Drop a table and delete all data and metadata files.
+    //AI! Write documentation
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Drop a table and delete all data and metadata files.
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error>;
