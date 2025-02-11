@@ -114,7 +114,7 @@ pub trait Catalog: Send + Sync + Debug {
         updates: Option<HashMap<String, String>>,
         removals: Option<Vec<String>>,
     ) -> Result<(), Error>;
-    /// Check if a namespace exists
+    //AI! Write documentation
     async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, Error>;
     /// Lists all tables in the given namespace.
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error>;
