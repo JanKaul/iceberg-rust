@@ -243,7 +243,28 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         })
     }
 
-    //AI! Write documentation
+    /// Creates a ManifestWriter from an existing manifest file, preserving its entries.
+    ///
+    /// This method reads an existing manifest file and creates a new writer that includes
+    /// all the existing entries with their status updated to "Existing". It also updates
+    /// sequence numbers and snapshot IDs as needed.
+    ///
+    /// # Arguments
+    /// * `bytes` - The raw bytes of the existing manifest file
+    /// * `manifest` - The manifest list entry describing the existing manifest
+    /// * `schema` - The Avro schema used for serializing manifest entries
+    /// * `table_metadata` - The table metadata containing schema and partition information
+    /// * `branch` - Optional branch name to get the current schema from
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestWriter instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The existing manifest cannot be read
+    /// * The Avro writer cannot be created
+    /// * Required metadata fields cannot be serialized
+    /// * The partition spec ID is not found in table metadata
     pub fn from_existing(
         bytes: &[u8],
         mut manifest: ManifestListEntry,
