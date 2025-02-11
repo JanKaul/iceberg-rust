@@ -485,7 +485,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
 
 #[allow(clippy::type_complexity)]
 /// Convert avro value to ManifestEntry based on the format version of the table.
-pub fn avro_value_to_manifest_entry(
+fn avro_value_to_manifest_entry(
     value: (
         Result<AvroValue, apache_avro::Error>,
         Arc<(Schema, PartitionSpec, FormatVersion)>,
