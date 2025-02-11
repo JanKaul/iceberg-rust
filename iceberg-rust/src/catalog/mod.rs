@@ -228,7 +228,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The metadata is invalid or corrupted
     /// * The catalog cannot be accessed
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
-    /// Create a table in the catalog if it doesn't exist.
+    //AI! write documentation
     async fn create_table(
         self: Arc<Self>,
         identifier: Identifier,
