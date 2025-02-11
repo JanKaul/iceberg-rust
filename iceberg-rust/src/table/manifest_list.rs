@@ -81,7 +81,26 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
     }
 }
 
-//AI! Write documentation
+/// Reads a snapshot's manifest list file and returns an iterator over its manifest list entries.
+///
+/// This function:
+/// 1. Fetches the manifest list file from object storage
+/// 2. Creates a reader for the appropriate format version
+/// 3. Returns an iterator that will yield each manifest list entry
+///
+/// # Arguments
+/// * `snapshot` - The snapshot containing the manifest list location
+/// * `table_metadata` - Reference to the table metadata for format version info
+/// * `object_store` - The object store to read the manifest list file from
+///
+/// # Returns
+/// * `Result<impl Iterator<...>, Error>` - An iterator over manifest list entries or an error
+///
+/// # Errors
+/// Returns an error if:
+/// * The manifest list file cannot be read from storage
+/// * The manifest list format is invalid
+/// * The Avro reader cannot be created
 pub(crate) async fn read_snapshot<'metadata>(
     snapshot: &Snapshot,
     table_metadata: &'metadata TableMetadata,
