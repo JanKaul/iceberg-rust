@@ -78,7 +78,19 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The namespace contains tables or views
     /// * The catalog fails to remove the namespace
     async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), Error>;
-    //AI! Write documentation
+    /// Loads a namespace's properties from the catalog.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to load properties for
+    ///
+    /// # Returns
+    /// * `Result<HashMap<String, String>, Error>` - The namespace properties if found
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace doesn't exist
+    /// * The catalog fails to load the namespace properties
+    /// * The properties cannot be deserialized
     async fn load_namespace(&self, namespace: &Namespace)
         -> Result<HashMap<String, String>, Error>;
     /// Update the namespace properties in the catalog
