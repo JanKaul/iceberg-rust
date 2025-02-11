@@ -93,7 +93,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The properties cannot be deserialized
     async fn load_namespace(&self, namespace: &Namespace)
         -> Result<HashMap<String, String>, Error>;
-    /// Update the namespace properties in the catalog
+    //AI! Write documentation
     async fn update_namespace(
         &self,
         namespace: &Namespace,
