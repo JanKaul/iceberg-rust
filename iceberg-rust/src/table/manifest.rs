@@ -57,7 +57,7 @@ type ReaderMap<'a, R> = Map<
 /// # Type Parameters
 /// * `'a` - The lifetime of the underlying reader
 /// * `R` - The type implementing `Read` that provides the manifest data
-pub struct ManifestReader<'a, R: Read> {
+pub(crate) struct ManifestReader<'a, R: Read> {
     reader: ReaderMap<'a, R>,
 }
 
@@ -86,7 +86,7 @@ impl<R: Read> ManifestReader<'_, R> {
     /// * Required metadata fields are missing
     /// * Format version is invalid
     /// * Schema or partition spec information cannot be parsed
-    pub fn new(reader: R) -> Result<Self, Error> {
+    pub(crate) fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();
 
@@ -152,7 +152,7 @@ impl<R: Read> ManifestReader<'_, R> {
 /// * `table_metadata` - Reference to the table's metadata containing schema and partition information
 /// * `manifest` - The manifest list entry being built or modified
 /// * `writer` - The underlying Avro writer for serializing manifest entries
-pub struct ManifestWriter<'schema, 'metadata> {
+pub(crate) struct ManifestWriter<'schema, 'metadata> {
     table_metadata: &'metadata TableMetadata,
     manifest: ManifestListEntry,
     writer: AvroWriter<'schema, Vec<u8>>,
@@ -176,7 +176,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * The Avro writer cannot be created
     /// * Required metadata fields cannot be serialized
     /// * The partition spec ID is not found in table metadata
-    pub fn new(
+    pub(crate) fn new(
         manifest_location: &str,
         snapshot_id: i64,
         schema: &'schema AvroSchema,
@@ -278,7 +278,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * The Avro writer cannot be created
     /// * Required metadata fields cannot be serialized
     /// * The partition spec ID is not found in table metadata
-    pub fn from_existing(
+    pub(crate) fn from_existing(
         bytes: &[u8],
         mut manifest: ManifestListEntry,
         schema: &'schema AvroSchema,
@@ -385,7 +385,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * The entry cannot be serialized
     /// * Partition statistics cannot be updated
     /// * The default partition spec is not found
-    pub fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
+    pub(crate) fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
         let mut added_rows_count = 0;
         let mut deleted_rows_count = 0;
 
@@ -476,7 +476,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// Returns an error if:
     /// * The writer cannot be finalized
     /// * The manifest file cannot be written to storage
-    pub async fn finish(
+    pub(crate) async fn finish(
         mut self,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<ManifestListEntry, Error> {
