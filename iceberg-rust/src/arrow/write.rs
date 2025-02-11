@@ -36,7 +36,7 @@ use super::partition::PartitionStream;
 const MAX_PARQUET_SIZE: usize = 512_000_000;
 
 #[inline]
-/// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
+//AI! Write documentation
 pub async fn write_parquet_partitioned(
     table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
