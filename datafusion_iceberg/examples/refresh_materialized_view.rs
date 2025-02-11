@@ -125,7 +125,7 @@ pub(crate) async fn main() {
         })
         .with_struct_field(StructField {
             id: 2,
-            name: "amount".to_string(),
+            name: "total".to_string(),
             required: true,
             field_type: Type::Primitive(PrimitiveType::Long),
             doc: None,
@@ -140,7 +140,7 @@ pub(crate) async fn main() {
             .with_view_version(
                 Version::builder()
                     .with_representation(ViewRepresentation::sql(
-                        "select product_id, sum(amount) total from iceberg.test.orders_view group by product_id;",
+                        "select product_id, sum(amount) as total from iceberg.test.orders_view group by product_id;",
                         None,
                     ))
                     .build()
@@ -270,7 +270,7 @@ pub(crate) async fn main() {
         .expect("Failed to refresh materialized view");
 
     let batches = ctx
-        .sql("select product_id, amount from iceberg.test.total_orders;")
+        .sql("select product_id, total from iceberg.test.total_orders;")
         .await
         .expect("Failed to create plan for select")
         .collect()
