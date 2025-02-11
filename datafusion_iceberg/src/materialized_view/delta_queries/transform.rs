@@ -33,13 +33,13 @@ pub(crate) fn delta_transform_down(
             Option<Arc<dyn TableProvider>>,
         ),
     >,
-    storage_table: Arc<dyn TableProvider>,
+    storage_table: (TableReference, Arc<dyn TableProvider>),
 ) -> Result<Transformed<LogicalPlan>, DataFusionError> {
-    let storage_table_reference = TableReference::parse_str("storage_table");
+    let storage_table_reference = storage_table.0;
 
     let storage_table_scan = Arc::new(LogicalPlan::TableScan(TableScan::try_new(
         storage_table_reference.clone(),
-        Arc::new(DefaultTableSource::new(storage_table)),
+        Arc::new(DefaultTableSource::new(storage_table.1)),
         None,
         Vec::new(),
         None,
@@ -360,7 +360,7 @@ pub(crate) fn delta_transform_down(
             }
         }
         LogicalPlan::TableScan(scan) => {
-            if scan.table_name.to_string() == "storage_table" {
+            if scan.table_name == storage_table_reference {
                 return Ok(Transformed::no(plan));
             }
             let mut scan = scan.clone();
@@ -592,10 +592,16 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
+        let storage_table_reference = TableReference::parse_str("public.users_view");
+
         let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
-                delta_transform_down(plan, &source_table_state, storage_table.clone())
+                delta_transform_down(
+                    plan,
+                    &source_table_state,
+                    (storage_table_reference.clone(), storage_table.clone()),
+                )
             })
             .unwrap()
             .data;
@@ -667,11 +673,17 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
+        let storage_table_reference = TableReference::parse_str("public.users_view");
+
         let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
 
         let output = delta_plan
             .transform_down(|plan| {
-                delta_transform_down(plan, &source_table_state, storage_table.clone())
+                delta_transform_down(
+                    plan,
+                    &source_table_state,
+                    (storage_table_reference.clone(), storage_table.clone()),
+                )
             })
             .unwrap()
             .data;
@@ -784,10 +796,16 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
+        let storage_table_reference = TableReference::parse_str("public.users_view");
+
         let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
-                delta_transform_down(plan, &source_table_state, storage_table.clone())
+                delta_transform_down(
+                    plan,
+                    &source_table_state,
+                    (storage_table_reference.clone(), storage_table.clone()),
+                )
             })
             .unwrap()
             .data;
@@ -928,10 +946,16 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
+        let storage_table_reference = TableReference::parse_str("public.users_view");
+
         let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
-                delta_transform_down(plan, &source_table_state, storage_table.clone())
+                delta_transform_down(
+                    plan,
+                    &source_table_state,
+                    (storage_table_reference.clone(), storage_table.clone()),
+                )
             })
             .unwrap()
             .data;
@@ -1017,10 +1041,16 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
+        let storage_table_reference = TableReference::parse_str("public.users_view");
+
         let delta_plan: LogicalPlan = PosDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
-                delta_transform_down(plan, &source_table_state, storage_table.clone())
+                delta_transform_down(
+                    plan,
+                    &source_table_state,
+                    (storage_table_reference.clone(), storage_table.clone()),
+                )
             })
             .unwrap()
             .data;
@@ -1051,7 +1081,7 @@ mod tests {
                         if let LogicalPlan::Extension(ext) = join.right.deref() {
                             if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
                                 if let LogicalPlan::TableScan(table) = ext.input.deref() {
-                                    assert_eq!(table.table_name.table(), "storage_table")
+                                    assert_eq!(table.table_name.table(), "users_view")
                                 } else {
                                     panic!("Node is not a table scan.")
                                 }
@@ -1150,10 +1180,16 @@ mod tests {
             logical_plan.schema().as_arrow().clone(),
         )));
 
+        let storage_table_reference = TableReference::parse_str("public.users_view");
+
         let delta_plan: LogicalPlan = NegDeltaNode::new(logical_plan.into()).into();
         let output = delta_plan
             .transform_down(|plan| {
-                delta_transform_down(plan, &source_table_state, storage_table.clone())
+                delta_transform_down(
+                    plan,
+                    &source_table_state,
+                    (storage_table_reference.clone(), storage_table.clone()),
+                )
             })
             .unwrap()
             .data;
@@ -1173,7 +1209,7 @@ mod tests {
                         panic!("Node is not an aggregate.")
                     }
                     if let LogicalPlan::TableScan(table) = join.right.deref() {
-                        assert_eq!(table.table_name.table(), "storage_table")
+                        assert_eq!(table.table_name.table(), "users_view")
                     } else {
                         panic!("Node is not a table scan.")
                     }
