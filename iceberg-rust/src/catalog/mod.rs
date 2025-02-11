@@ -291,7 +291,21 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, Error>;
-    //AI! Write documentation
+    /// Updates a table's metadata by applying the specified commit operation.
+    ///
+    /// # Arguments
+    /// * `commit` - The commit operation containing metadata updates to apply
+    ///
+    /// # Returns
+    /// * `Result<Table, Error>` - The updated table object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The table doesn't exist
+    /// * The table is locked by another operation
+    /// * The commit operation is invalid
+    /// * The catalog fails to update the metadata
+    /// * Concurrent modifications conflict with this update
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;
     /// perform commit view operation
     async fn update_view(self: Arc<Self>, commit: CommitView<Option<()>>) -> Result<View, Error>;
