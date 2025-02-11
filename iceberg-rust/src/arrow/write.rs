@@ -238,7 +238,7 @@ async fn store_parquet_partitioned(
 type ArrowSender = Sender<(String, FileMetaData)>;
 type ArrowReciever = Receiver<(String, FileMetaData)>;
 
-/// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
+//AI! write documentation
 #[allow(clippy::too_many_arguments)]
 async fn write_parquet_files(
     data_location: &str,
