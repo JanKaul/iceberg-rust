@@ -36,7 +36,7 @@ type ReaderMap<'a, R> = Map<
     ) -> Result<ManifestEntry, Error>,
 >;
 
-/// Iterator of manifest entries
+//AI! Write documentation
 pub struct ManifestReader<'a, R: Read> {
     reader: ReaderMap<'a, R>,
 }
