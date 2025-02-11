@@ -97,7 +97,7 @@ pub async fn write_equality_deletes_parquet_partitioned(
 /// * The object store operations fail
 /// * The Parquet writing fails
 /// * The partition path generation fails
-pub async fn store_parquet_partitioned(
+async fn store_parquet_partitioned(
     table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
     branch: Option<&str>,
