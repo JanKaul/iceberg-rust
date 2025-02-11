@@ -408,6 +408,7 @@ fn generate_partition_path(
         .collect::<Result<String, ArrowError>>()
 }
 
+//AI! Write documentation
 async fn create_arrow_writer(
     data_location: &str,
     partition_path: Option<String>,
