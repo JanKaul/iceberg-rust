@@ -140,7 +140,7 @@ pub(crate) async fn main() {
             .with_view_version(
                 Version::builder()
                     .with_representation(ViewRepresentation::sql(
-                        "select product_id, sum(amount) from iceberg.test.orders_view group by product_id;",
+                        "select product_id, sum(amount) total from iceberg.test.orders_view group by product_id;",
                         None,
                     ))
                     .build()
