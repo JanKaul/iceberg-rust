@@ -213,7 +213,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog fails to delete the view metadata
     /// * The associated data files cannot be deleted
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error>;
-    /// Load a table.
+    //AI! Write documentation
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
     /// Create a table in the catalog if it doesn't exist.
     async fn create_table(
