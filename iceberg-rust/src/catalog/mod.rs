@@ -37,7 +37,12 @@ pub mod tabular;
 /// Implementations must be Send + Sync for concurrent access and Debug for logging/debugging.
 #[async_trait::async_trait]
 pub trait Catalog: Send + Sync + Debug {
-    //AI! Write documentation
+    /// Returns the name of this catalog.
+    ///
+    /// The catalog name is a unique identifier used to:
+    /// - Distinguish between multiple catalogs in a catalog list
+    /// - Reference this catalog in configuration
+    /// - Identify the catalog in logging and error messages
     fn name(&self) -> &str;
     /// Create a namespace in the catalog
     async fn create_namespace(
