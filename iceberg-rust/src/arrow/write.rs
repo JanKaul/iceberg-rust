@@ -46,7 +46,27 @@ pub async fn write_parquet_partitioned(
 }
 
 #[inline]
-//AI! Write documentation
+/// Writes equality delete records as partitioned Parquet files.
+///
+/// This function writes Arrow record batches containing equality delete records to Parquet files,
+/// partitioning them according to the table's partition spec.
+///
+/// # Arguments
+/// * `table` - The Iceberg table to write delete records for
+/// * `batches` - Stream of Arrow record batches containing the delete records
+/// * `branch` - Optional branch name to write to
+/// * `equality_ids` - Field IDs that define equality deletion
+///
+/// # Returns
+/// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written delete files
+///
+/// # Errors
+/// Returns an error if:
+/// * The table metadata cannot be accessed
+/// * The schema projection fails
+/// * The object store operations fail
+/// * The Parquet writing fails
+/// * The partition path generation fails
 pub async fn write_equality_deletes_parquet_partitioned(
     table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
