@@ -353,7 +353,25 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         })
     }
 
-    //AI! Write documentation
+    /// Appends a manifest entry to the manifest file and updates summary statistics.
+    ///
+    /// This method adds a new manifest entry while maintaining:
+    /// - Partition statistics (null values, bounds)
+    /// - File counts by status (added, existing, deleted)
+    /// - Row counts (added, deleted)
+    /// - Sequence number tracking
+    ///
+    /// # Arguments
+    /// * `manifest_entry` - The manifest entry to append
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the entry was successfully appended, Error otherwise
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The entry cannot be serialized
+    /// * Partition statistics cannot be updated
+    /// * The default partition spec is not found
     pub fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
         let mut added_rows_count = 0;
         let mut deleted_rows_count = 0;
