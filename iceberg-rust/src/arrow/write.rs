@@ -467,7 +467,16 @@ async fn create_arrow_writer(
     ))
 }
 
-//AI! Write documentation
+/// Calculates the approximate size in bytes of an Arrow record batch.
+///
+/// This function estimates the memory footprint of a record batch by multiplying
+/// the total size of all fields by the number of rows.
+///
+/// # Arguments
+/// * `batch` - The record batch to calculate size for
+///
+/// # Returns
+/// * `usize` - Estimated size of the record batch in bytes
 #[inline]
 fn record_batch_size(batch: &RecordBatch) -> usize {
     batch
