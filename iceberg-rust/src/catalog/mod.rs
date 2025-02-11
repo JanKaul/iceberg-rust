@@ -155,7 +155,19 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog cannot be accessed
     /// * The listing operation fails
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error>;
-    //AI! Write documentation
+    /// Checks if a table, view, or materialized view exists in the catalog.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier of the tabular object to check
+    ///
+    /// # Returns
+    /// * `Result<bool, Error>` - True if the tabular object exists, false otherwise
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace doesn't exist
+    /// * The catalog cannot be accessed
+    /// * The existence check operation fails
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error>;
     /// Drop a table and delete all data and metadata files.
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error>;
