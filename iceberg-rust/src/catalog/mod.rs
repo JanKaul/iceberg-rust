@@ -269,7 +269,23 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         create_view: CreateView<Option<()>>,
     ) -> Result<View, Error>;
-    //AI! Create documentation
+    /// Creates a new materialized view in the catalog with the specified configuration.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier for the new materialized view
+    /// * `create_view` - Configuration for the materialized view creation including view definition,
+    ///                  storage properties, and refresh policies
+    ///
+    /// # Returns
+    /// * `Result<MaterializedView, Error>` - The newly created materialized view object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The materialized view already exists
+    /// * The namespace doesn't exist
+    /// * The view definition is invalid
+    /// * The catalog fails to create the view metadata
+    /// * The storage location cannot be initialized
     async fn create_materialized_view(
         self: Arc<Self>,
         identifier: Identifier,
