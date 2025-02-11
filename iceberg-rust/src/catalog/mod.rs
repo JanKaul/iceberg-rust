@@ -110,7 +110,7 @@ pub trait Catalog: Send + Sync + Debug {
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }
 
-/// Trait to obtain a catalog by name
+//AI! Write documentation
 #[async_trait::async_trait]
 pub trait CatalogList: Send + Sync + Debug {
     /// Get catalog from list by name
