@@ -408,7 +408,25 @@ fn generate_partition_path(
         .collect::<Result<String, ArrowError>>()
 }
 
-//AI! Write documentation
+/// Creates a new Arrow writer for writing record batches to a Parquet file.
+///
+/// This internal function creates a new buffered writer and configures it with
+/// appropriate Parquet compression settings.
+///
+/// # Arguments
+/// * `data_location` - Base path where data files should be written
+/// * `partition_path` - Optional partition path component
+/// * `schema` - Arrow schema for the record batches
+/// * `object_store` - Object store to write files to
+///
+/// # Returns
+/// * `Result<(String, AsyncArrowWriter<BufWriter>), ArrowError>` - The file path and configured writer
+///
+/// # Errors
+/// Returns an error if:
+/// * Random number generation fails
+/// * The writer properties cannot be configured
+/// * The Arrow writer cannot be created
 async fn create_arrow_writer(
     data_location: &str,
     partition_path: Option<String>,
