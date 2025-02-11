@@ -249,7 +249,7 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         create_table: CreateTable,
     ) -> Result<Table, Error>;
-    /// Create a view with the catalog if it doesn't exist.
+    //AI! Write documentation
     async fn create_view(
         self: Arc<Self>,
         identifier: Identifier,
