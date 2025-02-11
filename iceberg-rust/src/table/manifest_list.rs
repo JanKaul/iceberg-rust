@@ -28,7 +28,15 @@ type ReaderMap<'a, 'metadata, R> = Map<
     fn((Result<AvroValue, apache_avro::Error>, &TableMetadata)) -> Result<ManifestListEntry, Error>,
 >;
 
-//AI! Write documentation
+/// A reader for Iceberg manifest list files that provides an iterator over manifest list entries.
+///
+/// ManifestListReader parses manifest list files according to the table's format version (V1/V2)
+/// and provides access to the manifest entries that describe the table's data files.
+///
+/// # Type Parameters
+/// * `'a` - The lifetime of the underlying Avro reader
+/// * `'metadata` - The lifetime of the table metadata reference
+/// * `R` - The type implementing `Read` that provides the manifest list data
 pub struct ManifestListReader<'a, 'metadata, R: Read> {
     reader: ReaderMap<'a, 'metadata, R>,
 }
