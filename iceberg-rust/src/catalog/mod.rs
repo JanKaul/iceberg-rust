@@ -127,7 +127,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog cannot be accessed
     /// * The namespace check operation fails
     async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, Error>;
-    /// Lists all tables in the given namespace.
+    //AI! Write documentation
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error>;
     /// Lists all namespaces in the catalog.
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error>;
