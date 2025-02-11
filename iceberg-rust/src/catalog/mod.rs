@@ -213,7 +213,20 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog fails to delete the view metadata
     /// * The associated data files cannot be deleted
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error>;
-    //AI! Write documentation
+    /// Loads a table, view, or materialized view from the catalog.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier of the tabular object to load
+    ///
+    /// # Returns
+    /// * `Result<Tabular, Error>` - The loaded tabular object wrapped in an enum
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The tabular object doesn't exist
+    /// * The metadata cannot be loaded
+    /// * The metadata is invalid or corrupted
+    /// * The catalog cannot be accessed
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
     /// Create a table in the catalog if it doesn't exist.
     async fn create_table(
