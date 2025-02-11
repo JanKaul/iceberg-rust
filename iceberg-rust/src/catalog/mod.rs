@@ -169,7 +169,20 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog cannot be accessed
     /// * The existence check operation fails
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error>;
-    //AI! Write documentation
+    /// Drops a table from the catalog and deletes all associated data and metadata files.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier of the table to drop
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the table was successfully dropped
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The table doesn't exist
+    /// * The table is locked or in use
+    /// * The catalog fails to delete the table metadata
+    /// * The data files cannot be deleted
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Drop a table and delete all data and metadata files.
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error>;
