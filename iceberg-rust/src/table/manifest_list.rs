@@ -28,7 +28,7 @@ type ReaderMap<'a, 'metadata, R> = Map<
     fn((Result<AvroValue, apache_avro::Error>, &TableMetadata)) -> Result<ManifestListEntry, Error>,
 >;
 
-/// Iterator of manifest list entries
+//AI! Write documentation
 pub struct ManifestListReader<'a, 'metadata, R: Read> {
     reader: ReaderMap<'a, 'metadata, R>,
 }
