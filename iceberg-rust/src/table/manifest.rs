@@ -37,7 +37,7 @@ type ReaderMap<'a, R> = Map<
 >;
 
 /// A reader for Iceberg manifest files that provides an iterator over manifest entries.
-/// 
+///
 /// The reader handles both V1 and V2 manifest formats and automatically converts entries
 /// to the appropriate version based on the manifest metadata.
 ///
@@ -56,7 +56,7 @@ impl<R: Read> Iterator for ManifestReader<'_, R> {
 }
 
 impl<R: Read> ManifestReader<'_, R> {
-    /// Create a new manifest reader
+    //AI! Write documentation
     pub fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();
