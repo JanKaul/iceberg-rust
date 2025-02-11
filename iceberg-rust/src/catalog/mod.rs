@@ -228,7 +228,22 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The metadata is invalid or corrupted
     /// * The catalog cannot be accessed
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
-    //AI! write documentation
+    /// Creates a new table in the catalog with the specified configuration.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier for the new table
+    /// * `create_table` - Configuration for the table creation including schema, partitioning, etc.
+    ///
+    /// # Returns
+    /// * `Result<Table, Error>` - The newly created table object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The table already exists
+    /// * The namespace doesn't exist
+    /// * The schema is invalid
+    /// * The catalog fails to create the table metadata
+    /// * The table location cannot be initialized
     async fn create_table(
         self: Arc<Self>,
         identifier: Identifier,
