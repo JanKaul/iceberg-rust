@@ -146,7 +146,7 @@ pub struct ManifestWriter<'schema, 'metadata> {
 }
 
 impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
-    /// Create empty manifest writer
+    //AI! Write documentation
     pub fn new(
         manifest_location: &str,
         snapshot_id: i64,
