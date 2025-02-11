@@ -198,7 +198,20 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The view is in use
     /// * The catalog fails to delete the view metadata
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error>;
-    //AI! Write documentation
+    /// Drops a materialized view from the catalog and deletes its metadata and data files.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier of the materialized view to drop
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the materialized view was successfully dropped
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The materialized view doesn't exist
+    /// * The materialized view is in use
+    /// * The catalog fails to delete the view metadata
+    /// * The associated data files cannot be deleted
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Load a table.
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
