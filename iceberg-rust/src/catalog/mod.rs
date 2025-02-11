@@ -198,7 +198,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The view is in use
     /// * The catalog fails to delete the view metadata
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error>;
-    /// Drop a table and delete all data and metadata files.
+    //AI! Write documentation
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error>;
     /// Load a table.
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
