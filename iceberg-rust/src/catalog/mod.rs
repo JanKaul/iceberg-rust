@@ -64,7 +64,7 @@ pub trait Catalog: Send + Sync + Debug {
         namespace: &Namespace,
         properties: Option<HashMap<String, String>>,
     ) -> Result<HashMap<String, String>, Error>;
-    /// Drop a namespace in the catalog
+    //AI! Write documentation
     async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), Error>;
     /// Load the namespace properties from the catalog
     async fn load_namespace(&self, namespace: &Namespace)
