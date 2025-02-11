@@ -25,7 +25,7 @@ pub mod commit;
 pub mod create;
 pub mod tabular;
 
-/// Trait to create, replace and drop tables in an iceberg catalog.
+//AI! Write documentation
 #[async_trait::async_trait]
 pub trait Catalog: Send + Sync + Debug {
     /// Name of the catalog
