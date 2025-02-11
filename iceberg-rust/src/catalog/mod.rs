@@ -1,6 +1,4 @@
-/*!
-Defines traits to communicate with an iceberg catalog.
-*/
+//AI! Write module documentation
 
 use std::collections::HashMap;
 use std::fmt::Debug;
