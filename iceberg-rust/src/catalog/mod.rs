@@ -141,7 +141,19 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog cannot be accessed
     /// * The listing operation fails
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error>;
-    //AI! Write documentation
+    /// Lists all namespaces under an optional parent namespace.
+    ///
+    /// # Arguments
+    /// * `parent` - Optional parent namespace to list children under. If None, lists top-level namespaces.
+    ///
+    /// # Returns
+    /// * `Result<Vec<Namespace>, Error>` - List of namespace objects
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The parent namespace doesn't exist (if specified)
+    /// * The catalog cannot be accessed
+    /// * The listing operation fails
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error>;
     /// Check if a table exists
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error>;
