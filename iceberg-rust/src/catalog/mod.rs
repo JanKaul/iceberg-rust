@@ -363,7 +363,7 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         metadata_location: &str,
     ) -> Result<Table, Error>;
-    /// Return the associated object store for a bucket
+    //AI! Write documentation
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }
 
