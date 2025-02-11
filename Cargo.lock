@@ -3023,6 +3023,7 @@ dependencies = [
  "apache-avro",
  "arrow",
  "async-trait",
+ "bytes",
  "chrono",
  "derive-getters",
  "derive_builder",
