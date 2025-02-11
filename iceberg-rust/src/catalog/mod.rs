@@ -291,7 +291,7 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, Error>;
-    /// perform commit table operation
+    //AI! Write documentation
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;
     /// perform commit view operation
     async fn update_view(self: Arc<Self>, commit: CommitView<Option<()>>) -> Result<View, Error>;
