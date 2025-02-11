@@ -1,4 +1,19 @@
-//AI! Write module documentation
+//! Provides functionality for reading and writing Iceberg manifest files.
+//!
+//! This module implements the core manifest handling capabilities:
+//! - Reading manifest files via [`ManifestReader`]
+//! - Writing new manifest files via [`ManifestWriter`]
+//! - Converting between manifest formats (V1/V2)
+//! - Managing manifest entries and their metadata
+//! - Tracking partition statistics and file counts
+//!
+//! Manifest files are a key part of Iceberg tables, containing:
+//! - Data file locations and metadata
+//! - Partition information
+//! - File statistics and metrics
+//! - Schema and partition spec references
+//!
+//! The module handles both V1 and V2 manifest formats transparently.
 
 use std::{
     io::Read,
