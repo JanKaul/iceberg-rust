@@ -110,7 +110,14 @@ pub trait Catalog: Send + Sync + Debug {
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }
 
-//AI! Write documentation
+/// A trait representing a collection of Iceberg catalogs that can be accessed by name.
+///
+/// The CatalogList trait provides methods to:
+/// - Look up individual catalogs by name
+/// - List all available catalogs
+/// - Manage multiple catalogs in a unified interface
+///
+/// Implementations must be Send + Sync for concurrent access and Debug for logging/debugging.
 #[async_trait::async_trait]
 pub trait CatalogList: Send + Sync + Debug {
     /// Get catalog from list by name
