@@ -561,8 +561,7 @@ fn prefetch_manifest(
     selected_manifest_opt: &Option<ManifestListEntry>,
     object_store: &Arc<dyn ObjectStore>,
 ) -> Option<JoinHandle<Result<Bytes, object_store::Error>>> {
-    if let Some(selected_manifest) = selected_manifest_opt.as_ref() {
-        Some(tokio::task::spawn({
+    selected_manifest_opt.as_ref().map(|selected_manifest| tokio::task::spawn({
             let object_store = object_store.clone();
             let path = selected_manifest.manifest_path.clone();
             async move {
@@ -573,17 +572,13 @@ fn prefetch_manifest(
                     .await
             }
         }))
-    } else {
-        None
-    }
 }
 
 fn prefetch_manifest_list(
     old_snapshot: Option<&Snapshot>,
     object_store: &Arc<dyn ObjectStore>,
 ) -> Option<JoinHandle<Result<Bytes, object_store::Error>>> {
-    if let Some(old_manifest_list_location) = &old_snapshot.map(|x| x.manifest_list()).cloned() {
-        Some(tokio::task::spawn({
+    old_snapshot.map(|x| x.manifest_list()).cloned().as_ref().map(|old_manifest_list_location| tokio::task::spawn({
             let object_store = object_store.clone();
             let old_manifest_list_location = old_manifest_list_location.clone();
             async move {
@@ -594,9 +589,6 @@ fn prefetch_manifest_list(
                     .await
             }
         }))
-    } else {
-        None
-    }
 }
 
 fn new_manifest_location(table_metadata_location: &str, commit_uuid: &String, i: usize) -> String {
