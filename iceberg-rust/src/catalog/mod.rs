@@ -363,7 +363,16 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         metadata_location: &str,
     ) -> Result<Table, Error>;
-    //AI! Write documentation
+    /// Returns an object store instance for the given bucket.
+    ///
+    /// # Arguments
+    /// * `bucket` - The bucket configuration to create an object store for
+    ///
+    /// # Returns
+    /// * `Arc<dyn ObjectStore>` - Thread-safe reference to the configured object store
+    ///
+    /// The returned object store provides access to the underlying storage system (S3, GCS, etc.)
+    /// and handles all low-level storage operations for the catalog.
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }
 
