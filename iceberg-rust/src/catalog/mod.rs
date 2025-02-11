@@ -269,7 +269,7 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         create_view: CreateView<Option<()>>,
     ) -> Result<View, Error>;
-    /// Register a materialized view with the catalog if it doesn't exist.
+    //AI! Create documentation
     async fn create_materialized_view(
         self: Arc<Self>,
         identifier: Identifier,
