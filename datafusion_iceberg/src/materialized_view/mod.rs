@@ -234,7 +234,7 @@ async fn get_source_tables(
     ),
     Error,
 > {
-    Ok(stream::iter(relations.iter())
+    stream::iter(relations.iter())
         .then(|relation| {
             let catalog_list = catalog_list.clone();
             let branch = branch.clone();
@@ -364,7 +364,7 @@ async fn get_source_tables(
             }
         })
         .try_collect::<(HashMap<TableReference, _>, HashMap<_, _>)>()
-        .await?)
+        .await
 }
 
 #[derive(Debug)]
