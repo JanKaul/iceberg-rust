@@ -1,6 +1,4 @@
-/*!
- * Helpers to deal with manifest files
-*/
+//AI! Write module documentation
 
 use std::{
     io::Read,
