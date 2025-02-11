@@ -56,7 +56,23 @@ impl<R: Read> Iterator for ManifestReader<'_, R> {
 }
 
 impl<R: Read> ManifestReader<'_, R> {
-    //AI! Write documentation
+    /// Creates a new ManifestReader from a reader implementing the Read trait.
+    ///
+    /// This method initializes a reader that can parse both V1 and V2 manifest formats.
+    /// It extracts metadata from the Avro file including format version, schema, and partition spec information.
+    ///
+    /// # Arguments
+    /// * `reader` - A type implementing the `Read` trait that provides access to the manifest file data
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestReader instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The Avro reader cannot be created
+    /// * Required metadata fields are missing
+    /// * Format version is invalid
+    /// * Schema or partition spec information cannot be parsed
     pub fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();
