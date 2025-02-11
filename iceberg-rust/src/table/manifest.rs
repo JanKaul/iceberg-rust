@@ -353,7 +353,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         })
     }
 
-    /// Add an manifest entry to the manifest
+    //AI! Write documentation
     pub fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
         let mut added_rows_count = 0;
         let mut deleted_rows_count = 0;
