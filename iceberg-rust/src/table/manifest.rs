@@ -126,7 +126,7 @@ impl<R: Read> ManifestReader<'_, R> {
     }
 }
 
-/// A helper to write entries into a manifest
+//AI! Write documentation
 pub struct ManifestWriter<'schema, 'metadata> {
     table_metadata: &'metadata TableMetadata,
     manifest: ManifestListEntry,
