@@ -249,7 +249,21 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         create_table: CreateTable,
     ) -> Result<Table, Error>;
-    //AI! Write documentation
+    /// Creates a new view in the catalog with the specified configuration.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier for the new view
+    /// * `create_view` - Configuration for the view creation including view definition and properties
+    ///
+    /// # Returns
+    /// * `Result<View, Error>` - The newly created view object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The view already exists
+    /// * The namespace doesn't exist
+    /// * The view definition is invalid
+    /// * The catalog fails to create the view metadata
     async fn create_view(
         self: Arc<Self>,
         identifier: Identifier,
