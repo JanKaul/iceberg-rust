@@ -25,7 +25,16 @@ pub mod commit;
 pub mod create;
 pub mod tabular;
 
-//AI! Write documentation
+/// A trait representing an Iceberg catalog that manages tables, views, and namespaces.
+///
+/// The Catalog trait provides methods to:
+/// - Create, update, and delete namespaces
+/// - Create, load, and drop tables and views
+/// - List available tables and namespaces
+/// - Manage table and view metadata
+/// - Access object storage
+///
+/// Implementations must be Send + Sync for concurrent access and Debug for logging/debugging.
 #[async_trait::async_trait]
 pub trait Catalog: Send + Sync + Debug {
     /// Name of the catalog
