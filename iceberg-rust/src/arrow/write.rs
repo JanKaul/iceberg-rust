@@ -377,7 +377,22 @@ async fn write_parquet_files(
         .await
 }
 
-//AI! Write documentation
+/// Generates a partition path string from partition fields and their values.
+///
+/// Creates a path string in the format "field1=value1/field2=value2/..." for each
+/// partition field and its corresponding value.
+///
+/// # Arguments
+/// * `partition_fields` - List of bound partition fields defining the partitioning
+/// * `partiton_values` - List of values for each partition field
+///
+/// # Returns
+/// * `Result<String, ArrowError>` - The generated partition path string
+///
+/// # Errors
+/// Returns an error if:
+/// * The partition field name cannot be processed
+/// * The partition value cannot be converted to a string
 #[inline]
 fn generate_partition_path(
     partition_fields: &[BoundPartitionField<'_>],
