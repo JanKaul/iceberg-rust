@@ -233,7 +233,17 @@ fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
     }
 }
 
-//AI! Write documentation
+/// Extracts distinct primitive values from an Arrow array into a HashSet
+///
+/// # Type Parameters
+/// * `T` - The Rust native type that implements Eq + Hash
+/// * `P` - The Arrow primitive type corresponding to T
+///
+/// # Arguments
+/// * `array` - The Arrow array to extract distinct values from
+///
+/// # Returns
+/// A HashSet containing all unique values from the array
 fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
     array: ArrayRef,
 ) -> HashSet<P::Native> {
