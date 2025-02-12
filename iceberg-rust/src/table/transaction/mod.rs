@@ -250,7 +250,7 @@ impl<'table> TableTransaction<'table> {
         );
         self
     }
-    /// Commit the transaction to perform the [Operation]s with ACID guarantees.
+    //AI! Write documentation
     pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.table.catalog();
         let object_store = self.table.object_store();
