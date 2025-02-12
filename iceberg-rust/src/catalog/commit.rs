@@ -22,7 +22,15 @@ use crate::error::Error;
 
 use super::identifier::Identifier;
 
-//AI! Write documentation
+/// A commit operation to update table metadata in an Iceberg catalog
+///
+/// This struct represents an atomic commit operation that can:
+/// * Update table metadata
+/// * Add or remove snapshots
+/// * Modify schema, partition specs, and sort orders
+///
+/// The commit includes both requirements that must be satisfied and
+/// a list of updates to apply atomically.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitTable {
     /// Table identifier
