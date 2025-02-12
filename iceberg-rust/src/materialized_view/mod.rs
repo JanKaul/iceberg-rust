@@ -96,7 +96,10 @@ impl MaterializedView {
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
-    //AI! Write documentation
+    /// Returns a reference to the catalog that stores this materialized view
+    ///
+    /// The catalog manages the view's metadata and provides ACID guarantees
+    /// for operations on the view
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
