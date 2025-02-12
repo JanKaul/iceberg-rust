@@ -1,4 +1,15 @@
-//AI! Write module documentation
+//! Arrow-based transform implementations for Iceberg partition transforms
+//!
+//! This module provides functionality to apply Iceberg partition transforms to Arrow arrays.
+//! It supports:
+//!
+//! * Identity transforms that pass values through unchanged
+//! * Time-based transforms (year, month, day, hour) for dates and timestamps
+//! * Efficient handling of different Arrow array types
+//! * Conversion between Arrow and Iceberg data types
+//!
+//! The transforms maintain Arrow's null value semantics and work with Arrow's
+//! columnar memory model for optimal performance.
 
 use std::sync::Arc;
 
