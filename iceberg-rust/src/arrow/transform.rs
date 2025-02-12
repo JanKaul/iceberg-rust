@@ -16,7 +16,22 @@ use iceberg_rust_spec::{spec::partition::Transform, values::YEARS_BEFORE_UNIX_EP
 static MICROS_IN_HOUR: i64 = 3_600_000_000;
 static MICROS_IN_DAY: i64 = 86_400_000_000;
 
-//AI! Write documentation
+/// Applies an Iceberg partition transform to an Arrow array
+///
+/// # Arguments
+/// * `array` - The Arrow array to transform
+/// * `transform` - The Iceberg partition transform to apply
+///
+/// # Returns
+/// * `Ok(ArrayRef)` - A new Arrow array containing the transformed values
+/// * `Err(ArrowError)` - If the transform cannot be applied to the array's data type
+///
+/// # Supported Transforms
+/// * Identity - Returns the input array unchanged
+/// * Day - Extracts day from date32 or timestamp
+/// * Month - Extracts month from date32 or timestamp
+/// * Year - Extracts year from date32 or timestamp
+/// * Hour - Extracts hour from timestamp
 pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRef, ArrowError> {
     match (array.data_type(), transform) {
         (_, Transform::Identity) => Ok(array),
