@@ -18,7 +18,23 @@ use self::transaction::Transaction as ViewTransaction;
 pub mod transaction;
 
 #[derive(Debug, Clone)]
-//AI! Write documentation
+/// An Iceberg view provides a logical view over underlying data with schema evolution and versioning
+///
+/// Views store:
+/// - SQL query or other representation of the view logic
+/// - Schema evolution history
+/// - Version history for view definitions
+/// - Properties for configuration
+/// - Metadata about view location and catalog
+///
+/// Views can be either filesystem-based or managed by a metastore catalog.
+/// They support transactions for atomic updates to their definition and properties.
+///
+/// The View struct provides the main interface for:
+/// - Creating and managing views
+/// - Accessing view metadata and schemas
+/// - Starting transactions for atomic updates
+/// - Interacting with the underlying storage system
 pub struct View {
     /// Type of the View, either filesystem or metastore.
     identifier: Identifier,
