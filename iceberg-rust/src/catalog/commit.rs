@@ -387,7 +387,7 @@ pub fn check_view_requirements<T: Materialization + Eq + 'static>(
         ViewRequirement::AssertViewUuid { uuid } => metadata.view_uuid == *uuid,
     })
 }
-/// Apply updates to metadata
+//AI! Write documentation
 pub fn apply_table_updates(
     metadata: &mut TableMetadata,
     updates: Vec<TableUpdate>,
