@@ -46,7 +46,7 @@ pub struct View {
 
 /// Public interface of the table.
 impl View {
-    /// Create a view builder
+    //AI! Write documentation
     pub fn builder() -> CreateViewBuilder<Option<()>> {
         CreateViewBuilder::default()
     }
