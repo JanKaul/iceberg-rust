@@ -1,6 +1,4 @@
-/*!
- * Defines the [MaterializedView] struct that represents an iceberg materialized view.
-*/
+//AI! write module documentation
 
 use std::sync::Arc;
 
