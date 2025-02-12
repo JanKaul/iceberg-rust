@@ -1,6 +1,4 @@
-/*!
- * Conversion from arrow to iceberg and vice-versa
-*/
+//AI! Write documentation
 pub mod partition;
 pub mod read;
 pub mod transform;
