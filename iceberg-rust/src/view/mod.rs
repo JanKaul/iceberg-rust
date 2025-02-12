@@ -107,7 +107,7 @@ impl View {
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
-    /// Get the object_store associated to the view
+    //AI! Write documentation
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
