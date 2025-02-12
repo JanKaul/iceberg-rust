@@ -1,3 +1,4 @@
+//AI! Write module documentation
 pub mod arrow;
 pub mod error;
 pub mod spec;
