@@ -138,7 +138,14 @@ impl MaterializedView {
     pub fn new_transaction(&mut self, branch: Option<&str>) -> MaterializedViewTransaction {
         MaterializedViewTransaction::new(self, branch)
     }
-    //AI! Write documentation
+    /// Returns the storage table that contains the materialized data for this view
+    ///
+    /// The storage table is a regular Iceberg table that stores the physical data
+    /// for this materialized view. It is managed internally by the view and should
+    /// not be modified directly.
+    ///
+    /// # Returns
+    /// * `Result<StorageTable, Error>` - The storage table or an error if it cannot be loaded
     pub async fn storage_table(&self) -> Result<StorageTable, Error> {
         let identifier = self.metadata().current_version(None)?.storage_table();
         if let Tabular::Table(table) = self.catalog().load_tabular(&identifier.into()).await? {
