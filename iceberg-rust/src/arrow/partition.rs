@@ -131,6 +131,7 @@ impl Stream for PartitionStream<'_> {
     }
 }
 
+//AI! Write documentation
 fn partition_record_batch<'a>(
     record_batch: &'a RecordBatch,
     partition_fields: &[BoundPartitionField<'_>],
