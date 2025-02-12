@@ -21,7 +21,24 @@ pub(crate) static SET_DEFAULT_SPEC_KEY: &str = "set-default-spec";
 pub(crate) static UPDATE_PROPERTIES_KEY: &str = "update-properties";
 pub(crate) static SET_SNAPSHOT_REF_KEY: &str = "set-ref";
 
-//AI! Write documentation
+/// A transaction that can perform multiple operations on a table atomically
+///
+/// TableTransaction allows grouping multiple table operations (like schema updates,
+/// appends, overwrites) into a single atomic transaction. The transaction must be
+/// committed for changes to take effect.
+///
+/// # Type Parameters
+/// * `'table` - Lifetime of the reference to the table being modified
+///
+/// # Examples
+/// ```
+/// let mut table = // ... get table reference
+/// table.new_transaction(None)
+///     .add_schema(new_schema)
+///     .append(data_files)
+///     .commit()
+///     .await?;
+/// ```
 pub struct TableTransaction<'table> {
     table: &'table mut Table,
     operations: HashMap<String, Operation>,
