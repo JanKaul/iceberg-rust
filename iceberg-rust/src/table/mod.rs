@@ -267,7 +267,16 @@ impl Table {
             .try_any(|entry| async move { !matches!(entry.data_file().content(), Content::Data) })
             .await
     }
-    //AI! Write documentation
+    /// Creates a new transaction for atomic modifications to this table
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to create the transaction for. If None, uses the main branch
+    ///
+    /// # Returns
+    /// * `TableTransaction` - A new transaction that can be used to atomically modify this table
+    ///
+    /// The transaction must be committed for any changes to take effect.
+    /// Multiple operations can be chained within a single transaction.
     pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction {
         TableTransaction::new(self, branch)
     }
