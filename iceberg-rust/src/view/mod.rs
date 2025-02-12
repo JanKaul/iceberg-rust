@@ -149,7 +149,19 @@ impl View {
     pub fn metadata(&self) -> &ViewMetadata {
         &self.metadata
     }
-    //AI! Write documentation
+    /// Creates a new transaction for performing atomic updates to this view
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to create the transaction for. If None, uses the main branch
+    ///
+    /// # Returns
+    /// * `ViewTransaction` - A new transaction that can be used to:
+    ///   - Update view representations and schemas
+    ///   - Modify view properties
+    ///   - Commit changes atomically
+    ///
+    /// Transactions ensure that all changes are applied atomically with ACID guarantees.
+    /// Multiple operations can be chained and will be committed together.
     pub fn new_transaction(&mut self, branch: Option<&str>) -> ViewTransaction {
         ViewTransaction::new(self, branch)
     }
