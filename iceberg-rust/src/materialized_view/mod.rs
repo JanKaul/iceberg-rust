@@ -103,7 +103,10 @@ impl MaterializedView {
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
-    //AI! Write documentation
+    /// Returns the object store used by this materialized view for data storage
+    ///
+    /// The object store provides access to the underlying storage system (e.g. S3, local filesystem)
+    /// where the view's data files are stored. The store is configured based on the view's location.
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
