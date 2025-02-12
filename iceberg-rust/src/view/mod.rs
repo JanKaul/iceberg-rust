@@ -83,7 +83,14 @@ impl View {
             catalog,
         })
     }
-    //AI! write documentation
+    /// Gets the unique identifier for this view in the catalog
+    ///
+    /// The identifier contains:
+    /// - The namespace path for the view
+    /// - The view name
+    ///
+    /// # Returns
+    /// * `&Identifier` - A reference to this view's identifier
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
