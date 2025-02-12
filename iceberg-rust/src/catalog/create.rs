@@ -186,7 +186,18 @@ pub struct CreateView<T: Materialization> {
 }
 
 impl CreateViewBuilder<Option<()>> {
-    //AI! Write documentation
+    /// Builds and registers a new view in the catalog
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace where the view will be created
+    /// * `catalog` - The catalog where the view will be registered
+    ///
+    /// # Returns
+    /// * `Ok(View)` - The newly created view
+    /// * `Err(Error)` - If view creation fails, e.g. due to missing name or catalog errors
+    ///
+    /// This method finalizes the view configuration and registers it in the specified catalog.
+    /// It automatically sets default namespace and catalog values if not already specified.
     pub async fn build(
         &mut self,
         namespace: &[String],
