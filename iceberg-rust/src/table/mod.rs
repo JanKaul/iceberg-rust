@@ -111,7 +111,7 @@ impl Table {
         &self.identifier
     }
     #[inline]
-    /// Get the catalog associated to the table. Returns None if the table is a filesystem table
+    //AI! Write documentation
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
