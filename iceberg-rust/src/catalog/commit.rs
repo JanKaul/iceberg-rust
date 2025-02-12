@@ -22,7 +22,7 @@ use crate::error::Error;
 
 use super::identifier::Identifier;
 
-/// Update metadata of a table
+//AI! Write documentation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitTable {
     /// Table identifier
