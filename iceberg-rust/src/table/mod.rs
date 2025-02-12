@@ -224,7 +224,22 @@ impl Table {
             None => iter.collect(),
         }
     }
-    //AI! Write documentation
+    /// Returns a stream of manifest entries for the given manifest list entries
+    ///
+    /// # Arguments
+    /// * `manifests` - List of manifest entries to read data files from
+    /// * `filter` - Optional vector of boolean predicates to filter manifest entries
+    /// * `sequence_number_range` - Tuple of (start, end) sequence numbers to filter entries by
+    ///
+    /// # Returns
+    /// * `Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error>` - Stream of manifest entries
+    ///   that match the given filters
+    ///
+    /// # Type Parameters
+    /// * `'a` - Lifetime of the manifest list entries reference
+    ///
+    /// # Errors
+    /// Returns an error if reading any manifest file fails
     #[inline]
     pub async fn datafiles<'a>(
         &self,
