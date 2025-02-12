@@ -46,7 +46,24 @@ pub struct Table {
 
 /// Public interface of the table.
 impl Table {
-    //AI! Write documentation
+    /// Creates a new table builder with default configuration
+    ///
+    /// Returns a `CreateTableBuilder` initialized with default properties:
+    /// * WRITE_PARQUET_COMPRESSION_CODEC: "zstd"
+    /// * WRITE_PARQUET_COMPRESSION_LEVEL: "1"
+    /// * WRITE_OBJECT_STORAGE_ENABLED: "false"
+    ///
+    /// # Returns
+    /// * `CreateTableBuilder` - A builder for configuring and creating a new table
+    ///
+    /// # Example
+    /// ```
+    /// use iceberg_rust::table::Table;
+    ///
+    /// let builder = Table::builder()
+    ///     .with_name("my_table")
+    ///     .with_schema(schema);
+    /// ```
     pub fn builder() -> CreateTableBuilder {
         let mut builder = CreateTableBuilder::default();
         builder
