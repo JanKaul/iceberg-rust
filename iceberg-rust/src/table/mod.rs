@@ -164,7 +164,7 @@ impl Table {
         &self.metadata
     }
     #[inline]
-    /// Get the metadata of the table
+    //AI! Write documentation
     pub fn into_metadata(self) -> TableMetadata {
         self.metadata
     }
