@@ -18,7 +18,7 @@ use self::transaction::Transaction as ViewTransaction;
 pub mod transaction;
 
 #[derive(Debug, Clone)]
-/// An iceberg view
+//AI! Write documentation
 pub struct View {
     /// Type of the View, either filesystem or metastore.
     identifier: Identifier,
