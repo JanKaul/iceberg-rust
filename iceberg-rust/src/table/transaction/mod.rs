@@ -85,7 +85,24 @@ impl<'table> TableTransaction<'table> {
         );
         self
     }
-    //AI! Write documentation
+    /// Appends new data files to the table
+    ///
+    /// This operation adds new data files to the table's current snapshot. Multiple
+    /// append operations in the same transaction will be combined.
+    ///
+    /// # Arguments
+    /// * `files` - Vector of data files to append to the table
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    ///
+    /// # Examples
+    /// ```
+    /// let transaction = table.new_transaction(None)
+    ///     .append(data_files)
+    ///     .commit()
+    ///     .await?;
+    /// ```
     pub fn append(mut self, files: Vec<DataFile>) -> Self {
         self.operations
             .entry(APPEND_KEY.to_owned())
