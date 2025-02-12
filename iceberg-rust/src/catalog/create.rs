@@ -312,7 +312,21 @@ pub struct CreateMaterializedView {
 }
 
 impl CreateMaterializedViewBuilder {
-    //AI! Write documentation
+    /// Builds and registers a new materialized view in the catalog
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace where the materialized view will be created
+    /// * `catalog` - The catalog where the materialized view will be registered
+    ///
+    /// # Returns
+    /// * `Ok(MaterializedView)` - The newly created materialized view
+    /// * `Err(Error)` - If view creation fails, e.g. due to missing name or catalog errors
+    ///
+    /// This method finalizes the materialized view configuration and registers it in the specified catalog.
+    /// It automatically:
+    /// * Sets default namespace and catalog values if not specified
+    /// * Creates the underlying storage table with the appropriate name suffix
+    /// * Registers both the view and its storage table in the catalog
     pub async fn build(
         &mut self,
         namespace: &[String],
