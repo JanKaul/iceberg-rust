@@ -85,7 +85,7 @@ impl<'table> TableTransaction<'table> {
         );
         self
     }
-    /// Quickly append files to the table
+    //AI! Write documentation
     pub fn append(mut self, files: Vec<DataFile>) -> Self {
         self.operations
             .entry(APPEND_KEY.to_owned())
