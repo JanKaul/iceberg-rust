@@ -145,7 +145,21 @@ pub enum TableUpdate {
     },
 }
 
-//AI! Write documentation
+/// Requirements that must be met before applying updates to table metadata
+///
+/// This enum defines preconditions that must be satisfied before a table update
+/// can be committed. Requirements are checked atomically to prevent concurrent
+/// modifications from corrupting table state.
+///
+/// # Requirements Types
+/// * Table existence checks
+/// * UUID validation
+/// * Reference state validation
+/// * Schema and partition spec version checks
+/// * Sort order validation
+/// * Column and partition ID validation
+///
+/// Each variant includes the specific values that must match the current table state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
