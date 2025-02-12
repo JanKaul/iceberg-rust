@@ -83,7 +83,7 @@ impl View {
             catalog,
         })
     }
-    /// Get the table identifier in the catalog. Returns None of it is a filesystem view.
+    //AI! write documentation
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
