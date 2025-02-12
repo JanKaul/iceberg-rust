@@ -1,5 +1,58 @@
 #![deny(missing_docs)]
-//AI! Write crate documentation
+//! Apache Iceberg implementation in Rust
+//!
+//! This crate provides a native Rust implementation of [Apache Iceberg](https://iceberg.apache.org/),
+//! a table format for large analytic datasets. Iceberg manages large collections of files as tables,
+//! while providing atomic updates and concurrent writes.
+//!
+//! # Features
+//!
+//! * Table operations (create, read, update, delete)
+//! * Schema evolution
+//! * Hidden partitioning
+//! * Time travel and snapshot isolation
+//! * View and materialized view support
+//! * Multiple catalog implementations (REST, AWS Glue, File-based)
+//!
+//! # Components
+//!
+//! The main components of this crate are:
+//!
+//! * [`table`] - Core table operations and management
+//! * [`catalog`] - Catalog implementations for metadata storage
+//! * [`arrow`] - Integration with Apache Arrow
+//! * [`view`] - View and materialized view support
+//! * [`error`] - Error types and handling
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! use iceberg_rust::table::Table;
+//! use iceberg_rust::catalog::Catalog;
+//!
+//! // Create a new table
+//! let mut table = Table::builder()
+//!     .with_name("example_table")
+//!     .with_schema(schema)
+//!     .build()
+//!     .await?;
+//!
+//! // Start a transaction
+//! table.new_transaction(None)
+//!     .update_schema(new_schema)
+//!     .commit()
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # Implementation Status
+//!
+//! This implementation aims to be fully compatible with the
+//! [Apache Iceberg Specification](https://iceberg.apache.org/spec/).
+//! See the repository README for current implementation status and roadmap.
+
 pub mod arrow;
 pub mod catalog;
 pub mod error;
