@@ -1,6 +1,12 @@
-/*!
- * Functions to partition arrow record batches according to a partitoin spec
-*/
+//! Arrow-based partitioning implementation for Iceberg tables
+//!
+//! This module provides functionality to partition Arrow record batches according to Iceberg partition
+//! specifications. It includes:
+//!
+//! * Streaming partition implementation that processes record batches asynchronously
+//! * Support for different partition transforms (identity, bucket, truncate)
+//! * Efficient handling of distinct partition values
+//! * Automatic management of partition streams and channels
 
 use std::{
     collections::{HashSet, VecDeque},
@@ -38,6 +44,16 @@ type RecordBatchSender = Sender<Result<RecordBatch, ArrowError>>;
 type RecordBatchReceiver = Receiver<Result<RecordBatch, ArrowError>>;
 
 pin_project! {
+    /// A stream that partitions Arrow record batches according to partition field specifications
+    ///
+    /// This struct implements Stream to process record batches asynchronously, splitting them into
+    /// separate streams based on partition values. It maintains internal state to:
+    /// * Track active partition streams
+    /// * Buffer pending record batches
+    /// * Manage channel senders/receivers for each partition
+    ///
+    /// # Type Parameters
+    /// * `'a` - Lifetime of the partition field specifications
     pub(crate) struct PartitionStream<'a> {
         #[pin]
         record_batches: Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>,
@@ -131,6 +147,25 @@ impl Stream for PartitionStream<'_> {
     }
 }
 
+/// Partitions a record batch according to the given partition fields.
+///
+/// This function takes a record batch and partition field specifications, then splits the batch into
+/// multiple record batches based on unique combinations of partition values.
+///
+/// # Arguments
+/// * `record_batch` - The input record batch to partition
+/// * `partition_fields` - The partition field specifications that define how to split the data
+///
+/// # Returns
+/// An iterator over results containing:
+/// * A vector of partition values that identify the partition
+/// * The record batch containing only rows matching those partition values
+///
+/// # Errors
+/// Returns an ArrowError if:
+/// * Required columns are missing from the record batch
+/// * Transformation operations fail
+/// * Data type conversions fail
 fn partition_record_batch<'a>(
     record_batch: &'a RecordBatch,
     partition_fields: &[BoundPartitionField<'_>],
@@ -197,6 +232,19 @@ fn partition_record_batch<'a>(
     }))
 }
 
+/// Extracts distinct values from an Arrow array into a DistinctValues enum
+///
+/// # Arguments
+/// * `array` - The Arrow array to extract distinct values from
+///
+/// # Returns
+/// * `Ok(DistinctValues)` - An enum containing a HashSet of the distinct values
+/// * `Err(ArrowError)` - If the array's data type is not supported
+///
+/// # Supported Data Types
+/// * Int32 - Converted to DistinctValues::Int
+/// * Int64 - Converted to DistinctValues::Long
+/// * Utf8 - Converted to DistinctValues::String
 fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
     match array.data_type() {
         DataType::Int32 => Ok(DistinctValues::Int(distinct_values_primitive::<
@@ -214,6 +262,17 @@ fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
     }
 }
 
+/// Extracts distinct primitive values from an Arrow array into a HashSet
+///
+/// # Type Parameters
+/// * `T` - The Rust native type that implements Eq + Hash
+/// * `P` - The Arrow primitive type corresponding to T
+///
+/// # Arguments
+/// * `array` - The Arrow array to extract distinct values from
+///
+/// # Returns
+/// A HashSet containing all unique values from the array
 fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
     array: ArrayRef,
 ) -> HashSet<P::Native> {
@@ -227,6 +286,13 @@ fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
     set
 }
 
+/// Extracts distinct string values from an Arrow array into a HashSet
+///
+/// # Arguments
+/// * `array` - The Arrow array to extract distinct values from
+///
+/// # Returns
+/// A HashSet containing all unique string values from the array
 fn distinct_values_string(array: ArrayRef) -> HashSet<String> {
     let mut set = HashSet::new();
     let array = as_string_array(&array);
@@ -238,6 +304,12 @@ fn distinct_values_string(array: ArrayRef) -> HashSet<String> {
     set
 }
 
+/// Represents distinct values found in Arrow arrays during partitioning
+///
+/// This enum stores unique values from different Arrow array types:
+/// * `Int` - Distinct 32-bit integer values
+/// * `Long` - Distinct 64-bit integer values  
+/// * `String` - Distinct string values
 enum DistinctValues {
     Int(HashSet<i32>),
     Long(HashSet<i64>),

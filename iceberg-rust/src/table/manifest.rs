@@ -1,6 +1,19 @@
-/*!
- * Helpers to deal with manifest files
-*/
+//! Provides functionality for reading and writing Iceberg manifest files.
+//!
+//! This module implements the core manifest handling capabilities:
+//! - Reading manifest files via [`ManifestReader`]
+//! - Writing new manifest files via [`ManifestWriter`]
+//! - Converting between manifest formats (V1/V2)
+//! - Managing manifest entries and their metadata
+//! - Tracking partition statistics and file counts
+//!
+//! Manifest files are a key part of Iceberg tables, containing:
+//! - Data file locations and metadata
+//! - Partition information
+//! - File statistics and metrics
+//! - Schema and partition spec references
+//!
+//! The module handles both V1 and V2 manifest formats transparently.
 
 use std::{
     io::Read,
@@ -36,8 +49,15 @@ type ReaderMap<'a, R> = Map<
     ) -> Result<ManifestEntry, Error>,
 >;
 
-/// Iterator of manifest entries
-pub struct ManifestReader<'a, R: Read> {
+/// A reader for Iceberg manifest files that provides an iterator over manifest entries.
+///
+/// The reader handles both V1 and V2 manifest formats and automatically converts entries
+/// to the appropriate version based on the manifest metadata.
+///
+/// # Type Parameters
+/// * `'a` - The lifetime of the underlying reader
+/// * `R` - The type implementing `Read` that provides the manifest data
+pub(crate) struct ManifestReader<'a, R: Read> {
     reader: ReaderMap<'a, R>,
 }
 
@@ -49,8 +69,24 @@ impl<R: Read> Iterator for ManifestReader<'_, R> {
 }
 
 impl<R: Read> ManifestReader<'_, R> {
-    /// Create a new manifest reader
-    pub fn new(reader: R) -> Result<Self, Error> {
+    /// Creates a new ManifestReader from a reader implementing the Read trait.
+    ///
+    /// This method initializes a reader that can parse both V1 and V2 manifest formats.
+    /// It extracts metadata from the Avro file including format version, schema, and partition spec information.
+    ///
+    /// # Arguments
+    /// * `reader` - A type implementing the `Read` trait that provides access to the manifest file data
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestReader instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The Avro reader cannot be created
+    /// * Required metadata fields are missing
+    /// * Format version is invalid
+    /// * Schema or partition spec information cannot be parsed
+    pub(crate) fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();
 
@@ -103,16 +139,44 @@ impl<R: Read> ManifestReader<'_, R> {
     }
 }
 
-/// A helper to write entries into a manifest
-pub struct ManifestWriter<'schema, 'metadata> {
+/// A writer for Iceberg manifest files that handles creating and updating manifest entries.
+///
+/// ManifestWriter manages both creating new manifests and updating existing ones, handling
+/// the complexities of manifest metadata, entry tracking, and partition summaries.
+///
+/// # Type Parameters
+/// * `'schema` - The lifetime of the Avro schema used for writing entries
+/// * `'metadata` - The lifetime of the table metadata reference
+///
+/// # Fields
+/// * `table_metadata` - Reference to the table's metadata containing schema and partition information
+/// * `manifest` - The manifest list entry being built or modified
+/// * `writer` - The underlying Avro writer for serializing manifest entries
+pub(crate) struct ManifestWriter<'schema, 'metadata> {
     table_metadata: &'metadata TableMetadata,
     manifest: ManifestListEntry,
     writer: AvroWriter<'schema, Vec<u8>>,
 }
 
 impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
-    /// Create empty manifest writer
-    pub fn new(
+    /// Creates a new ManifestWriter for writing manifest entries to a new manifest file.
+    ///
+    /// # Arguments
+    /// * `manifest_location` - The location where the manifest file will be written
+    /// * `snapshot_id` - The ID of the snapshot this manifest belongs to
+    /// * `schema` - The Avro schema used for serializing manifest entries
+    /// * `table_metadata` - The table metadata containing schema and partition information
+    /// * `branch` - Optional branch name to get the current schema from
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestWriter instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The Avro writer cannot be created
+    /// * Required metadata fields cannot be serialized
+    /// * The partition spec ID is not found in table metadata
+    pub(crate) fn new(
         manifest_location: &str,
         snapshot_id: i64,
         schema: &'schema AvroSchema,
@@ -192,8 +256,29 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         })
     }
 
-    /// Create an manifest writer from an existing manifest
-    pub fn from_existing(
+    /// Creates a ManifestWriter from an existing manifest file, preserving its entries.
+    ///
+    /// This method reads an existing manifest file and creates a new writer that includes
+    /// all the existing entries with their status updated to "Existing". It also updates
+    /// sequence numbers and snapshot IDs as needed.
+    ///
+    /// # Arguments
+    /// * `bytes` - The raw bytes of the existing manifest file
+    /// * `manifest` - The manifest list entry describing the existing manifest
+    /// * `schema` - The Avro schema used for serializing manifest entries
+    /// * `table_metadata` - The table metadata containing schema and partition information
+    /// * `branch` - Optional branch name to get the current schema from
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestWriter instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The existing manifest cannot be read
+    /// * The Avro writer cannot be created
+    /// * Required metadata fields cannot be serialized
+    /// * The partition spec ID is not found in table metadata
+    pub(crate) fn from_existing(
         bytes: &[u8],
         mut manifest: ManifestListEntry,
         schema: &'schema AvroSchema,
@@ -281,8 +366,26 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         })
     }
 
-    /// Add an manifest entry to the manifest
-    pub fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
+    /// Appends a manifest entry to the manifest file and updates summary statistics.
+    ///
+    /// This method adds a new manifest entry while maintaining:
+    /// - Partition statistics (null values, bounds)
+    /// - File counts by status (added, existing, deleted)
+    /// - Row counts (added, deleted)
+    /// - Sequence number tracking
+    ///
+    /// # Arguments
+    /// * `manifest_entry` - The manifest entry to append
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the entry was successfully appended, Error otherwise
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The entry cannot be serialized
+    /// * Partition statistics cannot be updated
+    /// * The default partition spec is not found
+    pub(crate) fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
         let mut added_rows_count = 0;
         let mut deleted_rows_count = 0;
 
@@ -356,8 +459,24 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         Ok(())
     }
 
-    /// Write the manifest to object storage and return the manifest-list-entry
-    pub async fn finish(
+    /// Finalizes the manifest writer and writes the manifest file to storage.
+    ///
+    /// This method:
+    /// 1. Completes writing all entries
+    /// 2. Updates the manifest length
+    /// 3. Writes the manifest file to the object store
+    ///
+    /// # Arguments
+    /// * `object_store` - The object store to write the manifest file to
+    ///
+    /// # Returns
+    /// * `Result<ManifestListEntry, Error>` - The completed manifest list entry or an error
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The writer cannot be finalized
+    /// * The manifest file cannot be written to storage
+    pub(crate) async fn finish(
         mut self,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<ManifestListEntry, Error> {
@@ -379,7 +498,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
 
 #[allow(clippy::type_complexity)]
 /// Convert avro value to ManifestEntry based on the format version of the table.
-pub fn avro_value_to_manifest_entry(
+fn avro_value_to_manifest_entry(
     value: (
         Result<AvroValue, apache_avro::Error>,
         Arc<(Schema, PartitionSpec, FormatVersion)>,

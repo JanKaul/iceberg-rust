@@ -1,6 +1,26 @@
-/*!
-Defines traits to communicate with an iceberg catalog.
-*/
+//! Catalog module providing interfaces for managing Iceberg tables and metadata.
+//!
+//! The catalog system is a core component of Apache Iceberg that manages:
+//! - Table metadata and schemas
+//! - Namespace organization
+//! - Storage locations and object stores
+//! - Atomic updates and versioning
+//!
+//! # Key Components
+//!
+//! - [`Catalog`]: Core trait for managing tables, views, and namespaces
+//! - [`CatalogList`]: Interface for managing multiple catalogs
+//! - [`namespace`]: Types for organizing tables into hierarchies
+//! - [`identifier`]: Types for uniquely identifying catalog objects
+//!
+//! # Common Operations
+//!
+//! - Creating and managing tables and views
+//! - Organizing tables into namespaces
+//! - Tracking table metadata and history
+//! - Managing storage locations
+//! - Performing atomic updates
+//!
 
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -25,83 +45,365 @@ pub mod commit;
 pub mod create;
 pub mod tabular;
 
-/// Trait to create, replace and drop tables in an iceberg catalog.
+/// A trait representing an Iceberg catalog that manages tables, views, and namespaces.
+///
+/// The Catalog trait provides methods to:
+/// - Create, update, and delete namespaces
+/// - Create, load, and drop tables and views
+/// - List available tables and namespaces
+/// - Manage table and view metadata
+/// - Access object storage
+///
+/// Implementations must be Send + Sync for concurrent access and Debug for logging/debugging.
 #[async_trait::async_trait]
 pub trait Catalog: Send + Sync + Debug {
-    /// Name of the catalog
+    /// Returns the name of this catalog.
+    ///
+    /// The catalog name is a unique identifier used to:
+    /// - Distinguish between multiple catalogs in a catalog list
+    /// - Reference this catalog in configuration
+    /// - Identify the catalog in logging and error messages
     fn name(&self) -> &str;
-    /// Create a namespace in the catalog
+    /// Creates a new namespace in the catalog with optional properties.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to create
+    /// * `properties` - Optional key-value properties to associate with the namespace
+    ///
+    /// # Returns
+    /// * `Result<HashMap<String, String>, Error>` - The namespace properties after creation
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace already exists
+    /// * The namespace name is invalid
+    /// * The catalog fails to create the namespace
+    /// * Properties cannot be set
     async fn create_namespace(
         &self,
         namespace: &Namespace,
         properties: Option<HashMap<String, String>>,
     ) -> Result<HashMap<String, String>, Error>;
-    /// Drop a namespace in the catalog
+    /// Removes a namespace and all its properties from the catalog.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to remove
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the namespace was successfully removed
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace doesn't exist
+    /// * The namespace contains tables or views
+    /// * The catalog fails to remove the namespace
     async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), Error>;
-    /// Load the namespace properties from the catalog
+    /// Loads a namespace's properties from the catalog.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to load properties for
+    ///
+    /// # Returns
+    /// * `Result<HashMap<String, String>, Error>` - The namespace properties if found
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace doesn't exist
+    /// * The catalog fails to load the namespace properties
+    /// * The properties cannot be deserialized
     async fn load_namespace(&self, namespace: &Namespace)
         -> Result<HashMap<String, String>, Error>;
-    /// Update the namespace properties in the catalog
+    /// Updates a namespace's properties by applying updates and removals.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to update
+    /// * `updates` - Optional map of property key-value pairs to add or update
+    /// * `removals` - Optional list of property keys to remove
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the namespace was successfully updated
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace doesn't exist
+    /// * The properties cannot be updated
+    /// * The catalog fails to persist the changes
     async fn update_namespace(
         &self,
         namespace: &Namespace,
         updates: Option<HashMap<String, String>>,
         removals: Option<Vec<String>>,
     ) -> Result<(), Error>;
-    /// Check if a namespace exists
+    /// Checks if a namespace exists in the catalog.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to check for existence
+    ///
+    /// # Returns
+    /// * `Result<bool, Error>` - True if the namespace exists, false otherwise
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The catalog cannot be accessed
+    /// * The namespace check operation fails
     async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, Error>;
-    /// Lists all tables in the given namespace.
+    /// Lists all tables, views, and materialized views in the given namespace.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to list tabular objects from
+    ///
+    /// # Returns
+    /// * `Result<Vec<Identifier>, Error>` - List of identifiers for all tabular objects
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace doesn't exist
+    /// * The catalog cannot be accessed
+    /// * The listing operation fails
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error>;
-    /// Lists all namespaces in the catalog.
+    /// Lists all namespaces under an optional parent namespace.
+    ///
+    /// # Arguments
+    /// * `parent` - Optional parent namespace to list children under. If None, lists top-level namespaces.
+    ///
+    /// # Returns
+    /// * `Result<Vec<Namespace>, Error>` - List of namespace objects
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The parent namespace doesn't exist (if specified)
+    /// * The catalog cannot be accessed
+    /// * The listing operation fails
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error>;
-    /// Check if a table exists
+    /// Checks if a table, view, or materialized view exists in the catalog.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier of the tabular object to check
+    ///
+    /// # Returns
+    /// * `Result<bool, Error>` - True if the tabular object exists, false otherwise
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The namespace doesn't exist
+    /// * The catalog cannot be accessed
+    /// * The existence check operation fails
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error>;
-    /// Drop a table and delete all data and metadata files.
+    /// Drops a table from the catalog and deletes all associated data and metadata files.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier of the table to drop
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the table was successfully dropped
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The table doesn't exist
+    /// * The table is locked or in use
+    /// * The catalog fails to delete the table metadata
+    /// * The data files cannot be deleted
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error>;
-    /// Drop a table and delete all data and metadata files.
+    /// Drops a view from the catalog and deletes its metadata.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier of the view to drop
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the view was successfully dropped
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The view doesn't exist
+    /// * The view is in use
+    /// * The catalog fails to delete the view metadata
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error>;
-    /// Drop a table and delete all data and metadata files.
+    /// Drops a materialized view from the catalog and deletes its metadata and data files.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier of the materialized view to drop
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok if the materialized view was successfully dropped
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The materialized view doesn't exist
+    /// * The materialized view is in use
+    /// * The catalog fails to delete the view metadata
+    /// * The associated data files cannot be deleted
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error>;
-    /// Load a table.
+    /// Loads a table, view, or materialized view from the catalog.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier of the tabular object to load
+    ///
+    /// # Returns
+    /// * `Result<Tabular, Error>` - The loaded tabular object wrapped in an enum
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The tabular object doesn't exist
+    /// * The metadata cannot be loaded
+    /// * The metadata is invalid or corrupted
+    /// * The catalog cannot be accessed
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error>;
-    /// Create a table in the catalog if it doesn't exist.
+    /// Creates a new table in the catalog with the specified configuration.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier for the new table
+    /// * `create_table` - Configuration for the table creation including schema, partitioning, etc.
+    ///
+    /// # Returns
+    /// * `Result<Table, Error>` - The newly created table object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The table already exists
+    /// * The namespace doesn't exist
+    /// * The schema is invalid
+    /// * The catalog fails to create the table metadata
+    /// * The table location cannot be initialized
     async fn create_table(
         self: Arc<Self>,
         identifier: Identifier,
         create_table: CreateTable,
     ) -> Result<Table, Error>;
-    /// Create a view with the catalog if it doesn't exist.
+    /// Creates a new view in the catalog with the specified configuration.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier for the new view
+    /// * `create_view` - Configuration for the view creation including view definition and properties
+    ///
+    /// # Returns
+    /// * `Result<View, Error>` - The newly created view object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The view already exists
+    /// * The namespace doesn't exist
+    /// * The view definition is invalid
+    /// * The catalog fails to create the view metadata
     async fn create_view(
         self: Arc<Self>,
         identifier: Identifier,
         create_view: CreateView<Option<()>>,
     ) -> Result<View, Error>;
-    /// Register a materialized view with the catalog if it doesn't exist.
+    /// Creates a new materialized view in the catalog with the specified configuration.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier for the new materialized view
+    /// * `create_view` - Configuration for the materialized view creation including view definition,
+    ///                  storage properties, and refresh policies
+    ///
+    /// # Returns
+    /// * `Result<MaterializedView, Error>` - The newly created materialized view object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The materialized view already exists
+    /// * The namespace doesn't exist
+    /// * The view definition is invalid
+    /// * The catalog fails to create the view metadata
+    /// * The storage location cannot be initialized
     async fn create_materialized_view(
         self: Arc<Self>,
         identifier: Identifier,
         create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, Error>;
-    /// perform commit table operation
+    /// Updates a table's metadata by applying the specified commit operation.
+    ///
+    /// # Arguments
+    /// * `commit` - The commit operation containing metadata updates to apply
+    ///
+    /// # Returns
+    /// * `Result<Table, Error>` - The updated table object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The table doesn't exist
+    /// * The table is locked by another operation
+    /// * The commit operation is invalid
+    /// * The catalog fails to update the metadata
+    /// * Concurrent modifications conflict with this update
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, Error>;
-    /// perform commit view operation
+    /// Updates a view's metadata by applying the specified commit operation.
+    ///
+    /// # Arguments
+    /// * `commit` - The commit operation containing metadata updates to apply
+    ///
+    /// # Returns
+    /// * `Result<View, Error>` - The updated view object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The view doesn't exist
+    /// * The view is locked by another operation
+    /// * The commit operation is invalid
+    /// * The catalog fails to update the metadata
+    /// * Concurrent modifications conflict with this update
     async fn update_view(self: Arc<Self>, commit: CommitView<Option<()>>) -> Result<View, Error>;
-    /// perform commit view operation
+    /// Updates a materialized view's metadata by applying the specified commit operation.
+    ///
+    /// # Arguments
+    /// * `commit` - The commit operation containing metadata updates to apply
+    ///
+    /// # Returns
+    /// * `Result<MaterializedView, Error>` - The updated materialized view object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The materialized view doesn't exist
+    /// * The materialized view is locked by another operation
+    /// * The commit operation is invalid
+    /// * The catalog fails to update the metadata
+    /// * Concurrent modifications conflict with this update
+    /// * The underlying storage cannot be updated
     async fn update_materialized_view(
         self: Arc<Self>,
         commit: CommitView<FullIdentifier>,
     ) -> Result<MaterializedView, Error>;
-    /// Register a table with the catalog if it doesn't exist.
+    /// Registers an existing table in the catalog using its metadata location.
+    ///
+    /// # Arguments
+    /// * `identifier` - The identifier to register the table under
+    /// * `metadata_location` - Location of the table's metadata file
+    ///
+    /// # Returns
+    /// * `Result<Table, Error>` - The registered table object
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * A table already exists with the given identifier
+    /// * The metadata location is invalid or inaccessible
+    /// * The metadata file cannot be read or parsed
+    /// * The catalog fails to register the table
     async fn register_table(
         self: Arc<Self>,
         identifier: Identifier,
         metadata_location: &str,
     ) -> Result<Table, Error>;
-    /// Return the associated object store for a bucket
+    /// Returns an object store instance for the given bucket.
+    ///
+    /// # Arguments
+    /// * `bucket` - The bucket configuration to create an object store for
+    ///
+    /// # Returns
+    /// * `Arc<dyn ObjectStore>` - Thread-safe reference to the configured object store
+    ///
+    /// The returned object store provides access to the underlying storage system (S3, GCS, etc.)
+    /// and handles all low-level storage operations for the catalog.
     fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }
 
-/// Trait to obtain a catalog by name
+/// A trait representing a collection of Iceberg catalogs that can be accessed by name.
+///
+/// The CatalogList trait provides methods to:
+/// - Look up individual catalogs by name
+/// - List all available catalogs
+/// - Manage multiple catalogs in a unified interface
+///
+/// Implementations must be Send + Sync for concurrent access and Debug for logging/debugging.
 #[async_trait::async_trait]
 pub trait CatalogList: Send + Sync + Debug {
     /// Get catalog from list by name

@@ -28,8 +28,16 @@ type ReaderMap<'a, 'metadata, R> = Map<
     fn((Result<AvroValue, apache_avro::Error>, &TableMetadata)) -> Result<ManifestListEntry, Error>,
 >;
 
-/// Iterator of manifest list entries
-pub struct ManifestListReader<'a, 'metadata, R: Read> {
+/// A reader for Iceberg manifest list files that provides an iterator over manifest list entries.
+///
+/// ManifestListReader parses manifest list files according to the table's format version (V1/V2)
+/// and provides access to the manifest entries that describe the table's data files.
+///
+/// # Type Parameters
+/// * `'a` - The lifetime of the underlying Avro reader
+/// * `'metadata` - The lifetime of the table metadata reference
+/// * `R` - The type implementing `Read` that provides the manifest list data
+pub(crate) struct ManifestListReader<'a, 'metadata, R: Read> {
     reader: ReaderMap<'a, 'metadata, R>,
 }
 
@@ -41,8 +49,24 @@ impl<R: Read> Iterator for ManifestListReader<'_, '_, R> {
 }
 
 impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
-    /// Create a new manifest list reader
-    pub fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
+    /// Creates a new ManifestListReader from a reader and table metadata.
+    ///
+    /// This method initializes a reader that can parse manifest list files according to
+    /// the table's format version (V1/V2). It uses the appropriate Avro schema based on
+    /// the format version from the table metadata.
+    ///
+    /// # Arguments
+    /// * `reader` - A type implementing the `Read` trait that provides the manifest list data
+    /// * `table_metadata` - Reference to the table metadata containing format version info
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestListReader instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The Avro reader cannot be created with the schema
+    /// * The manifest list format is invalid
+    pub(crate) fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
         let schema: &AvroSchema = match table_metadata.format_version {
             FormatVersion::V1 => manifest_list_schema_v1(),
             FormatVersion::V2 => manifest_list_schema_v2(),
@@ -57,8 +81,26 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
     }
 }
 
-/// Return all manifest files associated to the latest table snapshot. Reads the related manifest_list file and returns its entries.
-/// If the manifest list file is empty returns an empty vector.
+/// Reads a snapshot's manifest list file and returns an iterator over its manifest list entries.
+///
+/// This function:
+/// 1. Fetches the manifest list file from object storage
+/// 2. Creates a reader for the appropriate format version
+/// 3. Returns an iterator that will yield each manifest list entry
+///
+/// # Arguments
+/// * `snapshot` - The snapshot containing the manifest list location
+/// * `table_metadata` - Reference to the table metadata for format version info
+/// * `object_store` - The object store to read the manifest list file from
+///
+/// # Returns
+/// * `Result<impl Iterator<...>, Error>` - An iterator over manifest list entries or an error
+///
+/// # Errors
+/// Returns an error if:
+/// * The manifest list file cannot be read from storage
+/// * The manifest list format is invalid
+/// * The Avro reader cannot be created
 pub(crate) async fn read_snapshot<'metadata>(
     snapshot: &Snapshot,
     table_metadata: &'metadata TableMetadata,

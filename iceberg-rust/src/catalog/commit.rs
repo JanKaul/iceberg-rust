@@ -1,6 +1,14 @@
-/*!
-Struct to perform a [CommitTable] or [CommitView] operation
-*/
+//! Commit operations for atomic metadata updates in Iceberg catalogs
+//!
+//! This module provides the core functionality for atomic commits to Iceberg tables and views:
+//! * Commit structures for tables and views
+//! * Update operations that can be applied
+//! * Requirements that must be satisfied
+//! * Functions to validate requirements and apply updates
+//!
+//! All changes are made atomically - either all updates succeed or none are applied.
+//! Requirements are checked first to ensure concurrent modifications don't corrupt state.
+
 use std::collections::HashMap;
 
 use iceberg_rust_spec::{
@@ -22,7 +30,15 @@ use crate::error::Error;
 
 use super::identifier::Identifier;
 
-/// Update metadata of a table
+/// A commit operation to update table metadata in an Iceberg catalog
+///
+/// This struct represents an atomic commit operation that can:
+/// * Update table metadata
+/// * Add or remove snapshots
+/// * Modify schema, partition specs, and sort orders
+///
+/// The commit includes both requirements that must be satisfied and
+/// a list of updates to apply atomically.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitTable {
     /// Table identifier
@@ -33,7 +49,20 @@ pub struct CommitTable {
     pub updates: Vec<TableUpdate>,
 }
 
-/// Update metadata of a table
+/// A commit operation to update view metadata in an Iceberg catalog
+///
+/// This struct represents an atomic commit operation that can:
+/// * Update view metadata
+/// * Add or modify schemas
+/// * Update view versions
+/// * Modify location and properties
+///
+/// The commit includes both requirements that must be satisfied and
+/// a list of updates to apply atomically.
+///
+/// # Type Parameters
+/// * `T` - The materialization type for the view, typically `Option<()>` for regular views
+///   or custom types for materialized views
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitView<T: Materialization> {
     /// Table identifier
@@ -44,7 +73,18 @@ pub struct CommitView<T: Materialization> {
     pub updates: Vec<ViewUpdate<T>>,
 }
 
-/// Update the metadata of a table in the catalog
+/// Updates that can be applied to table metadata in a commit operation
+///
+/// This enum represents all possible modifications that can be made to table metadata:
+/// * UUID assignment (only during table creation)
+/// * Format version updates
+/// * Schema modifications
+/// * Partition spec and sort order changes
+/// * Snapshot management (add, remove, set references)
+/// * Location and property updates
+///
+/// Each variant includes the necessary data for that specific update type.
+/// Updates are applied atomically as part of a commit operation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "action",
@@ -134,7 +174,21 @@ pub enum TableUpdate {
     },
 }
 
-/// Requirements on the table metadata to perform the updates
+/// Requirements that must be met before applying updates to table metadata
+///
+/// This enum defines preconditions that must be satisfied before a table update
+/// can be committed. Requirements are checked atomically to prevent concurrent
+/// modifications from corrupting table state.
+///
+/// # Requirements Types
+/// * Table existence checks
+/// * UUID validation
+/// * Reference state validation
+/// * Schema and partition spec version checks
+/// * Sort order validation
+/// * Column and partition ID validation
+///
+/// Each variant includes the specific values that must match the current table state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -184,7 +238,21 @@ pub enum TableRequirement {
     },
 }
 
-/// Update the metadata of a view in the catalog
+/// Updates that can be applied to view metadata in a commit operation
+///
+/// This enum represents all possible modifications that can be made to view metadata:
+/// * UUID assignment (only during view creation)
+/// * Format version updates
+/// * Schema modifications
+/// * Location and property updates
+/// * Version management (add versions, set current version)
+///
+/// # Type Parameters
+/// * `T` - The materialization type for the view, typically `Option<()>` for regular views
+///   or `FullIdentifier` for materialized views
+///
+/// Each variant includes the necessary data for that specific update type.
+/// Updates are applied atomically as part of a commit operation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "action",
@@ -236,7 +304,16 @@ pub enum ViewUpdate<T: Materialization> {
     },
 }
 
-/// Requirements on the table metadata to perform the updates
+/// Requirements that must be met before applying updates to view metadata
+///
+/// This enum defines preconditions that must be satisfied before a view update
+/// can be committed. Requirements are checked atomically to prevent concurrent
+/// modifications from corrupting view state.
+///
+/// # Requirements Types
+/// * UUID validation - Ensures view UUID matches expected value
+///
+/// Each variant includes the specific values that must match the current view state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -250,7 +327,19 @@ pub enum ViewRequirement {
         uuid: Uuid,
     },
 }
-/// Check table update requirements
+/// Validates that table metadata meets all specified requirements
+///
+/// This function checks if the current table metadata satisfies all the requirements
+/// specified for a commit operation. It ensures atomic updates by verifying preconditions
+/// like UUID matches, snapshot references, schema versions etc.
+///
+/// # Arguments
+/// * `requirements` - List of requirements that must be satisfied
+/// * `metadata` - Current table metadata to validate against
+///
+/// # Returns
+/// * `true` if all requirements are met
+/// * `false` if any requirement is not satisfied
 pub fn check_table_requirements(
     requirements: &[TableRequirement],
     metadata: &TableMetadata,
@@ -282,7 +371,22 @@ pub fn check_table_requirements(
     })
 }
 
-/// Check table update requirements
+/// Validates that view metadata meets all specified requirements
+///
+/// This function checks if the current view metadata satisfies all the requirements
+/// specified for a commit operation. It ensures atomic updates by verifying preconditions
+/// like UUID matches.
+///
+/// # Type Parameters
+/// * `T` - The materialization type for the view, must implement Materialization, Eq and 'static
+///
+/// # Arguments
+/// * `requirements` - List of requirements that must be satisfied
+/// * `metadata` - Current view metadata to validate against
+///
+/// # Returns
+/// * `true` if all requirements are met
+/// * `false` if any requirement is not satisfied
 pub fn check_view_requirements<T: Materialization + Eq + 'static>(
     requirements: &[ViewRequirement],
     metadata: &GeneralViewMetadata<T>,
@@ -291,7 +395,24 @@ pub fn check_view_requirements<T: Materialization + Eq + 'static>(
         ViewRequirement::AssertViewUuid { uuid } => metadata.view_uuid == *uuid,
     })
 }
-/// Apply updates to metadata
+/// Applies a sequence of updates to table metadata
+///
+/// This function processes each update in order, modifying the table metadata accordingly.
+/// Updates can include:
+/// * Format version changes
+/// * UUID assignments
+/// * Schema modifications
+/// * Partition spec and sort order changes
+/// * Snapshot management
+/// * Location and property updates
+///
+/// # Arguments
+/// * `metadata` - Mutable reference to table metadata to modify
+/// * `updates` - Vector of updates to apply
+///
+/// # Returns
+/// * `Ok(())` if all updates were applied successfully
+/// * `Err(Error)` if any update failed to apply
 pub fn apply_table_updates(
     metadata: &mut TableMetadata,
     updates: Vec<TableUpdate>,
@@ -369,7 +490,26 @@ pub fn apply_table_updates(
     Ok(())
 }
 
-/// Apply updates to metadata
+/// Applies a sequence of updates to view metadata
+///
+/// This function processes each update in order, modifying the view metadata accordingly.
+/// Updates can include:
+/// * Format version changes
+/// * UUID assignments
+/// * Schema modifications
+/// * Location and property updates
+/// * Version management
+///
+/// # Type Parameters
+/// * `T` - The materialization type for the view, must implement Materialization + 'static
+///
+/// # Arguments
+/// * `metadata` - Mutable reference to view metadata to modify
+/// * `updates` - Vector of updates to apply
+///
+/// # Returns
+/// * `Ok(())` if all updates were applied successfully
+/// * `Err(Error)` if any update failed to apply
 pub fn apply_view_updates<T: Materialization + 'static>(
     metadata: &mut GeneralViewMetadata<T>,
     updates: Vec<ViewUpdate<T>>,

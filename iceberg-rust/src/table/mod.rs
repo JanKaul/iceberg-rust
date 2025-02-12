@@ -1,6 +1,14 @@
-/*!
-Defining the [Table] struct that represents an iceberg table.
-*/
+//! Table module provides the core functionality for working with Iceberg tables
+//!
+//! The main type in this module is [`Table`], which represents an Iceberg table and provides
+//! methods for:
+//! * Reading table data and metadata
+//! * Modifying table structure (schema, partitioning, etc.)
+//! * Managing table snapshots and branches
+//! * Performing atomic transactions
+//!
+//! Tables can be created using [`Table::builder()`] and modified using transactions
+//! created by [`Table::new_transaction()`].
 
 use std::{io::Cursor, sync::Arc};
 
@@ -46,7 +54,24 @@ pub struct Table {
 
 /// Public interface of the table.
 impl Table {
-    /// Build a new table
+    /// Creates a new table builder with default configuration
+    ///
+    /// Returns a `CreateTableBuilder` initialized with default properties:
+    /// * WRITE_PARQUET_COMPRESSION_CODEC: "zstd"
+    /// * WRITE_PARQUET_COMPRESSION_LEVEL: "1"
+    /// * WRITE_OBJECT_STORAGE_ENABLED: "false"
+    ///
+    /// # Returns
+    /// * `CreateTableBuilder` - A builder for configuring and creating a new table
+    ///
+    /// # Example
+    /// ```
+    /// use iceberg_rust::table::Table;
+    ///
+    /// let builder = Table::builder()
+    ///     .with_name("my_table")
+    ///     .with_schema(schema);
+    /// ```
     pub fn builder() -> CreateTableBuilder {
         let mut builder = CreateTableBuilder::default();
         builder
@@ -59,7 +84,18 @@ impl Table {
         builder
     }
 
-    /// Create a new metastore Table
+    /// Creates a new table instance with the given identifier, catalog and metadata
+    ///
+    /// # Arguments
+    /// * `identifier` - The unique identifier for this table in the catalog
+    /// * `catalog` - The catalog that this table belongs to
+    /// * `metadata` - The table's metadata containing schema, partitioning, etc.
+    ///
+    /// # Returns
+    /// * `Result<Table, Error>` - The newly created table instance or an error
+    ///
+    /// This is typically called by catalog implementations rather than directly by users.
+    /// For creating new tables, use [`Table::builder()`] instead.
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
@@ -72,37 +108,95 @@ impl Table {
         })
     }
     #[inline]
-    /// Get the table identifier in the catalog. Returns None of it is a filesystem table.
+    /// Returns the unique identifier for this table in the catalog
+    ///
+    /// The identifier contains both the namespace and name that uniquely identify
+    /// this table within its catalog.
+    ///
+    /// # Returns
+    /// * `&Identifier` - A reference to this table's identifier
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
     #[inline]
-    /// Get the catalog associated to the table. Returns None if the table is a filesystem table
+    /// Returns a reference to the catalog containing this table
+    ///
+    /// The returned catalog reference is wrapped in an Arc to allow shared ownership
+    /// and thread-safe access to the catalog implementation.
+    ///
+    /// # Returns
+    /// * `Arc<dyn Catalog>` - A thread-safe reference to the table's catalog
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
     #[inline]
-    /// Get the object_store associated to the table
+    /// Returns the object store for this table's location
+    ///
+    /// The object store is determined by the table's location and is used for
+    /// reading and writing table data files. The returned store is wrapped in
+    /// an Arc to allow shared ownership and thread-safe access.
+    ///
+    /// # Returns
+    /// * `Arc<dyn ObjectStore>` - A thread-safe reference to the table's object store
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
     }
     #[inline]
-    /// Get the schema of the table for a given branch. Defaults to main.
+    /// Returns the current schema for this table, optionally for a specific branch
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to get the schema for. If None, returns the main branch schema
+    ///
+    /// # Returns
+    /// * `Result<&Schema, Error>` - The current schema if found, or an error if the schema cannot be found
+    ///
+    /// # Errors
+    /// Returns an error if the schema ID cannot be found in the table metadata
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
     #[inline]
-    /// Get the metadata of the table
+    /// Returns a reference to this table's metadata
+    ///
+    /// The metadata contains all table information including:
+    /// * Schema definitions
+    /// * Partition specifications
+    /// * Snapshots
+    /// * Sort orders
+    /// * Table properties
+    ///
+    /// # Returns
+    /// * `&TableMetadata` - A reference to the table's metadata
     pub fn metadata(&self) -> &TableMetadata {
         &self.metadata
     }
     #[inline]
-    /// Get the metadata of the table
+    /// Consumes the table and returns its metadata
+    ///
+    /// This method takes ownership of the table instance and returns just the
+    /// underlying TableMetadata. This is useful when you no longer need the
+    /// table instance but want to retain its metadata.
+    ///
+    /// # Returns
+    /// * `TableMetadata` - The owned metadata from this table
     pub fn into_metadata(self) -> TableMetadata {
         self.metadata
     }
-    /// Get list of current manifest files within an optional snapshot range. The start snapshot is excluded from the range.
+    /// Returns manifest list entries for snapshots within the given sequence range
+    ///
+    /// # Arguments
+    /// * `start` - Optional starting snapshot ID (exclusive). If None, includes from the beginning
+    /// * `end` - Optional ending snapshot ID (inclusive). If None, uses the current snapshot
+    ///
+    /// # Returns
+    /// * `Result<Vec<ManifestListEntry>, Error>` - Vector of manifest entries in the range,
+    ///    or an empty vector if no current snapshot exists
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The end snapshot ID is invalid
+    /// * Reading the manifest list fails
     pub async fn manifests(
         &self,
         start: Option<i64>,
@@ -138,7 +232,22 @@ impl Table {
             None => iter.collect(),
         }
     }
-    /// Get list of datafiles corresponding to the given manifest files
+    /// Returns a stream of manifest entries for the given manifest list entries
+    ///
+    /// # Arguments
+    /// * `manifests` - List of manifest entries to read data files from
+    /// * `filter` - Optional vector of boolean predicates to filter manifest entries
+    /// * `sequence_number_range` - Tuple of (start, end) sequence numbers to filter entries by
+    ///
+    /// # Returns
+    /// * `Result<impl Stream<Item = Result<ManifestEntry, Error>>, Error>` - Stream of manifest entries
+    ///   that match the given filters
+    ///
+    /// # Type Parameters
+    /// * `'a` - Lifetime of the manifest list entries reference
+    ///
+    /// # Errors
+    /// Returns an error if reading any manifest file fails
     #[inline]
     pub async fn datafiles<'a>(
         &self,
@@ -166,7 +275,16 @@ impl Table {
             .try_any(|entry| async move { !matches!(entry.data_file().content(), Content::Data) })
             .await
     }
-    /// Create a new transaction for this table
+    /// Creates a new transaction for atomic modifications to this table
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to create the transaction for. If None, uses the main branch
+    ///
+    /// # Returns
+    /// * `TableTransaction` - A new transaction that can be used to atomically modify this table
+    ///
+    /// The transaction must be committed for any changes to take effect.
+    /// Multiple operations can be chained within a single transaction.
     pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction {
         TableTransaction::new(self, branch)
     }
@@ -238,7 +356,7 @@ async fn datafiles(
 }
 
 /// delete all datafiles, manifests and metadata files, does not remove table from catalog
-pub(crate) async fn delete_files(
+pub(crate) async fn delete_all_table_files(
     metadata: &TableMetadata,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<(), Error> {

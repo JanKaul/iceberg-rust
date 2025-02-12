@@ -65,7 +65,7 @@ pub enum Operation {
     //     partition_values: Vec<Struct>,
     // },
     // /// Replace files in the table and commit
-    Overwrite {
+    Replace {
         branch: Option<String>,
         files: Vec<DataFile>,
         additional_summary: Option<HashMap<String, String>>,
@@ -357,7 +357,7 @@ impl Operation {
                     ],
                 ))
             }
-            Operation::Overwrite {
+            Operation::Replace {
                 branch,
                 files,
                 additional_summary,
@@ -561,7 +561,8 @@ fn prefetch_manifest(
     selected_manifest_opt: &Option<ManifestListEntry>,
     object_store: &Arc<dyn ObjectStore>,
 ) -> Option<JoinHandle<Result<Bytes, object_store::Error>>> {
-    selected_manifest_opt.as_ref().map(|selected_manifest| tokio::task::spawn({
+    selected_manifest_opt.as_ref().map(|selected_manifest| {
+        tokio::task::spawn({
             let object_store = object_store.clone();
             let path = selected_manifest.manifest_path.clone();
             async move {
@@ -571,24 +572,31 @@ fn prefetch_manifest(
                     .bytes()
                     .await
             }
-        }))
+        })
+    })
 }
 
 fn prefetch_manifest_list(
     old_snapshot: Option<&Snapshot>,
     object_store: &Arc<dyn ObjectStore>,
 ) -> Option<JoinHandle<Result<Bytes, object_store::Error>>> {
-    old_snapshot.map(|x| x.manifest_list()).cloned().as_ref().map(|old_manifest_list_location| tokio::task::spawn({
-            let object_store = object_store.clone();
-            let old_manifest_list_location = old_manifest_list_location.clone();
-            async move {
-                object_store
-                    .get(&strip_prefix(&old_manifest_list_location).as_str().into())
-                    .await?
-                    .bytes()
-                    .await
-            }
-        }))
+    old_snapshot
+        .map(|x| x.manifest_list())
+        .cloned()
+        .as_ref()
+        .map(|old_manifest_list_location| {
+            tokio::task::spawn({
+                let object_store = object_store.clone();
+                let old_manifest_list_location = old_manifest_list_location.clone();
+                async move {
+                    object_store
+                        .get(&strip_prefix(&old_manifest_list_location).as_str().into())
+                        .await?
+                        .bytes()
+                        .await
+                }
+            })
+        })
 }
 
 fn new_manifest_location(table_metadata_location: &str, commit_uuid: &String, i: usize) -> String {

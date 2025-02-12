@@ -1,6 +1,36 @@
-/*!
- * Functions to write arrow record batches to an iceberg table
-*/
+//! Arrow writing module for converting Arrow record batches to Iceberg data files.
+//!
+//! This module provides functionality to:
+//! - Write Arrow record batches to Parquet files
+//! - Handle partitioned data writing
+//! - Support equality delete files
+//! - Manage file sizes and buffering
+//!
+//! The main entry points are:
+//! - [`write_parquet_partitioned`]: Write regular data files
+//! - [`write_equality_deletes_parquet_partitioned`]: Write equality delete files
+//!
+//! The module handles:
+//! - Automatic file size management and splitting
+//! - Parquet compression and encoding
+//! - Partition path generation
+//! - Object store integration
+//! - Metadata collection for written files
+//!
+//! # Example
+//!
+//! ```no_run
+//! # use arrow::record_batch::RecordBatch;
+//! # use futures::Stream;
+//! # use iceberg_rust::table::Table;
+//! # async fn example(table: &Table, batches: impl Stream<Item = Result<RecordBatch, arrow::error::ArrowError>>) {
+//! let data_files = write_parquet_partitioned(
+//!     table,
+//!     batches,
+//!     None // no specific branch
+//! ).await.unwrap();
+//! # }
+//! ```
 
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
@@ -36,7 +66,26 @@ use super::partition::PartitionStream;
 const MAX_PARQUET_SIZE: usize = 512_000_000;
 
 #[inline]
-/// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
+/// Writes Arrow record batches as partitioned Parquet files.
+///
+/// This function writes Arrow record batches to Parquet files, partitioning them according
+/// to the table's partition spec.
+///
+/// # Arguments
+/// * `table` - The Iceberg table to write data for
+/// * `batches` - Stream of Arrow record batches to write
+/// * `branch` - Optional branch name to write to
+///
+/// # Returns
+/// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written data files
+///
+/// # Errors
+/// Returns an error if:
+/// * The table metadata cannot be accessed
+/// * The schema projection fails
+/// * The object store operations fail
+/// * The Parquet writing fails
+/// * The partition path generation fails
 pub async fn write_parquet_partitioned(
     table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
@@ -46,7 +95,27 @@ pub async fn write_parquet_partitioned(
 }
 
 #[inline]
-/// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
+/// Writes equality delete records as partitioned Parquet files.
+///
+/// This function writes Arrow record batches containing equality delete records to Parquet files,
+/// partitioning them according to the table's partition spec.
+///
+/// # Arguments
+/// * `table` - The Iceberg table to write delete records for
+/// * `batches` - Stream of Arrow record batches containing the delete records
+/// * `branch` - Optional branch name to write to
+/// * `equality_ids` - Field IDs that define equality deletion
+///
+/// # Returns
+/// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written delete files
+///
+/// # Errors
+/// Returns an error if:
+/// * The table metadata cannot be accessed
+/// * The schema projection fails
+/// * The object store operations fail
+/// * The Parquet writing fails
+/// * The partition path generation fails
 pub async fn write_equality_deletes_parquet_partitioned(
     table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
@@ -56,8 +125,28 @@ pub async fn write_equality_deletes_parquet_partitioned(
     store_parquet_partitioned(table, batches, branch, Some(equality_ids)).await
 }
 
-/// Partitions arrow record batches and writes them to parquet files. Does not perform any operation on an iceberg table.
-pub async fn store_parquet_partitioned(
+/// Stores Arrow record batches as partitioned Parquet files.
+///
+/// This is an internal function that handles the core storage logic for both regular data files
+/// and equality delete files.
+///
+/// # Arguments
+/// * `table` - The Iceberg table to store data for
+/// * `batches` - Stream of Arrow record batches to write
+/// * `branch` - Optional branch name to write to
+/// * `equality_ids` - Optional list of field IDs for equality deletes
+///
+/// # Returns
+/// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written data files
+///
+/// # Errors
+/// Returns an error if:
+/// * The table metadata cannot be accessed
+/// * The schema projection fails
+/// * The object store operations fail
+/// * The Parquet writing fails
+/// * The partition path generation fails
+async fn store_parquet_partitioned(
     table: &Table,
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
     branch: Option<&str>,
@@ -179,7 +268,30 @@ pub async fn store_parquet_partitioned(
 type ArrowSender = Sender<(String, FileMetaData)>;
 type ArrowReciever = Receiver<(String, FileMetaData)>;
 
-/// Write arrow record batches to parquet files. Does not perform any operation on an iceberg table.
+/// Writes a stream of Arrow record batches to multiple Parquet files.
+///
+/// This internal function handles the low-level details of writing record batches to Parquet files,
+/// managing file sizes, and collecting metadata.
+///
+/// # Arguments
+/// * `data_location` - Base path where data files should be written
+/// * `schema` - Iceberg schema for the data
+/// * `arrow_schema` - Arrow schema for the record batches
+/// * `partition_fields` - List of partition fields if data is partitioned
+/// * `partition_path` - Optional partition path component
+/// * `batches` - Stream of record batches to write
+/// * `object_store` - Object store to write files to
+/// * `equality_ids` - Optional list of field IDs for equality deletes
+///
+/// # Returns
+/// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written files
+///
+/// # Errors
+/// Returns an error if:
+/// * File creation fails
+/// * Writing record batches fails
+/// * Object store operations fail
+/// * Metadata collection fails
 #[allow(clippy::too_many_arguments)]
 async fn write_parquet_files(
     data_location: &str,
@@ -295,6 +407,22 @@ async fn write_parquet_files(
         .await
 }
 
+/// Generates a partition path string from partition fields and their values.
+///
+/// Creates a path string in the format "field1=value1/field2=value2/..." for each
+/// partition field and its corresponding value.
+///
+/// # Arguments
+/// * `partition_fields` - List of bound partition fields defining the partitioning
+/// * `partiton_values` - List of values for each partition field
+///
+/// # Returns
+/// * `Result<String, ArrowError>` - The generated partition path string
+///
+/// # Errors
+/// Returns an error if:
+/// * The partition field name cannot be processed
+/// * The partition value cannot be converted to a string
 #[inline]
 fn generate_partition_path(
     partition_fields: &[BoundPartitionField<'_>],
@@ -310,6 +438,25 @@ fn generate_partition_path(
         .collect::<Result<String, ArrowError>>()
 }
 
+/// Creates a new Arrow writer for writing record batches to a Parquet file.
+///
+/// This internal function creates a new buffered writer and configures it with
+/// appropriate Parquet compression settings.
+///
+/// # Arguments
+/// * `data_location` - Base path where data files should be written
+/// * `partition_path` - Optional partition path component
+/// * `schema` - Arrow schema for the record batches
+/// * `object_store` - Object store to write files to
+///
+/// # Returns
+/// * `Result<(String, AsyncArrowWriter<BufWriter>), ArrowError>` - The file path and configured writer
+///
+/// # Errors
+/// Returns an error if:
+/// * Random number generation fails
+/// * The writer properties cannot be configured
+/// * The Arrow writer cannot be created
 async fn create_arrow_writer(
     data_location: &str,
     partition_path: Option<String>,
@@ -350,6 +497,16 @@ async fn create_arrow_writer(
     ))
 }
 
+/// Calculates the approximate size in bytes of an Arrow record batch.
+///
+/// This function estimates the memory footprint of a record batch by multiplying
+/// the total size of all fields by the number of rows.
+///
+/// # Arguments
+/// * `batch` - The record batch to calculate size for
+///
+/// # Returns
+/// * `usize` - Estimated size of the record batch in bytes
 #[inline]
 fn record_batch_size(batch: &RecordBatch) -> usize {
     batch

@@ -25,7 +25,8 @@ It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org
 | Read partitioned | :white_check_mark: |
 | Insert | :white_check_mark: |
 | Insert partitioned | :white_check_mark: |
-| Delete | |
+| Equality deletes | :white_check_mark: |
+| Positional deletes | |
 
 ### Iceberg Views
 
@@ -39,11 +40,14 @@ It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org
 | --- | --- |
 | Read | :white_check_mark: |
 | Full refresh | :white_check_mark: |
-| Incremental refresh | |
+| Incremental refresh | :white_check_mark: |
 
 ### Catalogs
 
 - REST
+- S3Tables
+- Filesystem
+- Glue
 - RDBMS (Postgres, MySQL)
 
 ### File formats

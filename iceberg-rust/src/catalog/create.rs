@@ -1,6 +1,14 @@
-/*!
-Defining the [CreateTable] struct for creating catalog tables and starting create/replace transactions
-*/
+//! Creation interfaces for Iceberg catalog objects
+//!
+//! This module provides builder-pattern implementations for creating new objects in an Iceberg catalog:
+//!
+//! * Tables with schema, partition specs, and sort orders
+//! * Views with schema and version specifications
+//! * Materialized views with both view metadata and storage tables
+//!
+//! All builders support fluent configuration and handle default values appropriately.
+//! The module ensures proper initialization of metadata like UUIDs and timestamps.
+
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -32,7 +40,17 @@ use crate::{
 
 use super::{identifier::Identifier, Catalog};
 
-/// Create Table struct
+/// Configuration for creating a new Iceberg table in a catalog
+///
+/// This struct contains all the necessary information to create a new table:
+/// * Table name and optional location
+/// * Schema definition
+/// * Optional partition specification
+/// * Optional sort order
+/// * Optional properties
+///
+/// The struct implements Builder pattern for convenient construction and
+/// can be serialized/deserialized using serde.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
@@ -65,7 +83,18 @@ pub struct CreateTable {
 }
 
 impl CreateTableBuilder {
-    /// Build the table, registering it in a catalog
+    /// Builds and registers a new table in the catalog
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace where the table will be created
+    /// * `catalog` - The catalog where the table will be registered
+    ///
+    /// # Returns
+    /// * `Ok(Table)` - The newly created table
+    /// * `Err(Error)` - If table creation fails, e.g. due to missing name or catalog errors
+    ///
+    /// This method finalizes the table configuration and registers it in the specified catalog.
+    /// It uses the builder's current state to create the table metadata.
     pub async fn build(
         &mut self,
         namespace: &[String],
@@ -130,7 +159,20 @@ impl TryInto<TableMetadata> for CreateTable {
     }
 }
 
-/// Create view struct
+/// Configuration for creating a new Iceberg view in a catalog
+///
+/// This struct contains all the necessary information to create a new view:
+/// * View name and optional location
+/// * Schema definition
+/// * View version specification
+/// * Optional properties
+///
+/// # Type Parameters
+/// * `T` - The materialization type for the view, typically `Option<()>` for regular views
+///   or `FullIdentifier` for materialized views
+///
+/// The struct implements Builder pattern for convenient construction and
+/// can be serialized/deserialized using serde.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
@@ -152,7 +194,18 @@ pub struct CreateView<T: Materialization> {
 }
 
 impl CreateViewBuilder<Option<()>> {
-    /// Build the table, registering it in a catalog
+    /// Builds and registers a new view in the catalog
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace where the view will be created
+    /// * `catalog` - The catalog where the view will be registered
+    ///
+    /// # Returns
+    /// * `Ok(View)` - The newly created view
+    /// * `Err(Error)` - If view creation fails, e.g. due to missing name or catalog errors
+    ///
+    /// This method finalizes the view configuration and registers it in the specified catalog.
+    /// It automatically sets default namespace and catalog values if not already specified.
     pub async fn build(
         &mut self,
         namespace: &[String],
@@ -217,7 +270,19 @@ impl TryInto<MaterializedViewMetadata> for CreateView<FullIdentifier> {
     }
 }
 
-/// Create materialized view struct
+/// Configuration for creating a new materialized view in an Iceberg catalog
+///
+/// This struct contains all the necessary information to create both a materialized view
+/// and its underlying storage table:
+/// * View name and optional location
+/// * Schema definition
+/// * View version specification with storage table reference
+/// * Optional partition specification for the storage table
+/// * Optional sort order for the storage table
+/// * Separate properties for both view and storage table
+///
+/// The struct implements Builder pattern for convenient construction and
+/// can be serialized/deserialized using serde.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
@@ -255,7 +320,21 @@ pub struct CreateMaterializedView {
 }
 
 impl CreateMaterializedViewBuilder {
-    /// Build the table, registering it in a catalog
+    /// Builds and registers a new materialized view in the catalog
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace where the materialized view will be created
+    /// * `catalog` - The catalog where the materialized view will be registered
+    ///
+    /// # Returns
+    /// * `Ok(MaterializedView)` - The newly created materialized view
+    /// * `Err(Error)` - If view creation fails, e.g. due to missing name or catalog errors
+    ///
+    /// This method finalizes the materialized view configuration and registers it in the specified catalog.
+    /// It automatically:
+    /// * Sets default namespace and catalog values if not specified
+    /// * Creates the underlying storage table with the appropriate name suffix
+    /// * Registers both the view and its storage table in the catalog
     pub async fn build(
         &mut self,
         namespace: &[String],

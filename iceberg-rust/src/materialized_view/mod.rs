@@ -1,6 +1,33 @@
-/*!
- * Defines the [MaterializedView] struct that represents an iceberg materialized view.
-*/
+//! Materialized view functionality for Apache Iceberg
+//!
+//! This module provides the implementation of materialized views in Apache Iceberg.
+//! Materialized views maintain a physical copy of query results that can be refreshed
+//! to stay in sync with source tables.
+//!
+//! Key components:
+//! - [`MaterializedView`]: The main type representing a materialized view
+//! - [`Transaction`]: Provides ACID guarantees for view operations
+//! - [`StorageTable`]: Manages the physical storage of materialized data
+//!
+//! # Example
+//! ```no_run
+//! # use iceberg_rust::materialized_view::MaterializedView;
+//! # async fn example() {
+//! let mut view = MaterializedView::builder()
+//!     .name("event_counts")
+//!     .build()
+//!     .await
+//!     .unwrap();
+//!
+//! // Perform operations in a transaction
+//! view.new_transaction(None)
+//!     .full_refresh(vec![], refresh_state)
+//!     .unwrap()
+//!     .commit()
+//!     .await
+//!     .unwrap();
+//! # }
+//! ```
 
 use std::sync::Arc;
 
@@ -28,7 +55,14 @@ pub static STORAGE_TABLE_POSTFIX: &str = "__storage";
 pub static STORAGE_TABLE_FLAG: &str = "materialize.storage_table";
 
 #[derive(Debug, Clone)]
-/// An iceberg materialized view
+/// A materialized view in Apache Iceberg that maintains a physical copy of query results
+/// in a storage table. The view provides ACID guarantees and can be refreshed to
+/// stay in sync with changes in the source tables.
+///
+/// The materialized view consists of:
+/// * A view definition (SQL or other representation)
+/// * A storage table containing the materialized data
+/// * Metadata tracking the freshness state relative to source tables
 pub struct MaterializedView {
     /// Type of the View, either filesystem or metastore.
     identifier: Identifier,
@@ -51,12 +85,26 @@ pub enum SourceTableState {
 
 /// Public interface of the table.
 impl MaterializedView {
-    /// Create a mateerialized view builder
+    /// Creates a new builder for configuring and creating a materialized view
+    ///
+    /// Returns a `CreateMaterializedViewBuilder` that provides a fluent interface for:
+    /// - Setting the view name and location
+    /// - Configuring view properties
+    /// - Defining the view schema and SQL representation
+    /// - Specifying the catalog and storage table settings
     pub fn builder() -> CreateMaterializedViewBuilder {
         CreateMaterializedViewBuilder::default()
     }
 
-    /// Create a new metastore view
+    /// Creates a new materialized view instance with the given identifier, catalog and metadata
+    ///
+    /// # Arguments
+    /// * `identifier` - The unique identifier for this view in the catalog
+    /// * `catalog` - The catalog that will store this view's metadata
+    /// * `metadata` - The view metadata containing schema, properties, etc.
+    ///
+    /// # Returns
+    /// * `Result<MaterializedView, Error>` - The created materialized view or an error
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
@@ -68,32 +116,63 @@ impl MaterializedView {
             catalog,
         })
     }
-    /// Get the table identifier in the catalog. Returns None of it is a filesystem view.
+    /// Returns the unique identifier for this materialized view in the catalog
+    ///
+    /// The identifier contains the namespace and name that uniquely identify
+    /// this view within its catalog
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
-    /// Get the catalog associated to the view. Returns None if the view is a filesystem view
+    /// Returns a reference to the catalog that stores this materialized view
+    ///
+    /// The catalog manages the view's metadata and provides ACID guarantees
+    /// for operations on the view
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
-    /// Get the object_store associated to the view
+    /// Returns the object store used by this materialized view for data storage
+    ///
+    /// The object store provides access to the underlying storage system (e.g. S3, local filesystem)
+    /// where the view's data files are stored. The store is configured based on the view's location.
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
     }
-    /// Get the schema of the view
+    /// Returns the current schema for this materialized view
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to get the schema for. If None, returns the main branch schema
+    ///
+    /// # Returns
+    /// * `Result<&Schema, Error>` - The current schema or an error if it cannot be found
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
-    /// Get the metadata of the view
+    /// Returns a reference to this materialized view's metadata
+    ///
+    /// The metadata contains the view's schema, properties, version history,
+    /// and other configuration details as defined by the Apache Iceberg spec
     pub fn metadata(&self) -> &MaterializedViewMetadata {
         &self.metadata
     }
-    /// Create a new transaction for this view
+    /// Creates a new transaction for performing atomic operations on this materialized view
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to perform the transaction on. If None, uses the main branch
+    ///
+    /// # Returns
+    /// A new transaction that can be used to perform multiple operations atomically
     pub fn new_transaction(&mut self, branch: Option<&str>) -> MaterializedViewTransaction {
         MaterializedViewTransaction::new(self, branch)
     }
-    /// Get the storage table of the materialized view
+    /// Returns the storage table that contains the materialized data for this view
+    ///
+    /// The storage table is a regular Iceberg table that stores the physical data
+    /// for this materialized view. It is managed internally by the view and should
+    /// not be modified directly.
+    ///
+    /// # Returns
+    /// * `Result<StorageTable, Error>` - The storage table or an error if it cannot be loaded
     pub async fn storage_table(&self) -> Result<StorageTable, Error> {
         let identifier = self.metadata().current_version(None)?.storage_table();
         if let Tabular::Table(table) = self.catalog().load_tabular(&identifier.into()).await? {
