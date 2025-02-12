@@ -120,7 +120,18 @@ impl View {
         self.catalog
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
     }
-    //AI! Write documentation
+    /// Gets the current schema for this view, optionally for a specific branch
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to get the schema for. If None, returns the main branch schema
+    ///
+    /// # Returns
+    /// * `Result<&Schema, Error>` - The current schema for the view/branch, or an error if not found
+    ///
+    /// The schema defines the structure of the view's output, including:
+    /// - Column names and types
+    /// - Column IDs and documentation
+    /// - Whether columns are required/optional
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
