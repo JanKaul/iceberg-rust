@@ -283,7 +283,16 @@ pub enum ViewUpdate<T: Materialization> {
     },
 }
 
-//AI! Write documentation
+/// Requirements that must be met before applying updates to view metadata
+///
+/// This enum defines preconditions that must be satisfied before a view update
+/// can be committed. Requirements are checked atomically to prevent concurrent
+/// modifications from corrupting view state.
+///
+/// # Requirements Types
+/// * UUID validation - Ensures view UUID matches expected value
+///
+/// Each variant includes the specific values that must match the current view state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
