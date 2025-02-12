@@ -233,6 +233,7 @@ fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
     }
 }
 
+//AI! Write documentation
 fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
     array: ArrayRef,
 ) -> HashSet<P::Native> {
