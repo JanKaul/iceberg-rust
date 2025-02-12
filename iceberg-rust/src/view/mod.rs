@@ -94,7 +94,7 @@ impl View {
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
-    /// Get the catalog associated to the view. Returns None if the view is a filesystem view
+    //AI! Write documentation
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
