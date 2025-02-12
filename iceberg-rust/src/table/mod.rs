@@ -46,7 +46,7 @@ pub struct Table {
 
 /// Public interface of the table.
 impl Table {
-    /// Build a new table
+    //AI! Write documentation
     pub fn builder() -> CreateTableBuilder {
         let mut builder = CreateTableBuilder::default();
         builder
