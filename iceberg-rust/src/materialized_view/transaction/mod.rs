@@ -14,7 +14,7 @@ use crate::{
     error::Error,
     table::{
         delete_all_table_files,
-        transaction::{operation::Operation as TableOperation, APPEND_KEY, OVERWRITE_KEY},
+        transaction::{operation::Operation as TableOperation, APPEND_KEY, REPLACE_KEY},
     },
     view::transaction::operation::Operation as ViewOperation,
 };
@@ -70,9 +70,9 @@ impl<'view> Transaction<'view> {
     ) -> Result<Self, Error> {
         let refresh_state = serde_json::to_string(&refresh_state)?;
         self.storage_table_operations
-            .entry(OVERWRITE_KEY.to_owned())
+            .entry(REPLACE_KEY.to_owned())
             .and_modify(|mut x| {
-                if let TableOperation::Overwrite {
+                if let TableOperation::Replace {
                     branch: _,
                     files: old,
                     additional_summary: old_lineage,
@@ -85,7 +85,7 @@ impl<'view> Transaction<'view> {
                     )]));
                 }
             })
-            .or_insert(TableOperation::Overwrite {
+            .or_insert(TableOperation::Replace {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: Some(HashMap::from_iter(vec![(
@@ -145,7 +145,7 @@ impl<'view> Transaction<'view> {
             let delete_data = if self
                 .storage_table_operations
                 .values()
-                .any(|x| matches!(x, TableOperation::Overwrite { .. }))
+                .any(|x| matches!(x, TableOperation::Replace { .. }))
             {
                 Some(storage_table.metadata().clone())
             } else {

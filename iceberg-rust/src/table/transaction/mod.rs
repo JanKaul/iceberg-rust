@@ -15,7 +15,7 @@ pub(crate) mod append;
 pub(crate) mod operation;
 
 pub(crate) static APPEND_KEY: &str = "append";
-pub(crate) static OVERWRITE_KEY: &str = "overwrite";
+pub(crate) static REPLACE_KEY: &str = "replace";
 pub(crate) static ADD_SCHEMA_KEY: &str = "add-schema";
 pub(crate) static SET_DEFAULT_SPEC_KEY: &str = "set-default-spec";
 pub(crate) static UPDATE_PROPERTIES_KEY: &str = "update-properties";
@@ -107,11 +107,11 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Quickly append files to the table
-    pub fn overwrite(mut self, files: Vec<DataFile>) -> Self {
+    pub fn replace(mut self, files: Vec<DataFile>) -> Self {
         self.operations
-            .entry(OVERWRITE_KEY.to_owned())
+            .entry(REPLACE_KEY.to_owned())
             .and_modify(|mut x| {
-                if let Operation::Overwrite {
+                if let Operation::Replace {
                     branch: _,
                     files: old,
                     additional_summary: None,
@@ -120,7 +120,7 @@ impl<'table> TableTransaction<'table> {
                     old.extend_from_slice(&files)
                 }
             })
-            .or_insert(Operation::Overwrite {
+            .or_insert(Operation::Replace {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: None,
@@ -128,15 +128,15 @@ impl<'table> TableTransaction<'table> {
         self
     }
     /// Quickly append files to the table
-    pub fn overwrite_with_lineage(
+    pub fn replace_with_lineage(
         mut self,
         files: Vec<DataFile>,
         additional_summary: HashMap<String, String>,
     ) -> Self {
         self.operations
-            .entry(OVERWRITE_KEY.to_owned())
+            .entry(REPLACE_KEY.to_owned())
             .and_modify(|mut x| {
-                if let Operation::Overwrite {
+                if let Operation::Replace {
                     branch: _,
                     files: old,
                     additional_summary: old_lineage,
@@ -146,7 +146,7 @@ impl<'table> TableTransaction<'table> {
                     *old_lineage = Some(additional_summary.clone());
                 }
             })
-            .or_insert(Operation::Overwrite {
+            .or_insert(Operation::Replace {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: Some(additional_summary),
@@ -183,7 +183,7 @@ impl<'table> TableTransaction<'table> {
         let delete_data = if self.operations.values().any(|x| {
             matches!(
                 x,
-                Operation::Overwrite {
+                Operation::Replace {
                     branch: _,
                     files: _,
                     additional_summary: _,
