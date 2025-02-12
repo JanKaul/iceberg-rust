@@ -1,4 +1,14 @@
-//AI! Write module documentation
+//! Commit operations for atomic metadata updates in Iceberg catalogs
+//!
+//! This module provides the core functionality for atomic commits to Iceberg tables and views:
+//! * Commit structures for tables and views
+//! * Update operations that can be applied
+//! * Requirements that must be satisfied
+//! * Functions to validate requirements and apply updates
+//!
+//! All changes are made atomically - either all updates succeed or none are applied.
+//! Requirements are checked first to ensure concurrent modifications don't corrupt state.
+
 use std::collections::HashMap;
 
 use iceberg_rust_spec::{
