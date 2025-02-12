@@ -257,6 +257,7 @@ fn distinct_values_string(array: ArrayRef) -> HashSet<String> {
     set
 }
 
+//AI! Write documentation
 enum DistinctValues {
     Int(HashSet<i32>),
     Long(HashSet<i64>),
