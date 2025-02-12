@@ -1,7 +1,5 @@
 #![deny(missing_docs)]
-/*!
- * Apache Iceberg
-*/
+//AI! Write crate documentation
 pub mod arrow;
 pub mod catalog;
 pub mod error;
