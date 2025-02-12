@@ -123,7 +123,24 @@ impl<'table> TableTransaction<'table> {
             });
         self
     }
-    //AI! Write documentation
+    /// Replaces all data files in the table with new ones
+    ///
+    /// This operation removes all existing data files and replaces them with the provided
+    /// files. Multiple replace operations in the same transaction will be combined.
+    ///
+    /// # Arguments
+    /// * `files` - Vector of data files that will replace the existing ones
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    ///
+    /// # Examples
+    /// ```
+    /// let transaction = table.new_transaction(None)
+    ///     .replace(new_files)
+    ///     .commit()
+    ///     .await?;
+    /// ```
     pub fn replace(mut self, files: Vec<DataFile>) -> Self {
         self.operations
             .entry(REPLACE_KEY.to_owned())
