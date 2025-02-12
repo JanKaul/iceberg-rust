@@ -60,7 +60,7 @@ impl View {
     pub fn builder() -> CreateViewBuilder<Option<()>> {
         CreateViewBuilder::default()
     }
-    /// Create a new metastore view
+    //AI! Write documentation
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
