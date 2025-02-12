@@ -32,7 +32,7 @@ use crate::{
 
 use super::{identifier::Identifier, Catalog};
 
-/// Create Table struct
+//AI! Write documentation
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
