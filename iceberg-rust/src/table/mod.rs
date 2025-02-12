@@ -111,7 +111,13 @@ impl Table {
         &self.identifier
     }
     #[inline]
-    //AI! Write documentation
+    /// Returns a reference to the catalog containing this table
+    ///
+    /// The returned catalog reference is wrapped in an Arc to allow shared ownership
+    /// and thread-safe access to the catalog implementation.
+    ///
+    /// # Returns
+    /// * `Arc<dyn Catalog>` - A thread-safe reference to the table's catalog
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
