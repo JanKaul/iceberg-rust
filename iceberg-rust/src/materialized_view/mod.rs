@@ -69,7 +69,7 @@ impl MaterializedView {
         CreateMaterializedViewBuilder::default()
     }
 
-    /// Create a new metastore view
+    //AI! Write documentation
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
