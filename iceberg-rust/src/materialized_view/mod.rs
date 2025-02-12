@@ -89,7 +89,10 @@ impl MaterializedView {
             catalog,
         })
     }
-    //AI! Write documentation
+    /// Returns the unique identifier for this materialized view in the catalog
+    ///
+    /// The identifier contains the namespace and name that uniquely identify
+    /// this view within its catalog
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
