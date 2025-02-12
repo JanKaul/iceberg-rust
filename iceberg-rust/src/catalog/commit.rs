@@ -363,7 +363,7 @@ pub fn check_table_requirements(
     })
 }
 
-/// Check table update requirements
+//AI! Write documentation
 pub fn check_view_requirements<T: Materialization + Eq + 'static>(
     requirements: &[ViewRequirement],
     metadata: &GeneralViewMetadata<T>,
