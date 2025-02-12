@@ -75,7 +75,18 @@ pub struct CreateTable {
 }
 
 impl CreateTableBuilder {
-    //AI! Write documentation
+    /// Builds and registers a new table in the catalog
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace where the table will be created
+    /// * `catalog` - The catalog where the table will be registered
+    ///
+    /// # Returns
+    /// * `Ok(Table)` - The newly created table
+    /// * `Err(Error)` - If table creation fails, e.g. due to missing name or catalog errors
+    ///
+    /// This method finalizes the table configuration and registers it in the specified catalog.
+    /// It uses the builder's current state to create the table metadata.
     pub async fn build(
         &mut self,
         namespace: &[String],
