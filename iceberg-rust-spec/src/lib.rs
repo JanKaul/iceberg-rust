@@ -1,5 +1,5 @@
 //! Apache Iceberg specification implementation in Rust
-//! 
+//!
 //! This crate provides the core data structures and implementations for working with
 //! Apache Iceberg tables in Rust. It includes:
 //!

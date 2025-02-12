@@ -46,12 +46,6 @@
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! # Implementation Status
-//!
-//! This implementation aims to be fully compatible with the
-//! [Apache Iceberg Specification](https://iceberg.apache.org/spec/).
-//! See the repository README for current implementation status and roadmap.
 
 pub mod arrow;
 pub mod catalog;
