@@ -44,7 +44,7 @@ pub struct CommitView<T: Materialization> {
     pub updates: Vec<ViewUpdate<T>>,
 }
 
-/// Update the metadata of a table in the catalog
+//AI! Write documentation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "action",
