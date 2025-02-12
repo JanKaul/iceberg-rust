@@ -58,7 +58,7 @@ pub enum SourceTableState {
 
 /// Public interface of the table.
 impl MaterializedView {
-    /// Create a mateerialized view builder
+    //AI! Write documentation
     pub fn builder() -> CreateMaterializedViewBuilder {
         CreateMaterializedViewBuilder::default()
     }
