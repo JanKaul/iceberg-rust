@@ -43,17 +43,17 @@ use super::transform::transform_arrow;
 type RecordBatchSender = Sender<Result<RecordBatch, ArrowError>>;
 type RecordBatchReceiver = Receiver<Result<RecordBatch, ArrowError>>;
 
-/// A stream that partitions Arrow record batches according to partition field specifications
-///
-/// This struct implements Stream to process record batches asynchronously, splitting them into
-/// separate streams based on partition values. It maintains internal state to:
-/// * Track active partition streams
-/// * Buffer pending record batches
-/// * Manage channel senders/receivers for each partition
-///
-/// # Type Parameters
-/// * `'a` - Lifetime of the partition field specifications
 pin_project! {
+    /// A stream that partitions Arrow record batches according to partition field specifications
+    ///
+    /// This struct implements Stream to process record batches asynchronously, splitting them into
+    /// separate streams based on partition values. It maintains internal state to:
+    /// * Track active partition streams
+    /// * Buffer pending record batches
+    /// * Manage channel senders/receivers for each partition
+    ///
+    /// # Type Parameters
+    /// * `'a` - Lifetime of the partition field specifications
     pub(crate) struct PartitionStream<'a> {
         #[pin]
         record_batches: Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>,
