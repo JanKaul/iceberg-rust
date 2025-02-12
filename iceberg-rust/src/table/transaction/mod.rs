@@ -250,7 +250,30 @@ impl<'table> TableTransaction<'table> {
         );
         self
     }
-    //AI! Write documentation
+    /// Commits all operations in this transaction atomically
+    ///
+    /// This method executes all operations in the transaction and updates the table
+    /// metadata. The changes are atomic - either all operations succeed or none do.
+    /// After commit, the transaction is consumed and the table is updated with the
+    /// new metadata.
+    ///
+    /// # Returns
+    /// * `Result<(), Error>` - Ok(()) if the commit succeeds, Error if it fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * Any operation fails to execute
+    /// * The catalog update fails
+    /// * Cleanup of old data files fails (for replace operations)
+    ///
+    /// # Examples
+    /// ```
+    /// let result = table.new_transaction(None)
+    ///     .append(data_files)
+    ///     .update_properties(properties)
+    ///     .commit()
+    ///     .await?;
+    /// ```
     pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.table.catalog();
         let object_store = self.table.object_store();
