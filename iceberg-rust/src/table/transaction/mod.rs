@@ -1,6 +1,4 @@
-/*!
- * Defines the [Transaction] type that performs multiple [Operation]s with ACID properties.
-*/
+//AI! Write module documentation
 use std::collections::HashMap;
 
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
