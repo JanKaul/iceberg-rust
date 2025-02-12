@@ -1,4 +1,20 @@
-//AI! Write module documentation
+//! Transaction module for atomic table operations
+//!
+//! This module provides the transaction system for Iceberg tables, allowing multiple
+//! operations to be grouped and executed atomically. The main types are:
+//!
+//! * [`TableTransaction`] - Builder for creating and executing atomic transactions
+//! * [`Operation`] - Individual operations that can be part of a transaction
+//!
+//! Transactions ensure that either all operations succeed or none do, maintaining
+//! table consistency. Common operations include:
+//!
+//! * Adding/updating schemas
+//! * Appending data files
+//! * Replacing data files
+//! * Updating table properties
+//! * Managing snapshots and branches
+
 use std::collections::HashMap;
 
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
