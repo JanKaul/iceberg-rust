@@ -219,7 +219,30 @@ impl<'table> TableTransaction<'table> {
             .or_insert(Operation::UpdateProperties(entries));
         self
     }
-    //AI! Write documentation
+    /// Sets a snapshot reference for the table
+    ///
+    /// This operation creates or updates a named reference to a specific snapshot,
+    /// allowing for features like branches and tags.
+    ///
+    /// # Arguments
+    /// * `entry` - Tuple of (reference name, snapshot reference) defining the reference
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    ///
+    /// # Examples
+    /// ```
+    /// let transaction = table.new_transaction(None)
+    ///     .set_snapshot_ref((
+    ///         "test-branch".to_string(),
+    ///         SnapshotReference {
+    ///             snapshot_id: 123,
+    ///             retention: SnapshotRetention::default(),
+    ///         }
+    ///     ))
+    ///     .commit()
+    ///     .await?;
+    /// ```
     pub fn set_snapshot_ref(mut self, entry: (String, SnapshotReference)) -> Self {
         self.operations.insert(
             SET_SNAPSHOT_REF_KEY.to_owned(),
