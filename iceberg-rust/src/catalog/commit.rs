@@ -41,7 +41,20 @@ pub struct CommitTable {
     pub updates: Vec<TableUpdate>,
 }
 
-//AI! Write documentation
+/// A commit operation to update view metadata in an Iceberg catalog
+///
+/// This struct represents an atomic commit operation that can:
+/// * Update view metadata
+/// * Add or modify schemas
+/// * Update view versions
+/// * Modify location and properties
+///
+/// The commit includes both requirements that must be satisfied and
+/// a list of updates to apply atomically.
+///
+/// # Type Parameters
+/// * `T` - The materialization type for the view, typically `Option<()>` for regular views
+///   or custom types for materialized views
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitView<T: Materialization> {
     /// Table identifier
