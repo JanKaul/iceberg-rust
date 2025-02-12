@@ -135,7 +135,7 @@ impl Table {
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
     }
     #[inline]
-    /// Get the schema of the table for a given branch. Defaults to main.
+    //AI! Write documentation
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
