@@ -21,7 +21,7 @@ pub(crate) static SET_DEFAULT_SPEC_KEY: &str = "set-default-spec";
 pub(crate) static UPDATE_PROPERTIES_KEY: &str = "update-properties";
 pub(crate) static SET_SNAPSHOT_REF_KEY: &str = "set-ref";
 
-/// Transactions let you perform a sequence of [Operation]s that can be committed to be performed with ACID guarantees.
+//AI! Write documentation
 pub struct TableTransaction<'table> {
     table: &'table mut Table,
     operations: HashMap<String, Operation>,
