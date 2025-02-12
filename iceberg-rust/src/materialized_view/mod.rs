@@ -1,4 +1,33 @@
-//AI! write module documentation
+//! Materialized view functionality for Apache Iceberg
+//!
+//! This module provides the implementation of materialized views in Apache Iceberg.
+//! Materialized views maintain a physical copy of query results that can be refreshed
+//! to stay in sync with source tables.
+//!
+//! Key components:
+//! - [`MaterializedView`]: The main type representing a materialized view
+//! - [`Transaction`]: Provides ACID guarantees for view operations
+//! - [`StorageTable`]: Manages the physical storage of materialized data
+//!
+//! # Example
+//! ```no_run
+//! # use iceberg_rust::materialized_view::MaterializedView;
+//! # async fn example() {
+//! let mut view = MaterializedView::builder()
+//!     .name("event_counts")
+//!     .build()
+//!     .await
+//!     .unwrap();
+//!
+//! // Perform operations in a transaction
+//! view.new_transaction(None)
+//!     .full_refresh(vec![], refresh_state)
+//!     .unwrap()
+//!     .commit()
+//!     .await
+//!     .unwrap();
+//! # }
+//! ```
 
 use std::sync::Arc;
 
