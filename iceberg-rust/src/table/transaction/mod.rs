@@ -123,7 +123,7 @@ impl<'table> TableTransaction<'table> {
             });
         self
     }
-    /// Quickly append files to the table
+    //AI! Write documentation
     pub fn replace(mut self, files: Vec<DataFile>) -> Self {
         self.operations
             .entry(REPLACE_KEY.to_owned())
