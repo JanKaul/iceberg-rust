@@ -121,7 +121,10 @@ impl MaterializedView {
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
-    //AI! Write documentation
+    /// Returns a reference to this materialized view's metadata
+    ///
+    /// The metadata contains the view's schema, properties, version history,
+    /// and other configuration details as defined by the Apache Iceberg spec
     pub fn metadata(&self) -> &MaterializedViewMetadata {
         &self.metadata
     }
