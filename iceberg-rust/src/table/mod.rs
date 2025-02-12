@@ -149,7 +149,17 @@ impl Table {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
     #[inline]
-    //AI! Write documentation
+    /// Returns a reference to this table's metadata
+    ///
+    /// The metadata contains all table information including:
+    /// * Schema definitions
+    /// * Partition specifications
+    /// * Snapshots
+    /// * Sort orders
+    /// * Table properties
+    ///
+    /// # Returns
+    /// * `&TableMetadata` - A reference to the table's metadata
     pub fn metadata(&self) -> &TableMetadata {
         &self.metadata
     }
