@@ -164,7 +164,14 @@ impl Table {
         &self.metadata
     }
     #[inline]
-    //AI! Write documentation
+    /// Consumes the table and returns its metadata
+    ///
+    /// This method takes ownership of the table instance and returns just the
+    /// underlying TableMetadata. This is useful when you no longer need the
+    /// table instance but want to retain its metadata.
+    ///
+    /// # Returns
+    /// * `TableMetadata` - The owned metadata from this table
     pub fn into_metadata(self) -> TableMetadata {
         self.metadata
     }
