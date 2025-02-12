@@ -122,7 +122,14 @@ impl Table {
         self.catalog.clone()
     }
     #[inline]
-    //AI! Write documentation
+    /// Returns the object store for this table's location
+    ///
+    /// The object store is determined by the table's location and is used for
+    /// reading and writing table data files. The returned store is wrapped in
+    /// an Arc to allow shared ownership and thread-safe access.
+    ///
+    /// # Returns
+    /// * `Arc<dyn ObjectStore>` - A thread-safe reference to the table's object store
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
