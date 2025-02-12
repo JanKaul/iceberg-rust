@@ -46,7 +46,17 @@ pub struct View {
 
 /// Public interface of the table.
 impl View {
-    //AI! Write documentation
+    /// Creates a new builder for configuring and creating an Iceberg view
+    ///
+    /// Returns a `CreateViewBuilder` that provides a fluent interface for:
+    /// - Setting the view name and location
+    /// - Configuring view properties
+    /// - Defining the view schema
+    /// - Setting SQL or other view representations
+    /// - Specifying the catalog and namespace
+    ///
+    /// # Returns
+    /// * `CreateViewBuilder<Option<()>>` - A builder for creating new views
     pub fn builder() -> CreateViewBuilder<Option<()>> {
         CreateViewBuilder::default()
     }
