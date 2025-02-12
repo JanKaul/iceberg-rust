@@ -283,7 +283,7 @@ pub enum ViewUpdate<T: Materialization> {
     },
 }
 
-/// Requirements on the table metadata to perform the updates
+//AI! Write documentation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
