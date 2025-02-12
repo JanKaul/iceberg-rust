@@ -76,7 +76,18 @@ impl Table {
         builder
     }
 
-    //AI! Write documentation
+    /// Creates a new table instance with the given identifier, catalog and metadata
+    ///
+    /// # Arguments
+    /// * `identifier` - The unique identifier for this table in the catalog
+    /// * `catalog` - The catalog that this table belongs to
+    /// * `metadata` - The table's metadata containing schema, partitioning, etc.
+    ///
+    /// # Returns
+    /// * `Result<Table, Error>` - The newly created table instance or an error
+    ///
+    /// This is typically called by catalog implementations rather than directly by users.
+    /// For creating new tables, use [`Table::builder()`] instead.
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
