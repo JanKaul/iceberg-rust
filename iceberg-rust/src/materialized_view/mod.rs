@@ -128,7 +128,7 @@ impl MaterializedView {
     pub fn metadata(&self) -> &MaterializedViewMetadata {
         &self.metadata
     }
-    /// Create a new transaction for this view
+    //AI! Write documentation
     pub fn new_transaction(&mut self, branch: Option<&str>) -> MaterializedViewTransaction {
         MaterializedViewTransaction::new(self, branch)
     }
