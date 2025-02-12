@@ -216,6 +216,7 @@ fn partition_record_batch<'a>(
     }))
 }
 
+//AI! Write documentation
 fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
     match array.data_type() {
         DataType::Int32 => Ok(DistinctValues::Int(distinct_values_primitive::<
