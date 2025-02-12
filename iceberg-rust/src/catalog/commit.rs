@@ -387,7 +387,24 @@ pub fn check_view_requirements<T: Materialization + Eq + 'static>(
         ViewRequirement::AssertViewUuid { uuid } => metadata.view_uuid == *uuid,
     })
 }
-//AI! Write documentation
+/// Applies a sequence of updates to table metadata
+///
+/// This function processes each update in order, modifying the table metadata accordingly.
+/// Updates can include:
+/// * Format version changes
+/// * UUID assignments
+/// * Schema modifications
+/// * Partition spec and sort order changes
+/// * Snapshot management
+/// * Location and property updates
+///
+/// # Arguments
+/// * `metadata` - Mutable reference to table metadata to modify
+/// * `updates` - Vector of updates to apply
+///
+/// # Returns
+/// * `Ok(())` if all updates were applied successfully
+/// * `Err(Error)` if any update failed to apply
 pub fn apply_table_updates(
     metadata: &mut TableMetadata,
     updates: Vec<TableUpdate>,
