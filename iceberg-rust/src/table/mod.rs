@@ -76,7 +76,7 @@ impl Table {
         builder
     }
 
-    /// Create a new metastore Table
+    //AI! Write documentation
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
