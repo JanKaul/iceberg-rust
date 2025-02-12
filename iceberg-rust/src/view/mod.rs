@@ -149,7 +149,7 @@ impl View {
     pub fn metadata(&self) -> &ViewMetadata {
         &self.metadata
     }
-    /// Create a new transaction for this view
+    //AI! Write documentation
     pub fn new_transaction(&mut self, branch: Option<&str>) -> ViewTransaction {
         ViewTransaction::new(self, branch)
     }
