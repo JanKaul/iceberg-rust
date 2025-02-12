@@ -13,7 +13,7 @@ use crate::{
     catalog::commit::{CommitTable, CommitView},
     error::Error,
     table::{
-        delete_files,
+        delete_all_table_files,
         transaction::{operation::Operation as TableOperation, APPEND_KEY, OVERWRITE_KEY},
     },
     view::transaction::operation::Operation as ViewOperation,
@@ -201,7 +201,7 @@ impl<'view> Transaction<'view> {
             .await?;
         // Delete data files in case of a rewrite operation
         if let Some(old_metadata) = delete_data {
-            delete_files(&old_metadata, self.materialized_view.object_store()).await?;
+            delete_all_table_files(&old_metadata, self.materialized_view.object_store()).await?;
         }
         *self.materialized_view = new_matview;
         Ok(())

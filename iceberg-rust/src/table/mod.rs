@@ -238,7 +238,7 @@ async fn datafiles(
 }
 
 /// delete all datafiles, manifests and metadata files, does not remove table from catalog
-pub(crate) async fn delete_files(
+pub(crate) async fn delete_all_table_files(
     metadata: &TableMetadata,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<(), Error> {

@@ -9,7 +9,7 @@ use crate::{catalog::commit::CommitTable, error::Error, table::Table};
 
 use self::operation::Operation;
 
-use super::delete_files;
+use super::delete_all_table_files;
 
 pub(crate) mod append;
 pub(crate) mod operation;
@@ -184,7 +184,7 @@ impl<'table> TableTransaction<'table> {
             .await?;
 
         if let Some(old_metadata) = delete_data {
-            delete_files(old_metadata, object_store).await?;
+            delete_all_table_files(old_metadata, object_store).await?;
         }
 
         *self.table = new_table;
