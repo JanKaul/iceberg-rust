@@ -319,7 +319,7 @@ pub enum ViewRequirement {
         uuid: Uuid,
     },
 }
-/// Check table update requirements
+//AI! Write documentation
 pub fn check_table_requirements(
     requirements: &[TableRequirement],
     metadata: &TableMetadata,
