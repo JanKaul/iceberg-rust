@@ -138,7 +138,7 @@ impl MaterializedView {
     pub fn new_transaction(&mut self, branch: Option<&str>) -> MaterializedViewTransaction {
         MaterializedViewTransaction::new(self, branch)
     }
-    /// Get the storage table of the materialized view
+    //AI! Write documentation
     pub async fn storage_table(&self) -> Result<StorageTable, Error> {
         let identifier = self.metadata().current_version(None)?.storage_table();
         if let Tabular::Table(table) = self.catalog().load_tabular(&identifier.into()).await? {
