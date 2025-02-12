@@ -1,6 +1,4 @@
-/*!
- * Functions to perform iceberg transforms to arrow record batches
-*/
+//AI! Write module documentation
 
 use std::sync::Arc;
 
