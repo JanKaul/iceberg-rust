@@ -28,7 +28,7 @@ pub static STORAGE_TABLE_POSTFIX: &str = "__storage";
 pub static STORAGE_TABLE_FLAG: &str = "materialize.storage_table";
 
 #[derive(Debug, Clone)]
-/// An iceberg materialized view
+//AI! Write documentation
 pub struct MaterializedView {
     /// Type of the View, either filesystem or metastore.
     identifier: Identifier,
