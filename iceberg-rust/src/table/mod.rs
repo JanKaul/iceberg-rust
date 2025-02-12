@@ -135,7 +135,16 @@ impl Table {
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
     }
     #[inline]
-    //AI! Write documentation
+    /// Returns the current schema for this table, optionally for a specific branch
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to get the schema for. If None, returns the main branch schema
+    ///
+    /// # Returns
+    /// * `Result<&Schema, Error>` - The current schema if found, or an error if the schema cannot be found
+    ///
+    /// # Errors
+    /// Returns an error if the schema ID cannot be found in the table metadata
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
