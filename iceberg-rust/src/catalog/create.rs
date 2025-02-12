@@ -1,6 +1,4 @@
-/*!
-Defining the [CreateTable] struct for creating catalog tables and starting create/replace transactions
-*/
+//AI! Write module documentation
 use std::{
     collections::HashMap,
     sync::Arc,
