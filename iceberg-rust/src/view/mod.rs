@@ -135,7 +135,17 @@ impl View {
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
-    //AI! Write documentation
+    /// Gets the underlying view metadata that defines this view
+    ///
+    /// The metadata contains:
+    /// - View UUID and format version
+    /// - Storage location information
+    /// - Version history and schema evolution
+    /// - View properties and configurations
+    /// - SQL representations and other view definitions
+    ///
+    /// # Returns
+    /// * `&ViewMetadata` - A reference to the view's metadata
     pub fn metadata(&self) -> &ViewMetadata {
         &self.metadata
     }
