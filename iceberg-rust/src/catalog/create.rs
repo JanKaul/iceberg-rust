@@ -151,7 +151,20 @@ impl TryInto<TableMetadata> for CreateTable {
     }
 }
 
-//AI! Write documentation
+/// Configuration for creating a new Iceberg view in a catalog
+///
+/// This struct contains all the necessary information to create a new view:
+/// * View name and optional location
+/// * Schema definition
+/// * View version specification
+/// * Optional properties
+///
+/// # Type Parameters
+/// * `T` - The materialization type for the view, typically `Option<()>` for regular views
+///   or `FullIdentifier` for materialized views
+///
+/// The struct implements Builder pattern for convenient construction and
+/// can be serialized/deserialized using serde.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
