@@ -135,7 +135,7 @@ impl View {
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
-    /// Get the metadata of the view
+    //AI! Write documentation
     pub fn metadata(&self) -> &ViewMetadata {
         &self.metadata
     }
