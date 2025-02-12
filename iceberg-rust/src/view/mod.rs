@@ -94,7 +94,16 @@ impl View {
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
-    //AI! Write documentation
+    /// Gets the catalog that manages this view
+    ///
+    /// The catalog handles:
+    /// - View metadata storage and retrieval
+    /// - Schema management
+    /// - View versioning
+    /// - Access control
+    ///
+    /// # Returns
+    /// * `Arc<dyn Catalog>` - A thread-safe reference to the catalog
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
