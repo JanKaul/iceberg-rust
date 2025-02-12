@@ -151,7 +151,7 @@ impl TryInto<TableMetadata> for CreateTable {
     }
 }
 
-/// Create view struct
+//AI! Write documentation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
