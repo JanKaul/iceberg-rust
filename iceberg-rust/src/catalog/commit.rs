@@ -41,7 +41,7 @@ pub struct CommitTable {
     pub updates: Vec<TableUpdate>,
 }
 
-/// Update metadata of a table
+//AI! Write documentation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitView<T: Materialization> {
     /// Table identifier
