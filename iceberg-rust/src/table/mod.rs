@@ -100,7 +100,13 @@ impl Table {
         })
     }
     #[inline]
-    //AI! Write documentation
+    /// Returns the unique identifier for this table in the catalog
+    ///
+    /// The identifier contains both the namespace and name that uniquely identify
+    /// this table within its catalog.
+    ///
+    /// # Returns
+    /// * `&Identifier` - A reference to this table's identifier
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
