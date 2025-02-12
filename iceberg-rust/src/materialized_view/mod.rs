@@ -28,7 +28,14 @@ pub static STORAGE_TABLE_POSTFIX: &str = "__storage";
 pub static STORAGE_TABLE_FLAG: &str = "materialize.storage_table";
 
 #[derive(Debug, Clone)]
-//AI! Write documentation
+/// A materialized view in Apache Iceberg that maintains a physical copy of query results
+/// in a storage table. The view provides ACID guarantees and can be refreshed to
+/// stay in sync with changes in the source tables.
+///
+/// The materialized view consists of:
+/// * A view definition (SQL or other representation)
+/// * A storage table containing the materialized data
+/// * Metadata tracking the freshness state relative to source tables
 pub struct MaterializedView {
     /// Type of the View, either filesystem or metastore.
     identifier: Identifier,
