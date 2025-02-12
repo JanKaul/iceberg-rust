@@ -16,7 +16,7 @@ use iceberg_rust_spec::{spec::partition::Transform, values::YEARS_BEFORE_UNIX_EP
 static MICROS_IN_HOUR: i64 = 3_600_000_000;
 static MICROS_IN_DAY: i64 = 86_400_000_000;
 
-/// Perform iceberg transform on arrow array
+//AI! Write documentation
 pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRef, ArrowError> {
     match (array.data_type(), transform) {
         (_, Transform::Identity) => Ok(array),
