@@ -37,6 +37,7 @@ use super::transform::transform_arrow;
 type RecordBatchSender = Sender<Result<RecordBatch, ArrowError>>;
 type RecordBatchReceiver = Receiver<Result<RecordBatch, ArrowError>>;
 
+//AI! Write documentation
 pin_project! {
     pub(crate) struct PartitionStream<'a> {
         #[pin]
