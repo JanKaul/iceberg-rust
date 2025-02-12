@@ -319,7 +319,19 @@ pub enum ViewRequirement {
         uuid: Uuid,
     },
 }
-//AI! Write documentation
+/// Validates that table metadata meets all specified requirements
+///
+/// This function checks if the current table metadata satisfies all the requirements
+/// specified for a commit operation. It ensures atomic updates by verifying preconditions
+/// like UUID matches, snapshot references, schema versions etc.
+///
+/// # Arguments
+/// * `requirements` - List of requirements that must be satisfied
+/// * `metadata` - Current table metadata to validate against
+///
+/// # Returns
+/// * `true` if all requirements are met
+/// * `false` if any requirement is not satisfied
 pub fn check_table_requirements(
     requirements: &[TableRequirement],
     metadata: &TableMetadata,
