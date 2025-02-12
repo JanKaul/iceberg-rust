@@ -69,7 +69,15 @@ impl<'table> TableTransaction<'table> {
             .insert(ADD_SCHEMA_KEY.to_owned(), Operation::AddSchema(schema));
         self
     }
-    //AI! Write documentation
+    /// Sets the default partition specification ID for the table
+    ///
+    /// # Arguments
+    /// * `spec_id` - The ID of the partition specification to set as default
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    ///
+    /// The specified partition specification must already exist in the table metadata.
     pub fn set_default_spec(mut self, spec_id: i32) -> Self {
         self.operations.insert(
             SET_DEFAULT_SPEC_KEY.to_owned(),
