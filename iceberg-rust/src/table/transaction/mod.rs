@@ -54,7 +54,16 @@ impl<'table> TableTransaction<'table> {
             branch: branch.map(ToString::to_string),
         }
     }
-    //AI! Write documentation
+    /// Adds a new schema to the table
+    ///
+    /// This operation adds a new schema version to the table. The schema ID will be
+    /// automatically assigned when the transaction is committed.
+    ///
+    /// # Arguments
+    /// * `schema` - The new schema to add to the table
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
     pub fn add_schema(mut self, schema: Schema) -> Self {
         self.operations
             .insert(ADD_SCHEMA_KEY.to_owned(), Operation::AddSchema(schema));
