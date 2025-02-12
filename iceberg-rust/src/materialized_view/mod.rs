@@ -69,7 +69,15 @@ impl MaterializedView {
         CreateMaterializedViewBuilder::default()
     }
 
-    //AI! Write documentation
+    /// Creates a new materialized view instance with the given identifier, catalog and metadata
+    ///
+    /// # Arguments
+    /// * `identifier` - The unique identifier for this view in the catalog
+    /// * `catalog` - The catalog that will store this view's metadata
+    /// * `metadata` - The view metadata containing schema, properties, etc.
+    ///
+    /// # Returns
+    /// * `Result<MaterializedView, Error>` - The created materialized view or an error
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
