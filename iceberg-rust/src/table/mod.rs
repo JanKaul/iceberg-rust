@@ -122,7 +122,7 @@ impl Table {
         self.catalog.clone()
     }
     #[inline]
-    /// Get the object_store associated to the table
+    //AI! Write documentation
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
