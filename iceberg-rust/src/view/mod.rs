@@ -1,6 +1,4 @@
-/*!
- * Defines the [View] struct that represents an iceberg view.
-*/
+//AI! Write documentation
 
 use std::sync::Arc;
 
