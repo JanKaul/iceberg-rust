@@ -128,7 +128,13 @@ impl MaterializedView {
     pub fn metadata(&self) -> &MaterializedViewMetadata {
         &self.metadata
     }
-    //AI! Write documentation
+    /// Creates a new transaction for performing atomic operations on this materialized view
+    ///
+    /// # Arguments
+    /// * `branch` - Optional branch name to perform the transaction on. If None, uses the main branch
+    ///
+    /// # Returns
+    /// A new transaction that can be used to perform multiple operations atomically
     pub fn new_transaction(&mut self, branch: Option<&str>) -> MaterializedViewTransaction {
         MaterializedViewTransaction::new(self, branch)
     }
