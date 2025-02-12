@@ -217,7 +217,7 @@ pub enum TableRequirement {
     },
 }
 
-/// Update the metadata of a view in the catalog
+//AI! Write documentation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "action",
