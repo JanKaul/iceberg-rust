@@ -100,7 +100,7 @@ impl Table {
         })
     }
     #[inline]
-    /// Get the table identifier in the catalog. Returns None of it is a filesystem table.
+    //AI! Write documentation
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
