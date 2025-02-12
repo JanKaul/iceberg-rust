@@ -224,7 +224,7 @@ impl Table {
             None => iter.collect(),
         }
     }
-    /// Get list of datafiles corresponding to the given manifest files
+    //AI! Write documentation
     #[inline]
     pub async fn datafiles<'a>(
         &self,
