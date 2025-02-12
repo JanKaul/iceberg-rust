@@ -69,7 +69,7 @@ impl<'table> TableTransaction<'table> {
             .insert(ADD_SCHEMA_KEY.to_owned(), Operation::AddSchema(schema));
         self
     }
-    /// Update the spec of the table
+    //AI! Write documentation
     pub fn set_default_spec(mut self, spec_id: i32) -> Self {
         self.operations.insert(
             SET_DEFAULT_SPEC_KEY.to_owned(),
