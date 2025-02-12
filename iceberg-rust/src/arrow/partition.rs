@@ -216,7 +216,19 @@ fn partition_record_batch<'a>(
     }))
 }
 
-//AI! Write documentation
+/// Extracts distinct values from an Arrow array into a DistinctValues enum
+///
+/// # Arguments
+/// * `array` - The Arrow array to extract distinct values from
+///
+/// # Returns
+/// * `Ok(DistinctValues)` - An enum containing a HashSet of the distinct values
+/// * `Err(ArrowError)` - If the array's data type is not supported
+///
+/// # Supported Data Types
+/// * Int32 - Converted to DistinctValues::Int
+/// * Int64 - Converted to DistinctValues::Long
+/// * Utf8 - Converted to DistinctValues::String
 fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
     match array.data_type() {
         DataType::Int32 => Ok(DistinctValues::Int(distinct_values_primitive::<
