@@ -1,4 +1,40 @@
-//AI! Write documentation
+//! View management for Apache Iceberg tables
+//!
+//! This module provides the core functionality for working with Iceberg views:
+//! 
+//! - Creating and managing views through the [View] struct
+//! - Atomic updates via [transaction] support
+//! - Schema evolution and versioning
+//! - View metadata management
+//! - Integration with catalogs and object stores
+//!
+//! Views provide a logical abstraction over underlying data, supporting:
+//! - SQL-based view definitions
+//! - Schema evolution tracking
+//! - Version history
+//! - Properties and configuration
+//! - Metadata management
+//!
+//! # Example
+//! ```rust,no_run
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! use iceberg_rust::view::View;
+//! 
+//! // Create a new view using the builder pattern
+//! let mut view = View::builder()
+//!     .with_name("example_view")
+//!     .with_schema(/* ... */)
+//!     .build()
+//!     .await?;
+//!
+//! // Start a transaction to update the view
+//! view.new_transaction(None)
+//!     .update_properties(vec![("comment".into(), "Example view".into())])
+//!     .commit()
+//!     .await?;
+//! # Ok(())
+//! # }
+//! ```
 
 use std::sync::Arc;
 
