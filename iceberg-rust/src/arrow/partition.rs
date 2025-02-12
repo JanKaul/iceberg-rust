@@ -257,7 +257,12 @@ fn distinct_values_string(array: ArrayRef) -> HashSet<String> {
     set
 }
 
-//AI! Write documentation
+/// Represents distinct values found in Arrow arrays during partitioning
+///
+/// This enum stores unique values from different Arrow array types:
+/// * `Int` - Distinct 32-bit integer values
+/// * `Long` - Distinct 64-bit integer values  
+/// * `String` - Distinct string values
 enum DistinctValues {
     Int(HashSet<i32>),
     Long(HashSet<i64>),
