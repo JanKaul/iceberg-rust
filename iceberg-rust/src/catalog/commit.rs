@@ -44,7 +44,18 @@ pub struct CommitView<T: Materialization> {
     pub updates: Vec<ViewUpdate<T>>,
 }
 
-//AI! Write documentation
+/// Updates that can be applied to table metadata in a commit operation
+///
+/// This enum represents all possible modifications that can be made to table metadata:
+/// * UUID assignment (only during table creation)
+/// * Format version updates
+/// * Schema modifications
+/// * Partition spec and sort order changes
+/// * Snapshot management (add, remove, set references)
+/// * Location and property updates
+///
+/// Each variant includes the necessary data for that specific update type.
+/// Updates are applied atomically as part of a commit operation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "action",
