@@ -175,7 +175,20 @@ impl Table {
     pub fn into_metadata(self) -> TableMetadata {
         self.metadata
     }
-    //AI! Write documentation
+    /// Returns manifest list entries for snapshots within the given sequence range
+    ///
+    /// # Arguments
+    /// * `start` - Optional starting snapshot ID (exclusive). If None, includes from the beginning
+    /// * `end` - Optional ending snapshot ID (inclusive). If None, uses the current snapshot
+    ///
+    /// # Returns
+    /// * `Result<Vec<ManifestListEntry>, Error>` - Vector of manifest entries in the range,
+    ///    or an empty vector if no current snapshot exists
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The end snapshot ID is invalid
+    /// * Reading the manifest list fails
     pub async fn manifests(
         &self,
         start: Option<i64>,
