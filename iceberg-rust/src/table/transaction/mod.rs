@@ -187,7 +187,7 @@ impl<'table> TableTransaction<'table> {
             });
         self
     }
-    /// Update the properties of the table
+    //AI! Write documentation
     pub fn update_properties(mut self, entries: Vec<(String, String)>) -> Self {
         self.operations
             .entry(UPDATE_PROPERTIES_KEY.to_owned())
