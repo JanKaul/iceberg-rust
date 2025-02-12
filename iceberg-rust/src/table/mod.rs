@@ -267,7 +267,7 @@ impl Table {
             .try_any(|entry| async move { !matches!(entry.data_file().content(), Content::Data) })
             .await
     }
-    /// Create a new transaction for this table
+    //AI! Write documentation
     pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction {
         TableTransaction::new(self, branch)
     }
