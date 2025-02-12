@@ -107,7 +107,15 @@ impl View {
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }
-    //AI! Write documentation
+    /// Gets the object store for this view's storage location
+    ///
+    /// The object store provides:
+    /// - Access to the underlying storage system (S3, local filesystem, etc)
+    /// - Read/write operations for view data and metadata
+    /// - Storage-specific configuration and credentials
+    ///
+    /// # Returns
+    /// * `Arc<dyn ObjectStore>` - A thread-safe reference to the configured object store
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
         self.catalog
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
