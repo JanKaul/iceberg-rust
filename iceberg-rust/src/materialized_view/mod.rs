@@ -111,7 +111,7 @@ impl MaterializedView {
         self.catalog
             .object_store(Bucket::from_path(&self.metadata.location).unwrap())
     }
-    /// Get the schema of the view
+    //AI! Write documentation
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
