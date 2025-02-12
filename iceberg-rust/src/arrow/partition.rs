@@ -1,4 +1,12 @@
-//AI! Write module documentation
+//! Arrow-based partitioning implementation for Iceberg tables
+//!
+//! This module provides functionality to partition Arrow record batches according to Iceberg partition
+//! specifications. It includes:
+//!
+//! * Streaming partition implementation that processes record batches asynchronously
+//! * Support for different partition transforms (identity, bucket, truncate)
+//! * Efficient handling of distinct partition values
+//! * Automatic management of partition streams and channels
 
 use std::{
     collections::{HashSet, VecDeque},
