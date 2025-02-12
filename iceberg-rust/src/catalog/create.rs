@@ -1,4 +1,14 @@
-//AI! Write module documentation
+//! Creation interfaces for Iceberg catalog objects
+//!
+//! This module provides builder-pattern implementations for creating new objects in an Iceberg catalog:
+//!
+//! * Tables with schema, partition specs, and sort orders
+//! * Views with schema and version specifications
+//! * Materialized views with both view metadata and storage tables
+//!
+//! All builders support fluent configuration and handle default values appropriately.
+//! The module ensures proper initialization of metadata like UUIDs and timestamps.
+
 use std::{
     collections::HashMap,
     sync::Arc,
