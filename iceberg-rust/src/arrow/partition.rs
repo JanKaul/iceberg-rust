@@ -257,6 +257,7 @@ fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
     set
 }
 
+//AI! Write documentation
 fn distinct_values_string(array: ArrayRef) -> HashSet<String> {
     let mut set = HashSet::new();
     let array = as_string_array(&array);
