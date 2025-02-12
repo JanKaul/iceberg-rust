@@ -1,4 +1,14 @@
-//AI! Write module documentation
+//! Table module provides the core functionality for working with Iceberg tables
+//!
+//! The main type in this module is [`Table`], which represents an Iceberg table and provides
+//! methods for:
+//! * Reading table data and metadata
+//! * Modifying table structure (schema, partitioning, etc.)
+//! * Managing table snapshots and branches
+//! * Performing atomic transactions
+//!
+//! Tables can be created using [`Table::builder()`] and modified using transactions
+//! created by [`Table::new_transaction()`].
 
 use std::{io::Cursor, sync::Arc};
 
