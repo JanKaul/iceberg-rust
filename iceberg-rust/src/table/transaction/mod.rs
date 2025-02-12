@@ -54,7 +54,7 @@ impl<'table> TableTransaction<'table> {
             branch: branch.map(ToString::to_string),
         }
     }
-    /// Update the schmema of the table
+    //AI! Write documentation
     pub fn add_schema(mut self, schema: Schema) -> Self {
         self.operations
             .insert(ADD_SCHEMA_KEY.to_owned(), Operation::AddSchema(schema));
