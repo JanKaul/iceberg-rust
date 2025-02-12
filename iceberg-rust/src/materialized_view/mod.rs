@@ -89,7 +89,7 @@ impl MaterializedView {
             catalog,
         })
     }
-    /// Get the table identifier in the catalog. Returns None of it is a filesystem view.
+    //AI! Write documentation
     pub fn identifier(&self) -> &Identifier {
         &self.identifier
     }
