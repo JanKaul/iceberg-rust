@@ -75,7 +75,7 @@ pub struct CreateTable {
 }
 
 impl CreateTableBuilder {
-    /// Build the table, registering it in a catalog
+    //AI! Write documentation
     pub async fn build(
         &mut self,
         namespace: &[String],
