@@ -60,7 +60,18 @@ impl View {
     pub fn builder() -> CreateViewBuilder<Option<()>> {
         CreateViewBuilder::default()
     }
-    //AI! Write documentation
+    /// Creates a new Iceberg view instance with the given identifier, catalog and metadata
+    ///
+    /// # Arguments
+    /// * `identifier` - The unique identifier for this view in the catalog
+    /// * `catalog` - The catalog that will manage this view
+    /// * `metadata` - The view metadata containing schema, versions, and other view information
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - The new view instance or an error if creation fails
+    ///
+    /// This is typically called by catalog implementations rather than directly by users.
+    /// For creating new views, use the `builder()` method instead.
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
