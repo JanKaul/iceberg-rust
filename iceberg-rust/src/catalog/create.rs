@@ -262,7 +262,19 @@ impl TryInto<MaterializedViewMetadata> for CreateView<FullIdentifier> {
     }
 }
 
-//AI! Write documentation
+/// Configuration for creating a new materialized view in an Iceberg catalog
+///
+/// This struct contains all the necessary information to create both a materialized view
+/// and its underlying storage table:
+/// * View name and optional location
+/// * Schema definition
+/// * View version specification with storage table reference
+/// * Optional partition specification for the storage table
+/// * Optional sort order for the storage table
+/// * Separate properties for both view and storage table
+///
+/// The struct implements Builder pattern for convenient construction and
+/// can be serialized/deserialized using serde.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
