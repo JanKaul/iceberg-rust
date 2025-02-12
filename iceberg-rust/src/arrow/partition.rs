@@ -1,6 +1,4 @@
-/*!
- * Functions to partition arrow record batches according to a partitoin spec
-*/
+//AI! Write module documentation
 
 use std::{
     collections::{HashSet, VecDeque},
