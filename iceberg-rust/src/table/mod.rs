@@ -149,7 +149,7 @@ impl Table {
         self.metadata.current_schema(branch).map_err(Error::from)
     }
     #[inline]
-    /// Get the metadata of the table
+    //AI! Write documentation
     pub fn metadata(&self) -> &TableMetadata {
         &self.metadata
     }
