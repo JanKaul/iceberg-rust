@@ -187,7 +187,27 @@ impl<'table> TableTransaction<'table> {
             });
         self
     }
-    //AI! Write documentation
+    /// Updates the table properties with new key-value pairs
+    ///
+    /// This operation adds or updates table properties. Multiple update operations
+    /// in the same transaction will be combined.
+    ///
+    /// # Arguments
+    /// * `entries` - Vector of (key, value) pairs to update in the table properties
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    ///
+    /// # Examples
+    /// ```
+    /// let transaction = table.new_transaction(None)
+    ///     .update_properties(vec![
+    ///         ("write.format.default".to_string(), "parquet".to_string()),
+    ///         ("write.metadata.compression-codec".to_string(), "gzip".to_string())
+    ///     ])
+    ///     .commit()
+    ///     .await?;
+    /// ```
     pub fn update_properties(mut self, entries: Vec<(String, String)>) -> Self {
         self.operations
             .entry(UPDATE_PROPERTIES_KEY.to_owned())
