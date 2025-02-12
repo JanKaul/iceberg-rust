@@ -145,7 +145,7 @@ pub enum TableUpdate {
     },
 }
 
-/// Requirements on the table metadata to perform the updates
+//AI! Write documentation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
