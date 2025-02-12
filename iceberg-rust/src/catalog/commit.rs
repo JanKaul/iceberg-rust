@@ -1,6 +1,4 @@
-/*!
-Struct to perform a [CommitTable] or [CommitView] operation
-*/
+//AI! Write module documentation
 use std::collections::HashMap;
 
 use iceberg_rust_spec::{
