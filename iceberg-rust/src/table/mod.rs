@@ -175,7 +175,7 @@ impl Table {
     pub fn into_metadata(self) -> TableMetadata {
         self.metadata
     }
-    /// Get list of current manifest files within an optional snapshot range. The start snapshot is excluded from the range.
+    //AI! Write documentation
     pub async fn manifests(
         &self,
         start: Option<i64>,
