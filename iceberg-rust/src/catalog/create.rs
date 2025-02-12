@@ -186,7 +186,7 @@ pub struct CreateView<T: Materialization> {
 }
 
 impl CreateViewBuilder<Option<()>> {
-    /// Build the table, registering it in a catalog
+    //AI! Write documentation
     pub async fn build(
         &mut self,
         namespace: &[String],
