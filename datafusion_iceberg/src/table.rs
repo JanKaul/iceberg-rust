@@ -715,9 +715,13 @@ async fn table_scan(
         .create_physical_plan(session, file_scan_config, physical_predicate.as_ref())
         .await?;
 
-    plans.push(other_plan);
+    if plans.is_empty() {
+        Ok(other_plan)
+    } else {
+        plans.push(other_plan);
 
-    Ok(Arc::new(UnionExec::new(plans)))
+        Ok(Arc::new(UnionExec::new(plans)))
+    }
 }
 
 impl DisplayAs for DataFusionTable {
