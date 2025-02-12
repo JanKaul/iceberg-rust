@@ -1,6 +1,4 @@
-/*!
-Defining the [Table] struct that represents an iceberg table.
-*/
+//AI! Write module documentation
 
 use std::{io::Cursor, sync::Arc};
 
