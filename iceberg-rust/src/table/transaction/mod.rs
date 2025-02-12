@@ -47,7 +47,7 @@ pub struct TableTransaction<'table> {
 
 impl<'table> TableTransaction<'table> {
     /// Create a transaction for the given table.
-    pub fn new(table: &'table mut Table, branch: Option<&str>) -> Self {
+    pub(crate) fn new(table: &'table mut Table, branch: Option<&str>) -> Self {
         TableTransaction {
             table,
             operations: HashMap::new(),
