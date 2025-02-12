@@ -219,7 +219,7 @@ impl<'table> TableTransaction<'table> {
             .or_insert(Operation::UpdateProperties(entries));
         self
     }
-    /// Set snapshot reference
+    //AI! Write documentation
     pub fn set_snapshot_ref(mut self, entry: (String, SnapshotReference)) -> Self {
         self.operations.insert(
             SET_SNAPSHOT_REF_KEY.to_owned(),
