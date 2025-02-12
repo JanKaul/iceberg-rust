@@ -312,7 +312,7 @@ pub struct CreateMaterializedView {
 }
 
 impl CreateMaterializedViewBuilder {
-    /// Build the table, registering it in a catalog
+    //AI! Write documentation
     pub async fn build(
         &mut self,
         namespace: &[String],
