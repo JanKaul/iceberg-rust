@@ -20,7 +20,7 @@ use tokio::sync::{RwLock, RwLockWriteGuard};
 use datafusion::{
     arrow::datatypes::{Field, Schema as ArrowSchema, SchemaRef},
     catalog::Session,
-    common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
+    common::{not_impl_err, plan_err, Constraints, DataFusionError, SchemaExt},
     datasource::{
         file_format::{parquet::ParquetFormat, FileFormat},
         listing::PartitionedFile,
@@ -247,7 +247,6 @@ impl TableProvider for DataFusionTable {
         Ok(Arc::new(DataSinkExec::new(
             input,
             Arc::new(self.clone().into_data_sink()),
-            self.schema.clone(),
             None,
         )))
     }
@@ -568,6 +567,7 @@ async fn table_scan(
                                 object_store_url: object_store_url.clone(),
                                 file_schema: delete_file_schema,
                                 file_groups: vec![vec![delete_file]],
+                                constraints: Constraints::empty(),
                                 statistics: statistics.clone(),
                                 projection: None,
                                 limit,
@@ -587,6 +587,7 @@ async fn table_scan(
                                 object_store_url,
                                 file_schema: file_schema.clone(),
                                 file_groups: vec![data_files],
+                                constraints: Constraints::empty(),
                                 statistics,
                                 projection: equality_projection,
                                 limit,
@@ -658,6 +659,7 @@ async fn table_scan(
                         object_store_url,
                         file_schema: file_schema.clone(),
                         file_groups: vec![additional_data_files],
+                        constraints: Constraints::empty(),
                         statistics,
                         projection: projection.as_ref().cloned(),
                         limit,
@@ -704,6 +706,7 @@ async fn table_scan(
                     .collect()
             })
             .collect(),
+        constraints: Constraints::empty(),
         statistics,
         projection,
         limit,
@@ -715,9 +718,13 @@ async fn table_scan(
         .create_physical_plan(session, file_scan_config, physical_predicate.as_ref())
         .await?;
 
-    plans.push(other_plan);
+    if plans.is_empty() {
+        Ok(other_plan)
+    } else {
+        plans.push(other_plan);
 
-    Ok(Arc::new(UnionExec::new(plans)))
+        Ok(Arc::new(UnionExec::new(plans)))
+    }
 }
 
 impl DisplayAs for DataFusionTable {
@@ -778,6 +785,9 @@ impl DataSink for IcebergDataSink {
     }
     fn metrics(&self) -> Option<MetricsSet> {
         None
+    }
+    fn schema(&self) -> &SchemaRef {
+        &self.0.schema
     }
 }
 
