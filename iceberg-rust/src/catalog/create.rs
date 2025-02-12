@@ -32,7 +32,17 @@ use crate::{
 
 use super::{identifier::Identifier, Catalog};
 
-//AI! Write documentation
+/// Configuration for creating a new Iceberg table in a catalog
+///
+/// This struct contains all the necessary information to create a new table:
+/// * Table name and optional location
+/// * Schema definition
+/// * Optional partition specification
+/// * Optional sort order
+/// * Optional properties
+///
+/// The struct implements Builder pattern for convenient construction and
+/// can be serialized/deserialized using serde.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
