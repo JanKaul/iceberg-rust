@@ -262,7 +262,7 @@ impl TryInto<MaterializedViewMetadata> for CreateView<FullIdentifier> {
     }
 }
 
-/// Create materialized view struct
+//AI! Write documentation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
 #[builder(build_fn(name = "create"), setter(prefix = "with"))]
