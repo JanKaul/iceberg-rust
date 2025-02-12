@@ -131,7 +131,25 @@ impl Stream for PartitionStream<'_> {
     }
 }
 
-//AI! Write documentation
+/// Partitions a record batch according to the given partition fields.
+///
+/// This function takes a record batch and partition field specifications, then splits the batch into
+/// multiple record batches based on unique combinations of partition values.
+///
+/// # Arguments
+/// * `record_batch` - The input record batch to partition
+/// * `partition_fields` - The partition field specifications that define how to split the data
+///
+/// # Returns
+/// An iterator over results containing:
+/// * A vector of partition values that identify the partition
+/// * The record batch containing only rows matching those partition values
+///
+/// # Errors
+/// Returns an ArrowError if:
+/// * Required columns are missing from the record batch
+/// * Transformation operations fail
+/// * Data type conversions fail
 fn partition_record_batch<'a>(
     record_batch: &'a RecordBatch,
     partition_fields: &[BoundPartitionField<'_>],
