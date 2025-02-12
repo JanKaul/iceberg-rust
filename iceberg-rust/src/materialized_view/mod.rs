@@ -58,7 +58,13 @@ pub enum SourceTableState {
 
 /// Public interface of the table.
 impl MaterializedView {
-    //AI! Write documentation
+    /// Creates a new builder for configuring and creating a materialized view
+    ///
+    /// Returns a `CreateMaterializedViewBuilder` that provides a fluent interface for:
+    /// - Setting the view name and location
+    /// - Configuring view properties
+    /// - Defining the view schema and SQL representation
+    /// - Specifying the catalog and storage table settings
     pub fn builder() -> CreateMaterializedViewBuilder {
         CreateMaterializedViewBuilder::default()
     }
