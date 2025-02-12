@@ -482,7 +482,7 @@ pub fn apply_table_updates(
     Ok(())
 }
 
-/// Apply updates to metadata
+//AI! Write documentation
 pub fn apply_view_updates<T: Materialization + 'static>(
     metadata: &mut GeneralViewMetadata<T>,
     updates: Vec<ViewUpdate<T>>,
