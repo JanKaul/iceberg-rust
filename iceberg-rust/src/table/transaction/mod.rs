@@ -139,7 +139,25 @@ impl<'table> TableTransaction<'table> {
             });
         self
     }
-    //AI! Write documentation about appending delete files to the table
+    /// Appends delete files to the table
+    ///
+    /// This operation adds files that mark records for deletion in the table's current snapshot.
+    /// Multiple delete operations in the same transaction will be combined. The delete files
+    /// specify which records should be removed when reading the table.
+    ///
+    /// # Arguments
+    /// * `files` - Vector of delete files to append to the table
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    ///
+    /// # Examples
+    /// ```
+    /// let transaction = table.new_transaction(None)
+    ///     .delete(delete_files)
+    ///     .commit()
+    ///     .await?;
+    /// ```
     pub fn delete(mut self, files: Vec<DataFile>) -> Self {
         self.operations
             .entry(APPEND_KEY.to_owned())
