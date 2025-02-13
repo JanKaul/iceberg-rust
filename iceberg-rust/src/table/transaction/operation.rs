@@ -97,7 +97,7 @@ impl Operation {
             Operation::Append {
                 branch,
                 data_files,
-                delete_files: _,
+                delete_files,
                 additional_summary,
             } => {
                 let partition_fields =
@@ -113,8 +113,9 @@ impl Operation {
                     .map(|x| x.name())
                     .collect::<SmallVec<[_; 4]>>();
 
-                let bounding_partition_values = data_files
+                let bounding_partition_values = delete_files
                     .iter()
+                    .chain(data_files.iter())
                     .try_fold(None, |acc, x| {
                         let node = partition_struct_to_vec(x.partition(), &partition_column_names)?;
                         let Some(mut acc) = acc else {
@@ -185,7 +186,7 @@ impl Operation {
 
                 let n_splits = compute_n_splits(
                     existing_file_count,
-                    data_files.len(),
+                    delete_files.len() + data_files.len(),
                     selected_manifest_file_count,
                 );
 
@@ -203,15 +204,19 @@ impl Operation {
                 let snapshot_id = generate_snapshot_id();
                 let commit_uuid = &uuid::Uuid::new_v4().to_string();
 
-                let new_datafile_iter = data_files.into_iter().map(|data_file| {
-                    ManifestEntry::builder()
-                        .with_format_version(table_metadata.format_version)
-                        .with_status(Status::Added)
-                        .with_data_file(data_file)
-                        .build()
-                        .map_err(crate::spec::error::Error::from)
-                        .map_err(Error::from)
-                });
+                let new_datafile_iter =
+                    delete_files
+                        .into_iter()
+                        .chain(data_files.into_iter())
+                        .map(|data_file| {
+                            ManifestEntry::builder()
+                                .with_format_version(table_metadata.format_version)
+                                .with_status(Status::Added)
+                                .with_data_file(data_file)
+                                .build()
+                                .map_err(crate::spec::error::Error::from)
+                                .map_err(Error::from)
+                        });
 
                 let manifest_schema = ManifestEntry::schema(
                     &partition_value_schema(&partition_fields)?,

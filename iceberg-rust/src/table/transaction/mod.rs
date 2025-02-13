@@ -139,6 +139,29 @@ impl<'table> TableTransaction<'table> {
             });
         self
     }
+    /// Append delete files to the table
+    pub fn delete(mut self, files: Vec<DataFile>) -> Self {
+        self.operations
+            .entry(APPEND_KEY.to_owned())
+            .and_modify(|mut x| {
+                if let Operation::Append {
+                    branch: _,
+                    data_files: _,
+                    delete_files: old,
+                    additional_summary: None,
+                } = &mut x
+                {
+                    old.extend_from_slice(&files)
+                }
+            })
+            .or_insert(Operation::Append {
+                branch: self.branch.clone(),
+                data_files: Vec::new(),
+                delete_files: files,
+                additional_summary: None,
+            });
+        self
+    }
     /// Replaces all data files in the table with new ones
     ///
     /// This operation removes all existing data files and replaces them with the provided
