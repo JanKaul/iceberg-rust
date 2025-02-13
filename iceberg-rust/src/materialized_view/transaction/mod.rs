@@ -108,7 +108,8 @@ impl<'view> Transaction<'view> {
             .and_modify(|mut x| {
                 if let TableOperation::Append {
                     branch: _,
-                    files: old,
+                    data_files: old,
+                    delete_files: _,
                     additional_summary: old_lineage,
                 } = &mut x
                 {
@@ -121,7 +122,8 @@ impl<'view> Transaction<'view> {
             })
             .or_insert(TableOperation::Append {
                 branch: self.branch.clone(),
-                files,
+                data_files: files,
+                delete_files: Vec::new(),
                 additional_summary: Some(HashMap::from_iter(vec![(
                     REFRESH_STATE.to_owned(),
                     refresh_state,

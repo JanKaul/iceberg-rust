@@ -123,7 +123,8 @@ impl<'table> TableTransaction<'table> {
             .and_modify(|mut x| {
                 if let Operation::Append {
                     branch: _,
-                    files: old,
+                    data_files: old,
+                    delete_files: _,
                     additional_summary: None,
                 } = &mut x
                 {
@@ -132,7 +133,8 @@ impl<'table> TableTransaction<'table> {
             })
             .or_insert(Operation::Append {
                 branch: self.branch.clone(),
-                files,
+                data_files: files,
+                delete_files: Vec::new(),
                 additional_summary: None,
             });
         self
