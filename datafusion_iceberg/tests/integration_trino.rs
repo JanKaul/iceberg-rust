@@ -250,7 +250,7 @@ async fn integration_trino_rest() {
         .expect("Failed to create partition spec");
 
     Table::builder()
-        .with_name("orders")
+        .with_name("test_orders")
         .with_location("s3://warehouse/orders")
         .with_schema(schema)
         .with_partition_spec(partition_spec)
@@ -265,7 +265,7 @@ async fn integration_trino_rest() {
 
     let _ = ctx
         .sql(
-            "INSERT INTO iceberg.test.orders (id, customer_id, product_id, date, amount) VALUES
+            "INSERT INTO iceberg.test.test_orders (id, customer_id, product_id, date, amount) VALUES
                 (1, 1, 1, '2020-01-01', 1),
                 (2, 2, 1, '2020-01-01', 1),
                 (3, 3, 1, '2020-01-01', 3),
@@ -285,7 +285,7 @@ async fn integration_trino_rest() {
                 "--catalog",
                 "iceberg",
                 "--execute",
-                "SELECT sum(amount) FROM iceberg.test.orders;",
+                "SELECT sum(amount) FROM iceberg.test.test_orders;",
                 "--output-format",
                 "NULL",
                 &format!("http://{}:{}", docker_host, trino_port),
@@ -299,7 +299,7 @@ async fn integration_trino_rest() {
         .unwrap();
 
     let df = ctx
-        .sql("SELECT SUM(totalprice) FROM iceberg.test.orders;")
+        .sql("SELECT SUM(totalprice) FROM iceberg.test.test_orders;")
         .await
         .unwrap();
 
