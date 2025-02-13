@@ -28,4 +28,7 @@ features = ["json", "multipart", "rustls-tls-manual-roots"]
 [dev-dependencies]
 tokio = "1"
 testcontainers = "0.20"
+testcontainers-modules = { version = "0.8.0", features = ["localstack"] }
 tracing-subscriber = "0.3"
+datafusion_iceberg = { path = "../../datafusion_iceberg" , version = "0.6.1" }
+datafusion.workspace = true
