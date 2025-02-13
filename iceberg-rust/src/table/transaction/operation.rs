@@ -8,7 +8,7 @@ use bytes::Bytes;
 use iceberg_rust_spec::manifest_list::{
     manifest_list_schema_v1, manifest_list_schema_v2, ManifestListEntry,
 };
-use iceberg_rust_spec::snapshot::Snapshot;
+use iceberg_rust_spec::snapshot::{Operation as SnapshotOperation, Snapshot};
 use iceberg_rust_spec::spec::table_metadata::TableMetadata;
 use iceberg_rust_spec::spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
@@ -104,6 +104,15 @@ impl Operation {
                     table_metadata.current_partition_fields(branch.as_deref())?;
                 let schema = table_metadata.current_schema(branch.as_deref())?;
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
+
+                let snapshot_operation = match (data_files.len(), delete_files.len()) {
+                    (0, 0) => Err(Error::InvalidFormat(
+                        "Empty data and delete files".to_string(),
+                    )),
+                    (_, 0) => Ok(SnapshotOperation::Append),
+                    (0, _) => Ok(SnapshotOperation::Delete),
+                    (_, _) => Ok(SnapshotOperation::Overwrite),
+                }?;
 
                 let old_manifest_list_bytes_opt =
                     prefetch_manifest_list(old_snapshot, &object_store);
@@ -336,7 +345,7 @@ impl Operation {
                     .with_manifest_list(new_manifest_list_location)
                     .with_sequence_number(table_metadata.last_sequence_number + 1)
                     .with_summary(Summary {
-                        operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
+                        operation: snapshot_operation,
                         other: additional_summary.unwrap_or_default(),
                     })
                     .with_schema_id(*schema.schema_id());
