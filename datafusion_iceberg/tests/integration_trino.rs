@@ -298,8 +298,9 @@ async fn integration_trino_rest() {
         .await
         .unwrap();
 
+    // Test tpch table
     let df = ctx
-        .sql("SELECT SUM(totalprice) FROM iceberg.test.test_orders;")
+        .sql("SELECT SUM(totalprice) FROM iceberg.test.orders;")
         .await
         .unwrap();
 
