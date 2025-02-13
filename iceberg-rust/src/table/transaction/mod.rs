@@ -113,11 +113,11 @@ impl<'table> TableTransaction<'table> {
     /// # Examples
     /// ```
     /// let transaction = table.new_transaction(None)
-    ///     .append(data_files)
+    ///     .append_data(data_files)
     ///     .commit()
     ///     .await?;
     /// ```
-    pub fn append(mut self, files: Vec<DataFile>) -> Self {
+    pub fn append_data(mut self, files: Vec<DataFile>) -> Self {
         self.operations
             .entry(APPEND_KEY.to_owned())
             .and_modify(|mut x| {
@@ -154,11 +154,11 @@ impl<'table> TableTransaction<'table> {
     /// # Examples
     /// ```
     /// let transaction = table.new_transaction(None)
-    ///     .delete(delete_files)
+    ///     .append_delete(delete_files)
     ///     .commit()
     ///     .await?;
     /// ```
-    pub fn delete(mut self, files: Vec<DataFile>) -> Self {
+    pub fn append_delete(mut self, files: Vec<DataFile>) -> Self {
         self.operations
             .entry(APPEND_KEY.to_owned())
             .and_modify(|mut x| {
