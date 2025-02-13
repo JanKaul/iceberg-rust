@@ -139,7 +139,7 @@ impl<'table> TableTransaction<'table> {
             });
         self
     }
-    /// Append delete files to the table
+    //AI! Write documentation about appending delete files to the table
     pub fn delete(mut self, files: Vec<DataFile>) -> Self {
         self.operations
             .entry(APPEND_KEY.to_owned())
