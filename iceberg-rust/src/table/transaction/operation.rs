@@ -308,6 +308,7 @@ impl Operation {
                         )?
                     };
 
+                    //AI! Change this to concurrently finish the manifest writers and add them to the manifest_list writer. Think step-by-step in <thinking> tags and return the answer in an <answer> tag.
                     for (i, entries) in splits.into_iter().enumerate() {
                         let manifest_location =
                             new_manifest_location(&table_metadata.location, commit_uuid, i);
