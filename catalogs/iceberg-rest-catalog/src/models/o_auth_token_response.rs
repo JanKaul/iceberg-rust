@@ -9,7 +9,9 @@
  */
 
 use crate::models;
+use serde::{Deserialize, Serialize};
 
+/// OAuthTokenResponse : The `oauth/tokens` endpoint and related schemas are **DEPRECATED for REMOVAL** from this spec, see description of the endpoint.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OAuthTokenResponse {
     /// The access token, for client credentials or token exchange
@@ -32,6 +34,7 @@ pub struct OAuthTokenResponse {
 }
 
 impl OAuthTokenResponse {
+    /// The `oauth/tokens` endpoint and related schemas are **DEPRECATED for REMOVAL** from this spec, see description of the endpoint.
     pub fn new(access_token: String, token_type: TokenType) -> OAuthTokenResponse {
         OAuthTokenResponse {
             access_token,

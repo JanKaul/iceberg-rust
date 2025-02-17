@@ -9,6 +9,7 @@
  */
 
 use crate::models;
+use serde::{Deserialize, Serialize};
 
 /// CatalogConfig : Server-provided configuration for the catalog.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
@@ -19,6 +20,9 @@ pub struct CatalogConfig {
     /// Properties that should be used as default configuration; applied before client configuration.
     #[serde(rename = "defaults")]
     pub defaults: std::collections::HashMap<String, String>,
+    /// A list of endpoints that the server supports. The format of each endpoint must be \"<HTTP verb> <resource path from OpenAPI REST spec>\". The HTTP verb and the resource path must be separated by a space character.
+    #[serde(rename = "endpoints", skip_serializing_if = "Option::is_none")]
+    pub endpoints: Option<Vec<String>>,
 }
 
 impl CatalogConfig {
@@ -27,6 +31,7 @@ impl CatalogConfig {
         CatalogConfig {
             overrides,
             defaults,
+            endpoints: None,
         }
     }
 }

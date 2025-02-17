@@ -20,6 +20,10 @@ futures.workspace = true
 tracing.workspace = true
 tracing-futures.workspace = true
 derive_builder = { workspace = true }
+serde_repr = "^0.1"
+aws-sigv4 = "0.3.0"
+http = "0.2.5"
+secrecy = "0.8.0"
 
 [dependencies.reqwest]
 version = "^0.12"
@@ -33,3 +37,4 @@ testcontainers-modules = { version = "0.8.0", features = ["localstack"] }
 tracing-subscriber = "0.3"
 datafusion_iceberg = { path = "../../datafusion_iceberg" , version = "0.6.1" }
 datafusion.workspace = true
+

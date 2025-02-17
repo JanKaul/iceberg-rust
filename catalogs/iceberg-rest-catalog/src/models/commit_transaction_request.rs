@@ -9,15 +9,17 @@
  */
 
 use crate::models;
+use iceberg_rust::catalog::commit::CommitTable;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CommitTransactionRequest {
     #[serde(rename = "table-changes")]
-    pub table_changes: Vec<models::CommitTableRequest>,
+    pub table_changes: Vec<CommitTable>,
 }
 
 impl CommitTransactionRequest {
-    pub fn new(table_changes: Vec<models::CommitTableRequest>) -> CommitTransactionRequest {
+    pub fn new(table_changes: Vec<CommitTable>) -> CommitTransactionRequest {
         CommitTransactionRequest { table_changes }
     }
 }

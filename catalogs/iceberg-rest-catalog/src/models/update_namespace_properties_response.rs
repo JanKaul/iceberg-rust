@@ -9,6 +9,7 @@
  */
 
 use crate::models;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UpdateNamespacePropertiesResponse {
@@ -19,8 +20,8 @@ pub struct UpdateNamespacePropertiesResponse {
     #[serde(rename = "removed")]
     pub removed: Vec<String>,
     /// List of properties requested for removal that were not found in the namespace's properties. Represents a partial success response. Server's do not need to implement this.
-    #[serde(rename = "missing", default, with = "::serde_with::rust::double_option", skip_serializing_if = "Option::is_none")]
-    pub missing: Option<Option<Vec<String>>>,
+    #[serde(rename = "missing", skip_serializing_if = "Option::is_none")]
+    pub missing: Option<Vec<String>>,
 }
 
 impl UpdateNamespacePropertiesResponse {

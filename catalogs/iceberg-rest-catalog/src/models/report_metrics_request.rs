@@ -19,7 +19,7 @@ pub struct ReportMetricsRequest {
     #[serde(rename = "snapshot-id")]
     pub snapshot_id: i64,
     #[serde(rename = "filter")]
-    pub filter: Box<serde_json::Value>,
+    pub filter: serde_json::Value,
     #[serde(rename = "schema-id")]
     pub schema_id: i32,
     #[serde(rename = "projected-field-ids")]
@@ -53,7 +53,7 @@ impl ReportMetricsRequest {
             report_type,
             table_name,
             snapshot_id,
-            filter: Box::new(filter),
+            filter,
             schema_id,
             projected_field_ids,
             projected_field_names,

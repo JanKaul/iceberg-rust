@@ -10,7 +10,7 @@
 
 
 use reqwest;
-
+use serde::{Deserialize, Serialize};
 use crate::{apis::ResponseContent, models};
 use super::{Error, configuration};
 
@@ -29,40 +29,52 @@ pub enum GetConfigError {
 }
 
 
-///  All REST clients should first call this route to get catalog configuration properties from the server to configure the catalog and its HTTP client. Configuration from the server consists of two sets of key/value pairs. - defaults -  properties that should be used as default configuration; applied before client configuration - overrides - properties that should be used to override client configuration; applied after defaults and client configuration  Catalog configuration is constructed by setting the defaults, then client- provided configuration, and finally overrides. The final property set is then used to configure the catalog.  For example, a default configuration property might set the size of the client pool, which can be replaced with a client-specific setting. An override might be used to set the warehouse location, which is stored on the server rather than in client configuration.  Common catalog configuration settings are documented at https://iceberg.apache.org/docs/latest/configuration/#catalog-properties 
+///  All REST clients should first call this route to get catalog configuration properties from the server to configure the catalog and its HTTP client. Configuration from the server consists of two sets of key/value pairs. - defaults -  properties that should be used as default configuration; applied before client configuration - overrides - properties that should be used to override client configuration; applied after defaults and client configuration  Catalog configuration is constructed by setting the defaults, then client- provided configuration, and finally overrides. The final property set is then used to configure the catalog.  For example, a default configuration property might set the size of the client pool, which can be replaced with a client-specific setting. An override might be used to set the warehouse location, which is stored on the server rather than in client configuration.  Common catalog configuration settings are documented at https://iceberg.apache.org/docs/latest/configuration/#catalog-properties  The catalog configuration also holds an optional `endpoints` field that contains information about the endpoints supported by the server. If a server does not send the `endpoints` field, a default set of endpoints is assumed: - GET /v1/{prefix}/namespaces - POST /v1/{prefix}/namespaces - GET /v1/{prefix}/namespaces/{namespace} - HEAD /v1/{prefix}/namespaces/{namespace} - DELETE /v1/{prefix}/namespaces/{namespace} - POST /v1/{prefix}/namespaces/{namespace}/properties - GET /v1/{prefix}/namespaces/{namespace}/tables - POST /v1/{prefix}/namespaces/{namespace}/tables - GET /v1/{prefix}/namespaces/{namespace}/tables/{table} - HEAD /v1/{prefix}/namespaces/{namespace}/tables/{table} - POST /v1/{prefix}/namespaces/{namespace}/tables/{table} - DELETE /v1/{prefix}/namespaces/{namespace}/tables/{table} - POST /v1/{prefix}/namespaces/{namespace}/register - POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/metrics - POST /v1/{prefix}/tables/rename - POST /v1/{prefix}/transactions/commit 
 pub async fn get_config(configuration: &configuration::Configuration, warehouse: Option<&str>) -> Result<models::CatalogConfig, Error<GetConfigError>> {
-    let local_var_configuration = configuration;
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_warehouse = warehouse;
 
-    let local_var_client = &local_var_configuration.client;
+    let uri_str = format!("{}/v1/config", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
-    let local_var_uri_str = format!("{}/v1/config", local_var_configuration.base_path);
-    let mut local_var_req_builder = local_var_client.request(reqwest::Method::GET, local_var_uri_str.as_str());
-
-    if let Some(ref local_var_str) = warehouse {
-        local_var_req_builder = local_var_req_builder.query(&[("warehouse", &local_var_str.to_string())]);
+    if let Some(ref param_value) = p_warehouse {
+        req_builder = req_builder.query(&[("warehouse", &param_value.to_string())]);
     }
-    if let Some(ref local_var_user_agent) = local_var_configuration.user_agent {
-        local_var_req_builder = local_var_req_builder.header(reqwest::header::USER_AGENT, local_var_user_agent.clone());
+    if let Some(ref aws_v4_key) = configuration.aws_v4_key {
+        let new_headers = match aws_v4_key.sign(
+	    &uri_str,
+	    "GET",
+	    "",
+	    ) {
+	      Ok(new_headers) => new_headers,
+	      Err(err) => return Err(Error::AWSV4SignatureError(err)),
+	    };
+	for (name, value) in new_headers.iter() {
+	    req_builder = req_builder.header(name.as_str(), value.as_str());
+	}
     }
-    if let Some(ref local_var_token) = local_var_configuration.oauth_access_token {
-        local_var_req_builder = local_var_req_builder.bearer_auth(local_var_token.to_owned());
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.oauth_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
     };
-    if let Some(ref local_var_token) = local_var_configuration.bearer_access_token {
-        local_var_req_builder = local_var_req_builder.bearer_auth(local_var_token.to_owned());
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
     };
 
-    let local_var_req = local_var_req_builder.build()?;
-    let local_var_resp = local_var_client.execute(local_var_req).await?;
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
 
-    let local_var_status = local_var_resp.status();
-    let local_var_content = local_var_resp.text().await?;
+    let status = resp.status();
 
-    if !local_var_status.is_client_error() && !local_var_status.is_server_error() {
-        serde_json::from_str(&local_var_content).map_err(Error::from)
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        serde_json::from_str(&content).map_err(Error::from)
     } else {
-        let local_var_entity: Option<GetConfigError> = serde_json::from_str(&local_var_content).ok();
-        let local_var_error = ResponseContent { status: local_var_status, content: local_var_content, entity: local_var_entity };
-        Err(Error::ResponseError(local_var_error))
+        let content = resp.text().await?;
+        let entity: Option<GetConfigError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }
 

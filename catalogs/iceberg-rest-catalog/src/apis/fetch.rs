@@ -1,7 +1,6 @@
-
 use crate::apis::{configuration, ResponseContent};
 
-use super::super::Error;
+use super::Error;
 
 use std::collections::HashMap;
 
@@ -31,6 +30,19 @@ where
 
     let mut req_builder = client.request(method.clone(), &(uri_base + uri_str));
 
+    if let Some(ref aws_v4_key) = configuration.aws_v4_key {
+        let new_headers = match aws_v4_key.sign(
+            &uri_str,
+            method.as_str(),
+            &serde_json::to_string(&request).expect("param should serialize to string"),
+        ) {
+            Ok(new_headers) => new_headers,
+            Err(err) => return Err(Error::AWSV4SignatureError(err)),
+        };
+        for (name, value) in new_headers.iter() {
+            req_builder = req_builder.header(name.as_str(), value.as_str());
+        }
+    }
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }
@@ -94,6 +106,19 @@ where
 
     let mut req_builder = client.request(method.clone(), &(uri_base + uri_str));
 
+    if let Some(ref aws_v4_key) = configuration.aws_v4_key {
+        let new_headers = match aws_v4_key.sign(
+            &uri_str,
+            method.as_str(),
+            &serde_json::to_string(&request).expect("param should serialize to string"),
+        ) {
+            Ok(new_headers) => new_headers,
+            Err(err) => return Err(Error::AWSV4SignatureError(err)),
+        };
+        for (name, value) in new_headers.iter() {
+            req_builder = req_builder.header(name.as_str(), value.as_str());
+        }
+    }
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
     }

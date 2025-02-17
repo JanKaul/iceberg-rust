@@ -10,14 +10,31 @@
 
 use std::collections::HashMap;
 
+use super::{configuration, fetch, Error};
+use crate::{apis::ResponseContent, models};
 use iceberg_rust::{
-    catalog::create::{CreateTable, CreateView},
+    catalog::{
+        commit::{CommitTable, CommitView},
+        create::{CreateTable, CreateView},
+    },
     spec::view_metadata::Materialization,
 };
 use reqwest;
+use serde::{Deserialize, Serialize};
 
-use super::{configuration, fetch, Error};
-use crate::{apis::ResponseContent, models};
+/// struct for typed errors of method [`cancel_planning`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CancelPlanningError {
+    Status400(models::IcebergErrorResponse),
+    Status401(models::IcebergErrorResponse),
+    Status403(models::IcebergErrorResponse),
+    Status404(models::IcebergErrorResponse),
+    Status419(models::IcebergErrorResponse),
+    Status503(models::IcebergErrorResponse),
+    Status5XX(models::IcebergErrorResponse),
+    UnknownValue(serde_json::Value),
+}
 
 /// struct for typed errors of method [`commit_transaction`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +141,34 @@ pub enum DropViewError {
     UnknownValue(serde_json::Value),
 }
 
+/// struct for typed errors of method [`fetch_planning_result`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FetchPlanningResultError {
+    Status400(models::IcebergErrorResponse),
+    Status401(models::IcebergErrorResponse),
+    Status403(models::IcebergErrorResponse),
+    Status404(models::IcebergErrorResponse),
+    Status419(models::IcebergErrorResponse),
+    Status503(models::IcebergErrorResponse),
+    Status5XX(models::IcebergErrorResponse),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`fetch_scan_tasks`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum FetchScanTasksError {
+    Status400(models::IcebergErrorResponse),
+    Status401(models::IcebergErrorResponse),
+    Status403(models::IcebergErrorResponse),
+    Status404(models::IcebergErrorResponse),
+    Status419(models::IcebergErrorResponse),
+    Status503(models::IcebergErrorResponse),
+    Status5XX(models::IcebergErrorResponse),
+    UnknownValue(serde_json::Value),
+}
+
 /// struct for typed errors of method [`list_namespaces`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -160,6 +205,20 @@ pub enum ListViewsError {
     Status401(models::IcebergErrorResponse),
     Status403(models::IcebergErrorResponse),
     Status404(models::ErrorModel),
+    Status419(models::IcebergErrorResponse),
+    Status503(models::IcebergErrorResponse),
+    Status5XX(models::IcebergErrorResponse),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`load_credentials`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LoadCredentialsError {
+    Status400(models::IcebergErrorResponse),
+    Status401(models::IcebergErrorResponse),
+    Status403(models::IcebergErrorResponse),
+    Status404(models::IcebergErrorResponse),
     Status419(models::IcebergErrorResponse),
     Status503(models::IcebergErrorResponse),
     Status5XX(models::IcebergErrorResponse),
@@ -216,6 +275,21 @@ pub enum NamespaceExistsError {
     Status401(models::IcebergErrorResponse),
     Status403(models::IcebergErrorResponse),
     Status404(models::IcebergErrorResponse),
+    Status419(models::IcebergErrorResponse),
+    Status503(models::IcebergErrorResponse),
+    Status5XX(models::IcebergErrorResponse),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`plan_table_scan`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PlanTableScanError {
+    Status400(models::IcebergErrorResponse),
+    Status401(models::IcebergErrorResponse),
+    Status403(models::IcebergErrorResponse),
+    Status404(models::IcebergErrorResponse),
+    Status406(models::ErrorModel),
     Status419(models::IcebergErrorResponse),
     Status503(models::IcebergErrorResponse),
     Status5XX(models::IcebergErrorResponse),
@@ -628,6 +702,64 @@ pub async fn list_views(
     )
     .await
 }
+/// Load vended credentials for a table from the catalog.
+pub async fn load_credentials(
+    configuration: &configuration::Configuration,
+    prefix: &str,
+    namespace: &str,
+    table: &str,
+) -> Result<models::LoadCredentialsResponse, Error<LoadCredentialsError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_prefix = prefix;
+    let p_namespace = namespace;
+    let p_table = table;
+
+    let uri_str = format!(
+        "{}/v1/{prefix}/namespaces/{namespace}/tables/{table}/credentials",
+        configuration.base_path,
+        prefix = crate::apis::urlencode(p_prefix),
+        namespace = crate::apis::urlencode(p_namespace),
+        table = crate::apis::urlencode(p_table)
+    );
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    if let Some(ref aws_v4_key) = configuration.aws_v4_key {
+        let new_headers = match aws_v4_key.sign(&uri_str, "GET", "") {
+            Ok(new_headers) => new_headers,
+            Err(err) => return Err(Error::AWSV4SignatureError(err)),
+        };
+        for (name, value) in new_headers.iter() {
+            req_builder = req_builder.header(name.as_str(), value.as_str());
+        }
+    }
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.oauth_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        serde_json::from_str(&content).map_err(Error::from)
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<LoadCredentialsError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
 
 /// Return all stored metadata properties for a given namespace
 pub async fn load_namespace_metadata(
@@ -791,7 +923,7 @@ pub async fn replace_view<T: Materialization + serde::Serialize>(
     prefix: Option<&str>,
     namespace: &str,
     view: &str,
-    commit_view_request: models::CommitViewRequest<T>,
+    commit_view_request: CommitView<T>,
 ) -> Result<models::LoadViewResult, Error<ReplaceViewError>> {
     let uri_str = format!(
         "namespaces/{namespace}/views/{view}",
@@ -887,7 +1019,7 @@ pub async fn update_table(
     prefix: Option<&str>,
     namespace: &str,
     table: &str,
-    commit_table_request: models::CommitTableRequest,
+    commit_table_request: CommitTable,
 ) -> Result<models::CommitTableResponse, Error<UpdateTableError>> {
     let uri_str = format!(
         "namespaces/{namespace}/tables/{table}",
