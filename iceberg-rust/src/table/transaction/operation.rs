@@ -308,24 +308,32 @@ impl Operation {
                         )?
                     };
 
-                    for (i, entries) in splits.into_iter().enumerate() {
-                        let manifest_location =
-                            new_manifest_location(&table_metadata.location, commit_uuid, i);
+                    let manifest_futures = splits
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, entries)| {
+                            let manifest_location =
+                                new_manifest_location(&table_metadata.location, commit_uuid, i);
 
-                        let mut manifest_writer = ManifestWriter::new(
-                            &manifest_location,
-                            snapshot_id,
-                            &manifest_schema,
-                            table_metadata,
-                            branch.as_deref(),
-                        )?;
+                            let mut manifest_writer = ManifestWriter::new(
+                                &manifest_location,
+                                snapshot_id,
+                                &manifest_schema,
+                                table_metadata,
+                                branch.as_deref(),
+                            )?;
 
-                        for manifest_entry in entries {
-                            manifest_writer.append(manifest_entry)?;
-                        }
+                            for manifest_entry in entries {
+                                manifest_writer.append(manifest_entry)?;
+                            }
 
-                        let manifest = manifest_writer.finish(object_store.clone()).await?;
+                            Ok::<_, Error>(manifest_writer.finish(object_store.clone()))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
 
+                    let manifests = futures::future::try_join_all(manifest_futures).await?;
+
+                    for manifest in manifests {
                         manifest_list_writer.append_ser(manifest)?;
                     }
                 };
