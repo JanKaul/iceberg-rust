@@ -24,7 +24,7 @@ serde_json = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 tokio = { version = "1.0", features = ["sync"] }
-derive_builder = "0.12.0"
+derive_builder = { workspace = true }
 sqlparser = { workspace = true }
 thrift = { version = "0.17.0", default-features = false }
 thiserror = { workspace = true }
