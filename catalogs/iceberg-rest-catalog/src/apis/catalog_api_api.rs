@@ -16,7 +16,7 @@ use iceberg_rust::{
 };
 use reqwest;
 
-use super::{configuration, Error};
+use super::{configuration, fetch, Error};
 use crate::{apis::ResponseContent, models};
 
 /// struct for typed errors of method [`commit_transaction`]
@@ -362,133 +362,6 @@ pub enum ViewExistsError {
     UnknownValue(serde_json::Value),
 }
 
-async fn fetch<R, T, E>(
-    configuration: &configuration::Configuration,
-    method: reqwest::Method,
-    prefix: Option<&str>,
-    uri_str: &str,
-    request: &R,
-    headers: Option<HashMap<String, String>>,
-    query_params: Option<HashMap<String, String>>,
-) -> Result<T, Error<E>>
-where
-    R: serde::Serialize + ?Sized,
-    T: for<'a> serde::Deserialize<'a>,
-    E: for<'a> serde::Deserialize<'a>,
-{
-    let uri_base = match prefix {
-        Some(prefix) => format!(
-            "{}/v1/{prefix}/",
-            configuration.base_path,
-            prefix = crate::apis::urlencode(prefix)
-        ),
-        None => format!("{}/v1/", configuration.base_path,),
-    };
-    let client = &configuration.client;
-
-    let mut req_builder = client.request(method.clone(), &(uri_base + uri_str));
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    if let Some(ref token) = configuration.oauth_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-    if let Some(ref token) = configuration.bearer_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-    for (key, value) in headers.unwrap_or_default() {
-        req_builder = req_builder.header(key, value);
-    }
-    for (key, value) in query_params.unwrap_or_default() {
-        req_builder = req_builder.query(&[(key, value)]);
-    }
-    if let &reqwest::Method::POST | &reqwest::Method::PUT = &method {
-        req_builder = req_builder.json(request);
-    }
-
-    let req = req_builder.build()?;
-    let resp = client.execute(req).await?;
-
-    let status = resp.status();
-    let content = resp.text().await?;
-
-    if !status.is_client_error() && !status.is_server_error() {
-        serde_json::from_str(&content).map_err(Error::from)
-    } else {
-        let entity: Option<E> = serde_json::from_str(&content).ok();
-        let error = ResponseContent {
-            status,
-            content,
-            entity,
-        };
-        Err(Error::ResponseError(error))
-    }
-}
-
-async fn fetch_empty<R, E>(
-    configuration: &configuration::Configuration,
-    method: reqwest::Method,
-    prefix: Option<&str>,
-    uri_str: &str,
-    request: &R,
-    headers: Option<HashMap<String, String>>,
-    query_params: Option<HashMap<String, String>>,
-) -> Result<(), Error<E>>
-where
-    R: serde::Serialize + ?Sized,
-    E: for<'a> serde::Deserialize<'a>,
-{
-    let uri_base = match prefix {
-        Some(prefix) => format!(
-            "{}/v1/{prefix}/",
-            configuration.base_path,
-            prefix = crate::apis::urlencode(prefix)
-        ),
-        None => format!("{}/v1/", configuration.base_path,),
-    };
-    let client = &configuration.client;
-
-    let mut req_builder = client.request(method.clone(), &(uri_base + uri_str));
-
-    if let Some(ref user_agent) = configuration.user_agent {
-        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
-    }
-    if let Some(ref token) = configuration.oauth_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-    if let Some(ref token) = configuration.bearer_access_token {
-        req_builder = req_builder.bearer_auth(token.to_owned());
-    };
-    for (key, value) in headers.unwrap_or_default() {
-        req_builder = req_builder.header(key, value);
-    }
-    for (key, value) in query_params.unwrap_or_default() {
-        req_builder = req_builder.query(&[(key, value)]);
-    }
-    if let &reqwest::Method::POST | &reqwest::Method::PUT = &method {
-        req_builder = req_builder.json(request);
-    }
-
-    let req = req_builder.build()?;
-    let resp = client.execute(req).await?;
-
-    let status = resp.status();
-    let content = resp.text().await?;
-
-    if !status.is_client_error() && !status.is_server_error() {
-        Ok(())
-    } else {
-        let entity: Option<E> = serde_json::from_str(&content).ok();
-        let error = ResponseContent {
-            status,
-            content,
-            entity,
-        };
-        Err(Error::ResponseError(error))
-    }
-}
-
 pub async fn commit_transaction(
     configuration: &configuration::Configuration,
     prefix: Option<&str>,
@@ -497,7 +370,7 @@ pub async fn commit_transaction(
     let uri_str = "transactions/commit".to_string();
     let method = reqwest::Method::POST;
 
-    fetch_empty(
+    fetch::fetch_empty(
         configuration,
         method,
         prefix,
@@ -518,7 +391,7 @@ pub async fn create_namespace(
     let uri_str = "namespaces".to_string();
     let method = reqwest::Method::POST;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -552,7 +425,7 @@ pub async fn create_table(
     );
     let method = reqwest::Method::POST;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -577,7 +450,7 @@ pub async fn create_view<T: Materialization + serde::Serialize>(
     );
     let method = reqwest::Method::POST;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -601,7 +474,7 @@ pub async fn drop_namespace(
 
     let method = reqwest::Method::DELETE;
 
-    fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
+    fetch::fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
 }
 
 /// Remove a table from the catalog
@@ -624,7 +497,7 @@ pub async fn drop_table(
     );
     let method = reqwest::Method::DELETE;
 
-    fetch_empty(
+    fetch::fetch_empty(
         configuration,
         method,
         prefix,
@@ -650,7 +523,7 @@ pub async fn drop_view(
     );
     let method = reqwest::Method::DELETE;
 
-    fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
+    fetch::fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
 }
 
 /// List all namespaces at a certain level, optionally starting from a given parent namespace. If table accounting.tax.paid.info exists, using 'SELECT NAMESPACE IN accounting' would translate into `GET /namespaces?parent=accounting` and must return a namespace, [\"accounting\", \"tax\"] only. Using 'SELECT NAMESPACE IN accounting.tax' would translate into `GET /namespaces?parent=accounting%1Ftax` and must return a namespace, [\"accounting\", \"tax\", \"paid\"]. If `parent` is not provided, all top-level namespaces should be listed.
@@ -676,7 +549,7 @@ pub async fn list_namespaces(
 
     let method = reqwest::Method::GET;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -710,7 +583,7 @@ pub async fn list_tables(
     );
     let method = reqwest::Method::GET;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -744,7 +617,7 @@ pub async fn list_views(
     );
     let method = reqwest::Method::GET;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -768,7 +641,7 @@ pub async fn load_namespace_metadata(
     );
     let method = reqwest::Method::GET;
 
-    fetch(configuration, method, prefix, &uri_str, &(), None, None).await
+    fetch::fetch(configuration, method, prefix, &uri_str, &(), None, None).await
 }
 
 /// Load a table from the catalog.  The response contains both configuration and table metadata. The configuration, if non-empty is used as additional configuration for the table that overrides catalog configuration. For example, this configuration may change the FileIO implementation to be used for the table.  The response also contains the table's full metadata, matching the table metadata JSON file.  The catalog configuration may contain credentials that should be used for subsequent requests for the table. The configuration key \"token\" is used to pass an access token to be used as a bearer token for table requests. Otherwise, a token may be passed using a RFC 8693 token type as a configuration key. For example, \"urn:ietf:params:oauth:token-type:jwt=<JWT-token>\".
@@ -799,7 +672,7 @@ pub async fn load_table(
     );
     let method = reqwest::Method::GET;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -825,7 +698,7 @@ pub async fn load_view(
     );
     let method = reqwest::Method::GET;
 
-    fetch(configuration, method, prefix, &uri_str, &(), None, None).await
+    fetch::fetch(configuration, method, prefix, &uri_str, &(), None, None).await
 }
 
 /// Check if a namespace exists. The response does not contain a body.
@@ -841,7 +714,7 @@ pub async fn namespace_exists(
 
     let method = reqwest::Method::HEAD;
 
-    fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
+    fetch::fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
 }
 
 /// Register a table using given metadata file location.
@@ -858,7 +731,7 @@ pub async fn register_table(
 
     let method = reqwest::Method::POST;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -879,7 +752,7 @@ pub async fn rename_table(
     let uri_str = "tables/rename".to_string();
     let method = reqwest::Method::POST;
 
-    fetch_empty(
+    fetch::fetch_empty(
         configuration,
         method,
         prefix,
@@ -900,7 +773,7 @@ pub async fn rename_view(
     let uri_str = "views/rename".to_string();
     let method = reqwest::Method::POST;
 
-    fetch_empty(
+    fetch::fetch_empty(
         configuration,
         method,
         prefix,
@@ -927,7 +800,7 @@ pub async fn replace_view<T: Materialization + serde::Serialize>(
     );
     let method = reqwest::Method::POST;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -953,7 +826,7 @@ pub async fn report_metrics(
     );
     let method = reqwest::Method::POST;
 
-    fetch_empty(
+    fetch::fetch_empty(
         configuration,
         method,
         prefix,
@@ -980,7 +853,7 @@ pub async fn table_exists(
 
     let method = reqwest::Method::HEAD;
 
-    fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
+    fetch::fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
 }
 
 /// Set and/or remove properties on a namespace. The request body specifies a list of properties to remove and a map of key value pairs to update. Properties that are not in the request are not modified or removed by this call. Server implementations are not required to support namespace properties.
@@ -996,7 +869,7 @@ pub async fn update_properties(
     );
     let method = reqwest::Method::POST;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -1023,7 +896,7 @@ pub async fn update_table(
     );
     let method = reqwest::Method::POST;
 
-    fetch(
+    fetch::fetch(
         configuration,
         method,
         prefix,
@@ -1050,5 +923,5 @@ pub async fn view_exists(
 
     let method = reqwest::Method::HEAD;
 
-    fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
+    fetch::fetch_empty(configuration, method, prefix, &uri_str, &(), None, None).await
 }
