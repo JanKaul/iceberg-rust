@@ -514,6 +514,45 @@ impl CatalogList for RestCatalogList {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct RestNoPrefixCatalogList {
+    name: String,
+    configuration: Configuration,
+    object_store_builder: ObjectStoreBuilder,
+}
+
+impl RestNoPrefixCatalogList {
+    pub fn new(
+        name: &str,
+        configuration: Configuration,
+        object_store_builder: ObjectStoreBuilder,
+    ) -> Self {
+        Self {
+            name: name.to_owned(),
+            configuration,
+            object_store_builder,
+        }
+    }
+}
+
+#[async_trait]
+impl CatalogList for RestNoPrefixCatalogList {
+    fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
+        if self.name == name {
+            Some(Arc::new(RestCatalog::new(
+                None,
+                self.configuration.clone(),
+                self.object_store_builder.clone(),
+            )))
+        } else {
+            None
+        }
+    }
+    async fn list_catalogs(&self) -> Vec<String> {
+        vec![self.name.clone()]
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use datafusion::{
