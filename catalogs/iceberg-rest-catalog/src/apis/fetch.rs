@@ -28,11 +28,12 @@ where
     };
     let client = &configuration.client;
 
-    let mut req_builder = client.request(method.clone(), &(uri_base + uri_str));
+    let uri = uri_base + uri_str;
+    let mut req_builder = client.request(method.clone(), &uri);
 
     if let Some(ref aws_v4_key) = configuration.aws_v4_key {
         let new_headers = match aws_v4_key.sign(
-            &uri_str,
+            &uri,
             method.as_str(),
             &serde_json::to_string(&request).expect("param should serialize to string"),
         ) {
@@ -104,11 +105,12 @@ where
     };
     let client = &configuration.client;
 
-    let mut req_builder = client.request(method.clone(), &(uri_base + uri_str));
+    let uri = uri_base + uri_str;
+    let mut req_builder = client.request(method.clone(), &uri);
 
     if let Some(ref aws_v4_key) = configuration.aws_v4_key {
         let new_headers = match aws_v4_key.sign(
-            &uri_str,
+            &uri,
             method.as_str(),
             &serde_json::to_string(&request).expect("param should serialize to string"),
         ) {
