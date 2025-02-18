@@ -24,9 +24,9 @@ pub struct CreateViewRequest<T: Materialization> {
     #[serde(rename = "location", skip_serializing_if = "Option::is_none")]
     pub location: Option<String>,
     #[serde(rename = "schema")]
-    pub schema: Box<Schema>,
+    pub schema: Schema,
     #[serde(rename = "view-version")]
-    pub view_version: Box<Version<T>>,
+    pub view_version: Version<T>,
     #[serde(rename = "properties")]
     pub properties: HashMap<String, String>,
 }
@@ -41,8 +41,8 @@ impl<T: Materialization> CreateViewRequest<T> {
         CreateViewRequest {
             name,
             location: None,
-            schema: Box::new(schema),
-            view_version: Box::new(view_version),
+            schema,
+            view_version,
             properties,
         }
     }

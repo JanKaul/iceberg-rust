@@ -9,42 +9,43 @@
  */
 
 use crate::models;
+use serde::{Deserialize, Serialize};
 
 /// TokenType : Token type identifier, from RFC 8693 Section 3  See https://datatracker.ietf.org/doc/html/rfc8693#section-3
 /// Token type identifier, from RFC 8693 Section 3  See https://datatracker.ietf.org/doc/html/rfc8693#section-3
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum TokenType {
     #[serde(rename = "urn:ietf:params:oauth:token-type:access_token")]
-    AccessToken,
+    UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken,
     #[serde(rename = "urn:ietf:params:oauth:token-type:refresh_token")]
-    RefreshToken,
+    UrnColonIetfColonParamsColonOauthColonTokenTypeColonRefreshToken,
     #[serde(rename = "urn:ietf:params:oauth:token-type:id_token")]
-    IdToken,
+    UrnColonIetfColonParamsColonOauthColonTokenTypeColonIdToken,
     #[serde(rename = "urn:ietf:params:oauth:token-type:saml1")]
-    Saml1,
+    UrnColonIetfColonParamsColonOauthColonTokenTypeColonSaml1,
     #[serde(rename = "urn:ietf:params:oauth:token-type:saml2")]
-    Saml2,
+    UrnColonIetfColonParamsColonOauthColonTokenTypeColonSaml2,
     #[serde(rename = "urn:ietf:params:oauth:token-type:jwt")]
-    Jwt,
+    UrnColonIetfColonParamsColonOauthColonTokenTypeColonJwt,
 
 }
 
-impl ToString for TokenType {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for TokenType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::AccessToken => String::from("urn:ietf:params:oauth:token-type:access_token"),
-            Self::RefreshToken => String::from("urn:ietf:params:oauth:token-type:refresh_token"),
-            Self::IdToken => String::from("urn:ietf:params:oauth:token-type:id_token"),
-            Self::Saml1 => String::from("urn:ietf:params:oauth:token-type:saml1"),
-            Self::Saml2 => String::from("urn:ietf:params:oauth:token-type:saml2"),
-            Self::Jwt => String::from("urn:ietf:params:oauth:token-type:jwt"),
+            Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken => write!(f, "urn:ietf:params:oauth:token-type:access_token"),
+            Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonRefreshToken => write!(f, "urn:ietf:params:oauth:token-type:refresh_token"),
+            Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonIdToken => write!(f, "urn:ietf:params:oauth:token-type:id_token"),
+            Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonSaml1 => write!(f, "urn:ietf:params:oauth:token-type:saml1"),
+            Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonSaml2 => write!(f, "urn:ietf:params:oauth:token-type:saml2"),
+            Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonJwt => write!(f, "urn:ietf:params:oauth:token-type:jwt"),
         }
     }
 }
 
 impl Default for TokenType {
     fn default() -> TokenType {
-        Self::AccessToken
+        Self::UrnColonIetfColonParamsColonOauthColonTokenTypeColonAccessToken
     }
 }
 

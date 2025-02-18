@@ -15,16 +15,16 @@ use crate::models;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RenameTableRequest {
     #[serde(rename = "source")]
-    pub source: Box<Identifier>,
+    pub source: Identifier,
     #[serde(rename = "destination")]
-    pub destination: Box<Identifier>,
+    pub destination: Identifier,
 }
 
 impl RenameTableRequest {
     pub fn new(source: Identifier, destination: Identifier) -> RenameTableRequest {
         RenameTableRequest {
-            source: Box::new(source),
-            destination: Box::new(destination),
+            source,
+            destination,
         }
     }
 }

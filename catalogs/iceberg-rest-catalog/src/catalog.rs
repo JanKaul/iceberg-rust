@@ -262,7 +262,7 @@ impl Catalog for RestCatalog {
             identifier.name(),
         )
         .await
-        .map(|x| *x.metadata);
+        .map(|x| x.metadata);
         match tabular_metadata {
             Ok(TabularMetadata::View(view)) => Ok(Tabular::View(
                 View::new(identifier.clone(), self.clone(), view).await?,
@@ -285,7 +285,7 @@ impl Catalog for RestCatalog {
                     .map_err(|_| Error::CatalogNotFound)?;
 
                     Ok(Tabular::Table(
-                        Table::new(identifier.clone(), self.clone(), *table_metadata).await?,
+                        Table::new(identifier.clone(), self.clone(), table_metadata).await?,
                     ))
                 } else {
                     Err(Into::<Error>::into(apis::Error::ResponseError(content)))
@@ -312,7 +312,7 @@ impl Catalog for RestCatalog {
         .map_err(Into::<Error>::into)
         .and_then(|response| {
             let clone = self.clone();
-            async move { Table::new(identifier.clone(), clone, *response.metadata).await }
+            async move { Table::new(identifier.clone(), clone, response.metadata).await }
         })
         .await
     }
@@ -333,7 +333,7 @@ impl Catalog for RestCatalog {
         .and_then(|response| {
             let clone = self.clone();
             let identifier = identifier.clone();
-            async move { Table::new(identifier, clone, *response.metadata).await }
+            async move { Table::new(identifier, clone, response.metadata).await }
         })
         .await
     }
@@ -352,7 +352,7 @@ impl Catalog for RestCatalog {
         .and_then(|response| {
             let clone = self.clone();
             async move {
-                if let TabularMetadata::View(metadata) = *response.metadata {
+                if let TabularMetadata::View(metadata) = response.metadata {
                     View::new(identifier.clone(), clone, metadata).await
                 } else {
                     Err(Error::InvalidFormat(
@@ -377,7 +377,7 @@ impl Catalog for RestCatalog {
             let clone = self.clone();
             let identifier = identifier.clone();
             async move {
-                if let TabularMetadata::View(metadata) = *response.metadata {
+                if let TabularMetadata::View(metadata) = response.metadata {
                     View::new(identifier.clone(), clone, metadata).await
                 } else {
                     Err(Error::InvalidFormat(
@@ -414,7 +414,7 @@ impl Catalog for RestCatalog {
         .and_then(|response| {
             let clone = self.clone();
             async move {
-                if let TabularMetadata::MaterializedView(metadata) = *response.metadata {
+                if let TabularMetadata::MaterializedView(metadata) = response.metadata {
                     MaterializedView::new(identifier.clone(), clone, metadata).await
                 } else {
                     Err(Error::InvalidFormat(
@@ -443,7 +443,7 @@ impl Catalog for RestCatalog {
             let clone = self.clone();
             let identifier = identifier.clone();
             async move {
-                if let TabularMetadata::MaterializedView(metadata) = *response.metadata {
+                if let TabularMetadata::MaterializedView(metadata) = response.metadata {
                     MaterializedView::new(identifier.clone(), clone, metadata).await
                 } else {
                     Err(Error::InvalidFormat(
@@ -475,7 +475,7 @@ impl Catalog for RestCatalog {
         .map_err(Into::<Error>::into)
         .and_then(|response| {
             let clone = self.clone();
-            async move { Table::new(identifier.clone(), clone, *response.metadata).await }
+            async move { Table::new(identifier.clone(), clone, response.metadata).await }
         })
         .await
     }
@@ -556,6 +556,7 @@ pub mod tests {
             oauth_access_token: None,
             bearer_access_token: None,
             api_key: None,
+            aws_v4_key: None,
         }
     }
     #[tokio::test]

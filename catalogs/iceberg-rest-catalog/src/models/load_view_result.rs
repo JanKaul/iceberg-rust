@@ -21,7 +21,7 @@ pub struct LoadViewResult {
     #[serde(rename = "metadata-location")]
     pub metadata_location: String,
     #[serde(rename = "metadata")]
-    pub metadata: Box<TabularMetadata>,
+    pub metadata: TabularMetadata,
     #[serde(rename = "config", skip_serializing_if = "Option::is_none")]
     pub config: Option<std::collections::HashMap<String, String>>,
 }
@@ -31,7 +31,7 @@ impl LoadViewResult {
     pub fn new(metadata_location: String, metadata: TabularMetadata) -> LoadViewResult {
         LoadViewResult {
             metadata_location,
-            metadata: Box::new(metadata),
+            metadata,
             config: None,
         }
     }

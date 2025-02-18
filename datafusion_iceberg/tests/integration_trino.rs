@@ -35,6 +35,7 @@ fn configuration(host: &str, port: u16) -> Configuration {
         oauth_access_token: None,
         bearer_access_token: None,
         api_key: None,
+        aws_v4_key: None,
     }
 }
 

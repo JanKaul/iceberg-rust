@@ -9,7 +9,9 @@
  */
 
 use crate::models;
+use serde::{Deserialize, Serialize};
 
+/// OAuthError : The `oauth/tokens` endpoint and related schemas are **DEPRECATED for REMOVAL** from this spec, see description of the endpoint.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OAuthError {
     #[serde(rename = "error")]
@@ -21,6 +23,7 @@ pub struct OAuthError {
 }
 
 impl OAuthError {
+    /// The `oauth/tokens` endpoint and related schemas are **DEPRECATED for REMOVAL** from this spec, see description of the endpoint.
     pub fn new(error: Error) -> OAuthError {
         OAuthError {
             error,

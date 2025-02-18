@@ -11,18 +11,16 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
-/// IcebergErrorResponse : JSON wrapper for all error responses (non-2xx)
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IcebergErrorResponse {
-    #[serde(rename = "error")]
-    pub error: models::ErrorModel,
+pub struct LoadCredentialsResponse {
+    #[serde(rename = "storage-credentials")]
+    pub storage_credentials: Vec<models::StorageCredential>,
 }
 
-impl IcebergErrorResponse {
-    /// JSON wrapper for all error responses (non-2xx)
-    pub fn new(error: models::ErrorModel) -> IcebergErrorResponse {
-        IcebergErrorResponse {
-            error,
+impl LoadCredentialsResponse {
+    pub fn new(storage_credentials: Vec<models::StorageCredential>) -> LoadCredentialsResponse {
+        LoadCredentialsResponse {
+            storage_credentials,
         }
     }
 }
