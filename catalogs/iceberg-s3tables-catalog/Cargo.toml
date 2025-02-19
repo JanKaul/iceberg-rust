@@ -24,6 +24,6 @@ uuid = { version = "1.13.2", features = ["v4"] }
 [dev-dependencies]
 datafusion.workspace = true
 datafusion_iceberg = { path = "../../datafusion_iceberg", version = "0.6.1" }
-testcontainers = "0.20.1"
-testcontainers-modules = { version = "0.8.0", features = ["localstack"] }
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["localstack"] }
 tokio = "1"

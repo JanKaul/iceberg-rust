@@ -27,10 +27,11 @@ datafusion-expr = "45"
 datafusion-functions = { version = "45", features = ["crypto_expressions"] }
 datafusion-functions-aggregate = "45"
 datafusion-sql = "45"
-derive-getters = "0.3.0"
+derive-getters = "0.5.0"
 derive_builder = "0.20"
 futures = "0.3.31"
-itertools = "0.10.5"
+getrandom = { version = "0.3.1", features = ["std"] }
+itertools = "0.14.0"
 object_store = { version = "0.11.2", features = ["aws", "gcp"] }
 once_map = "0.4"
 parquet = { version = "54", features = ["async", "object_store"] }
@@ -38,7 +39,7 @@ pin-project-lite = "0.2"
 serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"
-sqlparser = { version = "0.51.0", features = ["visitor"] }
+sqlparser = { version = "0.54.0", features = ["visitor"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-futures = "0.2"

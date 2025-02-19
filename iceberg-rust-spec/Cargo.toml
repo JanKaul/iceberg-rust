@@ -14,10 +14,10 @@ arrow-schema = { workspace = true }
 chrono = { workspace = true }
 derive-getters = { workspace = true }
 derive_builder = { workspace = true }
-getrandom = "0.2.15"
+getrandom = { workspace = true }
 itertools = { workspace = true }
 murmur3 = "0.5.2"
-ordered-float = { version = "4.6.0", features = ["serde"] }
+ordered-float = { version = "5.0.0", features = ["serde"] }
 rust_decimal = "1.36.0"
 serde = { workspace = true }
 serde_bytes = "0.11.15"

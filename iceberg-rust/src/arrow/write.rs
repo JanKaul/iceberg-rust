@@ -464,7 +464,7 @@ async fn create_arrow_writer(
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<(String, AsyncArrowWriter<BufWriter>), ArrowError> {
     let mut rand = [0u8; 6];
-    getrandom::getrandom(&mut rand)
+    getrandom::fill(&mut rand)
         .map_err(|err| ArrowError::ExternalError(Box::new(err)))
         .unwrap();
 

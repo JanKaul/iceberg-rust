@@ -17,7 +17,7 @@ bytes = { workspace = true }
 derive-getters = { workspace = true }
 derive_builder = { workspace = true }
 futures = { workspace = true }
-getrandom = "0.2.15"
+getrandom = { workspace = true }
 iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.6.1" }
 itertools = { workspace = true }
 object_store = { workspace = true }

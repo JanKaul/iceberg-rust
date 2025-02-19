@@ -12,7 +12,7 @@ repository = "https://github.com/JanKaul/iceberg-rust"
 [dependencies]
 async-trait = { workspace = true }
 chrono = { workspace = true }
-dashmap = "5.5.3"
+dashmap = "6.1.0"
 datafusion = { workspace = true }
 datafusion-expr = { workspace = true }
 futures = { workspace = true }
@@ -33,7 +33,7 @@ iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
 reqwest = "0.12"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 tempfile = "3.17.1"
-testcontainers = "0.20.1"
-testcontainers-modules = { version = "0.8.0", features = ["localstack", "postgres"] }
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["localstack", "postgres"] }
 tokio = "1"
 tokio-stream = { version = "0.1.17", features = ["io-util"] }
