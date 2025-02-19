@@ -8,10 +8,10 @@ edition = "2021"
 
 [dependencies]
 async-trait.workspace = true
-aws-sigv4 = "0.3.0"
+aws-sigv4 = "0.3.1"
 derive_builder = { workspace = true }
 futures.workspace = true
-http = "0.2.5"
+http = "0.2.12"
 iceberg-rust = { path = "../../iceberg-rust", version = "0.6.1" }
 object_store.workspace = true
 secrecy = "0.8.0"

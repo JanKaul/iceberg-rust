@@ -14,16 +14,16 @@ arrow-schema = { workspace = true }
 chrono = { workspace = true }
 derive-getters = { workspace = true }
 derive_builder = { workspace = true }
-getrandom = "0.2.8"
+getrandom = "0.2.15"
 itertools = { workspace = true }
 murmur3 = "0.5.2"
-ordered-float = { version = "4.1.0", features = ["serde"] }
-rust_decimal = "1.27.0"
+ordered-float = { version = "4.6.0", features = ["serde"] }
+rust_decimal = "1.36.0"
 serde = { workspace = true }
-serde_bytes = "0.11.8"
+serde_bytes = "0.11.15"
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
-serde_repr = "0.1.10"
+serde_repr = "0.1.19"
 thiserror = { workspace = true }
 url = { workspace = true }
-uuid = { version = "1.3.2", features = ["serde", "v4", "v1"] }
+uuid = { version = "1.13.2", features = ["serde", "v4", "v1"] }

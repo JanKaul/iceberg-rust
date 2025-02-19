@@ -29,7 +29,7 @@ datafusion-functions-aggregate = "45"
 datafusion-sql = "45"
 derive-getters = "0.3.0"
 derive_builder = "0.20"
-futures = "0.3.30"
+futures = "0.3.31"
 itertools = "0.10.5"
 object_store = { version = "0.11.2", features = ["aws", "gcp"] }
 once_map = "0.4"
@@ -42,5 +42,5 @@ sqlparser = { version = "0.51.0", features = ["visitor"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-futures = "0.2"
-url = "^2.2"
-uuid = { version = "1.3.2", features = ["serde", "v4"] }
+url = "^2.5"
+uuid = { version = "1.13.2", features = ["serde", "v4"] }

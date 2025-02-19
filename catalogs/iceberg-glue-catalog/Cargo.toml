@@ -11,19 +11,19 @@ repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
 async-trait.workspace = true
-aws-config = "1.5.9"
-aws-sdk-glue = "1.68.0"
+aws-config = "1.5.16"
+aws-sdk-glue = "1.82.0"
 futures.workspace = true
 iceberg-rust = { path = "../../iceberg-rust", version = "0.6.1" }
 object_store.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 url.workspace = true
-uuid = { version = "1.7.0", features = ["v4"] }
+uuid = { version = "1.13.2", features = ["v4"] }
 
 [dev-dependencies]
 datafusion.workspace = true
 datafusion_iceberg = { path = "../../datafusion_iceberg", version = "0.6.1" }
-testcontainers = "0.20.0"
+testcontainers = "0.20.1"
 testcontainers-modules = { version = "0.8.0", features = ["localstack"] }
 tokio = "1"
