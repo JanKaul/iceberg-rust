@@ -1,6 +1,6 @@
 [package]
 name = "datafusion_iceberg"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 
 description = "Datafusion integration for Iceberg table format"
@@ -10,30 +10,30 @@ license = "Apache-2.0"
 repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
-futures = { workspace = true }
-url = { workspace = true }
-serde_json = { workspace = true }
 async-trait = { workspace = true }
+chrono = { workspace = true }
+dashmap = "6.1.0"
 datafusion = { workspace = true }
 datafusion-expr = { workspace = true }
-chrono = { workspace = true }
-object_store = { workspace = true }
-iceberg-rust = { path = "../iceberg-rust", version = "0.6.1" }
+futures = { workspace = true }
+iceberg-rust = { path = "../iceberg-rust", version = "0.7.0" }
 itertools = { workspace = true }
-dashmap = "5.4.0"
-uuid = { workspace = true }
-thiserror = { workspace = true }
-tokio = { version = "1.0", features = ["rt-multi-thread"] }
-regex = "1.11.0"
+object_store = { workspace = true }
 pin-project-lite = "0.2.16"
+regex = "1.11.1"
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1.43", features = ["rt-multi-thread"] }
+url = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
-tokio = "1"
-iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
-testcontainers-modules = { version = "0.8.0", features = ["localstack", "postgres"] }
-testcontainers = "0.20.0"
-tokio-stream = { version = "0.1.15", features = ["io-util"] }
-tempfile = "3.10.1"
+iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
 reqwest = "0.12"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
+tempfile = "3.17.1"
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["localstack", "postgres"] }
+tokio = "1"
+tokio-stream = { version = "0.1.17", features = ["io-util"] }

@@ -65,7 +65,7 @@ pub struct Snapshot {
 /// This ensures unique snapshot IDs across the table's history.
 pub fn generate_snapshot_id() -> i64 {
     let mut bytes: [u8; 8] = [0u8; 8];
-    getrandom::getrandom(&mut bytes).unwrap();
+    getrandom::fill(&mut bytes).unwrap();
     i64::from_le_bytes(bytes).abs()
 }
 

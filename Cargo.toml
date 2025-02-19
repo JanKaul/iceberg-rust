@@ -1,46 +1,47 @@
 [workspace]
 members = [
-  "iceberg-rust-spec",
-  "iceberg-rust",
-  "datafusion_iceberg",
-  "datafusion-iceberg-sql",
-  "catalogs/iceberg-sql-catalog",
-  "catalogs/iceberg-rest-catalog",
-  "catalogs/iceberg-file-catalog",
-  "catalogs/iceberg-glue-catalog",
-  "catalogs/iceberg-s3tables-catalog",
+    "catalogs/iceberg-file-catalog",
+    "catalogs/iceberg-glue-catalog",
+    "catalogs/iceberg-rest-catalog",
+    "catalogs/iceberg-s3tables-catalog",
+    "catalogs/iceberg-sql-catalog",
+    "datafusion-iceberg-sql",
+    "datafusion_iceberg",
+    "iceberg-rust",
+    "iceberg-rust-spec"
 ]
 
 resolver = "2"
 
 [workspace.dependencies]
 apache-avro = "0.17.0"
+arrow = "54"
+arrow-schema = "54"
+async-trait = "0.1"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
+datafusion = "45"
+datafusion-common = "45"
+datafusion-execution = "45"
+datafusion-expr = "45"
+datafusion-functions = { version = "45", features = ["crypto_expressions"] }
+datafusion-functions-aggregate = "45"
+datafusion-sql = "45"
+derive-getters = "0.5.0"
+derive_builder = "0.20"
+futures = "0.3.31"
+getrandom = { version = "0.3.1", features = ["std"] }
+itertools = "0.14.0"
 object_store = { version = "0.11.2", features = ["aws", "gcp"] }
+once_map = "0.4"
+parquet = { version = "54", features = ["async", "object_store"] }
+pin-project-lite = "0.2"
 serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"
-futures = "0.3.30"
-async-trait = "0.1"
-chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
-arrow = "54"
-arrow-schema = "54"
-datafusion = "45"
-datafusion-sql = "45"
-datafusion-expr = "45"
-datafusion-common = "45"
-datafusion-execution = "45"
-datafusion-functions = { version = "45", features = ["crypto_expressions"] }
-datafusion-functions-aggregate = "45"
-parquet = { version = "54", features = ["async", "object_store"] }
-sqlparser = { version = "0.51.0", features = ["visitor"] }
+sqlparser = { version = "0.54.0", features = ["visitor"] }
 thiserror = "2"
-url = "^2.2"
-uuid = { version = "1.3.2", features = ["serde", "v4"] }
-itertools = "0.10.5"
-derive-getters = "0.3.0"
 tracing = "0.1"
 tracing-futures = "0.2"
-once_map = "0.4"
-pin-project-lite = "0.2"
-bytes = "1"
-derive_builder = "0.20"
+url = "^2.5"
+uuid = { version = "1.13.2", features = ["serde", "v4"] }
