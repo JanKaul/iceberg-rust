@@ -1,14 +1,14 @@
 [workspace]
 members = [
-  "iceberg-rust-spec",
-  "iceberg-rust",
-  "datafusion_iceberg",
-  "datafusion-iceberg-sql",
-  "catalogs/iceberg-sql-catalog",
-  "catalogs/iceberg-rest-catalog",
-  "catalogs/iceberg-file-catalog",
-  "catalogs/iceberg-glue-catalog",
-  "catalogs/iceberg-s3tables-catalog",
+    "catalogs/iceberg-file-catalog",
+    "catalogs/iceberg-glue-catalog",
+    "catalogs/iceberg-rest-catalog",
+    "catalogs/iceberg-s3tables-catalog",
+    "catalogs/iceberg-sql-catalog",
+    "datafusion-iceberg-sql",
+    "datafusion_iceberg",
+    "iceberg-rust",
+    "iceberg-rust-spec"
 ]
 
 resolver = "2"

@@ -7,34 +7,34 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
-serde.workspace = true
-serde_derive.workspace = true
-serde_with = { version = "^3", default-features = false, features = ["base64", "std", "macros"] }
-serde_json.workspace = true
-url.workspace = true
-uuid.workspace = true
+async-trait.workspace = true
+aws-sigv4 = "0.3.0"
+derive_builder = { workspace = true }
+futures.workspace = true
+http = "0.2.5"
 iceberg-rust = { path = "../../iceberg-rust", version = "0.6.1" }
 object_store.workspace = true
-async-trait.workspace = true
-futures.workspace = true
+secrecy = "0.8.0"
+serde.workspace = true
+serde_derive.workspace = true
+serde_json.workspace = true
+serde_repr = "^0.1"
+serde_with = { version = "^3", default-features = false, features = ["base64", "std", "macros"] }
 tracing.workspace = true
 tracing-futures.workspace = true
-derive_builder = { workspace = true }
-serde_repr = "^0.1"
-aws-sigv4 = "0.3.0"
-http = "0.2.5"
-secrecy = "0.8.0"
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+datafusion.workspace = true
+datafusion_iceberg = { path = "../../datafusion_iceberg", version = "0.6.1" }
+testcontainers = "0.20"
+testcontainers-modules = { version = "0.8.0", features = ["localstack"] }
+tokio = "1"
+tracing-subscriber = "0.3"
 
 [dependencies.reqwest]
 version = "^0.12"
 default-features = false
 features = ["json", "multipart", "rustls-tls-manual-roots"]
-
-[dev-dependencies]
-tokio = "1"
-testcontainers = "0.20"
-testcontainers-modules = { version = "0.8.0", features = ["localstack"] }
-tracing-subscriber = "0.3"
-datafusion_iceberg = { path = "../../datafusion_iceberg" , version = "0.6.1" }
-datafusion.workspace = true
 

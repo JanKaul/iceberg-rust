@@ -13,27 +13,27 @@ repository = "https://github.com/JanKaul/iceberg-rust"
 apache-avro = { workspace = true }
 arrow = { workspace = true }
 async-trait = { workspace = true }
+bytes = { workspace = true }
+derive-getters = { workspace = true }
+derive_builder = { workspace = true }
 futures = { workspace = true }
 getrandom = "0.2.8"
+iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.6.1" }
 itertools = { workspace = true }
 object_store = { workspace = true }
+once_map = { workspace = true }
 parquet = { workspace = true }
+pin-project-lite = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
+smallvec = { version = "1.13.2", features = ["const_generics"] }
+sqlparser = { workspace = true }
+thiserror = { workspace = true }
+thrift = { version = "0.17.0", default-features = false }
+tokio = { version = "1.0", features = ["sync"] }
 url = { workspace = true }
 uuid = { workspace = true }
-tokio = { version = "1.0", features = ["sync"] }
-derive_builder = { workspace = true }
-sqlparser = { workspace = true }
-thrift = { version = "0.17.0", default-features = false }
-thiserror = { workspace = true }
-derive-getters = { workspace = true }
-iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.6.1" }
-smallvec = { version = "1.13.2", features = ["const_generics"] }
-once_map = { workspace = true }
-pin-project-lite = { workspace = true }
-bytes = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }
