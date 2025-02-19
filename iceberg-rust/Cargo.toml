@@ -1,6 +1,6 @@
 [package]
 name = "iceberg-rust"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 
 description = "Unofficial rust implementation of the Iceberg table format"
@@ -18,7 +18,7 @@ derive-getters = { workspace = true }
 derive_builder = { workspace = true }
 futures = { workspace = true }
 getrandom = { workspace = true }
-iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.6.1" }
+iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.7.0" }
 itertools = { workspace = true }
 object_store = { workspace = true }
 once_map = { workspace = true }
