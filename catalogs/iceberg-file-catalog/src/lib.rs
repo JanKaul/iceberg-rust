@@ -129,9 +129,7 @@ impl Catalog for FileCatalog {
             .common_prefixes
             .into_iter()
             .map(|x| self.namespace(x.as_ref()))
-            .collect::<Result<_, IcebergError>>()
-            .map_err(IcebergError::from)
-    }
+            .collect::<Result<_, IcebergError>>()}
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, IcebergError> {
         self.metadata_location(identifier)
             .await
@@ -636,9 +634,7 @@ impl CatalogList for FileCatalogList {
             .common_prefixes
             .into_iter()
             .map(|x| self.parse_catalog(x.as_ref()))
-            .collect::<Result<_, IcebergError>>()
-            .map_err(IcebergError::from)
-            .unwrap()
+            .collect::<Result<_, IcebergError>>().unwrap()
     }
 }
 
