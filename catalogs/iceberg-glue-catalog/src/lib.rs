@@ -969,7 +969,7 @@ pub mod tests {
         let moto_host = moto.get_host().await.unwrap();
         let moto_port = moto.get_host_port_ipv4(5000).await.unwrap();
 
-        let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
+        let config = aws_config::defaults(BehaviorVersion::v2025_01_17())
             .endpoint_url(
                 "http://".to_owned() + &moto_host.to_string() + ":" + &moto_port.to_string(),
             )
