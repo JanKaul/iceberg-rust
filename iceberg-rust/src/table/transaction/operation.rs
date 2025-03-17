@@ -280,7 +280,6 @@ impl Operation {
                     {
                         let manifest_bytes = manifest_bytes.await??;
                         let manifest_reader = ManifestReader::new(&*manifest_bytes)?
-                            .map(|x| x.map_err(Error::from))
                             .map(|entry| {
                                 let mut entry = entry?;
                                 *entry.status_mut() = Status::Existing;

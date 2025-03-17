@@ -22,7 +22,7 @@ impl DataFusionTable {
             Tabular::Table(table) => table_statistics(table, &self.snapshot_range).await,
             Tabular::View(_) => Err(Error::NotSupported("Statistics for views".to_string())),
             Tabular::MaterializedView(mv) => {
-                let table = mv.storage_table().await.map_err(Error::from)?;
+                let table = mv.storage_table().await?;
                 table_statistics(&table, &self.snapshot_range).await
             }
         }
