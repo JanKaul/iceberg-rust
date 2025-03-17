@@ -359,9 +359,7 @@ async fn table_scan(
 
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
-            .await
-            .map_err(Into::<Error>::into)
-            .map_err(DataFusionIcebergError::from)?;
+            .await.map_err(DataFusionIcebergError::from)?;
 
         // If there is a filter expression on the partition column, the manifest files to read are pruned.
         let data_files: Vec<ManifestEntry> = if let Some(predicate) = partition_predicates {

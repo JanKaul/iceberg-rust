@@ -114,5 +114,4 @@ pub(crate) async fn read_snapshot<'metadata>(
             .await?
             .into(),
     );
-    ManifestListReader::new(bytes, table_metadata).map_err(Into::into)
-}
+    ManifestListReader::new(bytes, table_metadata)}

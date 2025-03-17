@@ -121,6 +121,12 @@ impl From<Value> for ByteBuf {
             Value::UUID(val) => ByteBuf::from(val.as_u128().to_be_bytes()),
             Value::Fixed(_, val) => ByteBuf::from(val),
             Value::Binary(val) => ByteBuf::from(val),
+            Value::Decimal(val) => {
+                // rust_decimal mantissa is 96 bits
+                // so we can remove the first 32 bits of the i128 representation
+                let bytes = val.mantissa().to_be_bytes()[4..].to_vec();
+                ByteBuf::from(bytes)
+            }
             _ => todo!(),
         }
     }
@@ -1350,11 +1356,20 @@ mod tests {
 
     #[test]
     fn avro_bytes_decimal() {
-        let bytes = vec![0u8, 160u8, 16u8, 94u8];
+        let value = Value::Decimal(Decimal::from_str_exact("104899.50").unwrap());
 
+        // Test serialization
+        let byte_buf: ByteBuf = value.clone().into();
+        let bytes: Vec<u8> = byte_buf.into_vec();
+        assert_eq!(
+            bytes,
+            vec![0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 160u8, 16u8, 94u8]
+        );
+
+        // Test deserialization
         check_avro_bytes_serde(
             bytes,
-            Value::Decimal(Decimal::from_str_exact("104899.50").unwrap()),
+            value,
             &Type::Primitive(PrimitiveType::Decimal {
                 precision: 15,
                 scale: 2,
