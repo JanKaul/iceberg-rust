@@ -278,7 +278,6 @@ impl Catalog for RestCatalog {
                         &identifier.namespace().to_string(),
                         identifier.name(),
                         None,
-                        None,
                     )
                     .await
                     .map(|x| x.metadata)
@@ -596,6 +595,7 @@ pub mod tests {
             bearer_access_token: None,
             api_key: None,
             aws_v4_key: None,
+            x_iceberg_access_delegation: None,
         }
     }
     #[tokio::test]
