@@ -18,7 +18,8 @@ use datafusion::{
     error::DataFusionError,
     execution::context::{QueryPlanner, SessionState},
     logical_expr::{
-        CreateExternalTable, DdlStatement, Extension, LogicalPlan, UserDefinedLogicalNode,
+        CreateExternalTable, DdlStatement, Extension, InvariantLevel, LogicalPlan,
+        UserDefinedLogicalNode,
     },
     physical_plan::{empty::EmptyExec, ExecutionPlan},
     physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner},
@@ -441,6 +442,14 @@ impl UserDefinedLogicalNode for CreateIcebergTable {
         &self.0.schema
     }
 
+    fn check_invariants(
+        &self,
+        _check: InvariantLevel,
+        _plan: &LogicalPlan,
+    ) -> Result<(), DataFusionError> {
+        Ok(())
+    }
+
     fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
         vec![]
     }
@@ -501,6 +510,14 @@ impl UserDefinedLogicalNode for CreateIcebergView {
 
     fn schema(&self) -> &datafusion::common::DFSchemaRef {
         self.0.input.schema()
+    }
+
+    fn check_invariants(
+        &self,
+        _check: InvariantLevel,
+        _plan: &LogicalPlan,
+    ) -> Result<(), DataFusionError> {
+        Ok(())
     }
 
     fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
@@ -564,6 +581,14 @@ impl UserDefinedLogicalNode for CreateIcebergNamespace {
         &self.0.schema
     }
 
+    fn check_invariants(
+        &self,
+        _check: InvariantLevel,
+        _plan: &LogicalPlan,
+    ) -> Result<(), DataFusionError> {
+        Ok(())
+    }
+
     fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
         vec![]
     }
@@ -625,6 +650,14 @@ impl UserDefinedLogicalNode for DropIcebergTable {
         &self.0.schema
     }
 
+    fn check_invariants(
+        &self,
+        _check: InvariantLevel,
+        _plan: &LogicalPlan,
+    ) -> Result<(), DataFusionError> {
+        Ok(())
+    }
+
     fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
         vec![]
     }
@@ -684,6 +717,14 @@ impl UserDefinedLogicalNode for DropIcebergNamespace {
 
     fn schema(&self) -> &datafusion::common::DFSchemaRef {
         &self.0.schema
+    }
+
+    fn check_invariants(
+        &self,
+        _check: InvariantLevel,
+        _plan: &LogicalPlan,
+    ) -> Result<(), DataFusionError> {
+        Ok(())
     }
 
     fn expressions(&self) -> Vec<datafusion::prelude::Expr> {
