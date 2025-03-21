@@ -31,6 +31,8 @@ pub struct Configuration {
     pub api_key: Option<ApiKey>,
     #[builder(setter(into, strip_option), default)]
     pub aws_v4_key: Option<AWSv4Key>,
+    #[builder(setter(into, strip_option), default)]
+    pub x_iceberg_access_delegation: Option<String>,
 }
 
 pub type BasicAuth = (String, Option<String>);
@@ -107,6 +109,7 @@ impl Default for Configuration {
             bearer_access_token: None,
             api_key: None,
             aws_v4_key: None,
+            x_iceberg_access_delegation: None,
         }
     }
 }

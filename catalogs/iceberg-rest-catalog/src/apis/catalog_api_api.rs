@@ -782,11 +782,10 @@ pub async fn load_table(
     prefix: Option<&str>,
     namespace: &str,
     table: &str,
-    x_iceberg_access_delegation: Option<&str>,
     snapshots: Option<&str>,
 ) -> Result<models::LoadTableResult, Error<LoadTableError>> {
     let mut headers = HashMap::new();
-    if let Some(param_value) = x_iceberg_access_delegation {
+    if let Some(param_value) = &configuration.x_iceberg_access_delegation {
         headers.insert(
             "X-Iceberg-Access-Delegation".to_owned(),
             param_value.to_string(),
