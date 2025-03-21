@@ -414,7 +414,7 @@ async fn write_parquet_files(
 ///
 /// # Arguments
 /// * `partition_fields` - List of bound partition fields defining the partitioning
-/// * `partiton_values` - List of values for each partition field
+/// * `partition_values` - List of values for each partition field
 ///
 /// # Returns
 /// * `Result<String, ArrowError>` - The generated partition path string
@@ -426,11 +426,11 @@ async fn write_parquet_files(
 #[inline]
 fn generate_partition_path(
     partition_fields: &[BoundPartitionField<'_>],
-    partiton_values: &[Value],
+    partition_values: &[Value],
 ) -> Result<String, ArrowError> {
     partition_fields
         .iter()
-        .zip(partiton_values.iter())
+        .zip(partition_values.iter())
         .map(|(field, value)| {
             let name = field.name().to_owned();
             Ok(name + "=" + &value.to_string() + "/")
@@ -530,7 +530,7 @@ mod tests {
     };
 
     #[test]
-    fn test_generate_partiton_location_success() {
+    fn test_generate_partition_location_success() {
         let field = StructField {
             id: 0,
             name: "date".to_owned(),
@@ -540,9 +540,9 @@ mod tests {
         };
         let partfield = PartitionField::new(1, 1001, "month", Transform::Month);
         let partition_fields = vec![BoundPartitionField::new(&partfield, &field)];
-        let partiton_values = vec![Value::Int(10)];
+        let partition_values = vec![Value::Int(10)];
 
-        let result = super::generate_partition_path(&partition_fields, &partiton_values);
+        let result = super::generate_partition_path(&partition_fields, &partition_values);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "month=10/");
