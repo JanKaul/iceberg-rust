@@ -750,6 +750,21 @@ pub mod tests {
             .expect("Failed to list Tables");
         assert_eq!(tables[0].to_string(), "tpch.lineitem".to_owned());
 
+        assert_eq!(
+            iceberg_catalog
+                .tabular_exists(&Identifier::new(&["tpch".to_owned()], "lineitem"))
+                .await
+                .map_err(|s| s.to_string()),
+            Ok(true)
+        );
+        assert_eq!(
+            iceberg_catalog
+                .tabular_exists(&Identifier::new(&["tpch".to_owned()], "non_existing_table"))
+                .await
+                .map_err(|s| s.to_string()),
+            Ok(false)
+        );
+
         let sql = "insert into warehouse.tpch.lineitem select * from lineitem;";
 
         let plan = ctx.state().create_logical_plan(sql).await.unwrap();
