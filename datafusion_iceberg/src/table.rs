@@ -478,13 +478,15 @@ async fn table_scan(
             .collect()
     });
 
-    let file_source = if let Some(physical_predicate) = physical_predicate.clone() {
-        Arc::new(
-            ParquetSource::default().with_predicate(Arc::clone(&file_schema), physical_predicate),
-        )
-    } else {
-        Arc::new(ParquetSource::default())
-    };
+    let file_source = Arc::new(
+        if let Some(physical_predicate) = physical_predicate.clone() {
+            ParquetSource::default()
+                .with_predicate(Arc::clone(&file_schema), physical_predicate)
+                .with_pushdown_filters(true)
+        } else {
+            ParquetSource::default()
+        }
+    );
 
     // Create plan for every partition with delete files
     let mut plans = stream::iter(equality_delete_file_groups.into_iter())
@@ -572,15 +574,15 @@ async fn table_scan(
                                 last_updated_ms,
                             )?;
 
-                            let delete_file_source =
+                            let delete_file_source = Arc::new(
                                 if let Some(physical_predicate) = physical_predicate.clone() {
-                                    Arc::new(ParquetSource::default().with_predicate(
-                                        Arc::clone(&delete_file_schema),
-                                        physical_predicate,
-                                    ))
+                                    ParquetSource::default()
+                                        .with_predicate(Arc::clone(&delete_file_schema), physical_predicate)
+                                        .with_pushdown_filters(true)
                                 } else {
-                                    Arc::new(ParquetSource::default())
-                                };
+                                    ParquetSource::default()
+                                }
+                            );
 
                             let delete_file_scan_config = FileScanConfig::new(
                                 object_store_url.clone(),
