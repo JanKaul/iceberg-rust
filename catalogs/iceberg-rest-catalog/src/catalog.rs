@@ -199,7 +199,7 @@ impl Catalog for RestCatalog {
     }
     /// Check if a table exists
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error> {
-        catalog_api_api::view_exists(
+        match catalog_api_api::view_exists(
             &self.configuration,
             self.name.as_deref(),
             &identifier.namespace().to_string(),
@@ -215,8 +215,11 @@ impl Catalog for RestCatalog {
             .await
         })
         .await
-        .map(|_| true)
-        .map_err(Into::<Error>::into)
+        .map_err(Into::<Error>::into) {
+            Ok(_) => Ok(true),
+            Err(Error::NotFound(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
     /// Drop a table and delete all data and metadata files.
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error> {
@@ -746,6 +749,21 @@ pub mod tests {
             .await
             .expect("Failed to list Tables");
         assert_eq!(tables[0].to_string(), "tpch.lineitem".to_owned());
+
+        assert_eq!(
+            iceberg_catalog
+                .tabular_exists(&Identifier::new(&["tpch".to_owned()], "lineitem"))
+                .await
+                .map_err(|s| s.to_string()),
+            Ok(true)
+        );
+        assert_eq!(
+            iceberg_catalog
+                .tabular_exists(&Identifier::new(&["tpch".to_owned()], "non_existing_table"))
+                .await
+                .map_err(|s| s.to_string()),
+            Ok(false)
+        );
 
         let sql = "insert into warehouse.tpch.lineitem select * from lineitem;";
 
