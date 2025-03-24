@@ -47,23 +47,4 @@ impl SchemaProvider for IcebergSchema {
                 .unwrap(),
         )
     }
-
-    fn register_table(
-        &self,
-        name: String,
-        table: Arc<dyn TableProvider>,
-    ) -> Result<Option<Arc<dyn TableProvider>>> {
-        let mut full_name = self.schema.to_vec();
-        full_name.push(name.to_owned());
-        let identifier = Identifier::try_new(&full_name, None)
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-        self.catalog.register_table(identifier, table)
-    }
-    fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
-        let mut full_name = self.schema.to_vec();
-        full_name.push(name.to_owned());
-        let identifier = Identifier::try_new(&full_name, None)
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-        self.catalog.deregister_table(identifier)
-    }
 }

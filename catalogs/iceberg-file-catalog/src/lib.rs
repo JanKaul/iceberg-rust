@@ -129,7 +129,8 @@ impl Catalog for FileCatalog {
             .common_prefixes
             .into_iter()
             .map(|x| self.namespace(x.as_ref()))
-            .collect::<Result<_, IcebergError>>()}
+            .collect::<Result<_, IcebergError>>()
+    }
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, IcebergError> {
         self.metadata_location(identifier)
             .await
@@ -199,7 +200,7 @@ impl Catalog for FileCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = location + "/metadata/v0.metadata.json";
 
@@ -235,7 +236,7 @@ impl Catalog for FileCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = location + "/metadata/v0.metadata.json";
 
@@ -278,7 +279,7 @@ impl Catalog for FileCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = location + "/metadata/v0.metadata.json";
 
@@ -489,13 +490,12 @@ impl Catalog for FileCatalog {
     ) -> Result<Table, IcebergError> {
         unimplemented!()
     }
-
-    fn object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
-        Arc::new(self.object_store.build(bucket).unwrap())
-    }
 }
 
 impl FileCatalog {
+    fn default_object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
+        Arc::new(self.object_store.build(bucket).unwrap())
+    }
     fn namespace_path(&self, namespace: &str) -> String {
         self.path.as_str().trim_end_matches('/').to_owned() + "/" + namespace
     }
@@ -634,7 +634,8 @@ impl CatalogList for FileCatalogList {
             .common_prefixes
             .into_iter()
             .map(|x| self.parse_catalog(x.as_ref()))
-            .collect::<Result<_, IcebergError>>().unwrap()
+            .collect::<Result<_, IcebergError>>()
+            .unwrap()
     }
 }
 
@@ -841,8 +842,8 @@ pub mod tests {
 
         assert!(once);
 
-        let object_store =
-            iceberg_catalog.object_store(iceberg_rust::object_store::Bucket::S3("warehouse"));
+        let object_store = iceberg_catalog
+            .default_object_store(iceberg_rust::object_store::Bucket::S3("warehouse"));
 
         let version_hint = object_store
             .get(&strip_prefix("s3://warehouse/tpch/lineitem/metadata/version-hint.text").into())

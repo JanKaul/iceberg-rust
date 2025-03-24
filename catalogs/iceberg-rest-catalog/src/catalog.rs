@@ -483,10 +483,6 @@ impl Catalog for RestCatalog {
         })
         .await
     }
-    /// Return an object store for the desired bucket
-    fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore> {
-        self.object_store_builder.build(bucket).unwrap()
-    }
 }
 
 #[derive(Debug, Clone)]

@@ -67,6 +67,9 @@ impl GlueCatalog {
             cache: Arc::new(RwLock::new(HashMap::new())),
         })
     }
+    fn default_object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
+        Arc::new(self.object_store.build(bucket).unwrap())
+    }
 }
 
 #[async_trait]
@@ -257,7 +260,7 @@ impl Catalog for GlueCatalog {
             .to_string();
 
         let bucket = Bucket::from_path(metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let bytes = object_store
             .get(&strip_prefix(metadata_location).as_str().into())
@@ -295,7 +298,7 @@ impl Catalog for GlueCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = new_metadata_location(&metadata);
         object_store
@@ -365,7 +368,7 @@ impl Catalog for GlueCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = new_metadata_location(&metadata);
         object_store
@@ -437,7 +440,7 @@ impl Catalog for GlueCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = new_metadata_location(&metadata);
 
@@ -557,7 +560,7 @@ impl Catalog for GlueCatalog {
         let metadata_location = new_metadata_location(&metadata);
 
         let bucket = Bucket::from_path(&metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
@@ -650,7 +653,7 @@ impl Catalog for GlueCatalog {
 
         let metadata_ref = metadata.as_ref();
         let bucket = Bucket::from_path(metadata_ref.location())?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = match &mut metadata {
             TabularMetadata::View(metadata) => {
@@ -759,7 +762,7 @@ impl Catalog for GlueCatalog {
 
         let metadata_ref = metadata.as_ref();
         let bucket = Bucket::from_path(metadata_ref.location())?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = match &mut metadata {
             TabularMetadata::MaterializedView(metadata) => {
@@ -860,7 +863,7 @@ impl Catalog for GlueCatalog {
         metadata_location: &str,
     ) -> Result<Table, IcebergError> {
         let bucket = Bucket::from_path(metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata: TableMetadata = serde_json::from_slice(
             &object_store
@@ -918,10 +921,6 @@ impl Catalog for GlueCatalog {
             ),
         );
         Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
-    }
-
-    fn object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
-        Arc::new(self.object_store.build(bucket).unwrap())
     }
 }
 
@@ -1162,8 +1161,8 @@ pub mod tests {
 
         assert!(once);
 
-        let object_store =
-            iceberg_catalog.object_store(iceberg_rust::object_store::Bucket::S3("warehouse"));
+        let object_store = iceberg_catalog
+            .default_object_store(iceberg_rust::object_store::Bucket::S3("warehouse"));
 
         let version_hint = object_store
             .get(&strip_prefix("s3://warehouse/tpch/lineitem/metadata/version-hint.text").into())
