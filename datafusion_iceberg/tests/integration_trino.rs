@@ -77,7 +77,7 @@ async fn integration_trino_rest() {
         .await
         .unwrap();
 
-    localstack
+    let command = localstack
         .exec(ExecCommand::new(vec![
             "awslocal",
             "s3api",
@@ -87,6 +87,10 @@ async fn integration_trino_rest() {
         ]))
         .await
         .unwrap();
+
+    while command.exit_code().await.unwrap().is_none() {
+        sleep(Duration::from_millis(100)).await;
+    }
 
     let localstack_host = localstack.get_host().await.unwrap();
     let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
