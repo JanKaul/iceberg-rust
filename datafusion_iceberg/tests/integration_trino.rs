@@ -25,6 +25,7 @@ use testcontainers::{
     GenericImage, ImageExt,
 };
 use testcontainers_modules::localstack::LocalStack;
+use tokio::time::sleep;
 
 fn configuration(host: &str, port: u16) -> Configuration {
     Configuration {
