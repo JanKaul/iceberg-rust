@@ -1,21 +1,11 @@
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
-use futures::{executor::LocalPool, task::LocalSpawnExt};
-use iceberg_rust::object_store::store::IcebergStore;
 use std::{collections::HashSet, sync::Arc};
 
-use iceberg_rust::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
+use iceberg_rust::spec::view_metadata::REF_PREFIX;
 use iceberg_rust::{
-    catalog::{
-        create::{CreateMaterializedView, CreateView},
-        identifier::Identifier,
-        namespace::Namespace,
-        tabular::Tabular,
-        Catalog,
-    },
+    catalog::{identifier::Identifier, namespace::Namespace, tabular::Tabular, Catalog},
     error::Error as IcebergError,
-    object_store::Bucket,
-    spec::table_metadata::new_metadata_location,
 };
 
 use crate::{error::Error, DataFusionTable};

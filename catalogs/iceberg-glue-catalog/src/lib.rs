@@ -276,13 +276,31 @@ impl Catalog for GlueCatalog {
 
         match metadata {
             TabularMetadata::Table(metadata) => Ok(Tabular::Table(
-                Table::new(identifier.clone(), self.clone(), metadata).await?,
+                Table::new(
+                    identifier.clone(),
+                    self.clone(),
+                    object_store.clone(),
+                    metadata,
+                )
+                .await?,
             )),
             TabularMetadata::View(metadata) => Ok(Tabular::View(
-                View::new(identifier.clone(), self.clone(), metadata).await?,
+                View::new(
+                    identifier.clone(),
+                    self.clone(),
+                    object_store.clone(),
+                    metadata,
+                )
+                .await?,
             )),
             TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
-                MaterializedView::new(identifier.clone(), self.clone(), metadata).await?,
+                MaterializedView::new(
+                    identifier.clone(),
+                    self.clone(),
+                    object_store.clone(),
+                    metadata,
+                )
+                .await?,
             )),
         }
     }
@@ -354,7 +372,13 @@ impl Catalog for GlueCatalog {
                 metadata.clone().into(),
             ),
         );
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn create_view(
@@ -424,7 +448,13 @@ impl Catalog for GlueCatalog {
                 metadata.clone().into(),
             ),
         );
-        Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(View::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn create_materialized_view(
@@ -527,7 +557,13 @@ impl Catalog for GlueCatalog {
                 metadata.clone().into(),
             ),
         );
-        Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(MaterializedView::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
@@ -636,7 +672,13 @@ impl Catalog for GlueCatalog {
             .unwrap()
             .insert(identifier.clone(), (version_id, metadata.clone().into()));
 
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn update_view(
@@ -741,7 +783,13 @@ impl Catalog for GlueCatalog {
             .insert(identifier.clone(), (version_id, metadata.clone()));
 
         if let TabularMetadata::View(metadata) = metadata {
-            Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
+            Ok(View::new(
+                identifier.clone(),
+                self.clone(),
+                object_store.clone(),
+                metadata,
+            )
+            .await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a view".to_owned(),
@@ -849,7 +897,13 @@ impl Catalog for GlueCatalog {
             .unwrap()
             .insert(identifier.clone(), (version_id, metadata.clone()));
         if let TabularMetadata::MaterializedView(metadata) = metadata {
-            Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
+            Ok(MaterializedView::new(
+                identifier.clone(),
+                self.clone(),
+                object_store.clone(),
+                metadata,
+            )
+            .await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a materialized view".to_owned(),
@@ -920,7 +974,13 @@ impl Catalog for GlueCatalog {
                 metadata.clone().into(),
             ),
         );
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 }
 
@@ -939,7 +999,7 @@ pub mod tests {
     };
     use iceberg_rust::{
         catalog::{namespace::Namespace, Catalog},
-        object_store::ObjectStoreBuilder,
+        object_store::{Bucket, ObjectStoreBuilder},
         spec::util::strip_prefix,
     };
     use testcontainers_modules::localstack::LocalStack;
@@ -1015,7 +1075,7 @@ pub mod tests {
 
         // let object_store = ObjectStoreBuilder::memory();
         let iceberg_catalog: Arc<dyn Catalog> =
-            Arc::new(GlueCatalog::new(&config, "warehouse", object_store).unwrap());
+            Arc::new(GlueCatalog::new(&config, "warehouse", object_store.clone()).unwrap());
 
         iceberg_catalog
             .create_namespace(&Namespace::try_new(&["tpch".to_owned()]).unwrap(), None)
@@ -1161,8 +1221,9 @@ pub mod tests {
 
         assert!(once);
 
-        let object_store = iceberg_catalog
-            .default_object_store(iceberg_rust::object_store::Bucket::S3("warehouse"));
+        let object_store = object_store
+            .build(Bucket::from_path("s3://warehouse").unwrap())
+            .unwrap();
 
         let version_hint = object_store
             .get(&strip_prefix("s3://warehouse/tpch/lineitem/metadata/version-hint.text").into())
