@@ -760,6 +760,10 @@ pub mod tests {
             .await
             .unwrap();
 
+        while command.exit_code().await.unwrap().is_none() {
+            sleep(Duration::from_millis(100)).await;
+        }
+
         let postgres = Postgres::default()
             .with_db_name("postgres")
             .with_user("postgres")

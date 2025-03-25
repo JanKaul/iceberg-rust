@@ -215,7 +215,8 @@ impl Catalog for RestCatalog {
             .await
         })
         .await
-        .map_err(Into::<Error>::into) {
+        .map_err(Into::<Error>::into)
+        {
             Ok(_) => Ok(true),
             Err(Error::NotFound(_)) => Ok(false),
             Err(e) => Err(e),
@@ -613,7 +614,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        localstack
+        let command = localstack
             .exec(ExecCommand::new(vec![
                 "awslocal",
                 "s3api",
@@ -623,6 +624,10 @@ pub mod tests {
             ]))
             .await
             .unwrap();
+
+        while command.exit_code().await.unwrap().is_none() {
+            sleep(Duration::from_millis(100)).await;
+        }
 
         let localstack_host = localstack.get_host().await.unwrap();
         let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();

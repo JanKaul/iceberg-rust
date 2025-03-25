@@ -22,6 +22,12 @@ jobs:
       run: make test-iceberg-rust
     - name: Run datafusion-iceberg tests
       run: make test-datafusion_iceberg
+    - name: Run iceberg-rest-catalog tests
+      run: make test-rest-catalog
+    - name: Run iceberg-file-catalog tests
+      run: make test-file-catalog
+    - name: Run iceberg-sql-catalog tests
+      run: make test-sql-catalog
 
   lint:
     runs-on: ubuntu-latest
