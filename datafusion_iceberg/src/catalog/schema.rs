@@ -1,10 +1,6 @@
 use std::{any::Any, ops::Deref, sync::Arc};
 
-use datafusion::{
-    catalog::SchemaProvider,
-    datasource::TableProvider,
-    error::{DataFusionError, Result},
-};
+use datafusion::{catalog::SchemaProvider, datasource::TableProvider, error::Result};
 use iceberg_rust::catalog::{identifier::Identifier, namespace::Namespace};
 
 use crate::{catalog::mirror::Mirror, error::Error};
@@ -46,24 +42,5 @@ impl SchemaProvider for IcebergSchema {
             Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat(), None)
                 .unwrap(),
         )
-    }
-
-    fn register_table(
-        &self,
-        name: String,
-        table: Arc<dyn TableProvider>,
-    ) -> Result<Option<Arc<dyn TableProvider>>> {
-        let mut full_name = self.schema.to_vec();
-        full_name.push(name.to_owned());
-        let identifier = Identifier::try_new(&full_name, None)
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-        self.catalog.register_table(identifier, table)
-    }
-    fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
-        let mut full_name = self.schema.to_vec();
-        full_name.push(name.to_owned());
-        let identifier = Identifier::try_new(&full_name, None)
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-        self.catalog.deregister_table(identifier)
     }
 }

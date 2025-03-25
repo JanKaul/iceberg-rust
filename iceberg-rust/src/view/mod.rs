@@ -44,7 +44,6 @@ use object_store::ObjectStore;
 use crate::{
     catalog::{create::CreateViewBuilder, identifier::Identifier, Catalog},
     error::Error,
-    object_store::Bucket,
 };
 
 use self::transaction::Transaction as ViewTransaction;
@@ -76,6 +75,8 @@ pub struct View {
     metadata: ViewMetadata,
     /// Catalog of the table
     catalog: Arc<dyn Catalog>,
+    /// Object store
+    object_store: Arc<dyn ObjectStore>,
 }
 
 /// Public interface of the table.
@@ -109,12 +110,14 @@ impl View {
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
+        object_store: Arc<dyn ObjectStore>,
         metadata: ViewMetadata,
     ) -> Result<Self, Error> {
         Ok(View {
             identifier,
             metadata,
             catalog,
+            object_store,
         })
     }
     /// Gets the unique identifier for this view in the catalog
@@ -151,8 +154,7 @@ impl View {
     /// # Returns
     /// * `Arc<dyn ObjectStore>` - A thread-safe reference to the configured object store
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        self.catalog
-            .object_store(Bucket::from_path(&self.metadata.location).unwrap())
+        self.object_store.clone()
     }
     /// Gets the current schema for this view, optionally for a specific branch
     ///

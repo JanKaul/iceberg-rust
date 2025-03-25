@@ -129,7 +129,8 @@ impl Catalog for FileCatalog {
             .common_prefixes
             .into_iter()
             .map(|x| self.namespace(x.as_ref()))
-            .collect::<Result<_, IcebergError>>()}
+            .collect::<Result<_, IcebergError>>()
+    }
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, IcebergError> {
         self.metadata_location(identifier)
             .await
@@ -170,13 +171,31 @@ impl Catalog for FileCatalog {
 
         match metadata {
             TabularMetadata::Table(metadata) => Ok(Tabular::Table(
-                Table::new(identifier.clone(), self.clone(), metadata).await?,
+                Table::new(
+                    identifier.clone(),
+                    self.clone(),
+                    object_store.clone(),
+                    metadata,
+                )
+                .await?,
             )),
             TabularMetadata::View(metadata) => Ok(Tabular::View(
-                View::new(identifier.clone(), self.clone(), metadata).await?,
+                View::new(
+                    identifier.clone(),
+                    self.clone(),
+                    object_store.clone(),
+                    metadata,
+                )
+                .await?,
             )),
             TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
-                MaterializedView::new(identifier.clone(), self.clone(), metadata).await?,
+                MaterializedView::new(
+                    identifier.clone(),
+                    self.clone(),
+                    object_store.clone(),
+                    metadata,
+                )
+                .await?,
             )),
         }
     }
@@ -199,7 +218,7 @@ impl Catalog for FileCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = location + "/metadata/v0.metadata.json";
 
@@ -213,7 +232,13 @@ impl Catalog for FileCatalog {
             identifier.clone(),
             (metadata_location.clone(), metadata.clone().into()),
         );
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn create_view(
@@ -235,7 +260,7 @@ impl Catalog for FileCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = location + "/metadata/v0.metadata.json";
 
@@ -249,7 +274,13 @@ impl Catalog for FileCatalog {
             identifier.clone(),
             (metadata_location.clone(), metadata.clone().into()),
         );
-        Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(View::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn create_materialized_view(
@@ -278,7 +309,7 @@ impl Catalog for FileCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = location + "/metadata/v0.metadata.json";
 
@@ -300,7 +331,13 @@ impl Catalog for FileCatalog {
             (metadata_location.clone(), metadata.clone().into()),
         );
 
-        Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(MaterializedView::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
@@ -356,7 +393,13 @@ impl Catalog for FileCatalog {
             (metadata_location.clone(), metadata.clone().into()),
         );
 
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn update_view(
@@ -413,7 +456,13 @@ impl Catalog for FileCatalog {
             (metadata_location.clone(), metadata.clone()),
         );
         if let TabularMetadata::View(metadata) = metadata {
-            Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
+            Ok(View::new(
+                identifier.clone(),
+                self.clone(),
+                object_store.clone(),
+                metadata,
+            )
+            .await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a view".to_owned(),
@@ -474,7 +523,13 @@ impl Catalog for FileCatalog {
             (metadata_location.clone(), metadata.clone()),
         );
         if let TabularMetadata::MaterializedView(metadata) = metadata {
-            Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
+            Ok(MaterializedView::new(
+                identifier.clone(),
+                self.clone(),
+                object_store.clone(),
+                metadata,
+            )
+            .await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a materialized view".to_owned(),
@@ -489,13 +544,12 @@ impl Catalog for FileCatalog {
     ) -> Result<Table, IcebergError> {
         unimplemented!()
     }
-
-    fn object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
-        Arc::new(self.object_store.build(bucket).unwrap())
-    }
 }
 
 impl FileCatalog {
+    fn default_object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
+        Arc::new(self.object_store.build(bucket).unwrap())
+    }
     fn namespace_path(&self, namespace: &str) -> String {
         self.path.as_str().trim_end_matches('/').to_owned() + "/" + namespace
     }
@@ -634,7 +688,8 @@ impl CatalogList for FileCatalogList {
             .common_prefixes
             .into_iter()
             .map(|x| self.parse_catalog(x.as_ref()))
-            .collect::<Result<_, IcebergError>>().unwrap()
+            .collect::<Result<_, IcebergError>>()
+            .unwrap()
     }
 }
 
@@ -652,7 +707,7 @@ pub mod tests {
     };
     use iceberg_rust::{
         catalog::{namespace::Namespace, Catalog},
-        object_store::ObjectStoreBuilder,
+        object_store::{Bucket, ObjectStoreBuilder},
         spec::util::strip_prefix,
     };
     use std::{sync::Arc, time::Duration};
@@ -704,7 +759,7 @@ pub mod tests {
         // let object_store = ObjectStoreBuilder::memory();
 
         let iceberg_catalog: Arc<dyn Catalog> = Arc::new(
-            FileCatalog::new("s3://warehouse", object_store)
+            FileCatalog::new("s3://warehouse", object_store.clone())
                 .await
                 .unwrap(),
         );
@@ -841,8 +896,9 @@ pub mod tests {
 
         assert!(once);
 
-        let object_store =
-            iceberg_catalog.object_store(iceberg_rust::object_store::Bucket::S3("warehouse"));
+        let object_store = object_store
+            .build(Bucket::from_path("s3://warehouse").unwrap())
+            .unwrap();
 
         let version_hint = object_store
             .get(&strip_prefix("s3://warehouse/tpch/lineitem/metadata/version-hint.text").into())

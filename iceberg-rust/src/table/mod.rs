@@ -36,7 +36,6 @@ use iceberg_rust_spec::{
 use crate::{
     catalog::{create::CreateTableBuilder, identifier::Identifier, Catalog},
     error::Error,
-    object_store::Bucket,
     table::transaction::TableTransaction,
 };
 
@@ -49,6 +48,7 @@ pub mod transaction;
 pub struct Table {
     identifier: Identifier,
     catalog: Arc<dyn Catalog>,
+    object_store: Arc<dyn ObjectStore>,
     metadata: TableMetadata,
 }
 
@@ -99,11 +99,13 @@ impl Table {
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
+        object_store: Arc<dyn ObjectStore>,
         metadata: TableMetadata,
     ) -> Result<Self, Error> {
         Ok(Table {
             identifier,
             catalog,
+            object_store,
             metadata,
         })
     }
@@ -139,8 +141,7 @@ impl Table {
     /// # Returns
     /// * `Arc<dyn ObjectStore>` - A thread-safe reference to the table's object store
     pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        self.catalog
-            .object_store(Bucket::from_path(&self.metadata.location).unwrap())
+        self.object_store.clone()
     }
     #[inline]
     /// Returns the current schema for this table, optionally for a specific branch
