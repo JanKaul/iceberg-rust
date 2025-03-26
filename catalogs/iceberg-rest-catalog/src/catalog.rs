@@ -268,14 +268,9 @@ impl Catalog for RestCatalog {
         .await
         .map(|x| x.metadata);
         match tabular_metadata {
-            Ok(TabularMetadata::View(view)) => {
-                let object_store = self
-                    .object_store_builder
-                    .build(Bucket::from_path(&view.location)?)?;
-                Ok(Tabular::View(
-                    View::new(identifier.clone(), self.clone(), object_store, view).await?,
-                ))
-            }
+            Ok(TabularMetadata::View(view)) => Ok(Tabular::View(
+                View::new(identifier.clone(), self.clone(), view).await?,
+            )),
             Ok(TabularMetadata::MaterializedView(matview)) => {
                 let object_store = self
                     .object_store_builder
@@ -387,11 +382,7 @@ impl Catalog for RestCatalog {
             let clone = self.clone();
             async move {
                 if let TabularMetadata::View(metadata) = response.metadata {
-                    let object_store = clone
-                        .object_store_builder
-                        .build(Bucket::from_path(&metadata.location)?)?;
-
-                    View::new(identifier.clone(), clone, object_store, metadata).await
+                    View::new(identifier.clone(), clone, metadata).await
                 } else {
                     Err(Error::InvalidFormat(
                         "Create view didn't return view metadata.".to_owned(),
@@ -416,10 +407,7 @@ impl Catalog for RestCatalog {
             let identifier = identifier.clone();
             async move {
                 if let TabularMetadata::View(metadata) = response.metadata {
-                    let object_store = clone
-                        .object_store_builder
-                        .build(Bucket::from_path(&metadata.location)?)?;
-                    View::new(identifier.clone(), clone, object_store, metadata).await
+                    View::new(identifier.clone(), clone, metadata).await
                 } else {
                     Err(Error::InvalidFormat(
                         "Create view didn't return view metadata.".to_owned(),

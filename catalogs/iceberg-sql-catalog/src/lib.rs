@@ -307,13 +307,7 @@ impl Catalog for SqlCatalog {
                 .await?,
             )),
             TabularMetadata::View(metadata) => Ok(Tabular::View(
-                View::new(
-                    identifier.clone(),
-                    self.clone(),
-                    object_store.clone(),
-                    metadata,
-                )
-                .await?,
+                View::new(identifier.clone(), self.clone(), metadata).await?,
             )),
             TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
                 MaterializedView::new(
@@ -398,13 +392,7 @@ impl Catalog for SqlCatalog {
             identifier.clone(),
             (metadata_location.clone(), metadata.clone().into()),
         );
-        Ok(View::new(
-            identifier.clone(),
-            self.clone(),
-            object_store.clone(),
-            metadata,
-        )
-        .await?)
+        Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn create_materialized_view(
@@ -571,13 +559,7 @@ impl Catalog for SqlCatalog {
             (metadata_location.clone(), metadata.clone()),
         );
         if let TabularMetadata::View(metadata) = metadata {
-            Ok(View::new(
-                identifier.clone(),
-                self.clone(),
-                object_store.clone(),
-                metadata,
-            )
-            .await?)
+            Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a view".to_owned(),

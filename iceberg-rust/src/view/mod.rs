@@ -39,7 +39,6 @@
 use std::sync::Arc;
 
 use iceberg_rust_spec::spec::{schema::Schema, view_metadata::ViewMetadata};
-use object_store::ObjectStore;
 
 use crate::{
     catalog::{create::CreateViewBuilder, identifier::Identifier, Catalog},
@@ -75,8 +74,6 @@ pub struct View {
     metadata: ViewMetadata,
     /// Catalog of the table
     catalog: Arc<dyn Catalog>,
-    /// Object store
-    object_store: Arc<dyn ObjectStore>,
 }
 
 /// Public interface of the table.
@@ -110,14 +107,12 @@ impl View {
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
-        object_store: Arc<dyn ObjectStore>,
         metadata: ViewMetadata,
     ) -> Result<Self, Error> {
         Ok(View {
             identifier,
             metadata,
             catalog,
-            object_store,
         })
     }
     /// Gets the unique identifier for this view in the catalog
@@ -143,18 +138,6 @@ impl View {
     /// * `Arc<dyn Catalog>` - A thread-safe reference to the catalog
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
-    }
-    /// Gets the object store for this view's storage location
-    ///
-    /// The object store provides:
-    /// - Access to the underlying storage system (S3, local filesystem, etc)
-    /// - Read/write operations for view data and metadata
-    /// - Storage-specific configuration and credentials
-    ///
-    /// # Returns
-    /// * `Arc<dyn ObjectStore>` - A thread-safe reference to the configured object store
-    pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        self.object_store.clone()
     }
     /// Gets the current schema for this view, optionally for a specific branch
     ///
