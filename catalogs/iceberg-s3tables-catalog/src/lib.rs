@@ -271,22 +271,10 @@ impl Catalog for S3TablesCatalog {
                 .await?,
             )),
             TabularMetadata::View(metadata) => Ok(Tabular::View(
-                View::new(
-                    identifier.clone(),
-                    self.clone(),
-                    object_store.clone(),
-                    metadata,
-                )
-                .await?,
+                View::new(identifier.clone(), self.clone(), metadata).await?,
             )),
             TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
-                MaterializedView::new(
-                    identifier.clone(),
-                    self.clone(),
-                    object_store.clone(),
-                    metadata,
-                )
-                .await?,
+                MaterializedView::new(identifier.clone(), self.clone(), metadata).await?,
             )),
         }
     }
@@ -417,13 +405,7 @@ impl Catalog for S3TablesCatalog {
             identifier.clone(),
             (table.version_token, metadata.clone().into()),
         );
-        Ok(View::new(
-            identifier.clone(),
-            self.clone(),
-            object_store.clone(),
-            metadata,
-        )
-        .await?)
+        Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn create_materialized_view(
@@ -542,13 +524,7 @@ impl Catalog for S3TablesCatalog {
             identifier.clone(),
             (view.version_token, metadata.clone().into()),
         );
-        Ok(MaterializedView::new(
-            identifier.clone(),
-            self.clone(),
-            object_store.clone(),
-            metadata,
-        )
-        .await?)
+        Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
@@ -702,13 +678,7 @@ impl Catalog for S3TablesCatalog {
             .insert(identifier.clone(), (version_token, metadata.clone()));
 
         if let TabularMetadata::View(metadata) = metadata {
-            Ok(View::new(
-                identifier.clone(),
-                self.clone(),
-                object_store.clone(),
-                metadata,
-            )
-            .await?)
+            Ok(View::new(identifier.clone(), self.clone(), metadata).await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a view".to_owned(),
@@ -785,13 +755,7 @@ impl Catalog for S3TablesCatalog {
             .unwrap()
             .insert(identifier.clone(), (version_token, metadata.clone()));
         if let TabularMetadata::MaterializedView(metadata) = metadata {
-            Ok(MaterializedView::new(
-                identifier.clone(),
-                self.clone(),
-                object_store.clone(),
-                metadata,
-            )
-            .await?)
+            Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a materialized view".to_owned(),
