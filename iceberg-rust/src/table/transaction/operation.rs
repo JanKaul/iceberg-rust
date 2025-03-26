@@ -521,18 +521,12 @@ impl Operation {
                     .build()
                     .map_err(iceberg_rust_spec::error::Error::from)?;
 
-                let old_snapshot_ids: Vec<i64> =
-                    table_metadata.snapshots.keys().map(Clone::clone).collect();
-
                 Ok((
                     old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
                         r#ref: branch.clone().unwrap_or("main".to_owned()),
                         snapshot_id: *x.snapshot_id(),
                     }),
                     vec![
-                        TableUpdate::RemoveSnapshots {
-                            snapshot_ids: old_snapshot_ids,
-                        },
                         TableUpdate::AddSnapshot { snapshot },
                         TableUpdate::SetSnapshotRef {
                             ref_name: branch.unwrap_or("main".to_owned()),
