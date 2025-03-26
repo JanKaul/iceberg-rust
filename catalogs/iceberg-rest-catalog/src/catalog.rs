@@ -293,17 +293,17 @@ impl Catalog for RestCatalog {
                     .await
                     .map_err(|_| Error::CatalogNotFound)?;
 
-                    let object_store = object_store_from_response(&response)
+                    let object_store = object_store_from_response(&response)?
+                        .ok_or(Error::NotFound("Object store credentials".to_string()))
                         .or_else(|_| {
                             self.default_object_store_builder
                                 .as_ref()
-                                .map(|x| {
+                                .ok_or(Error::NotFound("Default object store".to_string()))
+                                .and_then(|x| {
                                     let bucket = Bucket::from_path(&response.metadata.location)?;
                                     x.build(bucket)
                                 })
-                                .transpose()
-                        })?
-                        .ok_or(Error::NotFound("Object store credentials".to_string()))?;
+                        })?;
 
                     self.cache
                         .write()
