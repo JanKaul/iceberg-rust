@@ -34,14 +34,12 @@ use std::sync::Arc;
 use iceberg_rust_spec::spec::{
     materialized_view_metadata::MaterializedViewMetadata, schema::Schema,
 };
-use object_store::ObjectStore;
 
 use crate::{
     catalog::{
         create::CreateMaterializedViewBuilder, identifier::Identifier, tabular::Tabular, Catalog,
     },
     error::Error,
-    object_store::Bucket,
 };
 
 use self::{storage_table::StorageTable, transaction::Transaction as MaterializedViewTransaction};
@@ -129,14 +127,6 @@ impl MaterializedView {
     /// for operations on the view
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
-    }
-    /// Returns the object store used by this materialized view for data storage
-    ///
-    /// The object store provides access to the underlying storage system (e.g. S3, local filesystem)
-    /// where the view's data files are stored. The store is configured based on the view's location.
-    pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        self.catalog
-            .object_store(Bucket::from_path(&self.metadata.location).unwrap())
     }
     /// Returns the current schema for this materialized view
     ///

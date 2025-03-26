@@ -199,7 +199,7 @@ impl Catalog for RestCatalog {
     }
     /// Check if a table exists
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error> {
-        catalog_api_api::view_exists(
+        match catalog_api_api::view_exists(
             &self.configuration,
             self.name.as_deref(),
             &identifier.namespace().to_string(),
@@ -215,8 +215,12 @@ impl Catalog for RestCatalog {
             .await
         })
         .await
-        .map(|_| true)
         .map_err(Into::<Error>::into)
+        {
+            Ok(_) => Ok(true),
+            Err(Error::NotFound(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
     /// Drop a table and delete all data and metadata files.
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error> {
@@ -284,8 +288,17 @@ impl Catalog for RestCatalog {
                     .map(|x| x.metadata)
                     .map_err(|_| Error::CatalogNotFound)?;
 
+                    let object_store = self
+                        .object_store_builder
+                        .build(Bucket::from_path(&table_metadata.location)?)?;
                     Ok(Tabular::Table(
-                        Table::new(identifier.clone(), self.clone(), table_metadata).await?,
+                        Table::new(
+                            identifier.clone(),
+                            self.clone(),
+                            object_store,
+                            table_metadata,
+                        )
+                        .await?,
                     ))
                 } else {
                     Err(Into::<Error>::into(apis::Error::ResponseError(content)))
@@ -312,7 +325,12 @@ impl Catalog for RestCatalog {
         .map_err(Into::<Error>::into)
         .and_then(|response| {
             let clone = self.clone();
-            async move { Table::new(identifier.clone(), clone, response.metadata).await }
+            async move {
+                let object_store = clone
+                    .object_store_builder
+                    .build(Bucket::from_path(&response.metadata.location)?)?;
+                Table::new(identifier.clone(), clone, object_store, response.metadata).await
+            }
         })
         .await
     }
@@ -333,7 +351,12 @@ impl Catalog for RestCatalog {
         .and_then(|response| {
             let clone = self.clone();
             let identifier = identifier.clone();
-            async move { Table::new(identifier, clone, response.metadata).await }
+            async move {
+                let object_store = clone
+                    .object_store_builder
+                    .build(Bucket::from_path(&response.metadata.location)?)?;
+                Table::new(identifier, clone, object_store, response.metadata).await
+            }
         })
         .await
     }
@@ -475,13 +498,14 @@ impl Catalog for RestCatalog {
         .map_err(Into::<Error>::into)
         .and_then(|response| {
             let clone = self.clone();
-            async move { Table::new(identifier.clone(), clone, response.metadata).await }
+            async move {
+                let object_store = clone
+                    .object_store_builder
+                    .build(Bucket::from_path(&response.metadata.location)?)?;
+                Table::new(identifier.clone(), clone, object_store, response.metadata).await
+            }
         })
         .await
-    }
-    /// Return an object store for the desired bucket
-    fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore> {
-        self.object_store_builder.build(bucket).unwrap()
     }
 }
 
@@ -610,7 +634,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        localstack
+        let command = localstack
             .exec(ExecCommand::new(vec![
                 "awslocal",
                 "s3api",
@@ -620,6 +644,10 @@ pub mod tests {
             ]))
             .await
             .unwrap();
+
+        while command.exit_code().await.unwrap().is_none() {
+            sleep(Duration::from_millis(100)).await;
+        }
 
         let localstack_host = localstack.get_host().await.unwrap();
         let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
@@ -746,6 +774,21 @@ pub mod tests {
             .await
             .expect("Failed to list Tables");
         assert_eq!(tables[0].to_string(), "tpch.lineitem".to_owned());
+
+        assert_eq!(
+            iceberg_catalog
+                .tabular_exists(&Identifier::new(&["tpch".to_owned()], "lineitem"))
+                .await
+                .map_err(|s| s.to_string()),
+            Ok(true)
+        );
+        assert_eq!(
+            iceberg_catalog
+                .tabular_exists(&Identifier::new(&["tpch".to_owned()], "non_existing_table"))
+                .await
+                .map_err(|s| s.to_string()),
+            Ok(false)
+        );
 
         let sql = "insert into warehouse.tpch.lineitem select * from lineitem;";
 

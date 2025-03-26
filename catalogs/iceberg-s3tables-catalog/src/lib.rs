@@ -6,10 +6,7 @@ use std::{
 use async_trait::async_trait;
 use aws_config::SdkConfig;
 
-use aws_sdk_s3tables::{
-    types::OpenTableFormat,
-    Client,
-};
+use aws_sdk_s3tables::{types::OpenTableFormat, Client};
 use iceberg_rust::{
     catalog::{
         commit::{
@@ -64,6 +61,9 @@ impl S3TablesCatalog {
             object_store,
             cache: Arc::new(RwLock::new(HashMap::new())),
         })
+    }
+    fn default_object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
+        Arc::new(self.object_store.build(bucket).unwrap())
     }
 }
 
@@ -246,7 +246,7 @@ impl Catalog for S3TablesCatalog {
         let version_token = table.version_token;
 
         let bucket = Bucket::from_path(&metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let bytes = object_store
             .get(&strip_prefix(&metadata_location).as_str().into())
@@ -262,7 +262,13 @@ impl Catalog for S3TablesCatalog {
 
         match metadata {
             TabularMetadata::Table(metadata) => Ok(Tabular::Table(
-                Table::new(identifier.clone(), self.clone(), metadata).await?,
+                Table::new(
+                    identifier.clone(),
+                    self.clone(),
+                    object_store.clone(),
+                    metadata,
+                )
+                .await?,
             )),
             TabularMetadata::View(metadata) => Ok(Tabular::View(
                 View::new(identifier.clone(), self.clone(), metadata).await?,
@@ -307,7 +313,7 @@ impl Catalog for S3TablesCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = new_metadata_location(&metadata);
         object_store
@@ -332,7 +338,13 @@ impl Catalog for S3TablesCatalog {
             identifier.clone(),
             (table.version_token, metadata.clone().into()),
         );
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn create_view(
@@ -368,7 +380,7 @@ impl Catalog for S3TablesCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = new_metadata_location(&metadata);
         object_store
@@ -459,7 +471,7 @@ impl Catalog for S3TablesCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = new_metadata_location(&metadata);
 
@@ -545,7 +557,7 @@ impl Catalog for S3TablesCatalog {
         let metadata_location = new_metadata_location(&metadata);
 
         let bucket = Bucket::from_path(&metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
@@ -586,7 +598,13 @@ impl Catalog for S3TablesCatalog {
             .unwrap()
             .insert(identifier.clone(), (version_token, metadata.clone().into()));
 
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn update_view(
@@ -603,7 +621,7 @@ impl Catalog for S3TablesCatalog {
 
         let metadata_ref = metadata.as_ref();
         let bucket = Bucket::from_path(metadata_ref.location())?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = match &mut metadata {
             TabularMetadata::View(metadata) => {
@@ -681,7 +699,7 @@ impl Catalog for S3TablesCatalog {
 
         let metadata_ref = metadata.as_ref();
         let bucket = Bucket::from_path(metadata_ref.location())?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = match &mut metadata {
             TabularMetadata::MaterializedView(metadata) => {
@@ -751,7 +769,7 @@ impl Catalog for S3TablesCatalog {
         metadata_location: &str,
     ) -> Result<Table, IcebergError> {
         let bucket = Bucket::from_path(metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata: TableMetadata = serde_json::from_slice(
             &object_store
@@ -787,11 +805,13 @@ impl Catalog for S3TablesCatalog {
             identifier.clone(),
             (table.version_token, metadata.clone().into()),
         );
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
-    }
-
-    fn object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
-        Arc::new(self.object_store.build(bucket).unwrap())
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 }
 

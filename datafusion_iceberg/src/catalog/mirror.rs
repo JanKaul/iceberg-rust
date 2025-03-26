@@ -1,21 +1,11 @@
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
-use futures::{executor::LocalPool, task::LocalSpawnExt};
-use iceberg_rust::object_store::store::IcebergStore;
 use std::{collections::HashSet, sync::Arc};
 
-use iceberg_rust::spec::{tabular::TabularMetadata, view_metadata::REF_PREFIX};
+use iceberg_rust::spec::view_metadata::REF_PREFIX;
 use iceberg_rust::{
-    catalog::{
-        create::{CreateMaterializedView, CreateView},
-        identifier::Identifier,
-        namespace::Namespace,
-        tabular::Tabular,
-        Catalog,
-    },
+    catalog::{identifier::Identifier, namespace::Namespace, tabular::Tabular, Catalog},
     error::Error as IcebergError,
-    object_store::Bucket,
-    spec::table_metadata::new_metadata_location,
 };
 
 use crate::{error::Error, DataFusionTable};
@@ -191,134 +181,6 @@ impl Mirror {
     }
     pub fn table_exists(&self, identifier: Identifier) -> bool {
         self.storage.contains_key(&identifier.to_string())
-    }
-    pub fn register_table(
-        &self,
-        identifier: Identifier,
-        table: Arc<dyn TableProvider>,
-    ) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
-        self.storage
-            .insert(identifier.to_string(), Node::Relation(identifier.clone()));
-        match self
-            .storage
-            .get_mut(&identifier.namespace().to_string())
-            .ok_or(DataFusionError::Internal(
-                "Namespace doesn't exist".to_string(),
-            ))?
-            .value_mut()
-        {
-            Node::Namespace(namespace) => {
-                namespace.insert(identifier.to_string());
-            }
-            Node::Relation(_) => {}
-        };
-        let pool = LocalPool::new();
-        let spawner = pool.spawner();
-        let cloned_catalog = self.catalog.clone();
-        spawner
-            .spawn_local({
-                let table = table.clone();
-                async move {
-                    let metadata = table
-                        .clone()
-                        .as_any()
-                        .downcast_ref::<DataFusionTable>()
-                        .ok_or(DataFusionError::Internal(
-                            "Table is not an iceberg datafusion table.".to_owned(),
-                        ))
-                        .unwrap()
-                        .tabular
-                        .read()
-                        .await
-                        .metadata()
-                        .to_owned();
-                    match metadata {
-                        TabularMetadata::Table(_) => {
-                            let metadata_location = new_metadata_location(&metadata);
-                            let object_store = cloned_catalog
-                                .object_store(Bucket::from_path(&metadata_location).unwrap());
-                            object_store
-                                .put_metadata(&metadata_location, metadata.as_ref())
-                                .await
-                                .unwrap();
-                            cloned_catalog
-                                .register_table(identifier, &metadata_location)
-                                .await
-                                .unwrap();
-                        }
-                        TabularMetadata::View(metadata) => {
-                            let name = identifier.name().to_owned();
-                            let view_version =
-                                metadata.versions[&metadata.current_version_id].clone();
-                            cloned_catalog
-                                .create_view(
-                                    identifier,
-                                    CreateView {
-                                        name,
-                                        location: Some(metadata.location),
-                                        schema: metadata.schemas[&view_version.schema_id].clone(),
-                                        view_version,
-                                        properties: metadata.properties,
-                                    },
-                                )
-                                .await
-                                .unwrap();
-                        }
-                        TabularMetadata::MaterializedView(metadata) => {
-                            let name = identifier.name().to_owned();
-                            let view_version =
-                                metadata.versions[&metadata.current_version_id].clone();
-                            cloned_catalog
-                                .create_materialized_view(
-                                    identifier,
-                                    CreateMaterializedView {
-                                        name,
-                                        location: Some(metadata.location),
-                                        schema: metadata.schemas[&view_version.schema_id].clone(),
-                                        view_version,
-                                        properties: metadata.properties,
-                                        partition_spec: None,
-                                        write_order: None,
-                                        stage_create: None,
-                                        table_properties: None,
-                                    },
-                                )
-                                .await
-                                .unwrap();
-                        }
-                    }
-                }
-            })
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-        Ok(Some(table))
-    }
-    pub fn deregister_table(
-        &self,
-        identifier: Identifier,
-    ) -> Result<Option<Arc<dyn TableProvider>>, DataFusionError> {
-        match self
-            .storage
-            .get_mut(&identifier.namespace().to_string())
-            .ok_or(DataFusionError::Internal(
-                "Namespace doesn't exist".to_string(),
-            ))?
-            .value_mut()
-        {
-            Node::Namespace(namespace) => {
-                namespace.remove(&identifier.to_string());
-            }
-            Node::Relation(_) => {}
-        };
-        let pool = LocalPool::new();
-        let spawner = pool.spawner();
-        let cloned_catalog = self.catalog.clone();
-        spawner
-            .spawn_local(async move {
-                cloned_catalog.drop_table(&identifier).await.unwrap();
-            })
-            .map_err(|err| DataFusionError::External(Box::new(err)))?;
-        // Currently can't synchronously return a table which has to be fetched asynchronously
-        Ok(None)
     }
 
     pub fn catalog(&self) -> Arc<dyn Catalog> {

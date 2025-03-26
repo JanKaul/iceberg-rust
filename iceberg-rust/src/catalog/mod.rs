@@ -28,7 +28,6 @@ use std::sync::Arc;
 
 use iceberg_rust_spec::identifier::FullIdentifier;
 use identifier::Identifier;
-use object_store::ObjectStore;
 
 use crate::error::Error;
 use crate::materialized_view::MaterializedView;
@@ -39,7 +38,6 @@ use self::commit::{CommitTable, CommitView};
 use self::create::{CreateMaterializedView, CreateTable, CreateView};
 use self::namespace::Namespace;
 use self::tabular::Tabular;
-use crate::object_store::Bucket;
 
 pub mod commit;
 pub mod create;
@@ -383,17 +381,6 @@ pub trait Catalog: Send + Sync + Debug {
         identifier: Identifier,
         metadata_location: &str,
     ) -> Result<Table, Error>;
-    /// Returns an object store instance for the given bucket.
-    ///
-    /// # Arguments
-    /// * `bucket` - The bucket configuration to create an object store for
-    ///
-    /// # Returns
-    /// * `Arc<dyn ObjectStore>` - Thread-safe reference to the configured object store
-    ///
-    /// The returned object store provides access to the underlying storage system (S3, GCS, etc.)
-    /// and handles all low-level storage operations for the catalog.
-    fn object_store(&self, bucket: Bucket) -> Arc<dyn ObjectStore>;
 }
 
 /// A trait representing a collection of Iceberg catalogs that can be accessed by name.

@@ -174,10 +174,10 @@ impl<'view> Transaction<'view> {
 
         let identifier = self.materialized_view.identifier().clone();
 
+        let storage_table = self.materialized_view.storage_table().await?;
+
         let delete_data = if !self.storage_table_operations.is_empty() {
             let (mut table_requirements, mut table_updates) = (Vec::new(), Vec::new());
-
-            let storage_table = self.materialized_view.storage_table().await?;
 
             // Save old metadata to be able to remove old data after a rewrite operation
             let delete_data = if self
@@ -193,10 +193,7 @@ impl<'view> Transaction<'view> {
             // Execute table operations
             for operation in self.storage_table_operations.into_values() {
                 let (requirement, update) = operation
-                    .execute(
-                        storage_table.metadata(),
-                        self.materialized_view.object_store(),
-                    )
+                    .execute(storage_table.metadata(), storage_table.object_store())
                     .await?;
 
                 if let Some(requirement) = requirement {
@@ -239,7 +236,7 @@ impl<'view> Transaction<'view> {
             .await?;
         // Delete data files in case of a rewrite operation
         if let Some(old_metadata) = delete_data {
-            delete_all_table_files(&old_metadata, self.materialized_view.object_store()).await?;
+            delete_all_table_files(&old_metadata, storage_table.object_store()).await?;
         }
         *self.materialized_view = new_matview;
         Ok(())

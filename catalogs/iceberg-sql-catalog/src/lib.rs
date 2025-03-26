@@ -107,6 +107,9 @@ impl SqlCatalog {
             object_store: self.object_store.clone(),
         })
     }
+    fn default_object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
+        Arc::new(self.object_store.build(bucket).unwrap())
+    }
 }
 
 #[derive(Debug)]
@@ -281,7 +284,7 @@ impl Catalog for SqlCatalog {
         };
 
         let bucket = Bucket::from_path(&path)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let bytes = object_store
             .get(&strip_prefix(&path).as_str().into())
@@ -295,7 +298,13 @@ impl Catalog for SqlCatalog {
             .insert(identifier.clone(), (path.clone(), metadata.clone()));
         match metadata {
             TabularMetadata::Table(metadata) => Ok(Tabular::Table(
-                Table::new(identifier.clone(), self.clone(), metadata).await?,
+                Table::new(
+                    identifier.clone(),
+                    self.clone(),
+                    object_store.clone(),
+                    metadata,
+                )
+                .await?,
             )),
             TabularMetadata::View(metadata) => Ok(Tabular::View(
                 View::new(identifier.clone(), self.clone(), metadata).await?,
@@ -317,7 +326,7 @@ impl Catalog for SqlCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = new_metadata_location(&metadata);
         object_store
@@ -337,7 +346,13 @@ impl Catalog for SqlCatalog {
             identifier.clone(),
             (metadata_location.clone(), metadata.clone().into()),
         );
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn create_view(
@@ -351,7 +366,7 @@ impl Catalog for SqlCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = new_metadata_location(&metadata);
         object_store
@@ -387,7 +402,7 @@ impl Catalog for SqlCatalog {
 
         // Write metadata to object_store
         let bucket = Bucket::from_path(&location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = new_metadata_location(&metadata);
 
@@ -443,7 +458,7 @@ impl Catalog for SqlCatalog {
         let (previous_metadata_location, metadata) = entry;
 
         let bucket = Bucket::from_path(&previous_metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let TabularMetadata::Table(mut metadata) = metadata else {
             return Err(IcebergError::InvalidFormat(
@@ -475,7 +490,13 @@ impl Catalog for SqlCatalog {
             (metadata_location.clone(), metadata.clone().into()),
         );
 
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 
     async fn update_view(
@@ -491,7 +512,7 @@ impl Catalog for SqlCatalog {
         let (previous_metadata_location, mut metadata) = entry;
 
         let bucket = Bucket::from_path(&previous_metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = match &mut metadata {
             TabularMetadata::View(metadata) => {
@@ -546,7 +567,7 @@ impl Catalog for SqlCatalog {
         let (previous_metadata_location, mut metadata) = entry;
 
         let bucket = Bucket::from_path(&previous_metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata_location = match &mut metadata {
             TabularMetadata::MaterializedView(metadata) => {
@@ -596,7 +617,7 @@ impl Catalog for SqlCatalog {
         metadata_location: &str,
     ) -> Result<Table, IcebergError> {
         let bucket = Bucket::from_path(metadata_location)?;
-        let object_store = self.object_store(bucket);
+        let object_store = self.default_object_store(bucket);
 
         let metadata: TableMetadata = serde_json::from_slice(
             &object_store
@@ -618,11 +639,13 @@ impl Catalog for SqlCatalog {
             identifier.clone(),
             (metadata_location.to_string(), metadata.clone().into()),
         );
-        Ok(Table::new(identifier.clone(), self.clone(), metadata).await?)
-    }
-
-    fn object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
-        Arc::new(self.object_store.build(bucket).unwrap())
+        Ok(Table::new(
+            identifier.clone(),
+            self.clone(),
+            object_store.clone(),
+            metadata,
+        )
+        .await?)
     }
 }
 
@@ -759,6 +782,10 @@ pub mod tests {
             ]))
             .await
             .unwrap();
+
+        while command.exit_code().await.unwrap().is_none() {
+            sleep(Duration::from_millis(100)).await;
+        }
 
         let postgres = Postgres::default()
             .with_db_name("postgres")
@@ -933,8 +960,8 @@ pub mod tests {
 
         assert!(once);
 
-        let object_store =
-            iceberg_catalog.object_store(iceberg_rust::object_store::Bucket::S3("warehouse"));
+        let object_store = iceberg_catalog
+            .default_object_store(iceberg_rust::object_store::Bucket::S3("warehouse"));
 
         let version_hint = object_store
             .get(&strip_prefix("s3://warehouse/tpch/lineitem/metadata/version-hint.text").into())
