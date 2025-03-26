@@ -336,7 +336,7 @@ impl Catalog for RestCatalog {
         identifier: Identifier,
         create_table: CreateTable,
     ) -> Result<Table, Error> {
-        catalog_api_api::create_table(
+        let response = catalog_api_api::create_table(
             &self.configuration,
             self.name.as_deref(),
             &identifier.namespace().to_string(),
@@ -344,18 +344,21 @@ impl Catalog for RestCatalog {
             None,
         )
         .map_err(Into::<Error>::into)
-        .and_then(|response| {
-            let clone = self.clone();
-            async move {
-                let object_store = clone
-                    .default_object_store_builder
+        .await?;
+
+        let object_store = object_store_from_response(&response)?
+            .ok_or(Error::NotFound("Object store credentials".to_string()))
+            .or_else(|_| {
+                self.default_object_store_builder
                     .as_ref()
-                    .ok_or(Error::NotFound("Default object store".to_string()))?
-                    .build(Bucket::from_path(&response.metadata.location)?)?;
-                Table::new(identifier.clone(), clone, object_store, response.metadata).await
-            }
-        })
-        .await
+                    .ok_or(Error::NotFound("Default object store".to_string()))
+                    .and_then(|x| {
+                        let bucket = Bucket::from_path(&response.metadata.location)?;
+                        x.build(bucket)
+                    })
+            })?;
+
+        Table::new(identifier.clone(), self, object_store, response.metadata).await
     }
     /// Update a table by atomically changing the pointer to the metadata file
     async fn update_table(
@@ -511,25 +514,27 @@ impl Catalog for RestCatalog {
             metadata_location.to_owned(),
         );
 
-        catalog_api_api::register_table(
+        let response = catalog_api_api::register_table(
             &self.configuration,
             self.name.as_deref(),
             &identifier.namespace().to_string(),
             request,
         )
         .map_err(Into::<Error>::into)
-        .and_then(|response| {
-            let clone = self.clone();
-            async move {
-                let object_store = clone
-                    .default_object_store_builder
+        .await?;
+        let object_store = object_store_from_response(&response)?
+            .ok_or(Error::NotFound("Object store credentials".to_string()))
+            .or_else(|_| {
+                self.default_object_store_builder
                     .as_ref()
-                    .ok_or(Error::NotFound("Default object store".to_string()))?
-                    .build(Bucket::from_path(&response.metadata.location)?)?;
-                Table::new(identifier.clone(), clone, object_store, response.metadata).await
-            }
-        })
-        .await
+                    .ok_or(Error::NotFound("Default object store".to_string()))
+                    .and_then(|x| {
+                        let bucket = Bucket::from_path(&response.metadata.location)?;
+                        x.build(bucket)
+                    })
+            })?;
+
+        Table::new(identifier.clone(), self, object_store, response.metadata).await
     }
 }
 
