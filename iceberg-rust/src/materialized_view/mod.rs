@@ -34,7 +34,6 @@ use std::sync::Arc;
 use iceberg_rust_spec::spec::{
     materialized_view_metadata::MaterializedViewMetadata, schema::Schema,
 };
-use object_store::ObjectStore;
 
 use crate::{
     catalog::{
@@ -69,8 +68,6 @@ pub struct MaterializedView {
     metadata: MaterializedViewMetadata,
     /// Catalog of the table
     catalog: Arc<dyn Catalog>,
-    /// Object store
-    object_store: Arc<dyn ObjectStore>,
 }
 
 /// Storage table states
@@ -109,13 +106,11 @@ impl MaterializedView {
     pub async fn new(
         identifier: Identifier,
         catalog: Arc<dyn Catalog>,
-        object_store: Arc<dyn ObjectStore>,
         metadata: MaterializedViewMetadata,
     ) -> Result<Self, Error> {
         Ok(MaterializedView {
             identifier,
             metadata,
-            object_store,
             catalog,
         })
     }
@@ -132,13 +127,6 @@ impl MaterializedView {
     /// for operations on the view
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
-    }
-    /// Returns the object store used by this materialized view for data storage
-    ///
-    /// The object store provides access to the underlying storage system (e.g. S3, local filesystem)
-    /// where the view's data files are stored. The store is configured based on the view's location.
-    pub fn object_store(&self) -> Arc<dyn ObjectStore> {
-        self.object_store.clone()
     }
     /// Returns the current schema for this materialized view
     ///

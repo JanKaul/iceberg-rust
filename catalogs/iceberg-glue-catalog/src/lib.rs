@@ -288,13 +288,7 @@ impl Catalog for GlueCatalog {
                 View::new(identifier.clone(), self.clone(), metadata).await?,
             )),
             TabularMetadata::MaterializedView(metadata) => Ok(Tabular::MaterializedView(
-                MaterializedView::new(
-                    identifier.clone(),
-                    self.clone(),
-                    object_store.clone(),
-                    metadata,
-                )
-                .await?,
+                MaterializedView::new(identifier.clone(), self.clone(), metadata).await?,
             )),
         }
     }
@@ -545,13 +539,7 @@ impl Catalog for GlueCatalog {
                 metadata.clone().into(),
             ),
         );
-        Ok(MaterializedView::new(
-            identifier.clone(),
-            self.clone(),
-            object_store.clone(),
-            metadata,
-        )
-        .await?)
+        Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
     }
 
     async fn update_table(self: Arc<Self>, commit: CommitTable) -> Result<Table, IcebergError> {
@@ -879,13 +867,7 @@ impl Catalog for GlueCatalog {
             .unwrap()
             .insert(identifier.clone(), (version_id, metadata.clone()));
         if let TabularMetadata::MaterializedView(metadata) = metadata {
-            Ok(MaterializedView::new(
-                identifier.clone(),
-                self.clone(),
-                object_store.clone(),
-                metadata,
-            )
-            .await?)
+            Ok(MaterializedView::new(identifier.clone(), self.clone(), metadata).await?)
         } else {
             Err(IcebergError::InvalidFormat(
                 "Entity is not a materialized view".to_owned(),

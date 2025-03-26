@@ -271,15 +271,9 @@ impl Catalog for RestCatalog {
             Ok(TabularMetadata::View(view)) => Ok(Tabular::View(
                 View::new(identifier.clone(), self.clone(), view).await?,
             )),
-            Ok(TabularMetadata::MaterializedView(matview)) => {
-                let object_store = self
-                    .object_store_builder
-                    .build(Bucket::from_path(&matview.location)?)?;
-                Ok(Tabular::MaterializedView(
-                    MaterializedView::new(identifier.clone(), self.clone(), object_store, matview)
-                        .await?,
-                ))
-            }
+            Ok(TabularMetadata::MaterializedView(matview)) => Ok(Tabular::MaterializedView(
+                MaterializedView::new(identifier.clone(), self.clone(), matview).await?,
+            )),
             Err(apis::Error::ResponseError(content)) => {
                 if content.status == 404 {
                     let table_metadata = catalog_api_api::load_table(
@@ -444,10 +438,7 @@ impl Catalog for RestCatalog {
             let clone = self.clone();
             async move {
                 if let TabularMetadata::MaterializedView(metadata) = response.metadata {
-                    let object_store = clone
-                        .object_store_builder
-                        .build(Bucket::from_path(&metadata.location)?)?;
-                    MaterializedView::new(identifier.clone(), clone, object_store, metadata).await
+                    MaterializedView::new(identifier.clone(), clone, metadata).await
                 } else {
                     Err(Error::InvalidFormat(
                         "Create materialzied view didn't return materialized view metadata."
@@ -476,10 +467,7 @@ impl Catalog for RestCatalog {
             let identifier = identifier.clone();
             async move {
                 if let TabularMetadata::MaterializedView(metadata) = response.metadata {
-                    let object_store = clone
-                        .object_store_builder
-                        .build(Bucket::from_path(&metadata.location)?)?;
-                    MaterializedView::new(identifier.clone(), clone, object_store, metadata).await
+                    MaterializedView::new(identifier.clone(), clone, metadata).await
                 } else {
                     Err(Error::InvalidFormat(
                         "Create materialzied view didn't return materialized view metadata."
