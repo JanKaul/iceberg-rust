@@ -641,10 +641,10 @@ fn object_store_from_response(
             builder = builder.with_access_key_id(access_key_id)
         }
         if let Some(secret_access_key) = secret_access_key {
-            builder = builder.with_access_key_id(secret_access_key)
+            builder = builder.with_secret_access_key(secret_access_key)
         }
         if let Some(session_token) = session_token {
-            builder = builder.with_access_key_id(session_token)
+            builder = builder.with_token(session_token)
         }
 
         Ok(Some(Arc::new(builder.build()?)))
