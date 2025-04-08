@@ -192,7 +192,7 @@ impl Table {
     ///
     /// # Returns
     /// * `Result<Vec<ManifestListEntry>, Error>` - Vector of manifest entries in the range,
-    ///    or an empty vector if no current snapshot exists
+    ///   or an empty vector if no current snapshot exists
     ///
     /// # Errors
     /// Returns an error if:
