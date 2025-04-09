@@ -556,7 +556,7 @@ impl FileCatalog {
         });
         files
             .into_iter()
-            .last()
+            .next_back()
             .ok_or(IcebergError::CatalogNotFound)
     }
 
@@ -588,7 +588,7 @@ fn trim_start_path(path: &str) -> &str {
 
 fn parse_version(path: &str) -> Result<u64, IcebergError> {
     path.split('/')
-        .last()
+        .next_back()
         .ok_or(IcebergError::InvalidFormat("Metadata location".to_owned()))?
         .trim_start_matches('v')
         .trim_end_matches(".metadata.json")
