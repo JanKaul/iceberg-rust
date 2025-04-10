@@ -45,6 +45,7 @@ pub struct ApiKey {
 pub struct AWSv4Key {
     pub access_key: String,
     pub secret_key: SecretString,
+    pub session_token: Option<SecretString>,
     pub region: String,
     pub service: String,
 }
@@ -62,15 +63,17 @@ impl AWSv4Key {
             .body(body)
             .unwrap();
         let signing_settings = SigningSettings::default();
-        let signing_params = SigningParams::builder()
+        let mut builder = SigningParams::builder()
             .access_key(self.access_key.as_str())
             .secret_key(self.secret_key.expose_secret().as_str())
             .region(self.region.as_str())
             .service_name(self.service.as_str())
             .time(SystemTime::now())
-            .settings(signing_settings)
-            .build()
-            .unwrap();
+            .settings(signing_settings);
+        if let Some(session_token) = &self.session_token {
+            builder.set_security_token(Some(session_token.expose_secret().as_str()));
+        }
+        let signing_params = builder.build().unwrap();
         let signable_request = SignableRequest::from(&request);
         let (mut signing_instructions, _signature) =
             sign(signable_request, &signing_params)?.into_parts();
