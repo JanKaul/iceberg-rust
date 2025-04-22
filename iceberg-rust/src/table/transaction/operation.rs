@@ -510,7 +510,7 @@ impl Operation {
                 let mut snapshot_builder = SnapshotBuilder::default();
                 snapshot_builder
                     .with_snapshot_id(snapshot_id)
-                    .with_sequence_number(0)
+                    .with_sequence_number(sequence_number)
                     .with_schema_id(*schema.schema_id())
                     .with_manifest_list(new_manifest_list_location)
                     .with_summary(Summary {
