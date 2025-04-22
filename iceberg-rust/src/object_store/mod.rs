@@ -40,14 +40,16 @@ impl Display for Bucket<'_> {
 impl Bucket<'_> {
     /// Get the bucket and coud provider from the location string
     pub fn from_path(path: &str) -> Result<Bucket, Error> {
-        if path.starts_with("s3://") {
-            path.trim_start_matches("s3://")
+        if path.starts_with("s3://") || path.starts_with("s3a://") {
+            let prefix = if path.starts_with("s3://") { "s3://" } else { "s3a://" };
+            path.trim_start_matches(prefix)
                 .split('/')
                 .next()
                 .map(Bucket::S3)
                 .ok_or(Error::NotFound(format!("Bucket in path {path}")))
-        } else if path.starts_with("gcs://") {
-            path.trim_start_matches("gcs://")
+        } else if path.starts_with("gcs://") || path.starts_with("gs://") {
+            let prefix = if path.starts_with("gcs://") { "gcs://" } else { "gs://" };
+            path.trim_start_matches(prefix)
                 .split('/')
                 .next()
                 .map(Bucket::GCS)
