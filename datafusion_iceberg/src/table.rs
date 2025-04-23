@@ -263,15 +263,16 @@ impl TableProvider for DataFusionTable {
 
 // Create a fake object store URL. Different table paths should produce fake URLs
 // that differ in the host name, because DF's DefaultObjectStoreRegistry only takes
-// hostname into account
+// hostname into account for object store keys
 fn fake_object_store_url(table_location_url: &str) -> Option<ObjectStoreUrl> {
     let mut u = url::Url::parse(table_location_url).ok()?;
     u.set_host(Some(&format!(
-        "{}{}",
-        u.host_str().unwrap_or("-"),
+        "{}-0{}",
+        u.host_str().unwrap_or("").replace('-', "-1"),
         u.path()
-            .replace(object_store::path::DELIMITER, "-")
-            .replace(':', "-")
+            .replace('-', "-1")
+            .replace(object_store::path::DELIMITER, "-2")
+            .replace(':', "-3")
     )))
     .unwrap();
     u.set_path("");
@@ -1673,7 +1674,11 @@ mod tests {
     fn test_fake_object_store_url() {
         assert_eq!(
             fake_object_store_url("s3://aaa/bbb/ccc"),
-            Some(ObjectStoreUrl::parse("s3://aaa-bbb-ccc").unwrap()),
+            Some(ObjectStoreUrl::parse("s3://aaa-0-2bbb-2ccc").unwrap()),
+        );
+        assert_eq!(
+            fake_object_store_url("s3://aaa/bbb-ccc"),
+            Some(ObjectStoreUrl::parse("s3://aaa-0-2bbb-1ccc").unwrap()),
         );
         assert_eq!(fake_object_store_url("invalid url"), None);
     }
