@@ -269,7 +269,7 @@ fn fake_object_store_url(table_location_url: &str) -> Option<ObjectStoreUrl> {
     u.set_host(Some(&format!(
         "{}-{}",
         u.host_str().unwrap_or(""),
-        // Append hex-encoded path to ensure we get a valid hostname
+        // Hex-encode the path to ensure it produces a valid hostname
         u.path()
             .as_bytes()
             .iter()
