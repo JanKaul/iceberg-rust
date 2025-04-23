@@ -267,12 +267,15 @@ impl TableProvider for DataFusionTable {
 fn fake_object_store_url(table_location_url: &str) -> Option<ObjectStoreUrl> {
     let mut u = url::Url::parse(table_location_url).ok()?;
     u.set_host(Some(&format!(
-        "{}-0{}",
-        u.host_str().unwrap_or("").replace('-', "-1"),
+        "{}-{}",
+        u.host_str().unwrap_or(""),
+        // Append hex-encoded path to ensure we get a valid hostname
         u.path()
-            .replace('-', "-1")
-            .replace(object_store::path::DELIMITER, "-2")
-            .replace(':', "-3")
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<Vec<_>>()
+            .join("")
     )))
     .unwrap();
     u.set_path("");
@@ -1673,12 +1676,12 @@ mod tests {
     #[test]
     fn test_fake_object_store_url() {
         assert_eq!(
-            fake_object_store_url("s3://aaa/bbb/ccc"),
-            Some(ObjectStoreUrl::parse("s3://aaa-0-2bbb-2ccc").unwrap()),
+            fake_object_store_url("s3://a"),
+            Some(ObjectStoreUrl::parse("s3://a-").unwrap()),
         );
         assert_eq!(
-            fake_object_store_url("s3://aaa/bbb-ccc"),
-            Some(ObjectStoreUrl::parse("s3://aaa-0-2bbb-1ccc").unwrap()),
+            fake_object_store_url("s3://a/b"),
+            Some(ObjectStoreUrl::parse("s3://a-2f62").unwrap()),
         );
         assert_eq!(fake_object_store_url("invalid url"), None);
     }
