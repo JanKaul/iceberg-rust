@@ -265,7 +265,7 @@ impl TableProvider for DataFusionTable {
 // that differ in the host name, because DF's DefaultObjectStoreRegistry only takes
 // hostname into account
 fn fake_object_store_url(table_location_url: &str) -> Option<ObjectStoreUrl> {
-    let mut u = url::Url::parse(&table_location_url).ok()?;
+    let mut u = url::Url::parse(table_location_url).ok()?;
     u.set_host(Some(&format!(
         "{}{}",
         u.host_str().unwrap_or("-"),
@@ -277,7 +277,7 @@ fn fake_object_store_url(table_location_url: &str) -> Option<ObjectStoreUrl> {
     u.set_path("");
     u.set_query(None);
     u.set_fragment(None);
-    ObjectStoreUrl::parse(u.to_string()).ok()
+    ObjectStoreUrl::parse(&u).ok()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -298,7 +298,7 @@ async fn table_scan(
 
     // Create a unique URI for this particular object store
     let object_store_url = fake_object_store_url(&table.metadata().location)
-        .unwrap_or_else(|| ObjectStoreUrl::local_filesystem());
+        .unwrap_or_else(ObjectStoreUrl::local_filesystem);
     session
         .runtime_env()
         .register_object_store(object_store_url.as_ref(), table.object_store());
@@ -378,7 +378,8 @@ async fn table_scan(
 
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
-            .await.map_err(DataFusionIcebergError::from)?;
+            .await
+            .map_err(DataFusionIcebergError::from)?;
 
         // If there is a filter expression on the partition column, the manifest files to read are pruned.
         let data_files: Vec<ManifestEntry> = if let Some(predicate) = partition_predicates {
@@ -504,7 +505,7 @@ async fn table_scan(
                 .with_pushdown_filters(true)
         } else {
             ParquetSource::default()
-        }
+        },
     );
 
     // Create plan for every partition with delete files
@@ -596,11 +597,14 @@ async fn table_scan(
                             let delete_file_source = Arc::new(
                                 if let Some(physical_predicate) = physical_predicate.clone() {
                                     ParquetSource::default()
-                                        .with_predicate(Arc::clone(&delete_file_schema), physical_predicate)
+                                        .with_predicate(
+                                            Arc::clone(&delete_file_schema),
+                                            physical_predicate,
+                                        )
                                         .with_pushdown_filters(true)
                                 } else {
                                     ParquetSource::default()
-                                }
+                                },
                             );
 
                             let delete_file_scan_config = FileScanConfig::new(
