@@ -539,8 +539,6 @@ pub struct DataFile {
     null_value_counts: Option<AvroMap<i64>>,
     /// Map from column id to number of NaN values
     nan_value_counts: Option<AvroMap<i64>>,
-    /// Map from column id to number of distinct values in the column.
-    distinct_counts: Option<AvroMap<i64>>,
     /// Map from column id to lower bound in the column
     lower_bounds: Option<HashMap<i32, Value>>,
     /// Map from column id to upper bound in the column
@@ -584,7 +582,6 @@ impl DataFile {
             value_counts: value.value_counts,
             null_value_counts: value.null_value_counts,
             nan_value_counts: value.nan_value_counts,
-            distinct_counts: value.distinct_counts,
             lower_bounds: value
                 .lower_bounds
                 .map(|map| map.into_value_map(schema.fields()))
@@ -618,7 +615,6 @@ impl DataFile {
             value_counts: value.value_counts,
             null_value_counts: value.null_value_counts,
             nan_value_counts: value.nan_value_counts,
-            distinct_counts: value.distinct_counts,
             lower_bounds: value
                 .lower_bounds
                 .map(|map| map.into_value_map(schema.fields()))
@@ -658,8 +654,6 @@ pub struct DataFileV2 {
     pub null_value_counts: Option<AvroMap<i64>>,
     /// Map from column id to number of NaN values
     pub nan_value_counts: Option<AvroMap<i64>>,
-    /// Map from column id to number of distinct values in the column.
-    pub distinct_counts: Option<AvroMap<i64>>,
     /// Map from column id to lower bound in the column
     pub lower_bounds: Option<AvroMap<ByteBuf>>,
     /// Map from column id to upper bound in the column
@@ -701,8 +695,6 @@ pub struct DataFileV1 {
     pub null_value_counts: Option<AvroMap<i64>>,
     /// Map from column id to number of NaN values
     pub nan_value_counts: Option<AvroMap<i64>>,
-    /// Map from column id to number of distinct values in the column.
-    pub distinct_counts: Option<AvroMap<i64>>,
     /// Map from column id to lower bound in the column
     pub lower_bounds: Option<AvroMap<ByteBuf>>,
     /// Map from column id to upper bound in the column
@@ -728,7 +720,6 @@ impl From<DataFile> for DataFileV2 {
             value_counts: value.value_counts,
             null_value_counts: value.null_value_counts,
             nan_value_counts: value.nan_value_counts,
-            distinct_counts: value.distinct_counts,
             lower_bounds: value.lower_bounds.map(Into::into),
             upper_bounds: value.upper_bounds.map(Into::into),
             key_metadata: value.key_metadata,
@@ -751,7 +742,6 @@ impl From<DataFile> for DataFileV1 {
             value_counts: value.value_counts,
             null_value_counts: value.null_value_counts,
             nan_value_counts: value.nan_value_counts,
-            distinct_counts: value.distinct_counts,
             lower_bounds: value.lower_bounds.map(Into::into),
             upper_bounds: value.upper_bounds.map(Into::into),
             key_metadata: value.key_metadata,
@@ -777,7 +767,6 @@ impl From<DataFileV1> for DataFileV2 {
             value_counts: v1.value_counts,
             null_value_counts: v1.null_value_counts,
             nan_value_counts: v1.nan_value_counts,
-            distinct_counts: v1.distinct_counts,
             lower_bounds: v1.lower_bounds,
             upper_bounds: v1.upper_bounds,
             key_metadata: v1.key_metadata,
@@ -961,34 +950,6 @@ impl DataFileV1 {
                     ],
                     "default": null,
                     "field-id": 137
-                },
-                {
-                    "name": "distinct_counts",
-                    "type": [
-                        "null",
-                        {
-                            "type": "array",
-                            "logicalType": "map",
-                            "items": {
-                                "type": "record",
-                                "name": "k123_v124",
-                                "fields": [
-                                    {
-                                        "name": "key",
-                                        "type": "int",
-                                        "field-id": 123
-                                    },
-                                    {
-                                        "name": "value",
-                                        "type": "long",
-                                        "field-id": 124
-                                    }
-                                ]
-                            }
-                        }
-                    ],
-                    "default": null,
-                    "field-id": 111
                 },
                 {
                     "name": "lower_bounds",
@@ -1235,34 +1196,6 @@ impl DataFileV2 {
                     "field-id": 137
                 },
                 {
-                    "name": "distinct_counts",
-                    "type": [
-                        "null",
-                        {
-                            "type": "array",
-                            "logicalType": "map",
-                            "items": {
-                                "type": "record",
-                                "name": "k123_v124",
-                                "fields": [
-                                    {
-                                        "name": "key",
-                                        "type": "int",
-                                        "field-id": 123
-                                    },
-                                    {
-                                        "name": "value",
-                                        "type": "long",
-                                        "field-id": 124
-                                    }
-                                ]
-                            }
-                        }
-                    ],
-                    "default": null,
-                    "field-id": 111
-                },
-                {
                     "name": "lower_bounds",
                     "type": [
                         "null",
@@ -1424,7 +1357,6 @@ mod tests {
                 value_counts: None,
                 null_value_counts: None,
                 nan_value_counts: None,
-                distinct_counts: None,
                 lower_bounds: Some(HashMap::from_iter(vec![(0, Value::Date(0))])),
                 upper_bounds: None,
                 key_metadata: None,
@@ -1545,7 +1477,6 @@ mod tests {
                 value_counts: None,
                 null_value_counts: None,
                 nan_value_counts: None,
-                distinct_counts: None,
                 lower_bounds: Some(HashMap::from_iter(vec![(0, Value::Date(0))])),
                 upper_bounds: None,
                 key_metadata: None,
