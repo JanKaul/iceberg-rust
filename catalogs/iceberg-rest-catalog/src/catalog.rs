@@ -93,7 +93,7 @@ impl Catalog for RestCatalog {
         catalog_api_api::drop_namespace(
             &self.configuration,
             self.name.as_deref(),
-            &namespace.url_encode(),
+            &namespace.to_string(),
         )
         .await
         .map_err(Into::<Error>::into)?;
@@ -107,7 +107,7 @@ impl Catalog for RestCatalog {
         let response = catalog_api_api::load_namespace_metadata(
             &self.configuration,
             self.name.as_deref(),
-            &namespace.url_encode(),
+            &namespace.to_string(),
         )
         .await
         .map_err(Into::<Error>::into)?;
@@ -123,7 +123,7 @@ impl Catalog for RestCatalog {
         catalog_api_api::update_properties(
             &self.configuration,
             self.name.as_deref(),
-            &namespace.url_encode(),
+            &namespace.to_string(),
             models::UpdateNamespacePropertiesRequest { updates, removals },
         )
         .await
@@ -135,7 +135,7 @@ impl Catalog for RestCatalog {
         match catalog_api_api::namespace_exists(
             &self.configuration,
             self.name.as_deref(),
-            &namespace.url_encode(),
+            &namespace.to_string(),
         )
         .await
         {
