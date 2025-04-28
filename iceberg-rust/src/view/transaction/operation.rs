@@ -47,9 +47,17 @@ impl Operation {
                 schema,
                 branch,
             } => {
+                let schema_changed = metadata.current_schema(branch.as_deref())
+                    .map(|s| schema != *s.fields())
+                    .unwrap_or(true);
+
                 let version = metadata.current_version(branch.as_deref())?;
                 let version_id = metadata.versions.keys().max().unwrap_or(&0) + 1;
-                let schema_id = metadata.schemas.keys().max().unwrap_or(&0) + 1;
+                let schema_id = if schema_changed {
+                    metadata.schemas.keys().max().unwrap_or(&0) + 1
+                } else {
+                    *metadata.current_schema(branch.as_deref()).unwrap().schema_id()
+                };
                 let last_column_id = schema.iter().map(|x| x.id).max().unwrap_or(0);
 
                 let version = Version {
@@ -72,28 +80,35 @@ impl Operation {
 
                 let branch_name = branch.unwrap_or("main".to_string());
 
+                let mut view_updates: Vec<ViewUpdate<T>> = if schema_changed {
+                    vec![ViewUpdate::AddSchema {
+                        schema: Schema::from_struct_type(schema, schema_id, None),
+                        last_column_id: Some(last_column_id),
+                    }]
+                } else {
+                    vec![]
+                };
+
+                view_updates.append(&mut vec![
+                    ViewUpdate::AddViewVersion {
+                        view_version: version,
+                    },
+                    ViewUpdate::SetCurrentViewVersion {
+                        view_version_id: version_id,
+                    },
+                    ViewUpdate::SetProperties {
+                        updates: HashMap::from_iter(vec![(
+                            REF_PREFIX.to_string() + &branch_name,
+                            version_id.to_string(),
+                        )]),
+                    },
+                ]);
+
                 Ok((
                     Some(ViewRequirement::AssertViewUuid {
                         uuid: metadata.view_uuid,
                     }),
-                    vec![
-                        ViewUpdate::AddSchema {
-                            schema: Schema::from_struct_type(schema, schema_id, None),
-                            last_column_id: Some(last_column_id),
-                        },
-                        ViewUpdate::AddViewVersion {
-                            view_version: version,
-                        },
-                        ViewUpdate::SetCurrentViewVersion {
-                            view_version_id: version_id,
-                        },
-                        ViewUpdate::SetProperties {
-                            updates: HashMap::from_iter(vec![(
-                                REF_PREFIX.to_string() + &branch_name,
-                                version_id.to_string(),
-                            )]),
-                        },
-                    ],
+                    view_updates,
                 ))
             }
             Operation::UpdateProperties(entries) => Ok((
