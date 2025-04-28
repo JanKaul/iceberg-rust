@@ -77,15 +77,15 @@ impl Operation {
                         uuid: metadata.view_uuid,
                     }),
                     vec![
+                        ViewUpdate::AddSchema {
+                            schema: Schema::from_struct_type(schema, schema_id, None),
+                            last_column_id: Some(last_column_id),
+                        },
                         ViewUpdate::AddViewVersion {
                             view_version: version,
                         },
                         ViewUpdate::SetCurrentViewVersion {
                             view_version_id: version_id,
-                        },
-                        ViewUpdate::AddSchema {
-                            schema: Schema::from_struct_type(schema, schema_id, None),
-                            last_column_id: Some(last_column_id),
                         },
                         ViewUpdate::SetProperties {
                             updates: HashMap::from_iter(vec![(
