@@ -250,7 +250,6 @@ pub fn parquet_to_datafile(
         .with_value_counts(Some(value_counts))
         .with_null_value_counts(Some(null_value_counts))
         .with_nan_value_counts(None)
-        .with_distinct_counts(Some(distinct_counts))
         .with_lower_bounds(Some(lower_bounds))
         .with_upper_bounds(Some(upper_bounds));
 
