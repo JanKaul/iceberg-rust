@@ -37,15 +37,6 @@ impl UserDefinedLogicalNodeCore for PosDeltaNode {
         write!(f, "PosDelta")
     }
 
-    fn from_template(&self, exprs: &[Expr], inputs: &[LogicalPlan]) -> Self {
-        assert_eq!(inputs.len(), 1, "input size inconsistent");
-        assert_eq!(exprs.len(), 0, "expression size inconsistent");
-        Self {
-            input: Arc::new(inputs[0].clone()),
-            aliases: BTreeMap::new(),
-        }
-    }
-
     fn with_exprs_and_inputs(
         &self,
         exprs: Vec<Expr>,
@@ -115,15 +106,6 @@ impl UserDefinedLogicalNodeCore for NegDeltaNode {
 
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "NegDelta")
-    }
-
-    fn from_template(&self, exprs: &[Expr], inputs: &[LogicalPlan]) -> Self {
-        assert_eq!(inputs.len(), 1, "input size inconsistent");
-        assert_eq!(exprs.len(), 0, "expression size inconsistent");
-        Self {
-            input: Arc::new(inputs[0].clone()),
-            aliases: BTreeMap::new(),
-        }
     }
 
     fn with_exprs_and_inputs(

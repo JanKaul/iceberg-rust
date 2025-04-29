@@ -29,7 +29,7 @@ use crate::error::Error;
 /// Read datafile statistics from parquetfile
 pub fn parquet_to_datafile(
     location: &str,
-    file_size: usize,
+    file_size: u64,
     file_metadata: &FileMetaData,
     schema: &Schema,
     partition_fields: &[BoundPartitionField<'_>],
