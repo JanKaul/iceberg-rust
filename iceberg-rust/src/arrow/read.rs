@@ -26,13 +26,14 @@ pub async fn read(
         .then(move |manifest| {
             let object_store = object_store.clone();
             async move {
-                match manifest.data_file().file_format() {
+                let data_file = manifest.data_file();
+                match data_file.file_format() {
                     FileFormat::Parquet => {
-                        let object_meta = object_store
-                            .head(&util::strip_prefix(manifest.data_file().file_path()).into())
-                            .await?;
-
-                        let object_reader = ParquetObjectReader::new(object_store, object_meta);
+                        let object_reader = ParquetObjectReader::new(
+                            object_store,
+                            util::strip_prefix(data_file.file_path()).into(),
+                        )
+                        .with_file_size((*data_file.file_size_in_bytes()) as u64);
                         Ok::<_, Error>(
                             ParquetRecordBatchStreamBuilder::new(object_reader)
                                 .await?

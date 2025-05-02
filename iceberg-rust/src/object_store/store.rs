@@ -61,6 +61,7 @@ impl<T: ObjectStore> IcebergStore for T {
                 mode: object_store::PutMode::Overwrite,
                 tags: TagSet::default(),
                 attributes: Attributes::default(),
+                extensions: Default::default(),
             },
         )
         .await?;
