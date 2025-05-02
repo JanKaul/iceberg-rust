@@ -21,7 +21,6 @@ use datafusion::{
     arrow::datatypes::{Field, Schema as ArrowSchema, SchemaRef},
     catalog::Session,
     common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
-    config::ConfigOptions,
     datasource::{
         file_format::{parquet::ParquetFormat, FileFormat},
         listing::PartitionedFile,
@@ -32,7 +31,7 @@ use datafusion::{
     },
     execution::{context::SessionState, TaskContext},
     logical_expr::{TableProviderFilterPushDown, TableType},
-    optimizer::{analyzer::type_coercion::TypeCoercion, Analyzer, AnalyzerRule},
+    optimizer::{analyzer::type_coercion::TypeCoercion, Analyzer},
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
     physical_plan::{
