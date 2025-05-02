@@ -82,10 +82,9 @@ pub(crate) fn delta_transform_down(
                     LogicalPlan::Join(join) => {
                         let inputs = transform_join(join)?.0;
 
-                        Ok(Transformed::yes(LogicalPlan::Union(Union {
-                            inputs,
-                            schema: join.schema.clone(),
-                        })))
+                        Ok(Transformed::yes(LogicalPlan::Union(
+                            Union::try_new_by_name(inputs)?,
+                        )))
                     }
                     LogicalPlan::Union(union) => {
                         let inputs = union
@@ -190,10 +189,10 @@ pub(crate) fn delta_transform_down(
                             null_equals_null: false,
                         }));
 
-                        Ok(Transformed::yes(LogicalPlan::Union(Union {
-                            inputs: vec![aggregate_projection, anti_join],
-                            schema: aggregate.schema.clone(),
-                        })))
+                        let inputs = vec![aggregate_projection, anti_join];
+                        Ok(Transformed::yes(LogicalPlan::Union(
+                            Union::try_new_by_name(inputs)?,
+                        )))
                     }
                     LogicalPlan::TableScan(scan) => {
                         let mut scan = scan.clone();
@@ -275,14 +274,14 @@ pub(crate) fn delta_transform_down(
                             join_constraint: join.join_constraint,
                             null_equals_null: join.null_equals_null,
                         });
-                        Ok(Transformed::yes(LogicalPlan::Union(Union {
-                            inputs: vec![
-                                Arc::new(delta_delta),
-                                Arc::new(left_delta),
-                                Arc::new(right_delta),
-                            ],
-                            schema: join.schema.clone(),
-                        })))
+                        let inputs = vec![
+                            Arc::new(delta_delta),
+                            Arc::new(left_delta),
+                            Arc::new(right_delta),
+                        ];
+                        Ok(Transformed::yes(LogicalPlan::Union(
+                            Union::try_new_by_name(inputs)?,
+                        )))
                     }
                     LogicalPlan::Union(union) => {
                         let inputs = union
