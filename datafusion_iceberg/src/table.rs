@@ -31,7 +31,6 @@ use datafusion::{
     },
     execution::{context::SessionState, TaskContext},
     logical_expr::{TableProviderFilterPushDown, TableType},
-    optimizer::{analyzer::type_coercion::TypeCoercion, Analyzer},
     physical_expr::create_physical_expr,
     physical_optimizer::pruning::PruningPredicate,
     physical_plan::{
@@ -185,8 +184,6 @@ impl TableProvider for DataFusionTable {
                 };
                 let statement = DFParserBuilder::new(sql).build()?.parse_statement()?;
                 let logical_plan = session_state.statement_to_plan(statement).await?;
-                let logical_plan = Analyzer::with_rules(vec![Arc::new(TypeCoercion::new())])
-                    .execute_and_check(logical_plan, session.config_options(), |_, _| {})?;
                 ViewTable::new(logical_plan, Some(sql.clone()))
                     .scan(session, projection, filters, limit)
                     .await
