@@ -1,4 +1,3 @@
-use core::panic;
 use std::{
     fmt::{self, Debug},
     hash::Hash,
@@ -115,10 +114,6 @@ impl UserDefinedLogicalNodeCore for ForkNode {
 
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "ForkNode")
-    }
-
-    fn from_template(&self, _exprs: &[Expr], _inputs: &[LogicalPlan]) -> Self {
-        panic!("Creating fork node from template is not allowed");
     }
 
     fn with_exprs_and_inputs(
