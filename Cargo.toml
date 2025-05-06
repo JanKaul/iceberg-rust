@@ -8,38 +8,41 @@ members = [
     "datafusion-iceberg-sql",
     "datafusion_iceberg",
     "iceberg-rust",
-    "iceberg-rust-spec"
+    "iceberg-rust-spec",
 ]
 
 resolver = "2"
 
 [workspace.dependencies]
-apache-avro = "0.17.0"
-arrow = "54"
-arrow-schema = "54"
+apache-avro = "0.18"
+arrow = "55"
+arrow-schema = "55"
 async-trait = "0.1"
 bytes = "1"
-chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
-datafusion = "46"
-datafusion-common = "46"
-datafusion-execution = "46"
-datafusion-expr = "46"
-datafusion-functions = { version = "46", features = ["crypto_expressions"] }
-datafusion-functions-aggregate = "46"
-datafusion-sql = "46"
+chrono = { version = "0.4", default-features = false, features = [
+    "serde",
+    "clock",
+] }
+datafusion = "47"
+datafusion-common = "47"
+datafusion-execution = "47"
+datafusion-expr = "47"
+datafusion-functions = { version = "47", features = ["crypto_expressions"] }
+datafusion-functions-aggregate = "47"
+datafusion-sql = "47"
 derive-getters = "0.5.0"
 derive_builder = "0.20"
 futures = "0.3.31"
 getrandom = { version = "0.3.1", features = ["std"] }
 itertools = "0.14.0"
-object_store = { version = "0.11.2", features = ["aws", "gcp"] }
+object_store = { version = "0.12", features = ["aws", "gcp"] }
 once_map = "0.4"
-parquet = { version = "54", features = ["async", "object_store"] }
+parquet = { version = "55", features = ["async", "object_store"] }
 pin-project-lite = "0.2"
 serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"
-sqlparser = { version = "0.54.0", features = ["visitor"] }
+sqlparser = { version = "0.55", features = ["visitor"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-futures = "0.2"

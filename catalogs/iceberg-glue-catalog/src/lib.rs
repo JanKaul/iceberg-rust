@@ -20,7 +20,7 @@ use iceberg_rust::{
         identifier::Identifier,
         namespace::Namespace,
         tabular::Tabular,
-        Catalog,
+        Catalog, CatalogList,
     },
     error::Error as IcebergError,
     materialized_view::MaterializedView,
@@ -945,6 +945,40 @@ impl Catalog for GlueCatalog {
             metadata,
         )
         .await?)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GlueCatalogList {
+    name: String,
+    config: SdkConfig,
+    object_store_builder: ObjectStoreBuilder,
+}
+
+impl GlueCatalogList {
+    pub fn new(name: &str, config: &SdkConfig, object_store_builder: ObjectStoreBuilder) -> Self {
+        Self {
+            name: name.to_owned(),
+            config: config.to_owned(),
+            object_store_builder,
+        }
+    }
+}
+
+#[async_trait]
+impl CatalogList for GlueCatalogList {
+    fn catalog(&self, name: &str) -> Option<Arc<dyn Catalog>> {
+        if self.name == name {
+            Some(Arc::new(
+                GlueCatalog::new(&self.config, &self.name, self.object_store_builder.clone())
+                    .unwrap(),
+            ))
+        } else {
+            None
+        }
+    }
+    async fn list_catalogs(&self) -> Vec<String> {
+        vec![self.name.clone()]
     }
 }
 

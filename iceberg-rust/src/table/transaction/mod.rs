@@ -330,24 +330,7 @@ impl<'table> TableTransaction<'table> {
     /// ```
     pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.table.catalog();
-        let object_store = self.table.object_store();
         let identifier = self.table.identifier.clone();
-
-        // Save old metadata to be able to remove old data after a rewrite operation
-        let delete_data = if self.operations.values().any(|x| {
-            matches!(
-                x,
-                Operation::Replace {
-                    branch: _,
-                    files: _,
-                    additional_summary: _,
-                }
-            )
-        }) {
-            Some(self.table.metadata())
-        } else {
-            None
-        };
 
         // Execute the table operations
         let (mut requirements, mut updates) = (Vec::new(), Vec::new());
@@ -370,10 +353,6 @@ impl<'table> TableTransaction<'table> {
                 updates,
             })
             .await?;
-
-        if let Some(old_metadata) = delete_data {
-            delete_all_table_files(old_metadata, object_store).await?;
-        }
 
         *self.table = new_table;
         Ok(())

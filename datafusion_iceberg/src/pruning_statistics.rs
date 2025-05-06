@@ -29,8 +29,8 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use datafusion_expr::{
-    expr::ScalarFunction, BinaryExpr, ColumnarValue, Expr, ScalarUDF, ScalarUDFImpl, Signature,
-    TypeSignature, Volatility,
+    expr::ScalarFunction, BinaryExpr, ColumnarValue, Expr, ScalarFunctionArgs, ScalarUDF,
+    ScalarUDFImpl, Signature, TypeSignature, Volatility,
 };
 use iceberg_rust::{
     arrow::transform::transform_arrow,
@@ -387,7 +387,11 @@ impl ScalarUDFImpl for DateTransform {
         Ok(DataType::Int32)
     }
 
-    fn invoke(&self, args: &[ColumnarValue]) -> datafusion::error::Result<ColumnarValue> {
+    fn invoke_with_args(
+        &self,
+        args: ScalarFunctionArgs,
+    ) -> datafusion::error::Result<ColumnarValue> {
+        let args = args.args;
         let transform = &args[0];
         let array = &args[1];
         let ColumnarValue::Scalar(ScalarValue::Utf8(Some(transform))) = transform else {

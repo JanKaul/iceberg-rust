@@ -6,14 +6,14 @@ use std::{
 
 use datafusion::{
     catalog::TableProvider,
-    common::{tree_node::Transformed, Column},
+    common::{tree_node::Transformed, Column, DFSchema},
     datasource::{empty::EmptyTable, DefaultTableSource},
     error::DataFusionError,
     sql::TableReference,
 };
 use datafusion_expr::{
-    build_join_schema, Aggregate, Expr, Filter, Join, JoinConstraint, JoinType, LogicalPlan,
-    Projection, SubqueryAlias, TableScan, Union,
+    build_join_schema, expr::Alias, Aggregate, Expr, Filter, Join, JoinConstraint, JoinType,
+    LogicalPlan, Projection, SubqueryAlias, TableScan, Union,
 };
 use iceberg_rust::error::Error;
 
@@ -82,10 +82,7 @@ pub(crate) fn delta_transform_down(
                     LogicalPlan::Join(join) => {
                         let inputs = transform_join(join)?.0;
 
-                        Ok(Transformed::yes(LogicalPlan::Union(Union {
-                            inputs,
-                            schema: join.schema.clone(),
-                        })))
+                        Ok(Transformed::yes(union_with_schema(inputs, &join.schema)?))
                     }
                     LogicalPlan::Union(union) => {
                         let inputs = union
@@ -190,10 +187,11 @@ pub(crate) fn delta_transform_down(
                             null_equals_null: false,
                         }));
 
-                        Ok(Transformed::yes(LogicalPlan::Union(Union {
-                            inputs: vec![aggregate_projection, anti_join],
-                            schema: aggregate.schema.clone(),
-                        })))
+                        let inputs = vec![aggregate_projection, anti_join];
+                        Ok(Transformed::yes(union_with_schema(
+                            inputs,
+                            &aggregate.schema,
+                        )?))
                     }
                     LogicalPlan::TableScan(scan) => {
                         let mut scan = scan.clone();
@@ -275,14 +273,12 @@ pub(crate) fn delta_transform_down(
                             join_constraint: join.join_constraint,
                             null_equals_null: join.null_equals_null,
                         });
-                        Ok(Transformed::yes(LogicalPlan::Union(Union {
-                            inputs: vec![
-                                Arc::new(delta_delta),
-                                Arc::new(left_delta),
-                                Arc::new(right_delta),
-                            ],
-                            schema: join.schema.clone(),
-                        })))
+                        let inputs = vec![
+                            Arc::new(delta_delta),
+                            Arc::new(left_delta),
+                            Arc::new(right_delta),
+                        ];
+                        Ok(Transformed::yes(union_with_schema(inputs, &join.schema)?))
                     }
                     LogicalPlan::Union(union) => {
                         let inputs = union
@@ -512,6 +508,27 @@ fn storage_table_group_expressions(
             )))),
         })
         .collect()
+}
+
+fn union_with_schema(
+    inputs: Vec<Arc<LogicalPlan>>,
+    schema: &DFSchema,
+) -> Result<LogicalPlan, DataFusionError> {
+    let union = Union::try_new_by_name(inputs)?;
+    let exprs = schema
+        .iter()
+        .map(|(reference, field)| {
+            Expr::Alias(Alias::new(
+                Expr::Column(Column::new(None::<String>, field.name())),
+                reference.cloned(),
+                field.name(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    Ok(LogicalPlan::Projection(Projection::try_new(
+        exprs,
+        Arc::new(LogicalPlan::Union(union)),
+    )?))
 }
 
 #[cfg(test)]
@@ -813,73 +830,89 @@ mod tests {
         dbg!(&output);
 
         if let LogicalPlan::Projection(proj) = output {
-            if let LogicalPlan::Union(union) = proj.input.deref() {
-                if let LogicalPlan::Join(join) = union.inputs[0].deref() {
-                    if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
-                            if let LogicalPlan::TableScan(table) = ext.input.deref() {
-                                assert_eq!(table.table_name.table(), "users")
+            if let LogicalPlan::Projection(proj) = proj.input.deref() {
+                if let LogicalPlan::Union(union) = proj.input.deref() {
+                    if let LogicalPlan::Projection(proj) = union.inputs[0].deref() {
+                        if let LogicalPlan::Join(join) = proj.input.deref() {
+                            if let LogicalPlan::Extension(ext) = join.left.deref() {
+                                if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
+                                    if let LogicalPlan::TableScan(table) = ext.input.deref() {
+                                        assert_eq!(table.table_name.table(), "users")
+                                    } else {
+                                        panic!("Node is not a table scan.")
+                                    }
+                                } else {
+                                    panic!("Node is not a ForkNode")
+                                }
                             } else {
-                                panic!("Node is not a table scan.")
+                                panic!("Node is not an extension")
+                            }
+                            if let LogicalPlan::Extension(ext) = join.right.deref() {
+                                if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
+                                    if let LogicalPlan::TableScan(table) = ext.input.deref() {
+                                        assert_eq!(table.table_name.table(), "homes")
+                                    } else {
+                                        panic!("Node is not a table scan.")
+                                    }
+                                } else {
+                                    panic!("Node is not a ForkNode")
+                                }
+                            } else {
+                                panic!("Node is not an extension")
                             }
                         } else {
-                            panic!("Node is not a ForkNode")
+                            panic!("Node is not a CrossJoin.")
                         }
-                    } else {
-                        panic!("Node is not an extension")
-                    }
-                    if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
-                            if let LogicalPlan::TableScan(table) = ext.input.deref() {
-                                assert_eq!(table.table_name.table(), "homes")
+                        if let LogicalPlan::Projection(proj) = union.inputs[1].deref() {
+                            if let LogicalPlan::Join(join) = proj.input.deref() {
+                                if let LogicalPlan::TableScan(table) = join.left.deref() {
+                                    assert_eq!(table.table_name.table(), "users")
+                                } else {
+                                    panic!("Node is not a table scan.")
+                                }
+                                if let LogicalPlan::Extension(ext) = join.right.deref() {
+                                    if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
+                                    } else {
+                                        panic!("Node is not a ForkNode")
+                                    }
+                                } else {
+                                    panic!("Node is not an extension")
+                                }
                             } else {
-                                panic!("Node is not a table scan.")
+                                panic!("Node is not a CrossJoin.")
+                            }
+                            if let LogicalPlan::Projection(proj) = union.inputs[2].deref() {
+                                if let LogicalPlan::Join(join) = proj.input.deref() {
+                                    if let LogicalPlan::Extension(ext) = join.left.deref() {
+                                        if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
+                                        } else {
+                                            panic!("Node is not a RecveiverNode")
+                                        }
+                                    } else {
+                                        panic!("Node is not an extension")
+                                    }
+                                    if let LogicalPlan::TableScan(table) = join.right.deref() {
+                                        assert_eq!(table.table_name.table(), "homes")
+                                    } else {
+                                        panic!("Node is not a table scan.")
+                                    }
+                                } else {
+                                    panic!("Node is not a CrossJoin.")
+                                }
+                            } else {
+                                panic!("Node is not a projection.")
                             }
                         } else {
-                            panic!("Node is not a ForkNode")
+                            panic!("Node is not a projection.")
                         }
                     } else {
-                        panic!("Node is not an extension")
+                        panic!("Node is not a projection.")
                     }
                 } else {
-                    panic!("Node is not a CrossJoin.")
-                }
-                if let LogicalPlan::Join(join) = union.inputs[1].deref() {
-                    if let LogicalPlan::TableScan(table) = join.left.deref() {
-                        assert_eq!(table.table_name.table(), "users")
-                    } else {
-                        panic!("Node is not a table scan.")
-                    }
-                    if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
-                        } else {
-                            panic!("Node is not a ForkNode")
-                        }
-                    } else {
-                        panic!("Node is not an extension")
-                    }
-                } else {
-                    panic!("Node is not a CrossJoin.")
-                }
-                if let LogicalPlan::Join(join) = union.inputs[2].deref() {
-                    if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
-                        } else {
-                            panic!("Node is not a RecveiverNode")
-                        }
-                    } else {
-                        panic!("Node is not an extension")
-                    }
-                    if let LogicalPlan::TableScan(table) = join.right.deref() {
-                        assert_eq!(table.table_name.table(), "homes")
-                    } else {
-                        panic!("Node is not a table scan.")
-                    }
-                } else {
-                    panic!("Node is not a CrossJoin.")
+                    panic!("Node is not a filter.")
                 }
             } else {
-                panic!("Node is not a filter.")
+                panic!("Node is not a projection.")
             }
         } else {
             panic!("Node is not a projection.")
@@ -1058,67 +1091,84 @@ mod tests {
         dbg!(&output);
 
         if let LogicalPlan::Projection(proj) = output {
-            if let LogicalPlan::Union(union) = proj.input.deref() {
-                if let LogicalPlan::Projection(proj) = union.inputs[0].deref() {
-                    if let LogicalPlan::Join(join) = proj.input.deref() {
-                        if let LogicalPlan::Extension(ext) = join.left.deref() {
-                            if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
-                                if let LogicalPlan::Aggregate(aggregate) = ext.input.deref() {
-                                    if let LogicalPlan::TableScan(table) = aggregate.input.deref() {
-                                        assert_eq!(table.table_name.table(), "users")
+            if let LogicalPlan::Projection(proj) = proj.input.deref() {
+                if let LogicalPlan::Union(union) = proj.input.deref() {
+                    if let LogicalPlan::Projection(proj) = union.inputs[0].deref() {
+                        if let LogicalPlan::Projection(proj) = proj.input.deref() {
+                            if let LogicalPlan::Join(join) = proj.input.deref() {
+                                if let LogicalPlan::Extension(ext) = join.left.deref() {
+                                    if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>()
+                                    {
+                                        if let LogicalPlan::Aggregate(aggregate) = ext.input.deref()
+                                        {
+                                            if let LogicalPlan::TableScan(table) =
+                                                aggregate.input.deref()
+                                            {
+                                                assert_eq!(table.table_name.table(), "users")
+                                            } else {
+                                                panic!("Node is not a table scan.")
+                                            }
+                                        } else {
+                                            panic!("Node is not an aggregate.")
+                                        }
                                     } else {
-                                        panic!("Node is not a table scan.")
+                                        panic!("Node is not a ForkNode")
                                     }
                                 } else {
-                                    panic!("Node is not an aggregate.")
+                                    panic!("Node is not an extension")
                                 }
-                            } else {
-                                panic!("Node is not a ForkNode")
-                            }
-                        } else {
-                            panic!("Node is not an extension")
-                        }
-                        if let LogicalPlan::Extension(ext) = join.right.deref() {
-                            if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>() {
-                                if let LogicalPlan::TableScan(table) = ext.input.deref() {
-                                    assert_eq!(table.table_name.table(), "users_view")
+                                if let LogicalPlan::Extension(ext) = join.right.deref() {
+                                    if let Some(ext) = ext.node.as_any().downcast_ref::<ForkNode>()
+                                    {
+                                        if let LogicalPlan::TableScan(table) = ext.input.deref() {
+                                            assert_eq!(table.table_name.table(), "users_view")
+                                        } else {
+                                            panic!("Node is not a table scan.")
+                                        }
+                                    } else {
+                                        panic!("Node is not a ForkNode")
+                                    }
                                 } else {
-                                    panic!("Node is not a table scan.")
+                                    panic!("Node is not an extension")
                                 }
                             } else {
-                                panic!("Node is not a ForkNode")
+                                panic!("Node is not a CrossJoin.")
                             }
                         } else {
-                            panic!("Node is not an extension")
+                            panic!("Node is not a projection.")
                         }
                     } else {
-                        panic!("Node is not a CrossJoin.")
+                        panic!("Node is not a projection.")
+                    }
+                    if let LogicalPlan::Projection(proj) = union.inputs[1].deref() {
+                        if let LogicalPlan::Join(join) = proj.input.deref() {
+                            if let LogicalPlan::Extension(ext) = join.left.deref() {
+                                if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
+                                } else {
+                                    panic!("Node is not a ForkNode")
+                                }
+                            } else {
+                                panic!("Node is not an extension")
+                            }
+                            if let LogicalPlan::Extension(ext) = join.right.deref() {
+                                if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
+                                } else {
+                                    panic!("Node is not a ForkNode")
+                                }
+                            } else {
+                                panic!("Node is not an extension")
+                            }
+                        } else {
+                            panic!("Node is not a CrossJoin.")
+                        }
+                    } else {
+                        panic!("Node is not a filter.")
                     }
                 } else {
                     panic!("Node is not a projection.")
                 }
-                if let LogicalPlan::Join(join) = union.inputs[1].deref() {
-                    if let LogicalPlan::Extension(ext) = join.left.deref() {
-                        if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
-                        } else {
-                            panic!("Node is not a ForkNode")
-                        }
-                    } else {
-                        panic!("Node is not an extension")
-                    }
-                    if let LogicalPlan::Extension(ext) = join.right.deref() {
-                        if ext.node.as_any().downcast_ref::<ForkNode>().is_some() {
-                        } else {
-                            panic!("Node is not a ForkNode")
-                        }
-                    } else {
-                        panic!("Node is not an extension")
-                    }
-                } else {
-                    panic!("Node is not a CrossJoin.")
-                }
             } else {
-                panic!("Node is not a filter.")
+                panic!("Node is not a projection.")
             }
         } else {
             panic!("Node is not a projection.")
