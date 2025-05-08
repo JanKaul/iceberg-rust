@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-
+use smallvec::SmallVec;
 use iceberg_rust_spec::{
     manifest::ManifestEntry, manifest_list::ManifestListEntry, manifest::Content, manifest::DataFile};
 
