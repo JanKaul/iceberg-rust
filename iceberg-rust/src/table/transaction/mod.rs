@@ -344,6 +344,10 @@ impl<'table> TableTransaction<'table> {
             updates.extend(update);
         }
 
+        if updates.is_empty() {
+            return Ok(());
+        }
+
         let new_table = catalog
             .clone()
             .update_table(CommitTable {
