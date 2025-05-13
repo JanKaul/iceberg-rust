@@ -8,6 +8,8 @@ use iceberg_rust_spec::{
 use object_store::{Attributes, ObjectStore, PutOptions, TagSet};
 
 use crate::error::Error;
+use flate2::read::GzDecoder;
+use std::io::Read;
 
 /// Simplify interaction with iceberg files
 #[async_trait]
@@ -32,7 +34,16 @@ impl<T: ObjectStore> IcebergStore for T {
             .await?
             .bytes()
             .await?;
-        serde_json::from_slice(&bytes).map_err(Error::from)
+
+        if location.ends_with(".gz.metadata.json") {
+            let mut decoder = GzDecoder::new(&bytes[..]);
+            let mut decompressed_data = Vec::new();
+            decoder.read_to_end(&mut decompressed_data)
+                .map_err(|e| Error::Decompress(e.to_string()))?;
+            serde_json::from_slice(&decompressed_data).map_err(Error::from)
+        } else {
+            serde_json::from_slice(&bytes).map_err(Error::from)
+        }
     }
 
     async fn put_metadata(
