@@ -272,7 +272,6 @@ mod tests {
         assert!(result.is_ok());
         let metadata = result.unwrap();
         if let TabularMetadata::Table(table_metadata) = metadata {
-            // Add specific checks for `table_metadata` fields if needed
             assert_eq!(table_metadata.table_uuid.to_string(), "fb072c92-a02b-11e9-ae9c-1bb7bc9eca94");
         } else {
             panic!("Expected TabularMetadata::Table variant");
@@ -336,7 +335,6 @@ mod tests {
         assert!(result.is_ok());
         let metadata = result.unwrap();
         if let TabularMetadata::View(view_metadata) = metadata {
-            // Add specific checks for `view_metadata` fields if needed
             assert_eq!(view_metadata.view_uuid.to_string(), "fa6506c3-7681-40c8-86dc-e36561f83385");
         } else {
             panic!("Expected TabularMetadata::View variant");
@@ -403,7 +401,6 @@ mod tests {
         assert!(result.is_ok());
         let metadata = result.unwrap();
         if let TabularMetadata::View(view_metadata) = metadata {
-            // Add specific checks for `view_metadata` fields if needed
             assert_eq!(view_metadata.view_uuid.to_string(), "fa6506c3-7681-40c8-86dc-e36561f83385");
         } else {
             panic!("Expected TabularMetadata::View variant");
@@ -413,7 +410,7 @@ mod tests {
     #[test]
     fn test_parse_metadata_invalid_json() {
         let location = "/path/to/metadata/v1.metadata.json";
-        let invalid_json_data = r#"{"key": "value""#; // Missing closing brace
+        let invalid_json_data = r#"{"key": "value""#; 
         let bytes = invalid_json_data.as_bytes();
 
         let result = parse_metadata(location, bytes);
