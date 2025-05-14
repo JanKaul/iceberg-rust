@@ -20,6 +20,9 @@ pub enum Error {
     /// Conversion error
     #[error("Failed to convert {0} to {1}.")]
     Conversion(String, String),
+    /// Failed to decompress gzip data
+    #[error("Failed to decompress gzip data: {0}")]
+    Decompress(String),
     /// Not found
     #[error("{0} not found.")]
     NotFound(String),

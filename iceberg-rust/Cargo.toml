@@ -16,6 +16,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 derive-getters = { workspace = true }
 derive_builder = { workspace = true }
+flate2 = { version = "1.1", features = ["zlib-rs"], default-features = false }
 futures = { workspace = true }
 getrandom = { workspace = true }
 iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.7.0" }
