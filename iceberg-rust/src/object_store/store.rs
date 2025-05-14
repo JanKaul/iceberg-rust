@@ -205,7 +205,7 @@ mod tests {
             // Add specific checks for `table_metadata` fields if needed
             assert_eq!(table_metadata.table_uuid.to_string(), "fb072c92-a02b-11e9-ae9c-1bb7bc9eca94");
         } else {
-            assert!(false, "Expected TabularMetadata::Table variant");
+            panic!("Expected TabularMetadata::Table variant");
         }
     }
 
@@ -275,7 +275,7 @@ mod tests {
             // Add specific checks for `table_metadata` fields if needed
             assert_eq!(table_metadata.table_uuid.to_string(), "fb072c92-a02b-11e9-ae9c-1bb7bc9eca94");
         } else {
-            assert!(false, "Expected TabularMetadata::Table variant");
+            panic!("Expected TabularMetadata::Table variant");
         }
     }
 
@@ -339,7 +339,7 @@ mod tests {
             // Add specific checks for `view_metadata` fields if needed
             assert_eq!(view_metadata.view_uuid.to_string(), "fa6506c3-7681-40c8-86dc-e36561f83385");
         } else {
-            assert!(false, "Expected TabularMetadata::View variant");
+            panic!("Expected TabularMetadata::View variant");
         }
     }
 
@@ -406,7 +406,7 @@ mod tests {
             // Add specific checks for `view_metadata` fields if needed
             assert_eq!(view_metadata.view_uuid.to_string(), "fa6506c3-7681-40c8-86dc-e36561f83385");
         } else {
-            assert!(false, "Expected TabularMetadata::View variant");
+            panic!("Expected TabularMetadata::View variant");
         }
     }
 
