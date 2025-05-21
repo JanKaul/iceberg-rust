@@ -31,7 +31,7 @@ impl Display for Bucket<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Bucket::S3(s) => write!(f, "s3://{}", s),
-            Bucket::GCS(s) => write!(f, "gcs://{}", s),
+            Bucket::GCS(s) => write!(f, "gs://{}", s),
             Bucket::Local => write!(f, ""),
         }
     }
