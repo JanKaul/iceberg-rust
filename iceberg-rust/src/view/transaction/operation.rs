@@ -35,6 +35,7 @@ pub enum Operation {
     UpdateProperties(Vec<(String, String)>),
 }
 
+// Tries to preserve dialect order
 fn upsert_representation(
     current_representations: &Vec<ViewRepresentation>,
     new_representation: ViewRepresentation,
@@ -43,12 +44,24 @@ fn upsert_representation(
         dialect: new_dialect,
         ..
     } = &new_representation;
+    let mut updated = false;
     let mut representations: Vec<ViewRepresentation> = current_representations
         .iter()
-        .filter(|ViewRepresentation::Sql { dialect, .. }| dialect != new_dialect)
+        .filter_map(
+            |current_representation @ ViewRepresentation::Sql { dialect, .. }| {
+                if dialect == new_dialect {
+                    updated = true;
+                    Some(new_representation.clone())
+                } else {
+                    Some(current_representation.clone())
+                }
+            },
+        )
         .map(|v| v.clone())
         .collect();
-    representations.push(new_representation);
+    if !updated {
+        representations.push(new_representation);
+    }
     representations
 }
 
