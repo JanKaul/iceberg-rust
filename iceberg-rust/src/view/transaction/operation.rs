@@ -35,6 +35,23 @@ pub enum Operation {
     UpdateProperties(Vec<(String, String)>),
 }
 
+fn upsert_representation(
+    current_representations: &Vec<ViewRepresentation>,
+    new_representation: ViewRepresentation,
+) -> Vec<ViewRepresentation> {
+    let ViewRepresentation::Sql {
+        dialect: new_dialect,
+        ..
+    } = &new_representation;
+    let mut representations: Vec<ViewRepresentation> = current_representations
+        .iter()
+        .filter(|ViewRepresentation::Sql { dialect, .. }| dialect != new_dialect)
+        .map(|v| v.clone())
+        .collect();
+    representations.push(new_representation);
+    representations
+}
+
 impl Operation {
     /// Execute operation
     pub async fn execute<T: Materialization>(
@@ -47,7 +64,8 @@ impl Operation {
                 schema,
                 branch,
             } => {
-                let schema_changed = metadata.current_schema(branch.as_deref())
+                let schema_changed = metadata
+                    .current_schema(branch.as_deref())
                     .map(|s| schema != *s.fields())
                     .unwrap_or(true);
 
@@ -56,7 +74,10 @@ impl Operation {
                 let schema_id = if schema_changed {
                     metadata.schemas.keys().max().unwrap_or(&0) + 1
                 } else {
-                    *metadata.current_schema(branch.as_deref()).unwrap().schema_id()
+                    *metadata
+                        .current_schema(branch.as_deref())
+                        .unwrap()
+                        .schema_id()
                 };
                 let last_column_id = schema.iter().map(|x| x.id).max().unwrap_or(0);
 
@@ -68,7 +89,10 @@ impl Operation {
                         engine_name: None,
                         engine_version: None,
                     },
-                    representations: vec![representation],
+                    representations: upsert_representation(
+                        version.representations(),
+                        representation,
+                    ),
                     default_catalog: version.default_catalog.clone(),
                     default_namespace: version.default_namespace.clone(),
                     timestamp_ms: SystemTime::now()
