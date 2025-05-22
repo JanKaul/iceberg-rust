@@ -221,7 +221,7 @@ impl CreateViewBuilder<Option<()>> {
             if version.default_namespace().is_empty() {
                 version.default_namespace = namespace.to_vec()
             }
-            if version.default_catalog().is_none() {
+            if version.default_catalog().is_none() && !catalog.name().is_empty() {
                 version.default_catalog = Some(catalog.name().to_string())
             }
         }
@@ -349,7 +349,7 @@ impl CreateMaterializedViewBuilder {
             if version.default_namespace().is_empty() {
                 version.default_namespace = namespace.to_vec()
             }
-            if version.default_catalog().is_none() {
+            if version.default_catalog().is_none() && !catalog.name().is_empty() {
                 version.default_catalog = Some(catalog.name().to_string())
             }
         }
