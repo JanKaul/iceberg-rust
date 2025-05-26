@@ -41,14 +41,14 @@ impl<'view> Transaction<'view> {
     }
 
     /// Update the schmema of the view
-    pub fn update_representation(
+    pub fn update_representations(
         mut self,
-        representation: ViewRepresentation,
+        representations: Vec<ViewRepresentation>,
         schema: StructType,
     ) -> Self {
         self.view_operations
-            .push(ViewOperation::UpdateRepresentation {
-                representation,
+            .push(ViewOperation::UpdateRepresentations {
+                representations,
                 schema,
                 branch: self.branch.clone(),
             });
