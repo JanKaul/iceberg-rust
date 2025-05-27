@@ -236,7 +236,7 @@ impl Catalog for S3TablesCatalog {
             .name(identifier.name())
             .send()
             .await
-            .map_err(|_| IcebergError::CatalogNotFound)?;
+            .map_err(Error::from)?;
 
         let metadata_location = table.metadata_location.ok_or(Error::Text(format!(
             "Table {} not found.",
