@@ -6,7 +6,10 @@ use std::{
 use async_trait::async_trait;
 use aws_config::SdkConfig;
 
-use aws_sdk_s3tables::{types::OpenTableFormat, Client};
+use aws_sdk_s3tables::{
+    error::SdkError, operation::get_table_metadata_location::GetTableMetadataLocationError,
+    types::OpenTableFormat, Client,
+};
 use iceberg_rust::{
     catalog::{
         commit::{
@@ -236,7 +239,15 @@ impl Catalog for S3TablesCatalog {
             .name(identifier.name())
             .send()
             .await
-            .map_err(|_| IcebergError::CatalogNotFound)?;
+            .map_err(|err| match err {
+                SdkError::ServiceError(err) => match err.into_err() {
+                    GetTableMetadataLocationError::NotFoundException(_) => {
+                        IcebergError::CatalogNotFound
+                    }
+                    x => Error::from(x).into(),
+                },
+                x => Error::from(x).into(),
+            })?;
 
         let metadata_location = table.metadata_location.ok_or(Error::Text(format!(
             "Table {} not found.",
