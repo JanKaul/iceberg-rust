@@ -2251,6 +2251,7 @@ dependencies = [
  "dashmap",
  "datafusion",
  "datafusion-expr",
+ "derive_builder",
  "futures",
  "iceberg-rest-catalog",
  "iceberg-rust",

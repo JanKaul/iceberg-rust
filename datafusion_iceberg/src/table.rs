@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use chrono::DateTime;
 use datafusion_expr::{dml::InsertOp, utils::conjunction, JoinType};
+use derive_builder::Builder;
 use futures::{stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use object_store::ObjectMeta;
@@ -73,6 +74,7 @@ pub struct DataFusionTable {
     pub schema: SchemaRef,
     pub snapshot_range: (Option<i64>, Option<i64>),
     pub branch: Option<String>,
+    pub config: Option<DataFusionTableConfig>,
 }
 
 impl From<Tabular> for DataFusionTable {
@@ -99,12 +101,28 @@ impl From<MaterializedView> for DataFusionTable {
     }
 }
 
+#[derive(Clone, Debug, Builder)]
+pub struct DataFusionTableConfig {
+    /// With this option, an additional "__data_file_path" column is added to the output of the
+    /// TableProvider that contains the path of the data-file the row originates from.
+    enable_data_file_path_column: bool,
+}
+
 impl DataFusionTable {
     pub fn new(
         tabular: Tabular,
         start: Option<i64>,
         end: Option<i64>,
         branch: Option<&str>,
+    ) -> Self {
+        Self::new_with_config(tabular, start, end, branch, None)
+    }
+    pub fn new_with_config(
+        tabular: Tabular,
+        start: Option<i64>,
+        end: Option<i64>,
+        branch: Option<&str>,
+        config: Option<DataFusionTableConfig>,
     ) -> Self {
         let schema = match &tabular {
             Tabular::Table(table) => {
@@ -131,6 +149,7 @@ impl DataFusionTable {
             snapshot_range: (start, end),
             schema,
             branch: branch.map(ToOwned::to_owned),
+            config,
         }
     }
     #[inline]

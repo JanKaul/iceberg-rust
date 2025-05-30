@@ -15,6 +15,7 @@ chrono = { workspace = true }
 dashmap = "6.1.0"
 datafusion = { workspace = true }
 datafusion-expr = { workspace = true }
+derive_builder = { workspace = true }
 futures = { workspace = true }
 iceberg-rust = { path = "../iceberg-rust", version = "0.7.0" }
 itertools = { workspace = true }
