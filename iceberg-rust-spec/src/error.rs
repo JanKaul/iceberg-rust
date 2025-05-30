@@ -27,7 +27,7 @@ pub enum Error {
     NotSupported(String),
     /// Avro error
     #[error(transparent)]
-    Avro(#[from] apache_avro::Error),
+    Avro(Box<apache_avro::Error>),
     /// Serde json
     #[error(transparent)]
     JSONSerde(#[from] serde_json::Error),
@@ -79,4 +79,10 @@ pub enum Error {
     /// partition spec builder
     #[error(transparent)]
     PartitionSpec(#[from] crate::spec::partition::PartitionSpecBuilderError),
+}
+
+impl From<apache_avro::Error> for Error {
+    fn from(err: apache_avro::Error) -> Self {
+        Error::Avro(Box::new(err))
+    }
 }
