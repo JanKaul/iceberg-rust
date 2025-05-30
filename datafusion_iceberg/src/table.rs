@@ -19,7 +19,7 @@ use std::{
 use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use datafusion::{
-    arrow::datatypes::{Field, Schema as ArrowSchema, SchemaRef},
+    arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaRef},
     catalog::Session,
     common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
     datasource::{
@@ -65,7 +65,8 @@ use iceberg_rust::{
     arrow::write::write_parquet_partitioned, catalog::tabular::Tabular, error::Error,
     materialized_view::MaterializedView, table::Table, view::View,
 };
-// mod value;
+
+static DATA_FILE_PATH_COLUMN: &str = "__data_file_path";
 
 #[derive(Debug, Clone)]
 /// Iceberg table for datafusion
@@ -217,6 +218,7 @@ impl TableProvider for DataFusionTable {
                     table,
                     &self.snapshot_range,
                     schema,
+                    self.config.as_ref(),
                     statistics,
                     session_state,
                     projection,
@@ -239,6 +241,7 @@ impl TableProvider for DataFusionTable {
                     &table,
                     &self.snapshot_range,
                     schema,
+                    self.config.as_ref(),
                     statistics,
                     session_state,
                     projection,
@@ -308,6 +311,7 @@ async fn table_scan(
     table: &Table,
     snapshot_range: &(Option<i64>, Option<i64>),
     arrow_schema: SchemaRef,
+    config: Option<&DataFusionTableConfig>,
     statistics: Statistics,
     session: &SessionState,
     projection: Option<&Vec<usize>>,
@@ -325,6 +329,10 @@ async fn table_scan(
     session
         .runtime_env()
         .register_object_store(object_store_url.as_ref(), table.object_store());
+
+    let enable_data_file_path_column = config
+        .map(|x| x.enable_data_file_path_column)
+        .unwrap_or_default();
 
     let partition_fields = &snapshot_range
         .1
@@ -349,7 +357,7 @@ async fn table_scan(
     };
 
     // Get all partition columns
-    let table_partition_cols: Vec<Field> = partition_fields
+    let mut table_partition_cols: Vec<Field> = partition_fields
         .iter()
         .map(|partition_field| {
             Ok(Field::new(
@@ -369,6 +377,10 @@ async fn table_scan(
         })
         .collect::<Result<Vec<_>, DataFusionError>>()
         .map_err(DataFusionIcebergError::from)?;
+
+    if enable_data_file_path_column {
+        table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
+    }
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
@@ -578,9 +590,13 @@ async fn table_scan(
                                 < delete_manifest.sequence_number().unwrap()
                         }) {
                             let last_updated_ms = table.metadata().last_updated_ms;
-                            let data_file =
-                                generate_partitioned_file(schema, &data_manifest, last_updated_ms)
-                                    .unwrap();
+                            let data_file = generate_partitioned_file(
+                                schema,
+                                &data_manifest,
+                                last_updated_ms,
+                                enable_data_file_path_column,
+                            )
+                            .unwrap();
                             data_files.push(data_file);
                         }
                         async move {
@@ -615,6 +631,7 @@ async fn table_scan(
                                 &delete_schema,
                                 delete_manifest,
                                 last_updated_ms,
+                                enable_data_file_path_column,
                             )?;
 
                             let delete_file_source = Arc::new(
@@ -716,7 +733,12 @@ async fn table_scan(
                 let additional_data_files = data_file_iter
                     .map(|x| {
                         let last_updated_ms = table.metadata().last_updated_ms;
-                        generate_partitioned_file(schema, &x, last_updated_ms)
+                        generate_partitioned_file(
+                            schema,
+                            &x,
+                            last_updated_ms,
+                            enable_data_file_path_column,
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -764,7 +786,13 @@ async fn table_scan(
             x.into_iter()
                 .map(|x| {
                     let last_updated_ms = table.metadata().last_updated_ms;
-                    generate_partitioned_file(&schema, &x, last_updated_ms).unwrap()
+                    generate_partitioned_file(
+                        &schema,
+                        &x,
+                        last_updated_ms,
+                        enable_data_file_path_column,
+                    )
+                    .unwrap()
                 })
                 .collect()
         })
@@ -860,9 +888,10 @@ fn generate_partitioned_file(
     schema: &Schema,
     manifest: &ManifestEntry,
     last_updated_ms: i64,
+    enable_data_file_path: bool,
 ) -> Result<PartitionedFile, DataFusionError> {
     let manifest_statistics = manifest_statistics(schema, manifest);
-    let partition_values = manifest
+    let mut partition_values = manifest
         .data_file()
         .partition()
         .iter()
@@ -872,6 +901,13 @@ fn generate_partitioned_file(
                 .unwrap_or(Ok(ScalarValue::Null))
         })
         .collect::<Result<Vec<ScalarValue>, _>>()?;
+
+    if enable_data_file_path {
+        partition_values.push(ScalarValue::Utf8(Some(
+            manifest.data_file().file_path().clone(),
+        )));
+    }
+
     let object_meta = ObjectMeta {
         location: util::strip_prefix(manifest.data_file().file_path()).into(),
         size: *manifest.data_file().file_size_in_bytes() as u64,
@@ -1696,6 +1732,121 @@ mod tests {
                     } else {
                         panic!("Unexpected order id")
                     }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    pub async fn test_datafusion_table_insert_with_data_file_path() {
+        let object_store = ObjectStoreBuilder::memory();
+
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "test", object_store)
+                .await
+                .unwrap(),
+        );
+
+        let schema = Schema::builder()
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "customer_id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "product_id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 4,
+                name: "date".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Date),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 5,
+                name: "amount".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Int),
+                doc: None,
+            })
+            .build()
+            .unwrap();
+
+        let table = Table::builder()
+            .with_name("orders")
+            .with_location("/test/orders")
+            .with_schema(schema)
+            .build(&["test".to_owned()], catalog)
+            .await
+            .expect("Failed to create table");
+
+        let config = crate::table::DataFusionTableConfigBuilder::default()
+            .enable_data_file_path_column(true)
+            .build()
+            .unwrap();
+
+        let table = Arc::new(DataFusionTable::new_with_config(
+            Tabular::Table(table),
+            None,
+            None,
+            None,
+            Some(config),
+        ));
+
+        let ctx = SessionContext::new();
+
+        ctx.register_table("orders", table.clone()).unwrap();
+
+        ctx.sql(
+            "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES
+                (1, 1, 1, '2020-01-01', 1),
+                (2, 2, 1, '2020-01-01', 1),
+                (3, 3, 1, '2020-01-01', 3);",
+        )
+        .await
+        .expect("Failed to create query plan for insert")
+        .collect()
+        .await
+        .expect("Failed to insert values into table");
+
+        let batches = ctx
+            .sql("select * from orders;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                assert!(batch.schema().column_with_name("__data_file_path").is_some());
+                
+                let data_file_path_column = batch
+                    .column_by_name("__data_file_path")
+                    .expect("Data file path column should exist");
+                
+                for i in 0..batch.num_rows() {
+                    let value = data_file_path_column
+                        .as_any()
+                        .downcast_ref::<datafusion::arrow::array::StringArray>()
+                        .unwrap()
+                        .value(i);
+                    assert!(!value.is_empty(), "Data file path should not be empty");
+                    assert!(value.contains(".parquet"), "Data file path should contain .parquet");
                 }
             }
         }
