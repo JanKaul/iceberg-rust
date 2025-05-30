@@ -55,6 +55,7 @@ pub mod schema;
 mod utils;
 
 impl GlueCatalog {
+    #[allow(clippy::result_large_err)]
     pub fn new(
         config: &SdkConfig,
         name: &str,

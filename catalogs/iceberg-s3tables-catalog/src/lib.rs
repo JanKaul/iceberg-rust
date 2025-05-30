@@ -53,6 +53,7 @@ pub struct S3TablesCatalog {
 pub mod error;
 
 impl S3TablesCatalog {
+    #[allow(clippy::result_large_err)]
     pub fn new(
         config: &SdkConfig,
         arn: &str,
