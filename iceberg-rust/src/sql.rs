@@ -13,7 +13,7 @@ pub fn find_relations(sql: &str) -> Result<Vec<String>, Error> {
     let statements = Parser::parse_sql(&GenericDialect, sql)?;
     let mut visited = Vec::new();
 
-    visit_relations(&statements, |relation| {
+    let _ = visit_relations(&statements, |relation| {
         visited.push(relation.to_string());
         ControlFlow::<()>::Continue(())
     });

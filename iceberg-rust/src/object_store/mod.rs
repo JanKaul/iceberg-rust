@@ -64,9 +64,9 @@ impl Bucket<'_> {
 #[derive(Debug, Clone)]
 pub enum ObjectStoreBuilder {
     /// AWS s3 builder
-    S3(AmazonS3Builder),
+    S3(Box<AmazonS3Builder>),
     /// Google Cloud Storage builder
-    GCS(GoogleCloudStorageBuilder),
+    GCS(Box<GoogleCloudStorageBuilder>),
     /// Filesystem builder
     Filesystem(Arc<LocalFileSystem>),
     /// In memory builder
@@ -99,11 +99,11 @@ impl FromStr for ConfigKey {
 impl ObjectStoreBuilder {
     /// Create new AWS S3 Object Store builder
     pub fn s3() -> Self {
-        ObjectStoreBuilder::S3(AmazonS3Builder::from_env())
+        ObjectStoreBuilder::S3(Box::new(AmazonS3Builder::from_env()))
     }
     /// Create new AWS S3 Object Store builder
     pub fn gcs() -> Self {
-        ObjectStoreBuilder::GCS(GoogleCloudStorageBuilder::from_env())
+        ObjectStoreBuilder::GCS(Box::new(GoogleCloudStorageBuilder::from_env()))
     }
     /// Create a new FileSystem ObjectStoreBuilder
     pub fn filesystem(prefix: impl AsRef<Path>) -> Self {
@@ -117,10 +117,10 @@ impl ObjectStoreBuilder {
     pub fn with_config(self, key: ConfigKey, value: impl Into<String>) -> Self {
         match (self, key) {
             (ObjectStoreBuilder::S3(aws), ConfigKey::AWS(key)) => {
-                ObjectStoreBuilder::S3(aws.with_config(key, value))
+                ObjectStoreBuilder::S3(Box::new(aws.with_config(key, value)))
             }
             (ObjectStoreBuilder::GCS(gcs), ConfigKey::GCS(key)) => {
-                ObjectStoreBuilder::GCS(gcs.with_config(key, value))
+                ObjectStoreBuilder::GCS(Box::new(gcs.with_config(key, value)))
             }
             (x, _) => x,
         }
@@ -129,7 +129,7 @@ impl ObjectStoreBuilder {
     pub fn build(&self, bucket: Bucket) -> Result<Arc<dyn ObjectStore>, Error> {
         match (bucket, self) {
             (Bucket::S3(bucket), Self::S3(builder)) => Ok::<_, Error>(Arc::new(
-                builder
+                (**builder)
                     .clone()
                     .with_bucket_name(bucket)
                     .with_copy_if_not_exists(S3CopyIfNotExists::Multipart)
@@ -137,7 +137,7 @@ impl ObjectStoreBuilder {
                     .map_err(Error::from)?,
             )),
             (Bucket::GCS(bucket), Self::GCS(builder)) => Ok::<_, Error>(Arc::new(
-                builder
+                (**builder)
                     .clone()
                     .with_bucket_name(bucket)
                     .build()
