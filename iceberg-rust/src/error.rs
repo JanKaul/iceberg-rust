@@ -46,7 +46,7 @@ pub enum Error {
     Parquet(#[from] parquet::errors::ParquetError),
     /// Avro error
     #[error(transparent)]
-    Avro(#[from] apache_avro::Error),
+    Avro(Box<apache_avro::Error>),
     /// Thrift error
     #[error(transparent)]
     Thrift(#[from] thrift::Error),
@@ -113,6 +113,12 @@ pub enum Error {
     CreateMaterializedViewBuilder(
         #[from] crate::catalog::create::CreateMaterializedViewBuilderError,
     ),
+}
+
+impl From<apache_avro::Error> for Error {
+    fn from(err: apache_avro::Error) -> Self {
+        Error::Avro(Box::new(err))
+    }
 }
 
 impl From<Error> for ArrowError {
