@@ -378,8 +378,38 @@ async fn table_scan(
         .collect::<Result<Vec<_>, DataFusionError>>()
         .map_err(DataFusionIcebergError::from)?;
 
+    let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
+
+    let mut projection = projection
+        .cloned()
+        .or_else(|| Some(schema.iter().enumerate().map(|(i, _)| i).collect()));
+
+    let mut projection_expr: Option<Vec<_>> = projection.as_ref().map(|projection| {
+        projection
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                let name = file_schema.fields[*id].name();
+                (
+                    Arc::new(Column::new(name, i)) as Arc<dyn PhysicalExpr>,
+                    name.to_owned(),
+                )
+            })
+            .collect()
+    });
+
     if enable_data_file_path_column {
         table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
+        let index = file_schema.fields().len() + table_partition_cols.len() - 1;
+        if let Some(projection) = &mut projection {
+            projection.push(index);
+        }
+        if let Some(projection_expr) = &mut projection_expr {
+            projection_expr.push((
+                Arc::new(Column::new(DATA_FILE_PATH_COLUMN, index)) as Arc<dyn PhysicalExpr>,
+                DATA_FILE_PATH_COLUMN.to_owned(),
+            ));
+        }
     }
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
@@ -512,26 +542,6 @@ async fn table_scan(
             }
         });
     };
-
-    let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
-
-    let projection = projection
-        .cloned()
-        .or_else(|| Some(schema.iter().enumerate().map(|(i, _)| i).collect()));
-
-    let projection_expr: Option<Vec<_>> = projection.as_ref().map(|projection| {
-        projection
-            .iter()
-            .enumerate()
-            .map(|(i, id)| {
-                let name = file_schema.fields[*id].name();
-                (
-                    Arc::new(Column::new(name, i)) as Arc<dyn PhysicalExpr>,
-                    name.to_owned(),
-                )
-            })
-            .collect()
-    });
 
     let file_source = Arc::new(
         if let Some(physical_predicate) = physical_predicate.clone() {
@@ -1833,12 +1843,15 @@ mod tests {
 
         for batch in batches {
             if batch.num_rows() != 0 {
-                assert!(batch.schema().column_with_name("__data_file_path").is_some());
-                
+                assert!(batch
+                    .schema()
+                    .column_with_name("__data_file_path")
+                    .is_some());
+
                 let data_file_path_column = batch
                     .column_by_name("__data_file_path")
                     .expect("Data file path column should exist");
-                
+
                 for i in 0..batch.num_rows() {
                     let value = data_file_path_column
                         .as_any()
@@ -1846,7 +1859,10 @@ mod tests {
                         .unwrap()
                         .value(i);
                     assert!(!value.is_empty(), "Data file path should not be empty");
-                    assert!(value.contains(".parquet"), "Data file path should contain .parquet");
+                    assert!(
+                        value.contains(".parquet"),
+                        "Data file path should contain .parquet"
+                    );
                 }
             }
         }
