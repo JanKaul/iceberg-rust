@@ -1,5 +1,14 @@
+use crate::{
+    apis::{
+        self,
+        catalog_api_api::{self, NamespaceExistsError},
+        configuration::Configuration,
+    },
+    models::{self, StorageCredential},
+};
 use async_trait::async_trait;
 use futures::{FutureExt, TryFutureExt};
+use iceberg_rust::object_store::parse::object_store_from_config;
 /**
 Iceberg rest catalog implementation
 */
@@ -25,21 +34,13 @@ use iceberg_rust::{
     table::Table,
     view::View,
 };
-use object_store::{aws::AmazonS3Builder, ObjectStore};
+use object_store::{aws::AmazonS3Builder, ObjectStore, ObjectStoreScheme};
 use std::{
     collections::HashMap,
     path::Path,
     sync::{Arc, RwLock},
 };
-
-use crate::{
-    apis::{
-        self,
-        catalog_api_api::{self, NamespaceExistsError},
-        configuration::Configuration,
-    },
-    models::{self, StorageCredential},
-};
+use url::Url;
 
 #[derive(Debug)]
 pub struct RestCatalog {
@@ -287,7 +288,7 @@ impl Catalog for RestCatalog {
                         self.name.as_deref(),
                         &identifier.namespace().to_string(),
                         identifier.name(),
-                        None,
+                        Some("vended-credentials"),
                         None,
                     )
                     .await
@@ -609,48 +610,24 @@ impl CatalogList for RestNoPrefixCatalogList {
     }
 }
 
-const CLIENT_REGION: &str = "client.region";
-const AWS_ACCESS_KEY_ID: &str = "s3.access-key-id";
-const AWS_SECRET_ACCESS_KEY: &str = "s3.secret-access-key";
-const AWS_SESSION_TOKEN: &str = "s3.session-token";
-
 fn object_store_from_response(
     response: &models::LoadTableResult,
 ) -> Result<Option<Arc<dyn ObjectStore>>, Error> {
     let config = match (&response.storage_credentials, &response.config) {
-        (Some(credentials), _) => Some(&credentials[0].config),
-        (None, Some(config)) => Some(config),
-        (None, None) => None,
+        (Some(credentials), Some(config)) => {
+            // Enrich credentials with other options that might only be found in the config (e.g.
+            // a custom endpoint)
+            let mut options = credentials[0].config.clone();
+            options.extend(config.clone());
+            options
+        }
+        (Some(credentials), None) => credentials[0].config.clone(),
+        (None, Some(config)) => config.clone(),
+        (None, None) => return Ok(None),
     };
 
-    let Some(config) = config else {
-        return Ok(None);
-    };
-
-    let region = config.get(CLIENT_REGION);
-    if config.contains_key(AWS_ACCESS_KEY_ID) {
-        let access_key_id = config.get(AWS_ACCESS_KEY_ID);
-        let secret_access_key = config.get(AWS_SECRET_ACCESS_KEY);
-        let session_token = config.get(AWS_SESSION_TOKEN);
-        let mut builder = AmazonS3Builder::new();
-
-        if let Some(region) = region {
-            builder = builder.with_region(region)
-        }
-        if let Some(access_key_id) = access_key_id {
-            builder = builder.with_access_key_id(access_key_id)
-        }
-        if let Some(secret_access_key) = secret_access_key {
-            builder = builder.with_secret_access_key(secret_access_key)
-        }
-        if let Some(session_token) = session_token {
-            builder = builder.with_token(session_token)
-        }
-
-        Ok(Some(Arc::new(builder.build()?)))
-    } else {
-        Ok(None)
-    }
+    let url = Url::parse(&response.metadata.location)?;
+    Ok(Some(object_store_from_config(url, config)?))
 }
 
 #[cfg(test)]
