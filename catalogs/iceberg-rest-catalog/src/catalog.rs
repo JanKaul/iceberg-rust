@@ -8,6 +8,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use futures::{FutureExt, TryFutureExt};
+use iceberg_rust::object_store::parse::object_store_from_config;
 /**
 Iceberg rest catalog implementation
 */
@@ -609,14 +610,6 @@ impl CatalogList for RestNoPrefixCatalogList {
     }
 }
 
-const CLIENT_REGION: &str = "client.region";
-const AWS_ACCESS_KEY_ID: &str = "s3.access-key-id";
-const AWS_SECRET_ACCESS_KEY: &str = "s3.secret-access-key";
-const AWS_SESSION_TOKEN: &str = "s3.session-token";
-const AWS_REGION: &str = "s3.region";
-const AWS_ENDPOINT: &str = "s3.endpoint";
-const AWS_ALLOW_ANONYMOUS: &str = "s3.allow-anonymous";
-
 fn object_store_from_response(
     response: &models::LoadTableResult,
 ) -> Result<Option<Arc<dyn ObjectStore>>, Error> {
@@ -634,39 +627,7 @@ fn object_store_from_response(
     };
 
     let url = Url::parse(&response.metadata.location)?;
-    match ObjectStoreScheme::parse(&url) {
-        Ok((ObjectStoreScheme::AmazonS3, _path)) => {
-            let access_key_id = config.get(AWS_ACCESS_KEY_ID);
-            let secret_access_key = config.get(AWS_SECRET_ACCESS_KEY);
-            let session_token = config.get(AWS_SESSION_TOKEN);
-            let region = config.get(CLIENT_REGION).or(config.get(AWS_REGION));
-            let endpoint = config.get(AWS_ENDPOINT);
-            let allow_anonymous = config.get(AWS_ALLOW_ANONYMOUS).is_some_and(|s| s == "true");
-            let mut builder = AmazonS3Builder::new().with_url(&response.metadata.location);
-
-            if let Some(region) = region {
-                builder = builder.with_region(region)
-            }
-            if let Some(access_key_id) = access_key_id {
-                builder = builder.with_access_key_id(access_key_id)
-            }
-            if let Some(secret_access_key) = secret_access_key {
-                builder = builder.with_secret_access_key(secret_access_key)
-            }
-            if let Some(session_token) = session_token {
-                builder = builder.with_token(session_token)
-            }
-            if let Some(endpoint) = endpoint {
-                builder = builder.with_endpoint(endpoint)
-            }
-            if allow_anonymous {
-                builder = builder.with_skip_signature(true)
-            }
-
-            Ok(Some(Arc::new(builder.build()?)))
-        }
-        _ => Ok(None),
-    }
+    Ok(Some(object_store_from_config(url, config)?))
 }
 
 #[cfg(test)]
