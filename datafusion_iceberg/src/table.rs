@@ -54,16 +54,19 @@ use crate::{
     statistics::manifest_statistics,
 };
 
-use iceberg_rust::spec::{
-    arrow::schema::PARQUET_FIELD_ID_META_KEY,
-    manifest::{Content, ManifestEntry, Status},
-    util,
-    values::{Struct, Value},
-};
 use iceberg_rust::spec::{schema::Schema, view_metadata::ViewRepresentation};
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned, catalog::tabular::Tabular, error::Error,
     materialized_view::MaterializedView, table::Table, view::View,
+};
+use iceberg_rust::{
+    spec::{
+        arrow::schema::PARQUET_FIELD_ID_META_KEY,
+        manifest::{Content, ManifestEntry, Status},
+        util,
+        values::{Struct, Value},
+    },
+    table::ManifestPath,
 };
 
 static DATA_FILE_PATH_COLUMN: &str = "__data_file_path";
@@ -414,8 +417,9 @@ async fn table_scan(
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
-    let mut data_file_groups: HashMap<Struct, Vec<ManifestEntry>> = HashMap::new();
-    let mut equality_delete_file_groups: HashMap<Struct, Vec<ManifestEntry>> = HashMap::new();
+    let mut data_file_groups: HashMap<Struct, Vec<(ManifestPath, ManifestEntry)>> = HashMap::new();
+    let mut equality_delete_file_groups: HashMap<Struct, Vec<(ManifestPath, ManifestEntry)>> =
+        HashMap::new();
 
     // Prune data & delete file and insert them into the according map
     if let Some(physical_predicate) = physical_predicate.clone() {
@@ -447,7 +451,9 @@ async fn table_scan(
             .map_err(DataFusionIcebergError::from)?;
 
         // If there is a filter expression on the partition column, the manifest files to read are pruned.
-        let data_files: Vec<ManifestEntry> = if let Some(predicate) = partition_predicates {
+        let data_files: Vec<(ManifestPath, ManifestEntry)> = if let Some(predicate) =
+            partition_predicates
+        {
             let physical_partition_predicate = create_physical_expr(
                 &predicate,
                 &partition_schema.clone().try_into()?,
@@ -488,17 +494,17 @@ async fn table_scan(
             .into_iter()
             .zip(files_to_prune.into_iter())
             .for_each(|(manifest, prune_file)| {
-                if prune_file && *manifest.status() != Status::Deleted {
-                    match manifest.data_file().content() {
+                if prune_file && *manifest.1.status() != Status::Deleted {
+                    match manifest.1.data_file().content() {
                         Content::Data => {
                             data_file_groups
-                                .entry(manifest.data_file().partition().clone())
+                                .entry(manifest.1.data_file().partition().clone())
                                 .or_default()
                                 .push(manifest);
                         }
                         Content::EqualityDeletes => {
                             equality_delete_file_groups
-                                .entry(manifest.data_file().partition().clone())
+                                .entry(manifest.1.data_file().partition().clone())
                                 .or_default()
                                 .push(manifest);
                         }
@@ -513,7 +519,7 @@ async fn table_scan(
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
             .map_err(DataFusionIcebergError::from)?;
-        let data_files: Vec<ManifestEntry> = table
+        let data_files: Vec<(ManifestPath, ManifestEntry)> = table
             .datafiles(&manifests, None, sequence_number_range)
             .await
             .map_err(DataFusionIcebergError::from)?
@@ -521,17 +527,17 @@ async fn table_scan(
             .await
             .map_err(DataFusionIcebergError::from)?;
         data_files.into_iter().for_each(|manifest| {
-            if *manifest.status() != Status::Deleted {
-                match manifest.data_file().content() {
+            if *manifest.1.status() != Status::Deleted {
+                match manifest.1.data_file().content() {
                     Content::Data => {
                         data_file_groups
-                            .entry(manifest.data_file().partition().clone())
+                            .entry(manifest.1.data_file().partition().clone())
                             .or_default()
                             .push(manifest);
                     }
                     Content::EqualityDeletes => {
                         equality_delete_file_groups
-                            .entry(manifest.data_file().partition().clone())
+                            .entry(manifest.1.data_file().partition().clone())
                             .or_default()
                             .push(manifest);
                     }
@@ -572,14 +578,14 @@ async fn table_scan(
             async move {
                 // Sort data & delete files by sequence_number
                 delete_files.sort_by(|x, y| {
-                    x.sequence_number()
+                    x.1.sequence_number()
                         .unwrap()
-                        .cmp(&y.sequence_number().unwrap())
+                        .cmp(&y.1.sequence_number().unwrap())
                 });
                 data_files.sort_by(|x, y| {
-                    x.sequence_number()
+                    x.1.sequence_number()
                         .unwrap()
-                        .cmp(&y.sequence_number().unwrap())
+                        .cmp(&y.1.sequence_number().unwrap())
                 });
 
                 let mut data_file_iter = data_files.into_iter().peekable();
@@ -596,13 +602,13 @@ async fn table_scan(
                         let file_source = file_source.clone();
                         let mut data_files = Vec::new();
                         while let Some(data_manifest) = data_file_iter.next_if(|x| {
-                            x.sequence_number().unwrap()
-                                < delete_manifest.sequence_number().unwrap()
+                            x.1.sequence_number().unwrap()
+                                < delete_manifest.1.sequence_number().unwrap()
                         }) {
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let data_file = generate_partitioned_file(
                                 schema,
-                                &data_manifest,
+                                &data_manifest.1,
                                 last_updated_ms,
                                 enable_data_file_path_column,
                             )
@@ -611,12 +617,17 @@ async fn table_scan(
                         }
                         async move {
                             let delete_schema = schema.project(
-                                delete_manifest.data_file().equality_ids().as_ref().unwrap(),
+                                delete_manifest
+                                    .1
+                                    .data_file()
+                                    .equality_ids()
+                                    .as_ref()
+                                    .unwrap(),
                             );
                             let delete_file_schema: SchemaRef =
                                 Arc::new((delete_schema.fields()).try_into().unwrap());
                             let equality_projection: Option<Vec<usize>> =
-                                match (&projection, delete_manifest.data_file().equality_ids()) {
+                                match (&projection, delete_manifest.1.data_file().equality_ids()) {
                                     (Some(projection), Some(equality_ids)) => {
                                         let collect: Vec<usize> = schema
                                             .iter()
@@ -639,7 +650,7 @@ async fn table_scan(
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let delete_file = generate_partitioned_file(
                                 &delete_schema,
-                                delete_manifest,
+                                &delete_manifest.1,
                                 last_updated_ms,
                                 enable_data_file_path_column,
                             )?;
@@ -703,6 +714,7 @@ async fn table_scan(
                             };
 
                             let join_on = delete_manifest
+                                .1
                                 .data_file()
                                 .equality_ids()
                                 .as_ref()
@@ -745,7 +757,7 @@ async fn table_scan(
                         let last_updated_ms = table.metadata().last_updated_ms;
                         generate_partitioned_file(
                             schema,
-                            &x,
+                            &x.1,
                             last_updated_ms,
                             enable_data_file_path_column,
                         )
@@ -798,7 +810,7 @@ async fn table_scan(
                     let last_updated_ms = table.metadata().last_updated_ms;
                     generate_partitioned_file(
                         &schema,
-                        &x,
+                        &x.1,
                         last_updated_ms,
                         enable_data_file_path_column,
                     )
