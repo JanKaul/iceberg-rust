@@ -255,7 +255,7 @@ impl Table {
         manifests: &'a [ManifestListEntry],
         filter: Option<Vec<bool>>,
         sequence_number_range: (Option<i64>, Option<i64>),
-    ) -> Result<impl Stream<Item = Result<ManifestEntry, Error>> + 'a, Error> {
+    ) -> Result<impl Stream<Item = Result<(ManifestPath, ManifestEntry), Error>> + 'a, Error> {
         datafiles(
             self.object_store(),
             manifests,
@@ -273,7 +273,7 @@ impl Table {
         let manifests = self.manifests(start, end).await?;
         let datafiles = self.datafiles(&manifests, None, (None, None)).await?;
         datafiles
-            .try_any(|entry| async move { !matches!(entry.data_file().content(), Content::Data) })
+            .try_any(|entry| async move { !matches!(entry.1.data_file().content(), Content::Data) })
             .await
     }
     /// Creates a new transaction for atomic modifications to this table
@@ -291,12 +291,15 @@ impl Table {
     }
 }
 
+/// Path of a Manifest file
+pub type ManifestPath = String;
+
 async fn datafiles(
     object_store: Arc<dyn ObjectStore>,
     manifests: &'_ [ManifestListEntry],
     filter: Option<Vec<bool>>,
     sequence_number_range: (Option<i64>, Option<i64>),
-) -> Result<impl Stream<Item = Result<ManifestEntry, Error>> + '_, Error> {
+) -> Result<impl Stream<Item = Result<(ManifestPath, ManifestEntry), Error>> + '_, Error> {
     // filter manifest files according to filter vector
     let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
         Some(predicate) => {
@@ -315,18 +318,19 @@ async fn datafiles(
         .then(move |file| {
             let object_store = object_store.clone();
             async move {
-                let path: Path = util::strip_prefix(&file.manifest_path).into();
+                let manifest_path = &file.manifest_path;
+                let path: Path = util::strip_prefix(manifest_path).into();
                 let bytes = Cursor::new(Vec::from(
                     object_store
                         .get(&path)
                         .and_then(|file| file.bytes())
                         .await?,
                 ));
-                Ok::<_, Error>((bytes, file.sequence_number))
+                Ok::<_, Error>((bytes, manifest_path, file.sequence_number))
             }
         })
         .flat_map_unordered(None, move |result| {
-            let (bytes, sequence_number) = result.unwrap();
+            let (bytes, path, sequence_number) = result.unwrap();
 
             let reader = ManifestReader::new(bytes).unwrap();
             stream::iter(reader).try_filter_map(move |mut x| {
@@ -347,7 +351,7 @@ async fn datafiles(
                         _ => true,
                     };
                     if filter {
-                        Ok(Some(x))
+                        Ok(Some((path.to_owned(), x)))
                     } else {
                         Ok(None)
                     }
@@ -377,7 +381,7 @@ pub(crate) async fn delete_all_table_files(
             let object_store = object_store.clone();
             async move {
                 object_store
-                    .delete(&datafile.data_file().file_path().as_str().into())
+                    .delete(&datafile.1.data_file().file_path().as_str().into())
                     .await?;
                 Ok(())
             }

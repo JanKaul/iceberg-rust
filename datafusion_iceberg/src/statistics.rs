@@ -49,7 +49,7 @@ pub(crate) async fn table_statistics(
         .datafiles(&manifests, None, sequence_number_range)
         .await?;
     datafiles
-        .try_filter(|manifest| future::ready(!matches!(manifest.status(), Status::Deleted)))
+        .try_filter(|manifest| future::ready(!matches!(manifest.1.status(), Status::Deleted)))
         .try_fold(
             Statistics {
                 num_rows: Precision::Exact(0),
@@ -66,13 +66,13 @@ pub(crate) async fn table_statistics(
                 ],
             },
             |acc, manifest| async move {
-                let column_stats = column_statistics(schema, &manifest);
+                let column_stats = column_statistics(schema, &manifest.1);
                 Ok(Statistics {
                     num_rows: acc.num_rows.add(&Precision::Exact(
-                        *manifest.data_file().record_count() as usize,
+                        *manifest.1.data_file().record_count() as usize,
                     )),
                     total_byte_size: acc.total_byte_size.add(&Precision::Exact(
-                        *manifest.data_file().file_size_in_bytes() as usize,
+                        *manifest.1.data_file().file_size_in_bytes() as usize,
                     )),
                     column_statistics: acc
                         .column_statistics

@@ -42,6 +42,7 @@ use iceberg_rust::{
         schema::Schema,
         values::Value,
     },
+    table::ManifestPath,
 };
 
 pub(crate) struct PruneManifests<'table, 'manifests> {
@@ -144,14 +145,14 @@ impl PruningStatistics for PruneManifests<'_, '_> {
 pub(crate) struct PruneDataFiles<'table, 'manifests> {
     schema: &'table Schema,
     arrow_schema: &'table ArrowSchema,
-    files: &'manifests [ManifestEntry],
+    files: &'manifests [(ManifestPath, ManifestEntry)],
 }
 
 impl<'table, 'manifests> PruneDataFiles<'table, 'manifests> {
     pub(crate) fn new(
         schema: &'table Schema,
         arrow_schema: &'table ArrowSchema,
-        files: &'manifests [ManifestEntry],
+        files: &'manifests [(ManifestPath, ManifestEntry)],
     ) -> Self {
         Self {
             schema,
@@ -172,7 +173,7 @@ impl PruningStatistics for PruneDataFiles<'_, '_> {
         let min_values =
             self.files
                 .iter()
-                .map(|manifest| match &manifest.data_file().lower_bounds() {
+                .map(|manifest| match &manifest.1.data_file().lower_bounds() {
                     Some(map) => map
                         .get(&{ column_id })
                         .map(|value| value.clone().into_any()),
@@ -190,7 +191,7 @@ impl PruningStatistics for PruneDataFiles<'_, '_> {
         let max_values =
             self.files
                 .iter()
-                .map(|manifest| match &manifest.data_file().upper_bounds() {
+                .map(|manifest| match &manifest.1.data_file().upper_bounds() {
                     Some(map) => map
                         .get(&{ column_id })
                         .map(|value| value.clone().into_any()),
@@ -204,12 +205,12 @@ impl PruningStatistics for PruneDataFiles<'_, '_> {
     fn null_counts(&self, column: &Column) -> Option<ArrayRef> {
         let column_id = self.schema.fields().get_name(&column.name)?.id;
         let null_counts =
-            self.files
-                .iter()
-                .map(|manifest| match &manifest.data_file().null_value_counts() {
+            self.files.iter().map(
+                |manifest| match &manifest.1.data_file().null_value_counts() {
                     Some(map) => map.get(&{ column_id }).copied(),
                     None => None,
-                });
+                },
+            );
         ScalarValue::iter_to_array(null_counts.map(ScalarValue::Int64)).ok()
     }
     fn contained(
@@ -225,7 +226,7 @@ impl PruningStatistics for PruneDataFiles<'_, '_> {
         let null_counts =
             self.files
                 .iter()
-                .map(|manifest| match &manifest.data_file().value_counts() {
+                .map(|manifest| match &manifest.1.data_file().value_counts() {
                     Some(map) => map.get(&{ column_id }).copied(),
                     None => None,
                 });
