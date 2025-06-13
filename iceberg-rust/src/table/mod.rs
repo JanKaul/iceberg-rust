@@ -331,22 +331,6 @@ async fn datafiles(
         })
         .collect();
 
-    // // Collect a vector of data files by creating a stream over the manifst files, fetch their content and return a flatten stream over their entries.
-    // let stream = stream::iter(iter).then(move |file| {
-    //     let object_store = object_store.clone();
-    //     async move {
-    //         let manifest_path = &file.manifest_path;
-    //         let path: Path = util::strip_prefix(manifest_path).into();
-    //         let bytes = Cursor::new(Vec::from(
-    //             object_store
-    //                 .get(&path)
-    //                 .and_then(|file| file.bytes())
-    //                 .await?,
-    //         ));
-    //         Ok::<_, Error>((bytes, manifest_path, file.sequence_number))
-    //     }
-    // });
-    //
     Ok(stream.flat_map_unordered(None, move |result| {
         let (bytes, path, sequence_number) = result.unwrap();
 
