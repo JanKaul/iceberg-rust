@@ -9,7 +9,7 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use datafusion::{
-        arrow::array::{Float64Array, Int64Array, StringArray},
+        arrow::array::{Float64Array, Int64Array, StringArray, StringViewArray},
         common::tree_node::{TransformedResult, TreeNode},
         execution::SessionStateBuilder,
         prelude::SessionContext,
@@ -1490,7 +1490,7 @@ GROUP BY
                     batch
                         .column(0)
                         .as_any()
-                        .downcast_ref::<StringArray>()
+                        .downcast_ref::<StringViewArray>()
                         .unwrap(),
                     batch
                         .column(1)
@@ -1689,7 +1689,7 @@ GROUP BY
                     batch
                         .column(0)
                         .as_any()
-                        .downcast_ref::<StringArray>()
+                        .downcast_ref::<StringViewArray>()
                         .unwrap(),
                     batch
                         .column(1)

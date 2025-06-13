@@ -162,7 +162,7 @@ pub(crate) fn delta_transform_down(
                                 .clone()
                                 .into_iter()
                                 .zip(storage_table_aggregate_exprs.into_iter())
-                                .map(|(x, y)| incremental_aggregate_function(&vec![x], &vec![y]))
+                                .map(|(x, y)| incremental_aggregate_function(&[x], &[y]))
                                 .collect::<Result<Vec<_>, _>>()?,
                         );
 

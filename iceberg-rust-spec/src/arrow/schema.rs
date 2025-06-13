@@ -160,6 +160,7 @@ impl TryFrom<&DataType> for Type {
             DataType::Time64(_) => Ok(Type::Primitive(PrimitiveType::Time)),
             DataType::Timestamp(_, _) => Ok(Type::Primitive(PrimitiveType::Timestamp)),
             DataType::Utf8 => Ok(Type::Primitive(PrimitiveType::String)),
+            DataType::Utf8View => Ok(Type::Primitive(PrimitiveType::String)),
             DataType::FixedSizeBinary(len) => {
                 Ok(Type::Primitive(PrimitiveType::Fixed(*len as u64)))
             }
