@@ -13,6 +13,7 @@
 use std::{io::Cursor, sync::Arc};
 
 use futures::future;
+use futures::stream::FuturesUnordered;
 use itertools::Itertools;
 use manifest::ManifestReader;
 use manifest_list::read_snapshot;
@@ -313,9 +314,8 @@ async fn datafiles(
         None => Box::new(manifests.iter()),
     };
 
-    // Collect a vector of data files by creating a stream over the manifst files, fetch their content and return a flatten stream over their entries.
-    Ok(stream::iter(iter)
-        .then(move |file| {
+    let stream: FuturesUnordered<_> = iter
+        .map(move |file| {
             let object_store = object_store.clone();
             async move {
                 let manifest_path = &file.manifest_path;
@@ -329,35 +329,51 @@ async fn datafiles(
                 Ok::<_, Error>((bytes, manifest_path, file.sequence_number))
             }
         })
-        .flat_map_unordered(None, move |result| {
-            let (bytes, path, sequence_number) = result.unwrap();
+        .collect();
 
-            let reader = ManifestReader::new(bytes).unwrap();
-            stream::iter(reader).try_filter_map(move |mut x| {
-                future::ready({
-                    let sequence_number = if let Some(sequence_number) = x.sequence_number() {
-                        *sequence_number
-                    } else {
-                        *x.sequence_number_mut() = Some(sequence_number);
-                        sequence_number
-                    };
+    // // Collect a vector of data files by creating a stream over the manifst files, fetch their content and return a flatten stream over their entries.
+    // let stream = stream::iter(iter).then(move |file| {
+    //     let object_store = object_store.clone();
+    //     async move {
+    //         let manifest_path = &file.manifest_path;
+    //         let path: Path = util::strip_prefix(manifest_path).into();
+    //         let bytes = Cursor::new(Vec::from(
+    //             object_store
+    //                 .get(&path)
+    //                 .and_then(|file| file.bytes())
+    //                 .await?,
+    //         ));
+    //         Ok::<_, Error>((bytes, manifest_path, file.sequence_number))
+    //     }
+    // });
+    //
+    Ok(stream.flat_map_unordered(None, move |result| {
+        let (bytes, path, sequence_number) = result.unwrap();
 
-                    let filter = match sequence_number_range {
-                        (Some(start), Some(end)) => {
-                            start < sequence_number && sequence_number <= end
-                        }
-                        (Some(start), None) => start < sequence_number,
-                        (None, Some(end)) => sequence_number <= end,
-                        _ => true,
-                    };
-                    if filter {
-                        Ok(Some((path.to_owned(), x)))
-                    } else {
-                        Ok(None)
-                    }
-                })
+        let reader = ManifestReader::new(bytes).unwrap();
+        stream::iter(reader).try_filter_map(move |mut x| {
+            future::ready({
+                let sequence_number = if let Some(sequence_number) = x.sequence_number() {
+                    *sequence_number
+                } else {
+                    *x.sequence_number_mut() = Some(sequence_number);
+                    sequence_number
+                };
+
+                let filter = match sequence_number_range {
+                    (Some(start), Some(end)) => start < sequence_number && sequence_number <= end,
+                    (Some(start), None) => start < sequence_number,
+                    (None, Some(end)) => sequence_number <= end,
+                    _ => true,
+                };
+                if filter {
+                    Ok(Some((path.to_owned(), x)))
+                } else {
+                    Ok(None)
+                }
             })
-        }))
+        })
+    }))
 }
 
 /// delete all datafiles, manifests and metadata files, does not remove table from catalog
