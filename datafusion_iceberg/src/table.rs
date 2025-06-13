@@ -574,7 +574,7 @@ async fn table_scan(
     let file_source = Arc::new(
         if let Some(physical_predicate) = physical_predicate.clone() {
             ParquetSource::default()
-                .with_predicate(Arc::clone(&file_schema), physical_predicate)
+                .with_predicate(physical_predicate)
                 .with_pushdown_filters(true)
         } else {
             ParquetSource::default()
@@ -692,10 +692,7 @@ async fn table_scan(
                             let delete_file_source = Arc::new(
                                 if let Some(physical_predicate) = physical_predicate.clone() {
                                     ParquetSource::default()
-                                        .with_predicate(
-                                            Arc::clone(&delete_file_schema),
-                                            physical_predicate,
-                                        )
+                                        .with_predicate(physical_predicate)
                                         .with_pushdown_filters(true)
                                 } else {
                                     ParquetSource::default()
@@ -714,11 +711,7 @@ async fn table_scan(
                             .build();
 
                             let left = ParquetFormat::default()
-                                .create_physical_plan(
-                                    session,
-                                    delete_file_scan_config,
-                                    physical_predicate.as_ref(),
-                                )
+                                .create_physical_plan(session, delete_file_scan_config)
                                 .await?;
 
                             let file_scan_config = FileScanConfigBuilder::new(
@@ -734,11 +727,7 @@ async fn table_scan(
                             .build();
 
                             let data_files_scan = ParquetFormat::default()
-                                .create_physical_plan(
-                                    session,
-                                    file_scan_config,
-                                    physical_predicate.as_ref(),
-                                )
+                                .create_physical_plan(session, file_scan_config)
                                 .await?;
 
                             let right = if let Some(acc) = acc {
@@ -818,11 +807,7 @@ async fn table_scan(
                     .build();
 
                     let data_files_scan = ParquetFormat::default()
-                        .create_physical_plan(
-                            session,
-                            file_scan_config,
-                            physical_predicate.as_ref(),
-                        )
+                        .create_physical_plan(session, file_scan_config)
                         .await?;
 
                     plan = Arc::new(UnionExec::new(vec![plan, data_files_scan]));
@@ -874,7 +859,7 @@ async fn table_scan(
         .build();
 
     let other_plan = ParquetFormat::default()
-        .create_physical_plan(session, file_scan_config, physical_predicate.as_ref())
+        .create_physical_plan(session, file_scan_config)
         .await?;
 
     if plans.is_empty() {
