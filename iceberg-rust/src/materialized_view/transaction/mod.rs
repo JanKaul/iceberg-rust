@@ -14,7 +14,7 @@ use crate::{
     error::Error,
     table::{
         delete_all_table_files,
-        transaction::{operation::Operation as TableOperation, APPEND_KEY, REPLACE_KEY},
+        transaction::{operation::Operation as TableOperation, APPEND_INDEX, REPLACE_INDEX},
     },
     view::transaction::operation::Operation as ViewOperation,
 };
@@ -25,7 +25,7 @@ use super::MaterializedView;
 pub struct Transaction<'view> {
     materialized_view: &'view mut MaterializedView,
     view_operations: Vec<ViewOperation>,
-    storage_table_operations: HashMap<String, TableOperation>,
+    storage_table_operations: Vec<Option<TableOperation>>,
     branch: Option<String>,
 }
 
@@ -35,7 +35,7 @@ impl<'view> Transaction<'view> {
         Transaction {
             materialized_view: view,
             view_operations: vec![],
-            storage_table_operations: HashMap::new(),
+            storage_table_operations: (0..6).map(|_| None).collect(), // 6 operation types
             branch: branch.map(ToString::to_string),
         }
     }
@@ -69,23 +69,21 @@ impl<'view> Transaction<'view> {
         refresh_state: RefreshState,
     ) -> Result<Self, Error> {
         let refresh_state = serde_json::to_string(&refresh_state)?;
-        self.storage_table_operations
-            .entry(REPLACE_KEY.to_owned())
-            .and_modify(|mut x| {
-                if let TableOperation::Replace {
-                    branch: _,
-                    files: old,
-                    additional_summary: old_lineage,
-                } = &mut x
-                {
-                    old.extend_from_slice(&files);
-                    *old_lineage = Some(HashMap::from_iter(vec![(
-                        REFRESH_STATE.to_owned(),
-                        refresh_state.clone(),
-                    )]));
-                }
-            })
-            .or_insert(TableOperation::Replace {
+        if let Some(ref mut operation) = self.storage_table_operations[REPLACE_INDEX] {
+            if let TableOperation::Replace {
+                branch: _,
+                files: old,
+                additional_summary: old_lineage,
+            } = operation
+            {
+                old.extend_from_slice(&files);
+                *old_lineage = Some(HashMap::from_iter(vec![(
+                    REFRESH_STATE.to_owned(),
+                    refresh_state.clone(),
+                )]));
+            }
+        } else {
+            self.storage_table_operations[REPLACE_INDEX] = Some(TableOperation::Replace {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: Some(HashMap::from_iter(vec![(
@@ -93,6 +91,7 @@ impl<'view> Transaction<'view> {
                     refresh_state,
                 )])),
             });
+        }
         Ok(self)
     }
 
@@ -103,24 +102,22 @@ impl<'view> Transaction<'view> {
         refresh_state: RefreshState,
     ) -> Result<Self, Error> {
         let refresh_state = serde_json::to_string(&refresh_state)?;
-        self.storage_table_operations
-            .entry(APPEND_KEY.to_owned())
-            .and_modify(|mut x| {
-                if let TableOperation::Append {
-                    branch: _,
-                    data_files: old,
-                    delete_files: _,
-                    additional_summary: old_lineage,
-                } = &mut x
-                {
-                    old.extend_from_slice(&files);
-                    *old_lineage = Some(HashMap::from_iter(vec![(
-                        REFRESH_STATE.to_owned(),
-                        refresh_state.clone(),
-                    )]));
-                }
-            })
-            .or_insert(TableOperation::Append {
+        if let Some(ref mut operation) = self.storage_table_operations[APPEND_INDEX] {
+            if let TableOperation::Append {
+                branch: _,
+                data_files: old,
+                delete_files: _,
+                additional_summary: old_lineage,
+            } = operation
+            {
+                old.extend_from_slice(&files);
+                *old_lineage = Some(HashMap::from_iter(vec![(
+                    REFRESH_STATE.to_owned(),
+                    refresh_state.clone(),
+                )]));
+            }
+        } else {
+            self.storage_table_operations[APPEND_INDEX] = Some(TableOperation::Append {
                 branch: self.branch.clone(),
                 data_files: files,
                 delete_files: Vec::new(),
@@ -129,6 +126,7 @@ impl<'view> Transaction<'view> {
                     refresh_state,
                 )])),
             });
+        }
         Ok(self)
     }
 
@@ -139,24 +137,22 @@ impl<'view> Transaction<'view> {
         refresh_state: RefreshState,
     ) -> Result<Self, Error> {
         let refresh_state = serde_json::to_string(&refresh_state)?;
-        self.storage_table_operations
-            .entry(APPEND_KEY.to_owned())
-            .and_modify(|mut x| {
-                if let TableOperation::Append {
-                    branch: _,
-                    data_files: _,
-                    delete_files: old,
-                    additional_summary: old_lineage,
-                } = &mut x
-                {
-                    old.extend_from_slice(&files);
-                    *old_lineage = Some(HashMap::from_iter(vec![(
-                        REFRESH_STATE.to_owned(),
-                        refresh_state.clone(),
-                    )]));
-                }
-            })
-            .or_insert(TableOperation::Append {
+        if let Some(ref mut operation) = self.storage_table_operations[APPEND_INDEX] {
+            if let TableOperation::Append {
+                branch: _,
+                data_files: _,
+                delete_files: old,
+                additional_summary: old_lineage,
+            } = operation
+            {
+                old.extend_from_slice(&files);
+                *old_lineage = Some(HashMap::from_iter(vec![(
+                    REFRESH_STATE.to_owned(),
+                    refresh_state.clone(),
+                )]));
+            }
+        } else {
+            self.storage_table_operations[APPEND_INDEX] = Some(TableOperation::Append {
                 branch: self.branch.clone(),
                 data_files: Vec::new(),
                 delete_files: files,
@@ -165,6 +161,7 @@ impl<'view> Transaction<'view> {
                     refresh_state,
                 )])),
             });
+        }
         Ok(self)
     }
 
@@ -182,7 +179,8 @@ impl<'view> Transaction<'view> {
             // Save old metadata to be able to remove old data after a rewrite operation
             let delete_data = if self
                 .storage_table_operations
-                .values()
+                .iter()
+                .flatten()
                 .any(|x| matches!(x, TableOperation::Replace { .. }))
             {
                 Some(storage_table.metadata().clone())
@@ -191,7 +189,7 @@ impl<'view> Transaction<'view> {
             };
 
             // Execute table operations
-            for operation in self.storage_table_operations.into_values() {
+            for operation in self.storage_table_operations.into_iter().flatten() {
                 let (requirement, update) = operation
                     .execute(storage_table.metadata(), storage_table.object_store())
                     .await?;
