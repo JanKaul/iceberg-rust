@@ -100,20 +100,21 @@ impl Operation {
                 delete_files,
                 additional_summary,
             } => {
-                let partition_fields =
-                    table_metadata.current_partition_fields(branch.as_deref())?;
-                let schema = table_metadata.current_schema(branch.as_deref())?;
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
 
-                let snapshot_operation = match (data_files.len(), delete_files.len()) {
-                    (0, 0) => return Ok((None, Vec::new())),
-                    (_, 0) => Ok::<_, Error>(SnapshotOperation::Append),
-                    (0, _) => Ok(SnapshotOperation::Delete),
-                    (_, _) => Ok(SnapshotOperation::Overwrite),
-                }?;
+                let n_data_files = data_files.len();
+                let n_delete_files = delete_files.len();
 
-                let old_manifest_list_bytes_opt =
-                    prefetch_manifest_list(old_snapshot, &object_store);
+                let manifest_list_schema = match table_metadata.format_version {
+                    FormatVersion::V1 => manifest_list_schema_v1(),
+                    FormatVersion::V2 => manifest_list_schema_v2(),
+                };
+
+                let mut manifest_list_writer =
+                    apache_avro::Writer::new(manifest_list_schema, Vec::new());
+
+                let partition_fields =
+                    table_metadata.current_partition_fields(branch.as_deref())?;
 
                 let partition_column_names = partition_fields
                     .iter()
@@ -133,18 +134,24 @@ impl Operation {
                     })?
                     .ok_or(Error::NotFound("Bounding partition values".to_owned()))?;
 
-                let manifest_list_schema = match table_metadata.format_version {
-                    FormatVersion::V1 => manifest_list_schema_v1(),
-                    FormatVersion::V2 => manifest_list_schema_v2(),
-                };
-
-                let mut manifest_list_writer =
-                    apache_avro::Writer::new(manifest_list_schema, Vec::new());
+                let new_datafile_iter =
+                    delete_files
+                        .into_iter()
+                        .chain(data_files.into_iter())
+                        .map(|data_file| {
+                            ManifestEntry::builder()
+                                .with_format_version(table_metadata.format_version)
+                                .with_status(Status::Added)
+                                .with_data_file(data_file)
+                                .build()
+                                .map_err(crate::spec::error::Error::from)
+                                .map_err(Error::from)
+                        });
 
                 // Find a manifest to add the new datafiles
                 let mut existing_file_count = 0;
                 let selected_manifest_opt = if let Some(old_manifest_list_bytes) =
-                    old_manifest_list_bytes_opt
+                    prefetch_manifest_list(old_snapshot, &object_store)
                 {
                     let old_manifest_list_bytes = old_manifest_list_bytes.await??;
 
@@ -193,42 +200,17 @@ impl Operation {
 
                 let n_splits = compute_n_splits(
                     existing_file_count,
-                    delete_files.len() + data_files.len(),
+                    n_delete_files + n_data_files,
                     selected_manifest_file_count,
                 );
-
-                let bounds = selected_manifest_opt
-                    .as_ref()
-                    .and_then(|x| x.partitions.as_deref())
-                    .map(summary_to_rectangle)
-                    .transpose()?
-                    .map(|mut x| {
-                        x.expand(&bounding_partition_values);
-                        x
-                    })
-                    .unwrap_or(bounding_partition_values);
-
-                let snapshot_id = generate_snapshot_id();
-                let commit_uuid = &uuid::Uuid::new_v4().to_string();
-
-                let new_datafile_iter =
-                    delete_files
-                        .into_iter()
-                        .chain(data_files.into_iter())
-                        .map(|data_file| {
-                            ManifestEntry::builder()
-                                .with_format_version(table_metadata.format_version)
-                                .with_status(Status::Added)
-                                .with_data_file(data_file)
-                                .build()
-                                .map_err(crate::spec::error::Error::from)
-                                .map_err(Error::from)
-                        });
 
                 let manifest_schema = ManifestEntry::schema(
                     &partition_value_schema(&partition_fields)?,
                     &table_metadata.format_version,
                 )?;
+
+                let snapshot_id = generate_snapshot_id();
+                let commit_uuid = &uuid::Uuid::new_v4().to_string();
 
                 let new_manifest_list_location = new_manifest_list_location(
                     &table_metadata.location,
@@ -272,6 +254,17 @@ impl Operation {
 
                     manifest_list_writer.append_ser(manifest)?;
                 } else {
+                    let bounds = selected_manifest_opt
+                        .as_ref()
+                        .and_then(|x| x.partitions.as_deref())
+                        .map(summary_to_rectangle)
+                        .transpose()?
+                        .map(|mut x| {
+                            x.expand(&bounding_partition_values);
+                            x
+                        })
+                        .unwrap_or(bounding_partition_values);
+
                     // Split datafiles
                     let splits = if let (Some(manifest), Some(manifest_bytes)) =
                         (selected_manifest_opt, selected_manifest_bytes_opt)
@@ -343,6 +336,13 @@ impl Operation {
                     )
                     .await?;
 
+                let snapshot_operation = match (n_data_files, n_delete_files) {
+                    (0, 0) => return Ok((None, Vec::new())),
+                    (_, 0) => Ok::<_, Error>(SnapshotOperation::Append),
+                    (0, _) => Ok(SnapshotOperation::Delete),
+                    (_, _) => Ok(SnapshotOperation::Overwrite),
+                }?;
+
                 let mut snapshot_builder = SnapshotBuilder::default();
                 snapshot_builder
                     .with_snapshot_id(snapshot_id)
@@ -352,7 +352,11 @@ impl Operation {
                         operation: snapshot_operation,
                         other: additional_summary.unwrap_or_default(),
                     })
-                    .with_schema_id(*schema.schema_id());
+                    .with_schema_id(
+                        *table_metadata
+                            .current_schema(branch.as_deref())?
+                            .schema_id(),
+                    );
                 if let Some(snapshot) = old_snapshot {
                     snapshot_builder.with_parent_snapshot_id(*snapshot.snapshot_id());
                 }
