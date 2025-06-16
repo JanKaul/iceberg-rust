@@ -121,18 +121,10 @@ impl Operation {
                     .map(|x| x.name())
                     .collect::<SmallVec<[_; 4]>>();
 
-                let bounding_partition_values = delete_files
-                    .iter()
-                    .chain(data_files.iter())
-                    .try_fold(None, |acc, x| {
-                        let node = partition_struct_to_vec(x.partition(), &partition_column_names)?;
-                        let Some(mut acc) = acc else {
-                            return Ok::<_, Error>(Some(Rectangle::new(node.clone(), node)));
-                        };
-                        acc.expand_with_node(node);
-                        Ok(Some(acc))
-                    })?
-                    .ok_or(Error::NotFound("Bounding partition values".to_owned()))?;
+                let bounding_partition_values = bounding_partition_values(
+                    delete_files.iter().chain(data_files.iter()),
+                    &partition_column_names,
+                )?;
 
                 let new_datafile_iter =
                     delete_files
@@ -457,18 +449,8 @@ impl Operation {
 
                     manifest_list_writer.append_ser(manifest)?;
                 } else {
-                    let bounding_partition_values = files
-                        .iter()
-                        .try_fold(None, |acc, x| {
-                            let node =
-                                partition_struct_to_vec(x.partition(), &partition_column_names)?;
-                            let Some(mut acc) = acc else {
-                                return Ok::<_, Error>(Some(Rectangle::new(node.clone(), node)));
-                            };
-                            acc.expand_with_node(node);
-                            Ok(Some(acc))
-                        })?
-                        .ok_or(Error::NotFound("Bounding partition values".to_owned()))?;
+                    let bounding_partition_values =
+                        bounding_partition_values(files.iter(), &partition_column_names)?;
 
                     // Split datafiles
                     let splits = split_datafiles(
@@ -574,6 +556,21 @@ impl Operation {
             }
         }
     }
+}
+
+fn bounding_partition_values<'a>(
+    mut iter: impl Iterator<Item = &'a DataFile>,
+    partition_column_names: &SmallVec<[&str; 4]>,
+) -> Result<Rectangle, Error> {
+    iter.try_fold(None, |acc, x| {
+        let node = partition_struct_to_vec(x.partition(), partition_column_names)?;
+        let Some(mut acc) = acc else {
+            return Ok::<_, Error>(Some(Rectangle::new(node.clone(), node)));
+        };
+        acc.expand_with_node(node);
+        Ok(Some(acc))
+    })?
+    .ok_or(Error::NotFound("Bounding partition values".to_owned()))
 }
 
 fn prefetch_manifest(
