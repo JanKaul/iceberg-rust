@@ -15,24 +15,22 @@
 //! * Updating table properties
 //! * Managing snapshots and branches
 
-use std::collections::HashMap;
-
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
 
-use crate::{catalog::commit::CommitTable, error::Error, table::Table};
 use crate::table::transaction::append::append_summary;
+use crate::{catalog::commit::CommitTable, error::Error, table::Table};
 
 use self::operation::Operation;
 
 pub(crate) mod append;
 pub(crate) mod operation;
 
-pub(crate) static APPEND_KEY: &str = "append";
-pub(crate) static REPLACE_KEY: &str = "replace";
-pub(crate) static ADD_SCHEMA_KEY: &str = "add-schema";
-pub(crate) static SET_DEFAULT_SPEC_KEY: &str = "set-default-spec";
-pub(crate) static UPDATE_PROPERTIES_KEY: &str = "update-properties";
-pub(crate) static SET_SNAPSHOT_REF_KEY: &str = "set-ref";
+pub(crate) static ADD_SCHEMA_INDEX: usize = 0;
+pub(crate) static SET_DEFAULT_SPEC_INDEX: usize = 1;
+pub(crate) static APPEND_INDEX: usize = 2;
+pub(crate) static REPLACE_INDEX: usize = 3;
+pub(crate) static UPDATE_PROPERTIES_INDEX: usize = 4;
+pub(crate) static SET_SNAPSHOT_REF_INDEX: usize = 5;
 
 /// A transaction that can perform multiple operations on a table atomically
 ///
@@ -54,7 +52,7 @@ pub(crate) static SET_SNAPSHOT_REF_KEY: &str = "set-ref";
 /// ```
 pub struct TableTransaction<'table> {
     table: &'table mut Table,
-    operations: HashMap<String, Operation>,
+    operations: Vec<Option<Operation>>,
     branch: Option<String>,
 }
 
@@ -63,7 +61,7 @@ impl<'table> TableTransaction<'table> {
     pub(crate) fn new(table: &'table mut Table, branch: Option<&str>) -> Self {
         TableTransaction {
             table,
-            operations: HashMap::new(),
+            operations: (0..6).map(|_| None).collect(), // 6 operation types
             branch: branch.map(ToString::to_string),
         }
     }
@@ -78,8 +76,7 @@ impl<'table> TableTransaction<'table> {
     /// # Returns
     /// * `Self` - The transaction builder for method chaining
     pub fn add_schema(mut self, schema: Schema) -> Self {
-        self.operations
-            .insert(ADD_SCHEMA_KEY.to_owned(), Operation::AddSchema(schema));
+        self.operations[ADD_SCHEMA_INDEX] = Some(Operation::AddSchema(schema));
         self
     }
     /// Sets the default partition specification ID for the table
@@ -92,10 +89,7 @@ impl<'table> TableTransaction<'table> {
     ///
     /// The specified partition specification must already exist in the table metadata.
     pub fn set_default_spec(mut self, spec_id: i32) -> Self {
-        self.operations.insert(
-            SET_DEFAULT_SPEC_KEY.to_owned(),
-            Operation::SetDefaultSpec(spec_id),
-        );
+        self.operations[SET_DEFAULT_SPEC_INDEX] = Some(Operation::SetDefaultSpec(spec_id));
         self
     }
     /// Appends new data files to the table
@@ -119,20 +113,21 @@ impl<'table> TableTransaction<'table> {
     pub fn append_data(mut self, files: Vec<DataFile>) -> Self {
         let summary = append_summary(&files);
 
-        self.operations
-            .entry(APPEND_KEY.to_owned())
-            .and_modify(|mut x| {
-                if let Operation::Append { data_files: old, ..} = &mut x
-                {
-                    old.extend_from_slice(&files)
-                }
-            })
-            .or_insert(Operation::Append {
+        if let Some(ref mut operation) = self.operations[APPEND_INDEX] {
+            if let Operation::Append {
+                data_files: old, ..
+            } = operation
+            {
+                old.extend_from_slice(&files);
+            }
+        } else {
+            self.operations[APPEND_INDEX] = Some(Operation::Append {
                 branch: self.branch.clone(),
                 data_files: files,
                 delete_files: Vec::new(),
                 additional_summary: summary,
             });
+        }
         self
     }
     /// Appends delete files to the table
@@ -155,25 +150,24 @@ impl<'table> TableTransaction<'table> {
     ///     .await?;
     /// ```
     pub fn append_delete(mut self, files: Vec<DataFile>) -> Self {
-        self.operations
-            .entry(APPEND_KEY.to_owned())
-            .and_modify(|mut x| {
-                if let Operation::Append {
-                    branch: _,
-                    data_files: _,
-                    delete_files: old,
-                    additional_summary: None,
-                } = &mut x
-                {
-                    old.extend_from_slice(&files)
-                }
-            })
-            .or_insert(Operation::Append {
+        if let Some(ref mut operation) = self.operations[APPEND_INDEX] {
+            if let Operation::Append {
+                branch: _,
+                data_files: _,
+                delete_files: old,
+                additional_summary: None,
+            } = operation
+            {
+                old.extend_from_slice(&files);
+            }
+        } else {
+            self.operations[APPEND_INDEX] = Some(Operation::Append {
                 branch: self.branch.clone(),
                 data_files: Vec::new(),
                 delete_files: files,
                 additional_summary: None,
             });
+        }
         self
     }
     /// Replaces all data files in the table with new ones
@@ -195,49 +189,47 @@ impl<'table> TableTransaction<'table> {
     ///     .await?;
     /// ```
     pub fn replace(mut self, files: Vec<DataFile>) -> Self {
-        self.operations
-            .entry(REPLACE_KEY.to_owned())
-            .and_modify(|mut x| {
-                if let Operation::Replace {
-                    branch: _,
-                    files: old,
-                    additional_summary: None,
-                } = &mut x
-                {
-                    old.extend_from_slice(&files)
-                }
-            })
-            .or_insert(Operation::Replace {
+        if let Some(ref mut operation) = self.operations[REPLACE_INDEX] {
+            if let Operation::Replace {
+                branch: _,
+                files: old,
+                additional_summary: None,
+            } = operation
+            {
+                old.extend_from_slice(&files);
+            }
+        } else {
+            self.operations[REPLACE_INDEX] = Some(Operation::Replace {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: None,
             });
+        }
         self
     }
     /// Quickly append files to the table
     pub fn replace_with_lineage(
         mut self,
         files: Vec<DataFile>,
-        additional_summary: HashMap<String, String>,
+        additional_summary: std::collections::HashMap<String, String>,
     ) -> Self {
-        self.operations
-            .entry(REPLACE_KEY.to_owned())
-            .and_modify(|mut x| {
-                if let Operation::Replace {
-                    branch: _,
-                    files: old,
-                    additional_summary: old_lineage,
-                } = &mut x
-                {
-                    old.extend_from_slice(&files);
-                    *old_lineage = Some(additional_summary.clone());
-                }
-            })
-            .or_insert(Operation::Replace {
+        if let Some(ref mut operation) = self.operations[REPLACE_INDEX] {
+            if let Operation::Replace {
+                branch: _,
+                files: old,
+                additional_summary: old_lineage,
+            } = operation
+            {
+                old.extend_from_slice(&files);
+                *old_lineage = Some(additional_summary.clone());
+            }
+        } else {
+            self.operations[REPLACE_INDEX] = Some(Operation::Replace {
                 branch: self.branch.clone(),
                 files,
                 additional_summary: Some(additional_summary),
             });
+        }
         self
     }
     /// Updates the table properties with new key-value pairs
@@ -262,14 +254,13 @@ impl<'table> TableTransaction<'table> {
     ///     .await?;
     /// ```
     pub fn update_properties(mut self, entries: Vec<(String, String)>) -> Self {
-        self.operations
-            .entry(UPDATE_PROPERTIES_KEY.to_owned())
-            .and_modify(|mut x| {
-                if let Operation::UpdateProperties(props) = &mut x {
-                    props.extend_from_slice(&entries)
-                }
-            })
-            .or_insert(Operation::UpdateProperties(entries));
+        if let Some(ref mut operation) = self.operations[UPDATE_PROPERTIES_INDEX] {
+            if let Operation::UpdateProperties(props) = operation {
+                props.extend_from_slice(&entries);
+            }
+        } else {
+            self.operations[UPDATE_PROPERTIES_INDEX] = Some(Operation::UpdateProperties(entries));
+        }
         self
     }
     /// Sets a snapshot reference for the table
@@ -297,10 +288,7 @@ impl<'table> TableTransaction<'table> {
     ///     .await?;
     /// ```
     pub fn set_snapshot_ref(mut self, entry: (String, SnapshotReference)) -> Self {
-        self.operations.insert(
-            SET_SNAPSHOT_REF_KEY.to_owned(),
-            Operation::SetSnapshotRef(entry),
-        );
+        self.operations[SET_SNAPSHOT_REF_INDEX] = Some(Operation::SetSnapshotRef(entry));
         self
     }
     /// Commits all operations in this transaction atomically
@@ -333,7 +321,7 @@ impl<'table> TableTransaction<'table> {
 
         // Execute the table operations
         let (mut requirements, mut updates) = (Vec::new(), Vec::new());
-        for operation in self.operations.into_values() {
+        for operation in self.operations.into_iter().flatten() {
             let (requirement, update) = operation
                 .execute(self.table.metadata(), self.table.object_store())
                 .await?;
