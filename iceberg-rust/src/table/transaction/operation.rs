@@ -108,6 +108,10 @@ impl Operation {
                 let n_data_files = data_files.len();
                 let n_delete_files = delete_files.len();
 
+                if n_data_files + n_delete_files == 0 {
+                    return Ok((None, Vec::new()));
+                }
+
                 let data_files_iter = delete_files.iter().chain(data_files.iter());
 
                 let manifest_list_writer = if let Some(manifest_list_bytes) =
