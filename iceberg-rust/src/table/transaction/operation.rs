@@ -2,6 +2,7 @@
  * Defines the different [Operation]s on a [Table].
 */
 
+use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};
 
 use bytes::Bytes;
@@ -71,18 +72,21 @@ pub enum Operation {
     },
     // /// Replace manifests files and commit
     // RewriteManifests,
-    // /// Replace files in the table by a filter expression
-    // NewOverwrite,
-    // /// Remove or replace rows in existing data files
-    // NewRowDelta,
-    // /// Delete files in the table and commit
-    // NewDelete,
-    // /// Expire snapshots in the table
-    // ExpireSnapshots,
-    // /// Manage snapshots in the table
-    // ManageSnapshots,
-    // /// Read and write table data and metadata files
-    // IO,
+    Overwrite {
+        branch: Option<String>,
+        data_files: Vec<DataFile>,
+        files_to_overwrite: HashMap<String, Vec<String>>,
+        additional_summary: Option<HashMap<String, String>>,
+    }, // /// Remove or replace rows in existing data files
+       // NewRowDelta,
+       // /// Delete files in the table and commit
+       // NewDelete,
+       // /// Expire snapshots in the table
+       // ExpireSnapshots,
+       // /// Manage snapshots in the table
+       // ManageSnapshots,
+       // /// Read and write table data and metadata files
+       // IO,
 }
 
 impl Operation {
@@ -350,6 +354,114 @@ impl Operation {
                     old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
                         r#ref: branch.clone().unwrap_or("main".to_owned()),
                         snapshot_id: *x.snapshot_id(),
+                    }),
+                    vec![
+                        TableUpdate::AddSnapshot { snapshot },
+                        TableUpdate::SetSnapshotRef {
+                            ref_name: branch.unwrap_or("main".to_owned()),
+                            snapshot_reference: SnapshotReference {
+                                snapshot_id,
+                                retention: SnapshotRetention::default(),
+                            },
+                        },
+                    ],
+                ))
+            }
+            Operation::Overwrite {
+                branch,
+                data_files,
+                files_to_overwrite,
+                additional_summary,
+            } => {
+                let old_snapshot = table_metadata
+                    .current_snapshot(branch.as_deref())?
+                    .ok_or(Error::InvalidFormat("Snapshot to overwrite".to_owned()))?;
+
+                let manifest_list_schema = match table_metadata.format_version {
+                    FormatVersion::V1 => manifest_list_schema_v1(),
+                    FormatVersion::V2 => manifest_list_schema_v2(),
+                };
+
+                let n_data_files = data_files.len();
+
+                if n_data_files == 0 {
+                    return Ok((None, Vec::new()));
+                }
+
+                let data_files_iter = data_files.iter();
+
+                let manifests_to_overwrite: HashSet<String> =
+                    files_to_overwrite.keys().map(ToOwned::to_owned).collect();
+
+                let bytes = prefetch_manifest_list(Some(old_snapshot), &object_store)
+                    .unwrap()
+                    .await??;
+
+                let manifest_list_writer = ManifestListWriter::from_existing_without_overwrites(
+                    &bytes,
+                    data_files_iter,
+                    &manifests_to_overwrite,
+                    manifest_list_schema,
+                    table_metadata,
+                    branch.as_deref(),
+                )?;
+
+                let n_splits = manifest_list_writer.n_splits(n_data_files);
+
+                let new_datafile_iter = data_files.into_iter().map(|data_file| {
+                    ManifestEntry::builder()
+                        .with_format_version(table_metadata.format_version)
+                        .with_status(Status::Added)
+                        .with_data_file(data_file)
+                        .build()
+                        .map_err(crate::spec::error::Error::from)
+                        .map_err(Error::from)
+                });
+
+                let snapshot_id = generate_snapshot_id();
+
+                // Write manifest files
+                // Split manifest file if limit is exceeded
+                let new_manifest_list_location = if n_splits == 0 {
+                    manifest_list_writer
+                        .append_and_finish(new_datafile_iter, snapshot_id, object_store)
+                        .await?
+                } else {
+                    manifest_list_writer
+                        .append_split_and_finish(
+                            new_datafile_iter,
+                            snapshot_id,
+                            n_splits,
+                            object_store,
+                        )
+                        .await?
+                };
+
+                let snapshot_operation = SnapshotOperation::Overwrite;
+
+                let mut snapshot_builder = SnapshotBuilder::default();
+                snapshot_builder
+                    .with_snapshot_id(snapshot_id)
+                    .with_manifest_list(new_manifest_list_location)
+                    .with_sequence_number(table_metadata.last_sequence_number + 1)
+                    .with_summary(Summary {
+                        operation: snapshot_operation,
+                        other: additional_summary.unwrap_or_default(),
+                    })
+                    .with_schema_id(
+                        *table_metadata
+                            .current_schema(branch.as_deref())?
+                            .schema_id(),
+                    );
+                snapshot_builder.with_parent_snapshot_id(*old_snapshot.snapshot_id());
+                let snapshot = snapshot_builder
+                    .build()
+                    .map_err(iceberg_rust_spec::error::Error::from)?;
+
+                Ok((
+                    Some(TableRequirement::AssertRefSnapshotId {
+                        r#ref: branch.clone().unwrap_or("main".to_owned()),
+                        snapshot_id: *old_snapshot.snapshot_id(),
                     }),
                     vec![
                         TableUpdate::AddSnapshot { snapshot },
