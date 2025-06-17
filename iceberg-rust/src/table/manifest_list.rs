@@ -3,6 +3,7 @@
 */
 
 use std::{
+    collections::HashSet,
     io::{Cursor, Read},
     iter::{repeat, Map, Repeat, Zip},
     sync::Arc,
@@ -39,6 +40,10 @@ use super::{
         operation::{
             bounding_partition_values, compute_n_splits, new_manifest_list_location,
             new_manifest_location, prefetch_manifest,
+        },
+        overwrite::{
+            select_manifest_without_overwrites_partitioned,
+            select_manifest_without_overwrites_unpartitioned,
         },
     },
 };
@@ -308,6 +313,56 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 manifest_list_reader,
                 &mut writer,
                 &bounding_partition_values,
+            )?
+        };
+
+        Ok(Self {
+            table_metadata,
+            writer,
+            selected_manifest: Some(manifest),
+            bounding_partition_values,
+            n_existing_files: file_count_all_entries,
+            branch: branch.map(ToOwned::to_owned),
+        })
+    }
+
+    pub(crate) fn from_existing_without_overwrites<'datafiles>(
+        bytes: &[u8],
+        data_files: impl Iterator<Item = &'datafiles DataFile>,
+        manifests_to_overwrite: &HashSet<String>,
+        schema: &'schema AvroSchema,
+        table_metadata: &'metadata TableMetadata,
+        branch: Option<&str>,
+    ) -> Result<Self, Error> {
+        let partition_fields = table_metadata.current_partition_fields(branch)?;
+
+        let partition_column_names = partition_fields
+            .iter()
+            .map(|x| x.name())
+            .collect::<SmallVec<[_; 4]>>();
+
+        let bounding_partition_values =
+            bounding_partition_values(data_files, &partition_column_names)?;
+
+        let manifest_list_reader = ManifestListReader::new(bytes, table_metadata)?;
+
+        let mut writer = AvroWriter::new(schema, Vec::new());
+
+        let SelectedManifest {
+            manifest,
+            file_count_all_entries,
+        } = if partition_column_names.is_empty() {
+            select_manifest_without_overwrites_unpartitioned(
+                manifest_list_reader,
+                &mut writer,
+                manifests_to_overwrite,
+            )?
+        } else {
+            select_manifest_without_overwrites_partitioned(
+                manifest_list_reader,
+                &mut writer,
+                &bounding_partition_values,
+                manifests_to_overwrite,
             )?
         };
 

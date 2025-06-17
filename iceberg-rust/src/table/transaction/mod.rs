@@ -15,6 +15,8 @@
 //! * Updating table properties
 //! * Managing snapshots and branches
 
+use std::collections::HashMap;
+
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
 
 use crate::table::transaction::append::append_summary;
@@ -24,13 +26,17 @@ use self::operation::Operation;
 
 pub(crate) mod append;
 pub(crate) mod operation;
+pub(crate) mod overwrite;
 
 pub(crate) static ADD_SCHEMA_INDEX: usize = 0;
 pub(crate) static SET_DEFAULT_SPEC_INDEX: usize = 1;
 pub(crate) static APPEND_INDEX: usize = 2;
 pub(crate) static REPLACE_INDEX: usize = 3;
-pub(crate) static UPDATE_PROPERTIES_INDEX: usize = 4;
-pub(crate) static SET_SNAPSHOT_REF_INDEX: usize = 5;
+pub(crate) static OVERWRITE_INDEX: usize = 4;
+pub(crate) static UPDATE_PROPERTIES_INDEX: usize = 5;
+pub(crate) static SET_SNAPSHOT_REF_INDEX: usize = 6;
+
+pub(crate) static NUM_OPERATIONS: usize = 7;
 
 /// A transaction that can perform multiple operations on a table atomically
 ///
@@ -61,7 +67,7 @@ impl<'table> TableTransaction<'table> {
     pub(crate) fn new(table: &'table mut Table, branch: Option<&str>) -> Self {
         TableTransaction {
             table,
-            operations: (0..6).map(|_| None).collect(), // 6 operation types
+            operations: (0..NUM_OPERATIONS).map(|_| None).collect(), // 6 operation types
             branch: branch.map(ToString::to_string),
         }
     }
@@ -166,6 +172,31 @@ impl<'table> TableTransaction<'table> {
                 data_files: Vec::new(),
                 delete_files: files,
                 additional_summary: None,
+            });
+        }
+        self
+    }
+    /// Logically overwrites the data from the "files_to_overwrite" with the data in the "files"
+    pub fn overwrite(
+        mut self,
+        files: Vec<DataFile>,
+        files_to_overwrite: HashMap<String, Vec<String>>,
+    ) -> Self {
+        let summary = append_summary(&files);
+
+        if let Some(ref mut operation) = self.operations[OVERWRITE_INDEX] {
+            if let Operation::Overwrite {
+                data_files: old, ..
+            } = operation
+            {
+                old.extend_from_slice(&files);
+            }
+        } else {
+            self.operations[OVERWRITE_INDEX] = Some(Operation::Overwrite {
+                branch: self.branch.clone(),
+                data_files: files,
+                files_to_overwrite,
+                additional_summary: summary,
             });
         }
         self
