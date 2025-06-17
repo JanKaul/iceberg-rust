@@ -8,8 +8,11 @@ use std::{
     sync::Arc,
 };
 
-use apache_avro::{types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema};
+use apache_avro::{
+    types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
+};
 use iceberg_rust_spec::{
+    manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::{
         avro_value_to_manifest_list_entry, manifest_list_schema_v1, manifest_list_schema_v2,
         ManifestListEntry,
@@ -19,8 +22,26 @@ use iceberg_rust_spec::{
     util::strip_prefix,
 };
 use object_store::ObjectStore;
+use smallvec::SmallVec;
 
-use crate::error::Error;
+use crate::{
+    error::Error,
+    util::{summary_to_rectangle, Rectangle},
+};
+
+use super::{
+    manifest::{ManifestReader, ManifestWriter},
+    transaction::{
+        append::{
+            select_manifest_partitioned, select_manifest_unpartitioned, split_datafiles,
+            SelectedManifest,
+        },
+        operation::{
+            bounding_partition_values, compute_n_splits, new_manifest_list_location,
+            new_manifest_location, prefetch_manifest,
+        },
+    },
+};
 
 type ReaderZip<'a, 'metadata, R> = Zip<AvroReader<'a, R>, Repeat<&'metadata TableMetadata>>;
 type ReaderMap<'a, 'metadata, R> = Map<
@@ -114,4 +135,501 @@ pub(crate) async fn read_snapshot<'metadata>(
             .await?
             .into(),
     );
-    ManifestListReader::new(bytes, table_metadata)}
+    ManifestListReader::new(bytes, table_metadata)
+}
+
+/// A writer for Iceberg manifest list files that manages the creation and updating of manifest lists.
+///
+/// The ManifestListWriter is responsible for:
+/// - Creating new manifest list files from scratch or updating existing ones
+/// - Managing manifest entries and their metadata
+/// - Optimizing data file organization through splitting and partitioning
+/// - Writing the final manifest list to object storage
+///
+/// This writer can operate in two modes:
+/// 1. **New manifest list**: Creates a completely new manifest list from data files
+/// 2. **Append to existing**: Reuses compatible manifests from an existing manifest list
+///
+/// The writer automatically handles:
+/// - Partition boundary calculations
+/// - Manifest splitting for optimal performance
+/// - Schema compatibility between format versions
+/// - Concurrent manifest writing operations
+///
+/// # Type Parameters
+/// * `'schema` - The lifetime of the Avro schema used for serialization
+/// * `'metadata` - The lifetime of the table metadata reference
+///
+/// # Fields
+/// * `table_metadata` - Reference to the table metadata for schema and configuration
+/// * `writer` - The underlying Avro writer for manifest list serialization
+/// * `selected_manifest` - Optional existing manifest that can be reused for appends
+/// * `bounding_partition_values` - Computed partition boundaries for the data files
+/// * `n_existing_files` - Count of existing files for split calculations
+/// * `branch` - Optional branch name for multi-branch table operations
+pub(crate) struct ManifestListWriter<'schema, 'metadata> {
+    table_metadata: &'metadata TableMetadata,
+    writer: AvroWriter<'schema, Vec<u8>>,
+    selected_manifest: Option<ManifestListEntry>,
+    bounding_partition_values: Rectangle,
+    n_existing_files: usize,
+    branch: Option<String>,
+}
+
+impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
+    /// Creates a new ManifestListWriter for building a manifest list from scratch.
+    ///
+    /// This constructor initializes a writer that will create a completely new manifest list
+    /// without reusing any existing manifests. It computes partition boundaries from the
+    /// provided data files and sets up the Avro writer with the appropriate schema.
+    ///
+    /// # Arguments
+    /// * `data_files` - Iterator over data files to compute partition boundaries from
+    /// * `schema` - The Avro schema to use for manifest list serialization
+    /// * `table_metadata` - Reference to the table metadata for partition field information
+    /// * `branch` - Optional branch name for multi-branch table operations
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestListWriter instance or an error
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The partition fields cannot be retrieved from table metadata
+    /// * Partition boundary computation fails
+    /// * The Avro writer cannot be initialized
+    ///
+    /// # Example Usage
+    /// ```ignore
+    /// let writer = ManifestListWriter::new(
+    ///     data_files.iter(),
+    ///     &manifest_list_schema,
+    ///     &table_metadata,
+    ///     Some("main"),
+    /// )?;
+    /// ```
+    pub(crate) fn new<'datafiles>(
+        data_files: impl Iterator<Item = &'datafiles DataFile>,
+        schema: &'schema AvroSchema,
+        table_metadata: &'metadata TableMetadata,
+        branch: Option<&str>,
+    ) -> Result<Self, Error> {
+        let partition_fields = table_metadata.current_partition_fields(branch)?;
+
+        let partition_column_names = partition_fields
+            .iter()
+            .map(|x| x.name())
+            .collect::<SmallVec<[_; 4]>>();
+
+        let bounding_partition_values =
+            bounding_partition_values(data_files, &partition_column_names)?;
+
+        let writer = AvroWriter::new(schema, Vec::new());
+
+        Ok(Self {
+            table_metadata,
+            writer,
+            selected_manifest: None,
+            bounding_partition_values,
+            n_existing_files: 0,
+            branch: branch.map(ToOwned::to_owned),
+        })
+    }
+
+    /// Creates a new ManifestListWriter from an existing manifest list, optimizing for append operations.
+    ///
+    /// This constructor analyzes an existing manifest list to determine which manifests can be
+    /// reused for the new operation. It selects compatible manifests based on partition boundaries
+    /// and copies other manifests to the new manifest list. This approach optimizes append
+    /// operations by avoiding unnecessary manifest rewrites.
+    ///
+    /// The method:
+    /// 1. Reads the existing manifest list to understand current manifests
+    /// 2. Computes partition boundaries for the new data files
+    /// 3. Selects manifests that can be reused (partitioned vs unpartitioned logic)
+    /// 4. Copies non-selected manifests to the new manifest list
+    /// 5. Prepares to append new data to the selected manifest
+    ///
+    /// # Arguments
+    /// * `bytes` - The raw bytes of the existing manifest list file
+    /// * `data_files` - Iterator over new data files to be appended
+    /// * `schema` - The Avro schema to use for manifest list serialization
+    /// * `table_metadata` - Reference to the table metadata for partition field information
+    /// * `branch` - Optional branch name for multi-branch table operations
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestListWriter instance with selected manifest or an error
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The existing manifest list cannot be parsed
+    /// * Partition fields cannot be retrieved from table metadata
+    /// * Partition boundary computation fails
+    /// * Manifest selection logic fails
+    /// * The Avro writer cannot be initialized
+    ///
+    /// # Example Usage
+    /// ```ignore
+    /// let writer = ManifestListWriter::from_existing(
+    ///     &existing_manifest_list_bytes,
+    ///     new_data_files.iter(),
+    ///     &manifest_list_schema,
+    ///     &table_metadata,
+    ///     Some("main"),
+    /// )?;
+    /// ```
+    pub(crate) fn from_existing<'datafiles>(
+        bytes: &[u8],
+        data_files: impl Iterator<Item = &'datafiles DataFile>,
+        schema: &'schema AvroSchema,
+        table_metadata: &'metadata TableMetadata,
+        branch: Option<&str>,
+    ) -> Result<Self, Error> {
+        let partition_fields = table_metadata.current_partition_fields(branch)?;
+
+        let partition_column_names = partition_fields
+            .iter()
+            .map(|x| x.name())
+            .collect::<SmallVec<[_; 4]>>();
+
+        let bounding_partition_values =
+            bounding_partition_values(data_files, &partition_column_names)?;
+
+        let manifest_list_reader = ManifestListReader::new(bytes, table_metadata)?;
+
+        let mut writer = AvroWriter::new(schema, Vec::new());
+
+        let SelectedManifest {
+            manifest,
+            file_count_all_entries,
+        } = if partition_column_names.is_empty() {
+            select_manifest_unpartitioned(manifest_list_reader, &mut writer)?
+        } else {
+            select_manifest_partitioned(
+                manifest_list_reader,
+                &mut writer,
+                &bounding_partition_values,
+            )?
+        };
+
+        Ok(Self {
+            table_metadata,
+            writer,
+            selected_manifest: Some(manifest),
+            bounding_partition_values,
+            n_existing_files: file_count_all_entries,
+            branch: branch.map(ToOwned::to_owned),
+        })
+    }
+
+    /// Calculates the optimal number of manifest splits for the given number of data files.
+    ///
+    /// This method determines how many manifest files should be created to optimize
+    /// query performance and manage file sizes. The calculation considers:
+    /// - The number of existing files in the table
+    /// - The number of new data files being added
+    /// - The number of files in any selected (reusable) manifest
+    ///
+    /// The splitting strategy helps maintain optimal manifest sizes for efficient
+    /// query planning and metadata operations.
+    ///
+    /// # Arguments
+    /// * `n_data_files` - The number of new data files being added
+    ///
+    /// # Returns
+    /// * `u32` - The recommended number of manifest splits
+    ///
+    /// # Example Usage
+    /// ```ignore
+    /// let splits = writer.n_splits(1000); // Calculate splits for 1000 new files
+    /// ```
+    pub(crate) fn n_splits(&self, n_data_files: usize) -> u32 {
+        let selected_manifest_file_count = self
+            .selected_manifest
+            .as_ref()
+            .and_then(|selected_manifest| {
+                match (
+                    selected_manifest.existing_files_count,
+                    selected_manifest.added_files_count,
+                ) {
+                    (Some(x), Some(y)) => Some(x + y),
+                    (Some(x), None) => Some(x),
+                    (None, Some(y)) => Some(y),
+                    (None, None) => None,
+                }
+            })
+            .unwrap_or(0) as usize;
+
+        compute_n_splits(
+            self.n_existing_files,
+            n_data_files,
+            selected_manifest_file_count,
+        )
+    }
+
+    /// Appends data files to a single manifest and finalizes the manifest list.
+    ///
+    /// This method creates a single manifest file containing all the provided data files,
+    /// either by appending to an existing reusable manifest or creating a new one.
+    /// It then writes the complete manifest list to object storage.
+    ///
+    /// This approach is optimal for:
+    /// - Small to medium append operations
+    /// - Cases where manifest splitting is not required
+    /// - Simple append operations without complex partitioning needs
+    ///
+    /// The process:
+    /// 1. Determines whether to reuse an existing manifest or create new one
+    /// 2. Creates/updates a manifest writer with the selected manifest
+    /// 3. Appends all provided data files to the manifest
+    /// 4. Finalizes the manifest and writes it to storage
+    /// 5. Adds the manifest entry to the manifest list
+    /// 6. Writes the complete manifest list to storage
+    ///
+    /// # Arguments
+    /// * `data_files` - Iterator over manifest entries to append
+    /// * `snapshot_id` - The snapshot ID for the new manifest
+    /// * `object_store` - The object store for writing files
+    ///
+    /// # Returns
+    /// * `Result<String, Error>` - The location of the new manifest list file or an error
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * Manifest schema creation fails
+    /// * Manifest writer creation or operation fails
+    /// * Object storage operations fail
+    /// * Avro serialization fails
+    ///
+    /// # Example Usage
+    /// ```ignore
+    /// let manifest_list_location = writer.append_and_finish(
+    ///     data_files_iter,
+    ///     snapshot_id,
+    ///     object_store,
+    /// ).await?;
+    /// ```
+    pub(crate) async fn append_and_finish(
+        mut self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<String, Error> {
+        let selected_manifest_bytes_opt = prefetch_manifest(&self.selected_manifest, &object_store);
+
+        let partition_fields = self
+            .table_metadata
+            .current_partition_fields(self.branch.as_deref())?;
+
+        let manifest_schema = ManifestEntry::schema(
+            &partition_value_schema(&partition_fields)?,
+            &self.table_metadata.format_version,
+        )?;
+
+        let commit_uuid = &uuid::Uuid::new_v4().to_string();
+
+        let mut manifest_writer = if let (Some(mut manifest), Some(manifest_bytes)) =
+            (self.selected_manifest, selected_manifest_bytes_opt)
+        {
+            let manifest_bytes = manifest_bytes.await??;
+
+            manifest.manifest_path =
+                new_manifest_location(&self.table_metadata.location, commit_uuid, 0);
+
+            ManifestWriter::from_existing(
+                &manifest_bytes,
+                manifest,
+                &manifest_schema,
+                self.table_metadata,
+                self.branch.as_deref(),
+            )?
+        } else {
+            let manifest_location =
+                new_manifest_location(&self.table_metadata.location, commit_uuid, 0);
+
+            ManifestWriter::new(
+                &manifest_location,
+                snapshot_id,
+                &manifest_schema,
+                self.table_metadata,
+                self.branch.as_deref(),
+            )?
+        };
+
+        for manifest_entry in data_files {
+            manifest_writer.append(manifest_entry?)?;
+        }
+
+        let manifest = manifest_writer.finish(object_store.clone()).await?;
+
+        self.writer.append_ser(manifest)?;
+
+        let new_manifest_list_location =
+            new_manifest_list_location(&self.table_metadata.location, snapshot_id, 0, commit_uuid);
+
+        let manifest_list_bytes = self.writer.into_inner()?;
+
+        object_store
+            .put(
+                &strip_prefix(&new_manifest_list_location).into(),
+                manifest_list_bytes.into(),
+            )
+            .await?;
+
+        Ok(new_manifest_list_location)
+    }
+
+    /// Appends data files by splitting them across multiple manifests and finalizes the manifest list.
+    ///
+    /// This method is designed for large append operations where splitting data files across
+    /// multiple manifest files provides better query performance and parallelism. It distributes
+    /// the data files across the specified number of splits based on partition boundaries.
+    ///
+    /// This approach is optimal for:
+    /// - Large append operations with hundreds or thousands of files
+    /// - Partitioned tables where files can be split by partition boundaries
+    /// - Cases requiring high query parallelism and performance
+    ///
+    /// The process:
+    /// 1. Computes optimal partition boundaries for splitting
+    /// 2. Merges new data files with existing files from selected manifest (if any)
+    /// 3. Splits all files across the specified number of manifest files
+    /// 4. Creates and writes multiple manifest files concurrently
+    /// 5. Adds all manifest entries to the manifest list
+    /// 6. Writes the complete manifest list to storage
+    ///
+    /// # Arguments
+    /// * `data_files` - Iterator over manifest entries to append and split
+    /// * `snapshot_id` - The snapshot ID for the new manifests
+    /// * `n_splits` - The number of manifest files to create (should match `n_splits()` result)
+    /// * `object_store` - The object store for writing files
+    ///
+    /// # Returns
+    /// * `Result<String, Error>` - The location of the new manifest list file or an error
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * Partition field retrieval fails
+    /// * Manifest schema creation fails
+    /// * File splitting logic fails
+    /// * Manifest writer creation or operation fails
+    /// * Concurrent manifest writing fails
+    /// * Object storage operations fail
+    /// * Avro serialization fails
+    ///
+    /// # Example Usage
+    /// ```ignore
+    /// let n_splits = writer.n_splits(data_files.len());
+    /// let manifest_list_location = writer.append_split_and_finish(
+    ///     data_files_iter,
+    ///     snapshot_id,
+    ///     n_splits,
+    ///     object_store,
+    /// ).await?;
+    /// ```
+    pub(crate) async fn append_split_and_finish(
+        mut self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        n_splits: u32,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<String, Error> {
+        let partition_fields = self
+            .table_metadata
+            .current_partition_fields(self.branch.as_deref())?;
+
+        let partition_column_names = partition_fields
+            .iter()
+            .map(|x| x.name())
+            .collect::<SmallVec<[_; 4]>>();
+
+        let manifest_schema = ManifestEntry::schema(
+            &partition_value_schema(&partition_fields)?,
+            &self.table_metadata.format_version,
+        )?;
+
+        let bounds = self
+            .selected_manifest
+            .as_ref()
+            .and_then(|x| x.partitions.as_deref())
+            .map(summary_to_rectangle)
+            .transpose()?
+            .map(|mut x| {
+                x.expand(&self.bounding_partition_values);
+                x
+            })
+            .unwrap_or(self.bounding_partition_values);
+
+        let selected_manifest_bytes_opt = prefetch_manifest(&self.selected_manifest, &object_store);
+
+        let commit_uuid = &uuid::Uuid::new_v4().to_string();
+        // Split datafiles
+        let splits = if let (Some(manifest), Some(manifest_bytes)) =
+            (self.selected_manifest, selected_manifest_bytes_opt)
+        {
+            let manifest_bytes = manifest_bytes.await??;
+            let manifest_reader = ManifestReader::new(&*manifest_bytes)?.map(|entry| {
+                let mut entry = entry?;
+                *entry.status_mut() = Status::Existing;
+                if entry.sequence_number().is_none() {
+                    *entry.sequence_number_mut() = Some(manifest.sequence_number);
+                }
+                if entry.snapshot_id().is_none() {
+                    *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
+                }
+                Ok(entry)
+            });
+
+            split_datafiles(
+                data_files.chain(manifest_reader),
+                bounds,
+                &partition_column_names,
+                n_splits,
+            )?
+        } else {
+            split_datafiles(data_files, bounds, &partition_column_names, n_splits)?
+        };
+
+        let manifest_futures = splits
+            .into_iter()
+            .enumerate()
+            .map(|(i, entries)| {
+                let manifest_location =
+                    new_manifest_location(&self.table_metadata.location, commit_uuid, i);
+
+                let mut manifest_writer = ManifestWriter::new(
+                    &manifest_location,
+                    snapshot_id,
+                    &manifest_schema,
+                    self.table_metadata,
+                    self.branch.as_deref(),
+                )?;
+
+                for manifest_entry in entries {
+                    manifest_writer.append(manifest_entry)?;
+                }
+
+                Ok::<_, Error>(manifest_writer.finish(object_store.clone()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let manifests = futures::future::try_join_all(manifest_futures).await?;
+
+        for manifest in manifests {
+            self.writer.append_ser(manifest)?;
+        }
+
+        let new_manifest_list_location =
+            new_manifest_list_location(&self.table_metadata.location, snapshot_id, 0, commit_uuid);
+
+        let manifest_list_bytes = self.writer.into_inner()?;
+
+        object_store
+            .put(
+                &strip_prefix(&new_manifest_list_location).into(),
+                manifest_list_bytes.into(),
+            )
+            .await?;
+
+        Ok(new_manifest_list_location)
+    }
+}
