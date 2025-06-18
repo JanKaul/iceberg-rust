@@ -183,6 +183,8 @@ pub(crate) struct ManifestListWriter<'schema, 'metadata> {
     branch: Option<String>,
 }
 
+type FilterFunction = for<'a> fn(&'a Result<ManifestEntry, Error>) -> bool;
+
 impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// Creates a new ManifestListWriter for building a manifest list from scratch.
     ///
@@ -478,10 +480,22 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
+    #[inline]
     pub(crate) async fn append_and_finish(
+        self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<String, Error> {
+        self.append_filtered_and_finish(data_files, snapshot_id, None, object_store)
+            .await
+    }
+
+    pub(crate) async fn append_filtered_and_finish(
         mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
+        filter: Option<FilterFunction>,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<String, Error> {
         let selected_manifest_bytes_opt = prefetch_manifest(&self.selected_manifest, &object_store);
@@ -505,13 +519,23 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
             let manifest_reader = ManifestReader::new(manifest_bytes.as_ref())?;
 
-            ManifestWriter::from_existing(
-                manifest_reader,
-                manifest,
-                &manifest_schema,
-                self.table_metadata,
-                self.branch.as_deref(),
-            )?
+            if let Some(filter) = filter {
+                ManifestWriter::from_existing(
+                    manifest_reader.filter(filter),
+                    manifest,
+                    &manifest_schema,
+                    self.table_metadata,
+                    self.branch.as_deref(),
+                )?
+            } else {
+                ManifestWriter::from_existing(
+                    manifest_reader,
+                    manifest,
+                    &manifest_schema,
+                    self.table_metadata,
+                    self.branch.as_deref(),
+                )?
+            }
         } else {
             let manifest_location =
                 new_manifest_location(&self.table_metadata.location, &self.commit_uuid, 0);
@@ -601,10 +625,28 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// ).await?;
     /// ```
     pub(crate) async fn append_multiple_and_finish(
+        self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        n_splits: u32,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<String, Error> {
+        self.append_multiple_filtered_and_finish(
+            data_files,
+            snapshot_id,
+            n_splits,
+            None,
+            object_store,
+        )
+        .await
+    }
+
+    pub(crate) async fn append_multiple_filtered_and_finish(
         mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
         n_splits: u32,
+        filter: Option<FilterFunction>,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<String, Error> {
         let partition_fields = self
@@ -652,12 +694,21 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 Ok(entry)
             });
 
-            split_datafiles(
-                data_files.chain(manifest_reader),
-                bounds,
-                &partition_column_names,
-                n_splits,
-            )?
+            if let Some(filter) = filter {
+                split_datafiles(
+                    data_files.chain(manifest_reader.filter(filter)),
+                    bounds,
+                    &partition_column_names,
+                    n_splits,
+                )?
+            } else {
+                split_datafiles(
+                    data_files.chain(manifest_reader),
+                    bounds,
+                    &partition_column_names,
+                    n_splits,
+                )?
+            }
         } else {
             split_datafiles(data_files, bounds, &partition_column_names, n_splits)?
         };
