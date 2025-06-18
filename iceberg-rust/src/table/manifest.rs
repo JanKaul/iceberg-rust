@@ -365,6 +365,41 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         })
     }
 
+    /// Creates a ManifestWriter from an existing manifest file with selective filtering of entries.
+    ///
+    /// This method reads an existing manifest file and creates a new writer that includes
+    /// only the entries whose file paths are NOT in the provided filter set. Entries that
+    /// pass the filter have their status updated to "Existing" and their sequence numbers
+    /// and snapshot IDs updated as needed.
+    ///
+    /// This is particularly useful for overwrite operations where specific files need to be
+    /// excluded from the new manifest while preserving other existing entries.
+    ///
+    /// # Arguments
+    /// * `bytes` - The raw bytes of the existing manifest file
+    /// * `manifest` - The manifest list entry describing the existing manifest
+    /// * `filter` - A set of file paths to exclude from the new manifest
+    /// * `schema` - The Avro schema used for serializing manifest entries
+    /// * `table_metadata` - The table metadata containing schema and partition information
+    /// * `branch` - Optional branch name to get the current schema from
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestWriter instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The existing manifest cannot be read
+    /// * The Avro writer cannot be created
+    /// * Required metadata fields cannot be serialized
+    /// * The partition spec ID is not found in table metadata
+    ///
+    /// # Behavior
+    /// - Entries whose file paths are in the `filter` set are excluded from the new manifest
+    /// - Remaining entries have their status set to `Status::Existing`
+    /// - Sequence numbers are updated for entries that don't have them
+    /// - Snapshot IDs are updated for entries that don't have them
+    /// - The manifest's sequence number is incremented
+    /// - File counts are updated to reflect the filtered entries
     pub(crate) fn from_existing_with_filter(
         bytes: &[u8],
         mut manifest: ManifestListEntry,
