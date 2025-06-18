@@ -186,10 +186,13 @@ impl<'table> TableTransaction<'table> {
 
         if let Some(ref mut operation) = self.operations[OVERWRITE_INDEX] {
             if let Operation::Overwrite {
-                data_files: old, ..
+                data_files: old_data_files,
+                files_to_overwrite: old_files_to_overwrite,
+                ..
             } = operation
             {
-                old.extend_from_slice(&files);
+                old_data_files.extend_from_slice(&files);
+                old_files_to_overwrite.extend(files_to_overwrite);
             }
         } else {
             self.operations[OVERWRITE_INDEX] = Some(Operation::Overwrite {
