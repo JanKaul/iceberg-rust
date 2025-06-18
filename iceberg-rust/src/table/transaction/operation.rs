@@ -164,7 +164,7 @@ impl Operation {
                         .await?
                 } else {
                     manifest_list_writer
-                        .append_split_and_finish(
+                        .append_multiple_and_finish(
                             new_datafile_iter,
                             snapshot_id,
                             n_splits,
@@ -397,14 +397,23 @@ impl Operation {
                     .unwrap()
                     .await??;
 
-                let manifest_list_writer = ManifestListWriter::from_existing_without_overwrites(
-                    &bytes,
-                    data_files_iter,
-                    &manifests_to_overwrite,
-                    manifest_list_schema,
-                    table_metadata,
-                    branch.as_deref(),
-                )?;
+                let (mut manifest_list_writer, manifests_to_overwrite) =
+                    ManifestListWriter::from_existing_without_overwrites(
+                        &bytes,
+                        data_files_iter,
+                        &manifests_to_overwrite,
+                        manifest_list_schema,
+                        table_metadata,
+                        branch.as_deref(),
+                    )?;
+
+                manifest_list_writer
+                    .append_and_filter(
+                        manifests_to_overwrite,
+                        &files_to_overwrite,
+                        object_store.clone(),
+                    )
+                    .await?;
 
                 let n_splits = manifest_list_writer.n_splits(n_data_files);
 
@@ -428,7 +437,7 @@ impl Operation {
                         .await?
                 } else {
                     manifest_list_writer
-                        .append_split_and_finish(
+                        .append_multiple_and_finish(
                             new_datafile_iter,
                             snapshot_id,
                             n_splits,
