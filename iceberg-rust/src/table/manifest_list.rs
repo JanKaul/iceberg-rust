@@ -503,8 +503,10 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             manifest.manifest_path =
                 new_manifest_location(&self.table_metadata.location, &self.commit_uuid, 0);
 
+            let manifest_reader = ManifestReader::new(manifest_bytes.as_ref())?;
+
             ManifestWriter::from_existing(
-                &manifest_bytes,
+                manifest_reader,
                 manifest,
                 &manifest_schema,
                 self.table_metadata,

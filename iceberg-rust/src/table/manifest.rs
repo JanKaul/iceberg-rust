@@ -280,14 +280,12 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * Required metadata fields cannot be serialized
     /// * The partition spec ID is not found in table metadata
     pub(crate) fn from_existing(
-        bytes: &[u8],
+        manifest_reader: impl Iterator<Item = Result<ManifestEntry, Error>>,
         mut manifest: ManifestListEntry,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
         branch: Option<&str>,
     ) -> Result<Self, Error> {
-        let manifest_reader = ManifestReader::new(bytes)?;
-
         let mut writer = AvroWriter::new(schema, Vec::new());
 
         writer.add_user_metadata(
