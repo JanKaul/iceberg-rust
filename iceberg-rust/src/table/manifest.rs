@@ -16,6 +16,7 @@
 //! The module handles both V1 and V2 manifest formats transparently.
 
 use std::{
+    collections::HashSet,
     io::Read,
     iter::{repeat, Map, Repeat, Zip},
     sync::Arc,
@@ -350,6 +351,96 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 })
                 .filter_map(Result::ok),
         )?;
+
+        manifest.sequence_number = table_metadata.last_sequence_number + 1;
+
+        manifest.existing_files_count = Some(
+            manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
+        );
+
+        manifest.added_files_count = None;
+
+        Ok(ManifestWriter {
+            manifest,
+            writer,
+            table_metadata,
+        })
+    }
+
+    pub(crate) fn from_existing_with_filter(
+        bytes: &[u8],
+        mut manifest: ManifestListEntry,
+        filter: &HashSet<String>,
+        schema: &'schema AvroSchema,
+        table_metadata: &'metadata TableMetadata,
+        branch: Option<&str>,
+    ) -> Result<Self, Error> {
+        let manifest_reader = ManifestReader::new(bytes)?;
+
+        let mut writer = AvroWriter::new(schema, Vec::new());
+
+        writer.add_user_metadata(
+            "format-version".to_string(),
+            match table_metadata.format_version {
+                FormatVersion::V1 => "1".as_bytes(),
+                FormatVersion::V2 => "2".as_bytes(),
+            },
+        )?;
+
+        writer.add_user_metadata(
+            "schema".to_string(),
+            match table_metadata.format_version {
+                FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
+                    table_metadata.current_schema(branch)?.clone(),
+                ))?,
+                FormatVersion::V2 => serde_json::to_string(&Into::<SchemaV2>::into(
+                    table_metadata.current_schema(branch)?.clone(),
+                ))?,
+            },
+        )?;
+
+        writer.add_user_metadata(
+            "schema-id".to_string(),
+            serde_json::to_string(&table_metadata.current_schema(branch)?.schema_id())?,
+        )?;
+
+        let spec_id = table_metadata.default_spec_id;
+
+        writer.add_user_metadata(
+            "partition-spec".to_string(),
+            serde_json::to_string(
+                &table_metadata
+                    .partition_specs
+                    .get(&spec_id)
+                    .ok_or(Error::NotFound(format!("Partition spec with id {spec_id}")))?
+                    .fields(),
+            )?,
+        )?;
+
+        writer.add_user_metadata(
+            "partition-spec-id".to_string(),
+            serde_json::to_string(&spec_id)?,
+        )?;
+
+        writer.add_user_metadata("content".to_string(), "data")?;
+
+        writer.extend(manifest_reader.filter_map(|entry| {
+            let mut entry = entry
+                .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))
+                .unwrap();
+            if !filter.contains(entry.data_file().file_path()) {
+                *entry.status_mut() = Status::Existing;
+                if entry.sequence_number().is_none() {
+                    *entry.sequence_number_mut() = Some(manifest.sequence_number);
+                }
+                if entry.snapshot_id().is_none() {
+                    *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
+                }
+                Some(to_value(entry).unwrap())
+            } else {
+                None
+            }
+        }))?;
 
         manifest.sequence_number = table_metadata.last_sequence_number + 1;
 
