@@ -183,8 +183,6 @@ pub(crate) struct ManifestListWriter<'schema, 'metadata> {
     branch: Option<String>,
 }
 
-type FilterFunction = for<'a> fn(&'a Result<ManifestEntry, Error>) -> bool;
-
 impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// Creates a new ManifestListWriter for building a manifest list from scratch.
     ///
@@ -487,15 +485,20 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         snapshot_id: i64,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<String, Error> {
-        self.append_filtered_and_finish(data_files, snapshot_id, None, object_store)
-            .await
+        self.append_filtered_and_finish(
+            data_files,
+            snapshot_id,
+            None::<fn(&Result<ManifestEntry, Error>) -> bool>,
+            object_store,
+        )
+        .await
     }
 
     pub(crate) async fn append_filtered_and_finish(
         mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
-        filter: Option<FilterFunction>,
+        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<String, Error> {
         let selected_manifest_bytes_opt = prefetch_manifest(&self.selected_manifest, &object_store);
@@ -635,7 +638,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             data_files,
             snapshot_id,
             n_splits,
-            None,
+            None::<fn(&Result<ManifestEntry, Error>) -> bool>,
             object_store,
         )
         .await
@@ -646,7 +649,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
         n_splits: u32,
-        filter: Option<FilterFunction>,
+        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<String, Error> {
         let partition_fields = self
@@ -824,5 +827,9 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             self.writer.append_ser(manifest)?;
         }
         Ok(())
+    }
+
+    pub(crate) fn selected_manifest(&self) -> Option<&ManifestListEntry> {
+        self.selected_manifest.as_ref()
     }
 }

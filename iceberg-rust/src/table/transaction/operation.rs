@@ -429,18 +429,43 @@ impl Operation {
 
                 let snapshot_id = generate_snapshot_id();
 
+                let selected_manifest_location = manifest_list_writer
+                    .selected_manifest()
+                    .map(|x| x.manifest_path.clone())
+                    .ok_or(Error::NotFound("Selected manifest".to_owned()))?;
+
+                let data_files = files_to_overwrite.get(&selected_manifest_location);
+
+                let filter = if let Some(filter_files) = data_files {
+                    let filter_files: HashSet<String> =
+                        filter_files.iter().map(ToOwned::to_owned).collect();
+                    Some(move |file: &Result<ManifestEntry, Error>| {
+                        let Ok(file) = file else { return true };
+
+                        !filter_files.contains(file.data_file().file_path())
+                    })
+                } else {
+                    None
+                };
+
                 // Write manifest files
                 // Split manifest file if limit is exceeded
                 let new_manifest_list_location = if n_splits == 0 {
                     manifest_list_writer
-                        .append_and_finish(new_datafile_iter, snapshot_id, object_store)
+                        .append_filtered_and_finish(
+                            new_datafile_iter,
+                            snapshot_id,
+                            filter,
+                            object_store,
+                        )
                         .await?
                 } else {
                     manifest_list_writer
-                        .append_multiple_and_finish(
+                        .append_multiple_filtered_and_finish(
                             new_datafile_iter,
                             snapshot_id,
                             n_splits,
+                            filter,
                             object_store,
                         )
                         .await?
