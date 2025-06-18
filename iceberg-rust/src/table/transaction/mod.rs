@@ -176,7 +176,38 @@ impl<'table> TableTransaction<'table> {
         }
         self
     }
-    /// Logically overwrites the data from the "files_to_overwrite" with the data in the "files"
+    /// Overwrites specific data files in the table with new ones
+    ///
+    /// This operation replaces specified existing data files with new ones, rather than
+    /// replacing all files (like `replace`) or adding new files (like `append`). It allows
+    /// for selective replacement of data files based on the mapping provided.
+    ///
+    /// Multiple overwrite operations in the same transaction will be combined, with new
+    /// data files appended and the files-to-overwrite mapping merged.
+    ///
+    /// # Arguments
+    /// * `files` - Vector of new data files to add to the table
+    /// * `files_to_overwrite` - HashMap mapping manifest file paths to lists of data file
+    ///   paths that should be overwritten/replaced
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    ///
+    /// # Examples
+    /// ```
+    /// use std::collections::HashMap;
+    /// 
+    /// let mut files_to_overwrite = HashMap::new();
+    /// files_to_overwrite.insert(
+    ///     "manifest-001.avro".to_string(),
+    ///     vec!["data-001.parquet".to_string(), "data-002.parquet".to_string()]
+    /// );
+    /// 
+    /// let transaction = table.new_transaction(None)
+    ///     .overwrite(new_data_files, files_to_overwrite)
+    ///     .commit()
+    ///     .await?;
+    /// ```
     pub fn overwrite(
         mut self,
         files: Vec<DataFile>,
