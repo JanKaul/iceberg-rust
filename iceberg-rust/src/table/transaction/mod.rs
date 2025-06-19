@@ -15,6 +15,8 @@
 //! * Updating table properties
 //! * Managing snapshots and branches
 
+use std::collections::HashMap;
+
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
 
 use crate::table::transaction::append::append_summary;
@@ -24,13 +26,17 @@ use self::operation::Operation;
 
 pub(crate) mod append;
 pub(crate) mod operation;
+pub(crate) mod overwrite;
 
 pub(crate) static ADD_SCHEMA_INDEX: usize = 0;
 pub(crate) static SET_DEFAULT_SPEC_INDEX: usize = 1;
 pub(crate) static APPEND_INDEX: usize = 2;
 pub(crate) static REPLACE_INDEX: usize = 3;
-pub(crate) static UPDATE_PROPERTIES_INDEX: usize = 4;
-pub(crate) static SET_SNAPSHOT_REF_INDEX: usize = 5;
+pub(crate) static OVERWRITE_INDEX: usize = 4;
+pub(crate) static UPDATE_PROPERTIES_INDEX: usize = 5;
+pub(crate) static SET_SNAPSHOT_REF_INDEX: usize = 6;
+
+pub(crate) static NUM_OPERATIONS: usize = 7;
 
 /// A transaction that can perform multiple operations on a table atomically
 ///
@@ -61,7 +67,7 @@ impl<'table> TableTransaction<'table> {
     pub(crate) fn new(table: &'table mut Table, branch: Option<&str>) -> Self {
         TableTransaction {
             table,
-            operations: (0..6).map(|_| None).collect(), // 6 operation types
+            operations: (0..NUM_OPERATIONS).map(|_| None).collect(), // 6 operation types
             branch: branch.map(ToString::to_string),
         }
     }
@@ -166,6 +172,65 @@ impl<'table> TableTransaction<'table> {
                 data_files: Vec::new(),
                 delete_files: files,
                 additional_summary: None,
+            });
+        }
+        self
+    }
+    /// Overwrites specific data files in the table with new ones
+    ///
+    /// This operation replaces specified existing data files with new ones, rather than
+    /// replacing all files (like `replace`) or adding new files (like `append`). It allows
+    /// for selective replacement of data files based on the mapping provided.
+    ///
+    /// Multiple overwrite operations in the same transaction will be combined, with new
+    /// data files appended and the files-to-overwrite mapping merged.
+    ///
+    /// # Arguments
+    /// * `files` - Vector of new data files to add to the table
+    /// * `files_to_overwrite` - HashMap mapping manifest file paths to lists of data file
+    ///   paths that should be overwritten/replaced
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    ///
+    /// # Examples
+    /// ```
+    /// use std::collections::HashMap;
+    ///
+    /// let mut files_to_overwrite = HashMap::new();
+    /// files_to_overwrite.insert(
+    ///     "manifest-001.avro".to_string(),
+    ///     vec!["data-001.parquet".to_string(), "data-002.parquet".to_string()]
+    /// );
+    ///
+    /// let transaction = table.new_transaction(None)
+    ///     .overwrite(new_data_files, files_to_overwrite)
+    ///     .commit()
+    ///     .await?;
+    /// ```
+    pub fn overwrite(
+        mut self,
+        files: Vec<DataFile>,
+        files_to_overwrite: HashMap<String, Vec<String>>,
+    ) -> Self {
+        let summary = append_summary(&files);
+
+        if let Some(ref mut operation) = self.operations[OVERWRITE_INDEX] {
+            if let Operation::Overwrite {
+                data_files: old_data_files,
+                files_to_overwrite: old_files_to_overwrite,
+                ..
+            } = operation
+            {
+                old_data_files.extend_from_slice(&files);
+                old_files_to_overwrite.extend(files_to_overwrite);
+            }
+        } else {
+            self.operations[OVERWRITE_INDEX] = Some(Operation::Overwrite {
+                branch: self.branch.clone(),
+                data_files: files,
+                files_to_overwrite,
+                additional_summary: summary,
             });
         }
         self

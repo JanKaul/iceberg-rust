@@ -3223,6 +3223,7 @@ dependencies = [
  "futures",
  "getrandom 0.3.2",
  "iceberg-rust-spec",
+ "iceberg-sql-catalog",
  "itertools 0.14.0",
  "object_store",
  "once_map",

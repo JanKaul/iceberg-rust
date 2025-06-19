@@ -16,6 +16,7 @@
 //! The module handles both V1 and V2 manifest formats transparently.
 
 use std::{
+    collections::HashSet,
     io::Read,
     iter::{repeat, Map, Repeat, Zip},
     sync::Arc,
@@ -279,14 +280,12 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * Required metadata fields cannot be serialized
     /// * The partition spec ID is not found in table metadata
     pub(crate) fn from_existing(
-        bytes: &[u8],
+        manifest_reader: impl Iterator<Item = Result<ManifestEntry, Error>>,
         mut manifest: ManifestListEntry,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
         branch: Option<&str>,
     ) -> Result<Self, Error> {
-        let manifest_reader = ManifestReader::new(bytes)?;
-
         let mut writer = AvroWriter::new(schema, Vec::new());
 
         writer.add_user_metadata(
@@ -350,6 +349,131 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 })
                 .filter_map(Result::ok),
         )?;
+
+        manifest.sequence_number = table_metadata.last_sequence_number + 1;
+
+        manifest.existing_files_count = Some(
+            manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
+        );
+
+        manifest.added_files_count = None;
+
+        Ok(ManifestWriter {
+            manifest,
+            writer,
+            table_metadata,
+        })
+    }
+
+    /// Creates a ManifestWriter from an existing manifest file with selective filtering of entries.
+    ///
+    /// This method reads an existing manifest file and creates a new writer that includes
+    /// only the entries whose file paths are NOT in the provided filter set. Entries that
+    /// pass the filter have their status updated to "Existing" and their sequence numbers
+    /// and snapshot IDs updated as needed.
+    ///
+    /// This is particularly useful for overwrite operations where specific files need to be
+    /// excluded from the new manifest while preserving other existing entries.
+    ///
+    /// # Arguments
+    /// * `bytes` - The raw bytes of the existing manifest file
+    /// * `manifest` - The manifest list entry describing the existing manifest
+    /// * `filter` - A set of file paths to exclude from the new manifest
+    /// * `schema` - The Avro schema used for serializing manifest entries
+    /// * `table_metadata` - The table metadata containing schema and partition information
+    /// * `branch` - Optional branch name to get the current schema from
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestWriter instance or an error if initialization fails
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// * The existing manifest cannot be read
+    /// * The Avro writer cannot be created
+    /// * Required metadata fields cannot be serialized
+    /// * The partition spec ID is not found in table metadata
+    ///
+    /// # Behavior
+    /// - Entries whose file paths are in the `filter` set are excluded from the new manifest
+    /// - Remaining entries have their status set to `Status::Existing`
+    /// - Sequence numbers are updated for entries that don't have them
+    /// - Snapshot IDs are updated for entries that don't have them
+    /// - The manifest's sequence number is incremented
+    /// - File counts are updated to reflect the filtered entries
+    pub(crate) fn from_existing_with_filter(
+        bytes: &[u8],
+        mut manifest: ManifestListEntry,
+        filter: &HashSet<String>,
+        schema: &'schema AvroSchema,
+        table_metadata: &'metadata TableMetadata,
+        branch: Option<&str>,
+    ) -> Result<Self, Error> {
+        let manifest_reader = ManifestReader::new(bytes)?;
+
+        let mut writer = AvroWriter::new(schema, Vec::new());
+
+        writer.add_user_metadata(
+            "format-version".to_string(),
+            match table_metadata.format_version {
+                FormatVersion::V1 => "1".as_bytes(),
+                FormatVersion::V2 => "2".as_bytes(),
+            },
+        )?;
+
+        writer.add_user_metadata(
+            "schema".to_string(),
+            match table_metadata.format_version {
+                FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
+                    table_metadata.current_schema(branch)?.clone(),
+                ))?,
+                FormatVersion::V2 => serde_json::to_string(&Into::<SchemaV2>::into(
+                    table_metadata.current_schema(branch)?.clone(),
+                ))?,
+            },
+        )?;
+
+        writer.add_user_metadata(
+            "schema-id".to_string(),
+            serde_json::to_string(&table_metadata.current_schema(branch)?.schema_id())?,
+        )?;
+
+        let spec_id = table_metadata.default_spec_id;
+
+        writer.add_user_metadata(
+            "partition-spec".to_string(),
+            serde_json::to_string(
+                &table_metadata
+                    .partition_specs
+                    .get(&spec_id)
+                    .ok_or(Error::NotFound(format!("Partition spec with id {spec_id}")))?
+                    .fields(),
+            )?,
+        )?;
+
+        writer.add_user_metadata(
+            "partition-spec-id".to_string(),
+            serde_json::to_string(&spec_id)?,
+        )?;
+
+        writer.add_user_metadata("content".to_string(), "data")?;
+
+        writer.extend(manifest_reader.filter_map(|entry| {
+            let mut entry = entry
+                .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))
+                .unwrap();
+            if !filter.contains(entry.data_file().file_path()) {
+                *entry.status_mut() = Status::Existing;
+                if entry.sequence_number().is_none() {
+                    *entry.sequence_number_mut() = Some(manifest.sequence_number);
+                }
+                if entry.snapshot_id().is_none() {
+                    *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
+                }
+                Some(to_value(entry).unwrap())
+            } else {
+                None
+            }
+        }))?;
 
         manifest.sequence_number = table_metadata.last_sequence_number + 1;
 
