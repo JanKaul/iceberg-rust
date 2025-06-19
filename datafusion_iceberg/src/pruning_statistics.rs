@@ -332,19 +332,19 @@ fn transform_literal(expr: Expr, transform: &Transform) -> Result<Expr, DataFusi
     match transform {
         Transform::Year => Ok(Expr::ScalarFunction(ScalarFunction::new_udf(
             Arc::new(ScalarUDF::new_from_impl(DateTransform::new())),
-            vec![Expr::Literal(ScalarValue::new_utf8("year"), None), expr],
+            vec![Expr::Literal(ScalarValue::new_utf8("year")), expr],
         ))),
         Transform::Month => Ok(Expr::ScalarFunction(ScalarFunction::new_udf(
             Arc::new(ScalarUDF::new_from_impl(DateTransform::new())),
-            vec![Expr::Literal(ScalarValue::new_utf8("month"), None), expr],
+            vec![Expr::Literal(ScalarValue::new_utf8("month")), expr],
         ))),
         Transform::Day => Ok(Expr::ScalarFunction(ScalarFunction::new_udf(
             Arc::new(ScalarUDF::new_from_impl(DateTransform::new())),
-            vec![Expr::Literal(ScalarValue::new_utf8("day"), None), expr],
+            vec![Expr::Literal(ScalarValue::new_utf8("day")), expr],
         ))),
         Transform::Hour => Ok(Expr::ScalarFunction(ScalarFunction::new_udf(
             Arc::new(ScalarUDF::new_from_impl(DateTransform::new())),
-            vec![Expr::Literal(ScalarValue::new_utf8("hour"), None), expr],
+            vec![Expr::Literal(ScalarValue::new_utf8("hour")), expr],
         ))),
         _ => Ok(expr),
     }
