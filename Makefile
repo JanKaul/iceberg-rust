@@ -19,3 +19,5 @@ test-sql-catalog:
 	cargo test -p iceberg-sql-catalog --lib && cargo clean -p iceberg-sql-catalog
 clippy:
 	cargo clippy --all-targets --all-features -- -D warnings
+fmt:
+	cargo fmt --all -- --check
