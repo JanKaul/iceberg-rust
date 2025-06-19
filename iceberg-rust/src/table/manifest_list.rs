@@ -974,7 +974,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     ("manifest1.avro".to_string(), vec!["file1.parquet".to_string(), "file2.parquet".to_string()]),
     ///     ("manifest2.avro".to_string(), vec!["file3.parquet".to_string()]),
     /// ]);
-    /// 
+    ///
     /// manifest_list_writer.append_and_filter(
     ///     manifests_to_overwrite,
     ///     &data_files_to_filter,
