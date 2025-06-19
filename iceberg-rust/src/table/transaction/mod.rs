@@ -196,13 +196,13 @@ impl<'table> TableTransaction<'table> {
     /// # Examples
     /// ```
     /// use std::collections::HashMap;
-    /// 
+    ///
     /// let mut files_to_overwrite = HashMap::new();
     /// files_to_overwrite.insert(
     ///     "manifest-001.avro".to_string(),
     ///     vec!["data-001.parquet".to_string(), "data-002.parquet".to_string()]
     /// );
-    /// 
+    ///
     /// let transaction = table.new_transaction(None)
     ///     .overwrite(new_data_files, files_to_overwrite)
     ///     .commit()

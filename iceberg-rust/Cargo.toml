@@ -38,4 +38,5 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }
+iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
 
