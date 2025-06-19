@@ -1,8 +1,10 @@
+use iceberg_rust_spec::{
+    manifest::Content, manifest::DataFile, manifest::ManifestEntry,
+    manifest_list::ManifestListEntry,
+};
+use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use smallvec::SmallVec;
-use iceberg_rust_spec::{
-    manifest::ManifestEntry, manifest_list::ManifestListEntry, manifest::Content, manifest::DataFile};
 
 use crate::{
     error::Error,
@@ -190,7 +192,6 @@ pub(crate) fn select_manifest_unpartitioned(
         })
         .ok_or(Error::NotFound("Manifest for insert".to_owned()))
 }
-
 
 pub(crate) fn append_summary(files: &[DataFile]) -> Option<HashMap<String, String>> {
     if files.is_empty() {
