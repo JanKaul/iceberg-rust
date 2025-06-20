@@ -47,14 +47,14 @@ pub fn incremental_aggregate_function(
                 )))),
                 vec![
                     (
-                        Box::new(Expr::Literal(ScalarValue::Boolean(Some(true)), None)),
+                        Box::new(Expr::Literal(ScalarValue::Boolean(Some(true)))),
                         Box::new(Expr::Column(Column::new(
                             None::<String>,
                             left[0].name_for_alias()?,
                         ))),
                     ),
                     (
-                        Box::new(Expr::Literal(ScalarValue::Boolean(Some(false)), None)),
+                        Box::new(Expr::Literal(ScalarValue::Boolean(Some(false)))),
                         Box::new(right[0].clone()),
                     ),
                 ],
@@ -71,14 +71,14 @@ pub fn incremental_aggregate_function(
                 )))),
                 vec![
                     (
-                        Box::new(Expr::Literal(ScalarValue::Boolean(Some(true)), None)),
+                        Box::new(Expr::Literal(ScalarValue::Boolean(Some(true)))),
                         Box::new(Expr::Column(Column::new(
                             None::<String>,
                             left[0].name_for_alias()?,
                         ))),
                     ),
                     (
-                        Box::new(Expr::Literal(ScalarValue::Boolean(Some(false)), None)),
+                        Box::new(Expr::Literal(ScalarValue::Boolean(Some(false)))),
                         Box::new(right[0].clone()),
                     ),
                 ],
