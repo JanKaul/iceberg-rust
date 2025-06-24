@@ -434,30 +434,10 @@ async fn table_scan(
 
     if enable_data_file_path_column {
         table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
-        // let index = file_schema.fields().len() + table_partition_cols.len() - 1;
-        // if let Some(projection) = &mut projection {
-        //     projection.push(index);
-        // }
-        // if let Some(projection_expr) = &mut projection_expr {
-        //     projection_expr.push((
-        //         Arc::new(Column::new(DATA_FILE_PATH_COLUMN, index)) as Arc<dyn PhysicalExpr>,
-        //         DATA_FILE_PATH_COLUMN.to_owned(),
-        //     ));
-        // }
     }
 
     if enable_manifest_file_path_column {
         table_partition_cols.push(Field::new(MANIFEST_FILE_PATH_COLUMN, DataType::Utf8, false));
-        // let index = file_schema.fields().len() + table_partition_cols.len() - 1;
-        // if let Some(projection) = &mut projection {
-        //     projection.push(index);
-        // }
-        // if let Some(projection_expr) = &mut projection_expr {
-        //     projection_expr.push((
-        //         Arc::new(Column::new(MANIFEST_FILE_PATH_COLUMN, index)) as Arc<dyn PhysicalExpr>,
-        //         MANIFEST_FILE_PATH_COLUMN.to_owned(),
-        //     ));
-        // }
     }
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
