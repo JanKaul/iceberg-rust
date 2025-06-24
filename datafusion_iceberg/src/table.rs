@@ -19,7 +19,7 @@ use std::{
 use tokio::sync::{RwLock, RwLockWriteGuard};
 
 use datafusion::{
-    arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaRef},
+    arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
     catalog::Session,
     common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
     datasource::{
@@ -137,7 +137,23 @@ impl DataFusionTable {
                 let schema = end
                     .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
                     .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
-                Arc::new((schema.fields()).try_into().unwrap())
+                let mut builder =
+                    SchemaBuilder::from(TryInto::<ArrowSchema>::try_into(schema.fields()).unwrap());
+                if config
+                    .as_ref()
+                    .map(|x| x.enable_data_file_path_column)
+                    .unwrap_or_default()
+                {
+                    builder.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, true));
+                }
+                if config
+                    .as_ref()
+                    .map(|x| x.enable_manifest_file_path_column)
+                    .unwrap_or_default()
+                {
+                    builder.push(Field::new(MANIFEST_FILE_PATH_COLUMN, DataType::Utf8, true));
+                }
+                Arc::new(builder.finish())
             }
             Tabular::View(view) => {
                 let schema = end
@@ -391,16 +407,23 @@ async fn table_scan(
 
     let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
 
-    let mut projection = projection
-        .cloned()
-        .or_else(|| Some(schema.iter().enumerate().map(|(i, _)| i).collect()));
+    let projection = projection.cloned().or_else(|| {
+        Some(
+            arrow_schema
+                .fields()
+                .iter()
+                .enumerate()
+                .map(|(i, _)| i)
+                .collect(),
+        )
+    });
 
-    let mut projection_expr: Option<Vec<_>> = projection.as_ref().map(|projection| {
+    let projection_expr: Option<Vec<_>> = projection.as_ref().map(|projection| {
         projection
             .iter()
             .enumerate()
             .map(|(i, id)| {
-                let name = file_schema.fields[*id].name();
+                let name = arrow_schema.fields[*id].name();
                 (
                     Arc::new(Column::new(name, i)) as Arc<dyn PhysicalExpr>,
                     name.to_owned(),
@@ -411,30 +434,30 @@ async fn table_scan(
 
     if enable_data_file_path_column {
         table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
-        let index = file_schema.fields().len() + table_partition_cols.len() - 1;
-        if let Some(projection) = &mut projection {
-            projection.push(index);
-        }
-        if let Some(projection_expr) = &mut projection_expr {
-            projection_expr.push((
-                Arc::new(Column::new(DATA_FILE_PATH_COLUMN, index)) as Arc<dyn PhysicalExpr>,
-                DATA_FILE_PATH_COLUMN.to_owned(),
-            ));
-        }
+        // let index = file_schema.fields().len() + table_partition_cols.len() - 1;
+        // if let Some(projection) = &mut projection {
+        //     projection.push(index);
+        // }
+        // if let Some(projection_expr) = &mut projection_expr {
+        //     projection_expr.push((
+        //         Arc::new(Column::new(DATA_FILE_PATH_COLUMN, index)) as Arc<dyn PhysicalExpr>,
+        //         DATA_FILE_PATH_COLUMN.to_owned(),
+        //     ));
+        // }
     }
 
     if enable_manifest_file_path_column {
         table_partition_cols.push(Field::new(MANIFEST_FILE_PATH_COLUMN, DataType::Utf8, false));
-        let index = file_schema.fields().len() + table_partition_cols.len() - 1;
-        if let Some(projection) = &mut projection {
-            projection.push(index);
-        }
-        if let Some(projection_expr) = &mut projection_expr {
-            projection_expr.push((
-                Arc::new(Column::new(MANIFEST_FILE_PATH_COLUMN, index)) as Arc<dyn PhysicalExpr>,
-                MANIFEST_FILE_PATH_COLUMN.to_owned(),
-            ));
-        }
+        // let index = file_schema.fields().len() + table_partition_cols.len() - 1;
+        // if let Some(projection) = &mut projection {
+        //     projection.push(index);
+        // }
+        // if let Some(projection_expr) = &mut projection_expr {
+        //     projection_expr.push((
+        //         Arc::new(Column::new(MANIFEST_FILE_PATH_COLUMN, index)) as Arc<dyn PhysicalExpr>,
+        //         MANIFEST_FILE_PATH_COLUMN.to_owned(),
+        //     ));
+        // }
     }
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
