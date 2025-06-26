@@ -54,6 +54,9 @@ pub enum Error {
     /// parse int error
     #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
+    /// parse int error
+    #[error(transparent)]
+    ConfigBuilder(#[from] crate::table::DataFusionTableConfigBuilderError),
 }
 
 impl From<Error> for DataFusionError {
