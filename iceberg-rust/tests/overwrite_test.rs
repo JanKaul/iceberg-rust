@@ -280,7 +280,7 @@ async fn test_table_transaction_overwrite() {
                 _ => {}
             }
 
-            println!("  Row: id={}, region={}, value={}", id, region, value);
+            println!("  Row: id={id}, region={region}, value={value}");
         }
     }
 
@@ -392,7 +392,7 @@ async fn create_files_to_overwrite_for_partition(
     let _current_snapshot = table
         .metadata()
         .current_snapshot(None)
-        .map_err(|e| Error::InvalidFormat(format!("Failed to get current snapshot: {:?}", e)))?
+        .map_err(|e| Error::InvalidFormat(format!("Failed to get current snapshot: {e:?}")))?
         .ok_or(Error::InvalidFormat("No current snapshot".to_owned()))?;
 
     // Read the manifest list from the current snapshot

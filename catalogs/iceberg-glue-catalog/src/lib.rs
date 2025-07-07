@@ -1067,7 +1067,7 @@ pub mod tests {
             .with_config("aws_secret_access_key".parse().unwrap(), "password")
             .with_config(
                 "endpoint".parse().unwrap(),
-                format!("http://{}:{}", localstack_host, localstack_port),
+                format!("http://{localstack_host}:{localstack_port}"),
             )
             .with_config("region".parse().unwrap(), "us-east-1")
             .with_config("allow_http".parse().unwrap(), "true");

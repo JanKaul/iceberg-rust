@@ -608,8 +608,7 @@ pub(crate) fn new_manifest_location(
     i: usize,
 ) -> String {
     format!(
-        "{}/metadata/{}-m{}.avro",
-        table_metadata_location, commit_uuid, i
+        "{table_metadata_location}/metadata/{commit_uuid}-m{i}.avro"
     )
 }
 
@@ -620,8 +619,7 @@ pub(crate) fn new_manifest_list_location(
     commit_uuid: &str,
 ) -> String {
     format!(
-        "{}/metadata/snap-{}-{}-{}.avro",
-        table_metadata_location, snapshot_id, attempt, commit_uuid
+        "{table_metadata_location}/metadata/snap-{snapshot_id}-{attempt}-{commit_uuid}.avro"
     )
 }
 

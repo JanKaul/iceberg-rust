@@ -133,8 +133,8 @@ impl Display for Transform {
             Transform::Month => write!(f, "month"),
             Transform::Day => write!(f, "day"),
             Transform::Hour => write!(f, "hour"),
-            Transform::Bucket(i) => write!(f, "bucket[{}]", i),
-            Transform::Truncate(i) => write!(f, "truncate[{}]", i),
+            Transform::Bucket(i) => write!(f, "bucket[{i}]"),
+            Transform::Truncate(i) => write!(f, "truncate[{i}]"),
             Transform::Void => write!(f, "void"),
         }
     }

@@ -34,13 +34,11 @@ impl Identifier {
     pub fn try_new(names: &[String], default_namespace: Option<&[String]>) -> Result<Self, Error> {
         let mut parts = names.iter().rev();
         let table_name = parts.next().ok_or(Error::InvalidFormat(format!(
-            "Identifier {:?} is empty",
-            names
+            "Identifier {names:?} is empty"
         )))?;
         if table_name.is_empty() {
             return Err(Error::InvalidFormat(format!(
-                "Table name {:?} is empty",
-                table_name
+                "Table name {table_name:?} is empty"
             )));
         }
         let namespace: Vec<String> = parts.rev().map(ToOwned::to_owned).collect();
@@ -133,7 +131,7 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(&format!("{}", identifier), "level1.level2.table");
+        assert_eq!(&format!("{identifier}"), "level1.level2.table");
     }
     #[test]
     #[should_panic]
@@ -152,6 +150,6 @@ mod tests {
     #[test]
     fn test_parse() {
         let identifier = Identifier::parse("level1.level2.table", None).unwrap();
-        assert_eq!(&format!("{}", identifier), "level1.level2.table");
+        assert_eq!(&format!("{identifier}"), "level1.level2.table");
     }
 }

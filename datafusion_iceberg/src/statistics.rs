@@ -165,7 +165,7 @@ fn convert_value_to_scalar_value(value: Value) -> Result<ScalarValue, Error> {
         )),
         x => Err(Error::Conversion(
             "Iceberg value".to_string(),
-            format!("{:?}", x),
+            format!("{x:?}"),
         )),
     }
 }
