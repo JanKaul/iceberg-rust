@@ -817,9 +817,7 @@ pub mod tests {
 
         let iceberg_catalog = Arc::new(
             SqlCatalog::new(
-                &format!(
-                    "postgres://postgres:postgres@{postgres_host}:{postgres_port}/postgres"
-                ),
+                &format!("postgres://postgres:postgres@{postgres_host}:{postgres_port}/postgres"),
                 "warehouse",
                 object_store,
             )
