@@ -318,7 +318,7 @@ fn fake_object_store_url(table_location_url: &str) -> Option<ObjectStoreUrl> {
         u.path()
             .as_bytes()
             .iter()
-            .map(|b| format!("{:02x}", b))
+            .map(|b| format!("{b:02x}"))
             .collect::<Vec<_>>()
             .join("")
     )))
