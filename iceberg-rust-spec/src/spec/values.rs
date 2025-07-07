@@ -135,20 +135,20 @@ impl From<Value> for ByteBuf {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Value::Boolean(b) => write!(f, "{}", b),
-            Value::Int(i) => write!(f, "{}", i),
-            Value::LongInt(l) => write!(f, "{}", l),
-            Value::Float(fl) => write!(f, "{}", fl),
-            Value::Double(d) => write!(f, "{}", d),
-            Value::Date(d) => write!(f, "{}", d),
-            Value::Time(t) => write!(f, "{}", t),
-            Value::Timestamp(ts) => write!(f, "{}", ts),
-            Value::TimestampTZ(ts) => write!(f, "{}", ts),
-            Value::String(s) => write!(f, "{}", s),
-            Value::UUID(u) => write!(f, "{}", u),
-            Value::Fixed(size, data) => write!(f, "{:?} ({} bytes)", data, size),
+            Value::Boolean(b) => write!(f, "{b}"),
+            Value::Int(i) => write!(f, "{i}"),
+            Value::LongInt(l) => write!(f, "{l}"),
+            Value::Float(fl) => write!(f, "{fl}"),
+            Value::Double(d) => write!(f, "{d}"),
+            Value::Date(d) => write!(f, "{d}"),
+            Value::Time(t) => write!(f, "{t}"),
+            Value::Timestamp(ts) => write!(f, "{ts}"),
+            Value::TimestampTZ(ts) => write!(f, "{ts}"),
+            Value::String(s) => write!(f, "{s}"),
+            Value::UUID(u) => write!(f, "{u}"),
+            Value::Fixed(size, data) => write!(f, "{data:?} ({size} bytes)"),
             Value::Binary(data) => write!(f, "{:?} ({} bytes)", data, data.len()),
-            Value::Decimal(d) => write!(f, "{}", d),
+            Value::Decimal(d) => write!(f, "{d}"),
             _ => panic!("Printing of compound types is not supported"),
         }
     }
@@ -782,13 +782,13 @@ impl From<&Value> for JsonValue {
             Value::UUID(val) => JsonValue::String(val.to_string()),
             Value::Fixed(_, val) => {
                 JsonValue::String(val.iter().fold(String::new(), |mut acc, x| {
-                    acc.push_str(&format!("{:x}", x));
+                    acc.push_str(&format!("{x:x}"));
                     acc
                 }))
             }
             Value::Binary(val) => {
                 JsonValue::String(val.iter().fold(String::new(), |mut acc, x| {
-                    acc.push_str(&format!("{:x}", x));
+                    acc.push_str(&format!("{x:x}"));
                     acc
                 }))
             }

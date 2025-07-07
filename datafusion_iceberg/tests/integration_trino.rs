@@ -29,7 +29,7 @@ use tokio::time::sleep;
 
 fn configuration(host: &str, port: u16) -> Configuration {
     Configuration {
-        base_path: format!("http://{}:{}", host, port),
+        base_path: format!("http://{host}:{port}"),
         user_agent: None,
         client: reqwest::Client::new(),
         basic_auth: None,
@@ -63,7 +63,7 @@ async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    panic!("Trino still not queryable after {:?}", timeout);
+    panic!("Trino still not queryable after {timeout:?}");
 }
 
 #[tokio::test]
@@ -130,8 +130,7 @@ async fn integration_trino_rest() {
     writeln!(tmp_file, "iceberg.catalog.type=rest").unwrap();
     writeln!(
         tmp_file,
-        "iceberg.rest-catalog.uri=http://{}:{}",
-        docker_host, rest_port
+        "iceberg.rest-catalog.uri=http://{docker_host}:{rest_port}"
     )
     .unwrap();
     writeln!(tmp_file, "iceberg.rest-catalog.warehouse=s3://warehouse/").unwrap();
@@ -139,8 +138,7 @@ async fn integration_trino_rest() {
     writeln!(tmp_file, "fs.native-s3.enabled=true").unwrap();
     writeln!(
         tmp_file,
-        "s3.endpoint=http://{}:{}",
-        docker_host, localstack_port
+        "s3.endpoint=http://{docker_host}:{localstack_port}"
     )
     .unwrap();
     writeln!(tmp_file, "s3.path-style-access=true").unwrap();
@@ -179,7 +177,7 @@ async fn integration_trino_rest() {
                 "iceberg",
                 "--file",
                 "/tmp/trino.sql",
-                &format!("http://{}:{}", docker_host, trino_port),
+                &format!("http://{docker_host}:{trino_port}"),
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )
@@ -191,7 +189,7 @@ async fn integration_trino_rest() {
         .with_config("aws_secret_access_key".parse().unwrap(), "password")
         .with_config(
             "endpoint".parse().unwrap(),
-            format!("http://{}:{}", localstack_host, localstack_port),
+            format!("http://{localstack_host}:{localstack_port}"),
         )
         .with_config("region".parse().unwrap(), "us-east-1")
         .with_config("allow_http".parse().unwrap(), "true");
@@ -294,7 +292,7 @@ async fn integration_trino_rest() {
                 "SELECT sum(amount) FROM iceberg.test.test_orders;",
                 "--output-format",
                 "NULL",
-                &format!("http://{}:{}", docker_host, trino_port),
+                &format!("http://{docker_host}:{trino_port}"),
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )

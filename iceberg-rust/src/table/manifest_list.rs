@@ -144,6 +144,75 @@ pub(crate) async fn read_snapshot<'metadata>(
     ManifestListReader::new(bytes, table_metadata)
 }
 
+/// Computes the overall partition bounds for all data files in a snapshot.
+///
+/// This function reads the manifest list for a given snapshot and computes the
+/// bounding rectangle that encompasses all partition values across all manifests
+/// in the snapshot. It's useful for understanding the overall data distribution
+/// and for query optimization by determining which partitions contain data.
+///
+/// The function:
+/// 1. Fetches the manifest list file from object storage
+/// 2. Iterates through all manifest entries in the manifest list
+/// 3. For each manifest that has partition information, converts the partition
+///    summary to a rectangle and expands the overall bounds
+/// 4. Returns the combined bounding rectangle or None if no partitions are found
+///
+/// # Arguments
+/// * `snapshot` - The snapshot containing the manifest list location
+/// * `table_metadata` - Reference to the table metadata for format version info
+/// * `object_store` - The object store to read the manifest list file from
+///
+/// # Returns
+/// * `Result<Option<Rectangle>, Error>` - The bounding rectangle encompassing all
+///   partition values, or None if no partitions are found, or an error if the
+///   operation fails
+///
+/// # Errors
+/// Returns an error if:
+/// * The manifest list file cannot be read from storage
+/// * The manifest list format is invalid
+/// * The Avro reader cannot be created
+/// * Partition summary conversion fails
+///
+/// # Example Usage
+/// ```ignore
+/// let bounds = snapshot_partition_bounds(&snapshot, &table_metadata, object_store).await?;
+/// if let Some(rectangle) = bounds {
+///     println!("Partition bounds: {:?}", rectangle);
+/// } else {
+///     println!("No partition bounds found");
+/// }
+/// ```
+pub async fn snapshot_partition_bounds(
+    snapshot: &Snapshot,
+    table_metadata: &TableMetadata,
+    object_store: Arc<dyn ObjectStore>,
+) -> Result<Option<Rectangle>, Error> {
+    let bytes: Cursor<Vec<u8>> = Cursor::new(
+        object_store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await?
+            .bytes()
+            .await?
+            .into(),
+    );
+
+    ManifestListReader::new(bytes, table_metadata)?.try_fold(None::<Rectangle>, |acc, x| {
+        if let Some(partitions) = x?.partitions {
+            let rect = summary_to_rectangle(&partitions)?;
+            if let Some(mut acc) = acc {
+                acc.expand(&rect);
+                Ok(Some(acc))
+            } else {
+                Ok(Some(rect))
+            }
+        } else {
+            Ok(acc)
+        }
+    })
+}
+
 /// A writer for Iceberg manifest list files that manages the creation and updating of manifest lists.
 ///
 /// The ManifestListWriter is responsible for:

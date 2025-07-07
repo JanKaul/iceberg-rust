@@ -172,8 +172,7 @@ impl TryFrom<&DataType> for Type {
                 element: Box::new(field.data_type().try_into()?),
             })),
             x => Err(Error::NotSupported(format!(
-                "Arrow datatype {} is not supported.",
-                x
+                "Arrow datatype {x} is not supported."
             ))),
         }
     }

@@ -472,7 +472,7 @@ async fn create_arrow_writer(
         rand[0..3]
             .iter()
             .fold(String::with_capacity(8), |mut acc, x| {
-                write!(&mut acc, "{:x}", x).unwrap();
+                write!(&mut acc, "{x:x}").unwrap();
                 acc
             })
             + "/"

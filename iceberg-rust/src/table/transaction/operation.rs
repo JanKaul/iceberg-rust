@@ -607,10 +607,7 @@ pub(crate) fn new_manifest_location(
     commit_uuid: &str,
     i: usize,
 ) -> String {
-    format!(
-        "{}/metadata/{}-m{}.avro",
-        table_metadata_location, commit_uuid, i
-    )
+    format!("{table_metadata_location}/metadata/{commit_uuid}-m{i}.avro")
 }
 
 pub(crate) fn new_manifest_list_location(
@@ -619,10 +616,7 @@ pub(crate) fn new_manifest_list_location(
     attempt: i64,
     commit_uuid: &str,
 ) -> String {
-    format!(
-        "{}/metadata/snap-{}-{}-{}.avro",
-        table_metadata_location, snapshot_id, attempt, commit_uuid
-    )
+    format!("{table_metadata_location}/metadata/snap-{snapshot_id}-{attempt}-{commit_uuid}.avro")
 }
 
 /// To achieve fast lookups of the datafiles, the manifest tree should be somewhat balanced, meaning that manifest files should contain a similar number of datafiles.

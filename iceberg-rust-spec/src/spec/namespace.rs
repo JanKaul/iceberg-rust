@@ -36,8 +36,7 @@ impl Namespace {
             url::form_urlencoded::parse(namespace.as_bytes())
                 .next()
                 .ok_or(Error::InvalidFormat(format!(
-                    "Namespace {} is empty",
-                    namespace
+                    "Namespace {namespace} is empty"
                 )))?
                 .0
                 .split('\u{1F}')
@@ -78,7 +77,7 @@ mod tests {
             "level3".to_string(),
         ])
         .unwrap();
-        assert_eq!(&format!("{}", namespace), "level1.level2.level3");
+        assert_eq!(&format!("{namespace}"), "level1.level2.level3");
     }
     #[test]
     #[should_panic]

@@ -99,7 +99,7 @@ mod tests {
         config.insert(AWS_REGION.to_string(), "us-east-1".to_string());
 
         let store = object_store_from_config(url, config).unwrap();
-        let store_repr = format!("{:?}", store);
+        let store_repr = format!("{store:?}");
 
         assert!(store_repr.contains("region: \"us-east-1\""));
         assert!(store_repr.contains("bucket: \"test-bucket\""));
@@ -122,7 +122,7 @@ mod tests {
         config.insert(AWS_ALLOW_ANONYMOUS.to_string(), "true".to_string());
 
         let store = object_store_from_config(url, config).unwrap();
-        let store_repr = format!("{:?}", store);
+        let store_repr = format!("{store:?}");
 
         assert!(store_repr.contains("region: \"us-east-1\""));
         assert!(store_repr.contains("bucket: \"test-bucket\""));
@@ -150,7 +150,7 @@ mod tests {
         config.insert(GCS_BUCKET.to_string(), "test-bucket".to_string());
 
         let store = object_store_from_config(url, config).unwrap();
-        let store_repr = format!("{:?}", store);
+        let store_repr = format!("{store:?}");
 
         assert!(store_repr.contains("bearer: \"\""));
         assert!(store_repr.contains("bucket_name: \"test-bucket\""));
@@ -164,7 +164,7 @@ mod tests {
         config.insert(GCS_BUCKET.to_string(), "test-bucket".to_string());
 
         let store = object_store_from_config(url, config).unwrap();
-        let store_repr = format!("{:?}", store);
+        let store_repr = format!("{store:?}");
 
         assert!(store_repr.contains("bearer: \"oauth-token-123\""));
         assert!(store_repr.contains("bucket_name: \"test-bucket\""));

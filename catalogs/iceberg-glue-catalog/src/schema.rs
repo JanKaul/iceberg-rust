@@ -31,13 +31,11 @@ pub(crate) fn type_to_glue(datatype: &Type) -> Result<String, Error> {
             PrimitiveType::String | PrimitiveType::Uuid => Ok("string".to_owned()),
             PrimitiveType::Binary | PrimitiveType::Fixed(_) => Ok("binary".to_owned()),
             x => Err(Error::InvalidFormat(format!(
-                "Type {} cannot be converted to glue type",
-                x
+                "Type {x} cannot be converted to glue type"
             ))),
         },
         x => Err(Error::InvalidFormat(format!(
-            "Type {} cannot be converted to glue type",
-            x
+            "Type {x} cannot be converted to glue type"
         ))),
     }
 }
