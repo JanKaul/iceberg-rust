@@ -93,7 +93,7 @@ pub struct CommitView<T: Materialization> {
 )]
 pub enum TableUpdate {
     /// Assigning a UUID to a table/view should only be done when creating the table/view. It is not safe to re-assign the UUID if a table/view already has a UUID assigned
-    AssignUUID {
+    AssignUuid {
         /// new uuid
         uuid: String,
     },
@@ -261,7 +261,7 @@ pub enum TableRequirement {
 )]
 pub enum ViewUpdate<T: Materialization> {
     /// Assigning a UUID to a table/view should only be done when creating the table/view. It is not safe to re-assign the UUID if a table/view already has a UUID assigned
-    AssignUUID {
+    AssignUuid {
         /// new uuid
         uuid: String,
     },
@@ -422,7 +422,7 @@ pub fn apply_table_updates(
             TableUpdate::UpgradeFormatVersion { format_version: _ } => {
                 unimplemented!();
             }
-            TableUpdate::AssignUUID { uuid } => {
+            TableUpdate::AssignUuid { uuid } => {
                 metadata.table_uuid = Uuid::parse_str(&uuid)?;
             }
             TableUpdate::AddSchema {
@@ -519,7 +519,7 @@ pub fn apply_view_updates<T: Materialization + 'static>(
             ViewUpdate::UpgradeFormatVersion { format_version: _ } => {
                 unimplemented!();
             }
-            ViewUpdate::AssignUUID { uuid } => {
+            ViewUpdate::AssignUuid { uuid } => {
                 metadata.view_uuid = Uuid::parse_str(&uuid)?;
             }
             ViewUpdate::AddSchema {
