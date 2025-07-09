@@ -1,11 +1,8 @@
-use std::sync::Arc;
-
-use datafusion::{
-    arrow::{array::Int64Array, error::ArrowError},
-    prelude::SessionContext,
-};
+use datafusion::{arrow::error::ArrowError, assert_batches_eq, prelude::SessionContext};
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
 use futures::stream;
+use iceberg_rust::catalog::identifier::Identifier;
+use iceberg_rust::catalog::tabular::Tabular;
 use iceberg_rust::{
     arrow::write::write_equality_deletes_parquet_partitioned,
     catalog::Catalog,
@@ -18,6 +15,7 @@ use iceberg_rust::{
     table::Table,
 };
 use iceberg_sql_catalog::SqlCatalog;
+use std::sync::Arc;
 
 #[tokio::test]
 pub async fn test_equality_delete() {
@@ -73,7 +71,7 @@ pub async fn test_equality_delete() {
         .build()
         .expect("Failed to create partition spec");
 
-    let mut table = Table::builder()
+    let table = Table::builder()
         .with_name("orders")
         .with_location("/test/orders")
         .with_schema(schema)
@@ -84,7 +82,7 @@ pub async fn test_equality_delete() {
 
     let ctx = SessionContext::new();
 
-    let datafusion_catalog = Arc::new(IcebergCatalog::new(catalog, None).await.unwrap());
+    let datafusion_catalog = Arc::new(IcebergCatalog::new(catalog.clone(), None).await.unwrap());
 
     ctx.register_catalog("warehouse", datafusion_catalog);
 
@@ -104,50 +102,44 @@ pub async fn test_equality_delete() {
     .expect("Failed to insert values into table");
 
     let batches = ctx
-        .sql("select product_id, sum(amount) from warehouse.test.orders group by product_id;")
+        .sql("select product_id, sum(amount) from warehouse.test.orders group by product_id order by product_id")
         .await
         .expect("Failed to create plan for select")
         .collect()
         .await
         .expect("Failed to execute select query");
 
-    for batch in batches {
-        if batch.num_rows() != 0 {
-            let (product_ids, amounts) = (
-                batch
-                    .column(0)
-                    .as_any()
-                    .downcast_ref::<Int64Array>()
-                    .unwrap(),
-                batch
-                    .column(1)
-                    .as_any()
-                    .downcast_ref::<Int64Array>()
-                    .unwrap(),
-            );
-            for (product_id, amount) in product_ids.iter().zip(amounts) {
-                if product_id.unwrap() == 1 {
-                    assert_eq!(amount.unwrap(), 7)
-                } else if product_id.unwrap() == 2 {
-                    assert_eq!(amount.unwrap(), 1)
-                } else if product_id.unwrap() == 3 {
-                    assert_eq!(amount.unwrap(), 3)
-                } else {
-                    panic!("Unexpected order id")
-                }
-            }
-        }
-    }
+    let expected = [
+        "+------------+-----------------------------------+",
+        "| product_id | sum(warehouse.test.orders.amount) |",
+        "+------------+-----------------------------------+",
+        "| 1          | 7                                 |",
+        "| 2          | 1                                 |",
+        "| 3          | 3                                 |",
+        "+------------+-----------------------------------+",
+    ];
+    assert_batches_eq!(expected, &batches);
 
     let batches = ctx
         .sql(
-            "SELECT id, customer_id, product_id, date FROM warehouse.test.orders WHERE customer_id = 1;",
+            "SELECT id, customer_id, product_id, date FROM warehouse.test.orders WHERE customer_id = 1 order by id",
         )
         .await
         .expect("Failed to create query plan for insert")
         .collect()
         .await
         .expect("Failed to insert values into table");
+
+    let expected = [
+        "+----+-------------+------------+------------+",
+        "| id | customer_id | product_id | date       |",
+        "+----+-------------+------------+------------+",
+        "| 1  | 1           | 1          | 2020-01-01 |",
+        "| 4  | 1           | 2          | 2020-02-02 |",
+        "| 5  | 1           | 1          | 2020-02-02 |",
+        "+----+-------------+------------+------------+",
+    ];
+    assert_batches_eq!(expected, &batches);
 
     let files = write_equality_deletes_parquet_partitioned(
         &table,
@@ -158,6 +150,16 @@ pub async fn test_equality_delete() {
     .await
     .unwrap();
 
+    // Load the latest table version, which includes the inserted rows
+    let Tabular::Table(mut table) = catalog
+        .clone()
+        .load_tabular(&Identifier::new(&["test".to_string()], "orders"))
+        .await
+        .unwrap()
+    else {
+        panic!("Tabular should be a table");
+    };
+
     table
         .new_transaction(None)
         .append_delete(files)
@@ -166,38 +168,20 @@ pub async fn test_equality_delete() {
         .unwrap();
 
     let batches = ctx
-        .sql("select product_id, sum(amount) from warehouse.test.orders group by product_id;")
+        .sql("select product_id, sum(amount) from warehouse.test.orders group by product_id order by product_id")
         .await
         .expect("Failed to create plan for select")
         .collect()
         .await
         .expect("Failed to execute select query");
 
-    for batch in batches {
-        if batch.num_rows() != 0 {
-            let (product_ids, amounts) = (
-                batch
-                    .column(0)
-                    .as_any()
-                    .downcast_ref::<Int64Array>()
-                    .unwrap(),
-                batch
-                    .column(1)
-                    .as_any()
-                    .downcast_ref::<Int64Array>()
-                    .unwrap(),
-            );
-            for (product_id, amount) in product_ids.iter().zip(amounts) {
-                if product_id.unwrap() == 1 {
-                    assert_eq!(amount.unwrap(), 4)
-                } else if product_id.unwrap() == 2 {
-                    assert_eq!(amount.unwrap(), 0)
-                } else if product_id.unwrap() == 3 {
-                    assert_eq!(amount.unwrap(), 3)
-                } else {
-                    panic!("Unexpected order id")
-                }
-            }
-        }
-    }
+    let expected = [
+        "+------------+-----------------------------------+",
+        "| product_id | sum(warehouse.test.orders.amount) |",
+        "+------------+-----------------------------------+",
+        "| 1          | 4                                 |",
+        "| 3          | 3                                 |",
+        "+------------+-----------------------------------+",
+    ];
+    assert_batches_eq!(expected, &batches);
 }
