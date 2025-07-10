@@ -93,9 +93,18 @@ impl Catalog for S3TablesCatalog {
         Ok(HashMap::new())
     }
     /// Drop a namespace in the catalog
-    async fn drop_namespace(&self, _namespace: &Namespace) -> Result<(), IcebergError> {
-        todo!()
+    async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), IcebergError> {
+        self.client
+            .delete_namespace()
+            .table_bucket_arn(&self.arn)
+            .namespace(namespace[0].as_str())
+            .send()
+            .await
+            .map_err(Error::from)?;
+
+        Ok(())
     }
+
     /// Load the namespace properties from the catalog
     async fn load_namespace(
         &self,
@@ -113,8 +122,16 @@ impl Catalog for S3TablesCatalog {
         todo!()
     }
     /// Check if a namespace exists
-    async fn namespace_exists(&self, _namespace: &Namespace) -> Result<bool, IcebergError> {
-        todo!()
+    async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, IcebergError> {
+        Ok(self
+            .client
+            .get_namespace()
+            .table_bucket_arn(&self.arn)
+            .namespace(namespace[0].as_str())
+            .send()
+            .await
+            .map_err(Error::from)
+            .is_ok())
     }
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, IcebergError> {
         let mut tabulars = Vec::new();
