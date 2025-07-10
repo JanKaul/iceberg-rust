@@ -3,8 +3,8 @@ use aws_sdk_s3tables::{
     error::SdkError,
     operation::{
         create_namespace::CreateNamespaceError, create_table::CreateTableError,
-        delete_namespace::DeleteNamespaceError, get_namespace::GetNamespaceError,
-        delete_table::DeleteTableError, get_table::GetTableError,
+        delete_namespace::DeleteNamespaceError, delete_table::DeleteTableError,
+        get_namespace::GetNamespaceError, get_table::GetTableError,
         get_table_metadata_location::GetTableMetadataLocationError,
         list_namespaces::ListNamespacesError, list_tables::ListTablesError,
         update_table_metadata_location::UpdateTableMetadataLocationError,

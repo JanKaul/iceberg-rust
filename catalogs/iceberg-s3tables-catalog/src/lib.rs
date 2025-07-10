@@ -123,7 +123,8 @@ impl Catalog for S3TablesCatalog {
     }
     /// Check if a namespace exists
     async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, IcebergError> {
-        Ok(self.client
+        Ok(self
+            .client
             .get_namespace()
             .table_bucket_arn(&self.arn)
             .namespace(namespace[0].as_str())
