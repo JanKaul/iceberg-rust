@@ -1,7 +1,6 @@
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
 use std::{collections::HashSet, sync::Arc};
-use tokio::runtime::Handle;
 
 use iceberg_rust::spec::view_metadata::REF_PREFIX;
 use iceberg_rust::{
