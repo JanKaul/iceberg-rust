@@ -183,13 +183,13 @@ impl Mirror {
     pub fn table_exists(&self, identifier: Identifier) -> bool {
         self.storage
             .get(&identifier.to_string())
-            .map_or(false, |node| matches!(node.value(), Node::Relation(_)))
+            .is_some_and(|node| matches!(node.value(), Node::Relation(_)))
     }
 
     pub fn schema_exists(&self, name: &str) -> bool {
         self.storage
             .get(name)
-            .map_or(false, |node| matches!(node.value(), Node::Namespace(_)))
+            .is_some_and(|node| matches!(node.value(), Node::Namespace(_)))
     }
 
     pub fn catalog(&self) -> Arc<dyn Catalog> {
