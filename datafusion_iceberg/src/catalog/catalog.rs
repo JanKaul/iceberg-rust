@@ -29,6 +29,10 @@ impl IcebergCatalog {
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.catalog()
     }
+
+    pub fn mirror(&self) -> Arc<Mirror> {
+        self.catalog.clone()
+    }
 }
 
 impl CatalogProvider for IcebergCatalog {

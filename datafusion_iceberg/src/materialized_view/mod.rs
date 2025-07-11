@@ -470,6 +470,19 @@ mod tests {
             iceberg_catalog_list,
         )));
 
+        let sql = &"CREATE SCHEMA warehouse.public;".to_string();
+
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+        ctx.execute_logical_plan(transformed)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .expect("Failed to execute query plan.");
+
         let sql = "CREATE EXTERNAL TABLE warehouse.public.orders (
       id BIGINT NOT NULL,
       order_date DATE NOT NULL,

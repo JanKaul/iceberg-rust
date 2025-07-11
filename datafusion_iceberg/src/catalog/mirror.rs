@@ -204,16 +204,14 @@ impl Mirror {
         )
         .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
-        let old_value =
-            self.storage
-                .get(&namespace.to_string())
-                .and_then(|entry| match entry.value() {
-                    Node::Namespace(namespace_node) => Some(namespace_node.clone()),
-                    _ => None,
-                });
+        let old_value = self
+            .storage
+            .insert(namespace.to_string(), Node::Namespace(HashSet::new()))
+            .and_then(|entry| match entry {
+                Node::Namespace(namespace_node) => Some(namespace_node.clone()),
+                _ => None,
+            });
 
-        self.storage
-            .insert(namespace.to_string(), Node::Namespace(HashSet::new()));
         Ok(old_value)
     }
 

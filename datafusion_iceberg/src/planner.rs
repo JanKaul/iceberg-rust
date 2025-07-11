@@ -9,11 +9,12 @@ use itertools::Itertools;
 use regex::Regex;
 
 use crate::{
-    catalog::catalog::IcebergCatalog,
+    catalog::{catalog::IcebergCatalog, schema::IcebergSchema},
     materialized_view::{delta_queries::fork_node::ForkNodePlanner, refresh_materialized_view},
 };
 use datafusion::{
     arrow::datatypes::{DataType, Schema as ArrowSchema},
+    catalog::CatalogProvider,
     common::{tree_node::Transformed, SchemaReference},
     error::DataFusionError,
     execution::context::{QueryPlanner, SessionState},
@@ -335,6 +336,11 @@ async fn plan_create_namespace(
         .await
         .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
+    iceberg_catalog.register_schema(
+        namespace_name,
+        Arc::new(IcebergSchema::new(namespace, iceberg_catalog.mirror())),
+    )?;
+
     Ok(Some(Arc::new(EmptyExec::new(Arc::new(
         ArrowSchema::empty(),
     )))))
@@ -408,6 +414,8 @@ async fn plan_drop_namespace(
         .drop_namespace(&namespace)
         .await
         .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+    iceberg_catalog.deregister_schema(&namespace_name, false)?;
 
     Ok(Some(Arc::new(EmptyExec::new(Arc::new(
         ArrowSchema::empty(),
@@ -938,6 +946,19 @@ mod tests {
         ctx.register_udf(ScalarUDF::from(RefreshMaterializedView::new(
             iceberg_catalog_list,
         )));
+
+        let sql = &"CREATE SCHEMA iceberg.public;".to_string();
+
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+        ctx.execute_logical_plan(transformed)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .expect("Failed to execute query plan.");
 
         let sql = "CREATE EXTERNAL TABLE iceberg.public.orders (
       id BIGINT NOT NULL,

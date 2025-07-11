@@ -108,6 +108,19 @@ pub async fn test_empty_insert() {
         .await
         .expect("Failed to execute query plan.");
 
+    let sql = &"CREATE SCHEMA warehouse.tpch;".to_string();
+
+    let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+    let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+    ctx.execute_logical_plan(transformed)
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .expect("Failed to execute query plan.");
+
     let sql = "CREATE EXTERNAL TABLE warehouse.tpch.lineitem ( 
     L_ORDERKEY BIGINT NOT NULL, 
     L_PARTKEY BIGINT NOT NULL, 
