@@ -217,4 +217,14 @@ impl Mirror {
             .insert(namespace.to_string(), Node::Namespace(HashSet::new()));
         Ok(old_value)
     }
+
+    pub fn deregister_schema(&self, name: &str) -> Result<Option<NamespaceNode>, DataFusionError> {
+        match self.storage.remove(name) {
+            Some((_, Node::Namespace(namespace))) => Ok(Some(namespace)),
+            None => Ok(None),
+            _ => Err(DataFusionError::from(Error::from(
+                IcebergError::InvalidFormat("Schema to drop".to_owned()),
+            ))),
+        }
+    }
 }

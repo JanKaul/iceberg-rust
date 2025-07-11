@@ -70,4 +70,16 @@ impl CatalogProvider for IcebergCatalog {
             Ok(None)
         }
     }
+
+    fn deregister_schema(
+        &self,
+        name: &str,
+        _cascade: bool,
+    ) -> Result<Option<Arc<dyn SchemaProvider>>> {
+        if self.catalog.deregister_schema(name)?.is_some() {
+            Ok(self.schema(name))
+        } else {
+            Ok(None)
+        }
+    }
 }
