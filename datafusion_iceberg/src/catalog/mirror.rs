@@ -181,7 +181,9 @@ impl Mirror {
             .map_err(DataFusionError::from)
     }
     pub fn table_exists(&self, identifier: Identifier) -> bool {
-        self.storage.contains_key(&identifier.to_string())
+        self.storage.get(&identifier.to_string()).map_or(false, |node| {
+            matches!(node.value(), Node::Relation(_))
+        })
     }
 
     pub fn schema_exists(&self, name: &str) -> bool {
