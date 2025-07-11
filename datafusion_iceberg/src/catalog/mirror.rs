@@ -184,6 +184,12 @@ impl Mirror {
         self.storage.contains_key(&identifier.to_string())
     }
 
+    pub fn schema_exists(&self, name: &str) -> bool {
+        self.storage.get(name).map_or(false, |node| {
+            matches!(node.value(), Node::Namespace(_))
+        })
+    }
+
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
     }

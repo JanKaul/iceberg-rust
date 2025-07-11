@@ -43,6 +43,9 @@ impl CatalogProvider for IcebergCatalog {
         }
     }
     fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
+        if !self.catalog.schema_exists(name) {
+            return None;
+        }
         Some(Arc::new(IcebergSchema::new(
             Namespace::try_new(
                 &name
