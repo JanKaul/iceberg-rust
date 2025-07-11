@@ -181,15 +181,15 @@ impl Mirror {
             .map_err(DataFusionError::from)
     }
     pub fn table_exists(&self, identifier: Identifier) -> bool {
-        self.storage.get(&identifier.to_string()).map_or(false, |node| {
-            matches!(node.value(), Node::Relation(_))
-        })
+        self.storage
+            .get(&identifier.to_string())
+            .map_or(false, |node| matches!(node.value(), Node::Relation(_)))
     }
 
     pub fn schema_exists(&self, name: &str) -> bool {
-        self.storage.get(name).map_or(false, |node| {
-            matches!(node.value(), Node::Namespace(_))
-        })
+        self.storage
+            .get(name)
+            .map_or(false, |node| matches!(node.value(), Node::Namespace(_)))
     }
 
     pub fn catalog(&self) -> Arc<dyn Catalog> {
@@ -213,21 +213,8 @@ impl Mirror {
                     _ => None,
                 });
 
-        let handle = Handle::current();
-        handle.spawn({
-            let catalog = self.catalog.clone();
-            let storage = self.storage.clone();
-            async move {
-                catalog
-                    .clone()
-                    .create_namespace(&namespace, None)
-                    .await
-                    .map_err(|err| DataFusionError::External(Box::new(err)))
-                    .unwrap();
-
-                storage.insert(namespace.to_string(), Node::Namespace(HashSet::new()));
-            }
-        });
+        self.storage
+            .insert(namespace.to_string(), Node::Namespace(HashSet::new()));
         Ok(old_value)
     }
 }
