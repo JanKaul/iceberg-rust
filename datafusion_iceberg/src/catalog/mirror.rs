@@ -1,6 +1,7 @@
 use dashmap::DashMap;
 use datafusion::{datasource::TableProvider, error::DataFusionError};
 use std::{collections::HashSet, sync::Arc};
+use tokio::runtime::Handle;
 
 use iceberg_rust::spec::view_metadata::REF_PREFIX;
 use iceberg_rust::{
@@ -12,7 +13,7 @@ use crate::{error::Error, DataFusionTable};
 
 type NamespaceNode = HashSet<String>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Node {
     Namespace(NamespaceNode),
     Relation(Identifier),
@@ -185,5 +186,40 @@ impl Mirror {
 
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
+    }
+
+    pub fn register_schema(&self, name: &str) -> Result<Option<NamespaceNode>, DataFusionError> {
+        let namespace = Namespace::try_new(
+            &name
+                .split('.')
+                .map(|z| z.to_owned())
+                .collect::<Vec<String>>(),
+        )
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+        let old_value =
+            self.storage
+                .get(&namespace.to_string())
+                .and_then(|entry| match entry.value() {
+                    Node::Namespace(namespace_node) => Some(namespace_node.clone()),
+                    _ => None,
+                });
+
+        let handle = Handle::current();
+        handle.spawn({
+            let catalog = self.catalog.clone();
+            let storage = self.storage.clone();
+            async move {
+                catalog
+                    .clone()
+                    .create_namespace(&namespace, None)
+                    .await
+                    .map_err(|err| DataFusionError::External(Box::new(err)))
+                    .unwrap();
+
+                storage.insert(namespace.to_string(), Node::Namespace(HashSet::new()));
+            }
+        });
+        Ok(old_value)
     }
 }

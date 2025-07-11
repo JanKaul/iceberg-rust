@@ -57,9 +57,14 @@ impl CatalogProvider for IcebergCatalog {
 
     fn register_schema(
         &self,
-        _name: &str,
+        name: &str,
         _schema: Arc<dyn SchemaProvider>,
     ) -> Result<Option<Arc<dyn SchemaProvider>>> {
-        unimplemented!()
+        let old_namespace = self.catalog.register_schema(name)?;
+        if old_namespace.is_some() {
+            Ok(self.schema(name))
+        } else {
+            Ok(None)
+        }
     }
 }
