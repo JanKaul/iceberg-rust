@@ -168,7 +168,7 @@ impl Catalog for SqlCatalog {
         // If no properties were provided, still create an entry to mark the namespace as existing
         if properties.is_empty() {
             sqlx::query(&format!(
-                "insert into iceberg_namespace_properties (catalog_name, namespace, property_key, property_value) values ('{catalog_name}', '{namespace_str}', null, null);"
+                "insert into iceberg_namespace_properties (catalog_name, namespace, property_key, property_value) values ('{catalog_name}', '{namespace_str}', 'exists', 'true');"
             ))
             .execute(&self.pool)
             .await
@@ -862,6 +862,19 @@ pub mod tests {
         let ctx = SessionContext::new_with_state(state);
 
         ctx.register_catalog("warehouse", catalog);
+
+        let sql = &"CREATE SCHEMA warehouse.tpch;".to_string();
+
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+        ctx.execute_logical_plan(transformed)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .expect("Failed to execute query plan.");
 
         let sql = "CREATE EXTERNAL TABLE lineitem ( 
     L_ORDERKEY BIGINT NOT NULL, 
