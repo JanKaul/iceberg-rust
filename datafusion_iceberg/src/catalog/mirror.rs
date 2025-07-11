@@ -12,7 +12,7 @@ use crate::{error::Error, DataFusionTable};
 
 type NamespaceNode = HashSet<String>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Node {
     Namespace(NamespaceNode),
     Relation(Identifier),
@@ -180,10 +180,48 @@ impl Mirror {
             .map_err(DataFusionError::from)
     }
     pub fn table_exists(&self, identifier: Identifier) -> bool {
-        self.storage.contains_key(&identifier.to_string())
+        self.storage
+            .get(&identifier.to_string())
+            .is_some_and(|node| matches!(node.value(), Node::Relation(_)))
+    }
+
+    pub fn schema_exists(&self, name: &str) -> bool {
+        self.storage
+            .get(name)
+            .is_some_and(|node| matches!(node.value(), Node::Namespace(_)))
     }
 
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.clone()
+    }
+
+    pub fn register_schema(&self, name: &str) -> Result<Option<NamespaceNode>, DataFusionError> {
+        let namespace = Namespace::try_new(
+            &name
+                .split('.')
+                .map(|z| z.to_owned())
+                .collect::<Vec<String>>(),
+        )
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+
+        let old_value = self
+            .storage
+            .insert(namespace.to_string(), Node::Namespace(HashSet::new()))
+            .and_then(|entry| match entry {
+                Node::Namespace(namespace_node) => Some(namespace_node.clone()),
+                _ => None,
+            });
+
+        Ok(old_value)
+    }
+
+    pub fn deregister_schema(&self, name: &str) -> Result<Option<NamespaceNode>, DataFusionError> {
+        match self.storage.remove(name) {
+            Some((_, Node::Namespace(namespace))) => Ok(Some(namespace)),
+            None => Ok(None),
+            _ => Err(DataFusionError::from(Error::from(
+                IcebergError::InvalidFormat("Schema to drop".to_owned()),
+            ))),
+        }
     }
 }

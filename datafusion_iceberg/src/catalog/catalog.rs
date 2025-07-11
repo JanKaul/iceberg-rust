@@ -29,6 +29,10 @@ impl IcebergCatalog {
     pub fn catalog(&self) -> Arc<dyn Catalog> {
         self.catalog.catalog()
     }
+
+    pub fn mirror(&self) -> Arc<Mirror> {
+        self.catalog.clone()
+    }
 }
 
 impl CatalogProvider for IcebergCatalog {
@@ -43,6 +47,9 @@ impl CatalogProvider for IcebergCatalog {
         }
     }
     fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
+        if !self.catalog.schema_exists(name) {
+            return None;
+        }
         Some(Arc::new(IcebergSchema::new(
             Namespace::try_new(
                 &name
@@ -57,9 +64,26 @@ impl CatalogProvider for IcebergCatalog {
 
     fn register_schema(
         &self,
-        _name: &str,
+        name: &str,
         _schema: Arc<dyn SchemaProvider>,
     ) -> Result<Option<Arc<dyn SchemaProvider>>> {
-        unimplemented!()
+        let old_namespace = self.catalog.register_schema(name)?;
+        if old_namespace.is_some() {
+            Ok(self.schema(name))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn deregister_schema(
+        &self,
+        name: &str,
+        _cascade: bool,
+    ) -> Result<Option<Arc<dyn SchemaProvider>>> {
+        if self.catalog.deregister_schema(name)?.is_some() {
+            Ok(self.schema(name))
+        } else {
+            Ok(None)
+        }
     }
 }

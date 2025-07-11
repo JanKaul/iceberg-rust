@@ -1046,6 +1046,7 @@ mod tests {
         catalog::tabular::Tabular,
         object_store::ObjectStoreBuilder,
         spec::{
+            namespace::Namespace,
             partition::{PartitionField, Transform},
             schema::Schema,
             types::{PrimitiveType, StructField, Type},
@@ -1487,6 +1488,11 @@ mod tests {
                 .await
                 .unwrap(),
         );
+
+        catalog
+            .create_namespace(&Namespace::try_new(&["test".to_owned()]).unwrap(), None)
+            .await
+            .unwrap();
 
         let schema = Schema::builder()
             .with_struct_field(StructField {

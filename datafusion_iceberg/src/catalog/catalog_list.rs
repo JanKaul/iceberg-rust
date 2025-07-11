@@ -50,7 +50,10 @@ impl CatalogProviderList for IcebergCatalogList {
     fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
         self.catalogs.get(name).as_deref().cloned().or_else(|| {
             self.catalog_list.catalog(name).map(|catalog| {
-                Arc::new(IcebergCatalog::new_sync(catalog, None)) as Arc<dyn CatalogProvider>
+                let iceberg_catalog = Arc::new(IcebergCatalog::new_sync(catalog, None));
+                self.catalogs
+                    .insert(name.to_owned(), iceberg_catalog.clone());
+                iceberg_catalog as Arc<dyn CatalogProvider>
             })
         })
     }

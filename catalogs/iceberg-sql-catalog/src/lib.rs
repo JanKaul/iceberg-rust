@@ -148,10 +148,34 @@ impl Catalog for SqlCatalog {
     /// Create a namespace in the catalog
     async fn create_namespace(
         &self,
-        _namespace: &Namespace,
-        _properties: Option<HashMap<String, String>>,
+        namespace: &Namespace,
+        properties: Option<HashMap<String, String>>,
     ) -> Result<HashMap<String, String>, IcebergError> {
-        todo!()
+        let catalog_name = self.name.clone();
+        let namespace_str = namespace.to_string();
+        let properties = properties.unwrap_or_default();
+
+        // Insert namespace properties into the database
+        for (key, value) in &properties {
+            sqlx::query(&format!(
+                "insert into iceberg_namespace_properties (catalog_name, namespace, property_key, property_value) values ('{catalog_name}', '{namespace_str}', '{key}', '{value}');"
+            ))
+            .execute(&self.pool)
+            .await
+            .map_err(Error::from)?;
+        }
+
+        // If no properties were provided, still create an entry to mark the namespace as existing
+        if properties.is_empty() {
+            sqlx::query(&format!(
+                "insert into iceberg_namespace_properties (catalog_name, namespace, property_key, property_value) values ('{catalog_name}', '{namespace_str}', 'exists', 'true');"
+            ))
+            .execute(&self.pool)
+            .await
+            .map_err(Error::from)?;
+        }
+
+        Ok(properties)
     }
     /// Drop a namespace in the catalog
     async fn drop_namespace(&self, _namespace: &Namespace) -> Result<(), IcebergError> {
@@ -201,8 +225,7 @@ impl Catalog for SqlCatalog {
 
         let rows = {
             sqlx::query(&format!(
-                "select distinct table_namespace from iceberg_tables where catalog_name = '{}';",
-                &name
+                "select distinct namespace from iceberg_namespace_properties where catalog_name = '{name}';",
             ))
             .fetch_all(&self.pool)
             .await
@@ -839,6 +862,19 @@ pub mod tests {
         let ctx = SessionContext::new_with_state(state);
 
         ctx.register_catalog("warehouse", catalog);
+
+        let sql = &"CREATE SCHEMA warehouse.tpch;".to_string();
+
+        let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+
+        let transformed = plan.transform(iceberg_transform).data().unwrap();
+
+        ctx.execute_logical_plan(transformed)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .expect("Failed to execute query plan.");
 
         let sql = "CREATE EXTERNAL TABLE lineitem ( 
     L_ORDERKEY BIGINT NOT NULL, 

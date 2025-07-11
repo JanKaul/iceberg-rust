@@ -3,6 +3,7 @@ use datafusion_iceberg::catalog::catalog::IcebergCatalog;
 use futures::stream;
 use iceberg_rust::catalog::identifier::Identifier;
 use iceberg_rust::catalog::tabular::Tabular;
+use iceberg_rust::spec::namespace::Namespace;
 use iceberg_rust::{
     arrow::write::write_equality_deletes_parquet_partitioned,
     catalog::Catalog,
@@ -26,6 +27,11 @@ pub async fn test_equality_delete() {
             .await
             .unwrap(),
     );
+
+    catalog
+        .create_namespace(&Namespace::try_new(&["test".to_string()]).unwrap(), None)
+        .await
+        .unwrap();
 
     let schema = Schema::builder()
         .with_struct_field(StructField {
