@@ -3237,6 +3237,7 @@ dependencies = [
  "thiserror",
  "thrift",
  "tokio",
+ "tracing",
  "url",
  "uuid",
 ]

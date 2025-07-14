@@ -32,6 +32,7 @@ smallvec = { version = "1.14.0", features = ["const_generics"] }
 sqlparser = { workspace = true }
 thiserror = { workspace = true }
 thrift = { version = "0.17.0", default-features = false }
+tracing = { workspace = true }
 tokio = { version = "1.43", features = ["sync"] }
 url = { workspace = true }
 uuid = { workspace = true }

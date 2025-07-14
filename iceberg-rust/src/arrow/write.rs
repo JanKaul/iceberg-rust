@@ -40,6 +40,7 @@ use object_store::{buffered::BufWriter, ObjectStore};
 use std::fmt::Write;
 use std::sync::Arc;
 use tokio::task::JoinSet;
+use tracing::instrument;
 
 use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::RecordBatch};
 use futures::Stream;
@@ -65,7 +66,7 @@ use super::partition::PartitionStream;
 
 const MAX_PARQUET_SIZE: usize = 512_000_000;
 
-#[inline]
+#[instrument(skip(table, batches), fields(table_name = %table.identifier().name()))]
 /// Writes Arrow record batches as partitioned Parquet files.
 ///
 /// This function writes Arrow record batches to Parquet files, partitioning them according
@@ -94,7 +95,7 @@ pub async fn write_parquet_partitioned(
     store_parquet_partitioned(table, batches, branch, None).await
 }
 
-#[inline]
+#[instrument(skip(table, batches), fields(table_name = %table.identifier().name(), equality_ids = ?equality_ids))]
 /// Writes equality delete records as partitioned Parquet files.
 ///
 /// This function writes Arrow record batches containing equality delete records to Parquet files,
@@ -125,6 +126,7 @@ pub async fn write_equality_deletes_parquet_partitioned(
     store_parquet_partitioned(table, batches, branch, Some(equality_ids)).await
 }
 
+#[instrument(skip(table, batches), fields(table_name = %table.identifier().name(), equality_ids = ?equality_ids))]
 /// Stores Arrow record batches as partitioned Parquet files.
 ///
 /// This is an internal function that handles the core storage logic for both regular data files
@@ -268,6 +270,7 @@ async fn store_parquet_partitioned(
 type ArrowSender = Sender<(String, FileMetaData)>;
 type ArrowReciever = Receiver<(String, FileMetaData)>;
 
+#[instrument(skip(batches, object_store), fields(data_location, equality_ids = ?equality_ids))]
 /// Writes a stream of Arrow record batches to multiple Parquet files.
 ///
 /// This internal function handles the low-level details of writing record batches to Parquet files,
@@ -438,6 +441,7 @@ fn generate_partition_path(
         .collect::<Result<String, ArrowError>>()
 }
 
+#[instrument(skip(schema, object_store), fields(data_location))]
 /// Creates a new Arrow writer for writing record batches to a Parquet file.
 ///
 /// This internal function creates a new buffered writer and configures it with
