@@ -14,9 +14,11 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{as_primitive_array, Array, ArrayRef},
+    array::{as_primitive_array, Array, ArrayRef, PrimitiveArray},
     compute::{binary, cast, date_part, unary, DatePart},
-    datatypes::{DataType, Date32Type, Int32Type, Int64Type, TimeUnit, TimestampMicrosecondType},
+    datatypes::{
+        DataType, Date32Type, Int16Type, Int32Type, Int64Type, TimeUnit, TimestampMicrosecondType,
+    },
     error::ArrowError,
 };
 
@@ -97,6 +99,21 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
                 datepart_to_years,
             )))
         }
+        (DataType::Int16, Transform::Truncate(m)) => Ok(Arc::<PrimitiveArray<Int16Type>>::new(
+            unary(as_primitive_array::<Int16Type>(&array), |i| {
+                i - i.rem_euclid(*m as i16)
+            }),
+        )),
+        (DataType::Int32, Transform::Truncate(m)) => Ok(Arc::<PrimitiveArray<Int32Type>>::new(
+            unary(as_primitive_array::<Int32Type>(&array), |i| {
+                i - i.rem_euclid(*m as i32)
+            }),
+        )),
+        (DataType::Int64, Transform::Truncate(m)) => Ok(Arc::<PrimitiveArray<Int64Type>>::new(
+            unary(as_primitive_array::<Int64Type>(&array), |i| {
+                i - i.rem_euclid(*m as i64)
+            }),
+        )),
         _ => Err(ArrowError::ComputeError(
             "Failed to perform transform for datatype".to_string(),
         )),
@@ -240,6 +257,66 @@ mod tests {
             Some(53),
             Some(53),
             Some(54),
+            None,
+        ])) as ArrayRef;
+        assert_eq!(&expected, &result);
+    }
+
+    #[test]
+    fn test_int16_truncate_transform() {
+        let array = Arc::new(arrow::array::Int16Array::from(vec![
+            Some(17),
+            Some(23),
+            Some(-15),
+            Some(5),
+            None,
+        ])) as ArrayRef;
+        let result = transform_arrow(array, &Transform::Truncate(10)).unwrap();
+        let expected = Arc::new(arrow::array::Int16Array::from(vec![
+            Some(10),  // 17 - 17 % 10 = 17 - 7 = 10
+            Some(20),  // 23 - 23 % 10 = 23 - 3 = 20
+            Some(-20), // -15 - (-15 % 10) = -15 - (-5) = -15 + 5 = -10, but rem_euclid gives -15 - 5 = -20
+            Some(0),   // 5 - 5 % 10 = 5 - 5 = 0
+            None,
+        ])) as ArrayRef;
+        assert_eq!(&expected, &result);
+    }
+
+    #[test]
+    fn test_int32_truncate_transform() {
+        let array = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(127),
+            Some(234),
+            Some(-156),
+            Some(50),
+            None,
+        ])) as ArrayRef;
+        let result = transform_arrow(array, &Transform::Truncate(100)).unwrap();
+        let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(100),  // 127 - 127 % 100 = 127 - 27 = 100
+            Some(200),  // 234 - 234 % 100 = 234 - 34 = 200
+            Some(-200), // -156 - (-156 % 100) = -156 - (-56) = -156 + 56 = -100, but rem_euclid gives -156 - 44 = -200
+            Some(0),    // 50 - 50 % 100 = 50 - 50 = 0
+            None,
+        ])) as ArrayRef;
+        assert_eq!(&expected, &result);
+    }
+
+    #[test]
+    fn test_int64_truncate_transform() {
+        let array = Arc::new(arrow::array::Int64Array::from(vec![
+            Some(1275),
+            Some(2348),
+            Some(-1567),
+            Some(500),
+            None,
+        ])) as ArrayRef;
+        let result = transform_arrow(array, &Transform::Truncate(1000)).unwrap();
+        let expected = Arc::new(arrow::array::Int64Array::from(vec![
+            Some(1000),  // 1275 - 1275 % 1000 = 1275 - 275 = 1000
+            Some(2000),  // 2348 - 2348 % 1000 = 2348 - 348 = 2000
+            Some(-2000), // -1567 - (-1567 % 1000) = -1567 - (-567) = -1567 + 567 = -1000, but rem_euclid gives -1567 - 433 = -2000
+            Some(0),     // 500 - 500 % 1000 = 500 - 500 = 0
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
