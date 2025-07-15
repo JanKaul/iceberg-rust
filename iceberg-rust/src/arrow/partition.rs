@@ -28,7 +28,7 @@ use arrow::{
 };
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
-    Stream,
+    SinkExt, Stream,
 };
 use itertools::{iproduct, Itertools};
 
@@ -60,7 +60,7 @@ pin_project! {
         partition_fields: &'a [BoundPartitionField<'a>],
         partition_streams: OnceMap<Vec<Value>, RecordBatchSender>,
         queue: VecDeque<Result<(Vec<Value>, RecordBatchReceiver), Error>>,
-        sends: Vec<(RecordBatchSender, RecordBatch)>,
+        sends: Vec<(RecordBatchSender, Option<RecordBatch>)>,
     }
 }
 
@@ -92,13 +92,24 @@ impl Stream for PartitionStream<'_> {
             if !this.sends.is_empty() {
                 let mut new_sends = Vec::with_capacity(this.sends.len());
                 while let Some((mut sender, batch)) = this.sends.pop() {
-                    match sender.poll_ready(cx) {
-                        Poll::Pending => {
-                            new_sends.push((sender, batch));
+                    if let Some(batch) = batch {
+                        match sender.poll_ready(cx) {
+                            Poll::Pending => {
+                                new_sends.push((sender, Some(batch)));
+                            }
+                            Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err.into()))),
+                            Poll::Ready(Ok(())) => {
+                                sender.start_send(Ok(batch))?;
+                                new_sends.push((sender, None));
+                            }
                         }
-                        Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err.into()))),
-                        Poll::Ready(Ok(())) => {
-                            sender.start_send(Ok(batch))?;
+                    } else {
+                        match sender.poll_flush_unpin(cx) {
+                            Poll::Pending => {
+                                new_sends.push((sender, batch));
+                            }
+                            Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err.into()))),
+                            Poll::Ready(Ok(())) => (),
                         }
                     }
                 }
@@ -139,7 +150,7 @@ impl Stream for PartitionStream<'_> {
                                 })
                         };
 
-                        this.sends.push((sender, batch));
+                        this.sends.push((sender, Some(batch)));
                     }
                 }
             }
