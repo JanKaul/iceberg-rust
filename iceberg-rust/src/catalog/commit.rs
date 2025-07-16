@@ -115,7 +115,7 @@ pub enum TableUpdate {
         schema_id: i32,
     },
     /// Add new partition spec
-    AddPartitionSpec {
+    AddSpec {
         /// New partition spec
         spec: PartitionSpec,
     },
@@ -437,7 +437,7 @@ pub fn apply_table_updates(
             TableUpdate::SetCurrentSchema { schema_id } => {
                 metadata.current_schema_id = schema_id;
             }
-            TableUpdate::AddPartitionSpec { spec } => {
+            TableUpdate::AddSpec { spec } => {
                 metadata.partition_specs.insert(*spec.spec_id(), spec);
             }
             TableUpdate::SetDefaultSpec { spec_id } => {
