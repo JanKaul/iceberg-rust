@@ -319,7 +319,7 @@ impl StructType {
                 .iter()
                 .find(|field| field.name == *part);
 
-            if i == parts.len() - 1 || current_field.is_none() {
+            if i == parts.len() - 1 || current_field.is_some() {
                 return current_field;
             }
 

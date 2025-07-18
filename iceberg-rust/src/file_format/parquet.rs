@@ -63,7 +63,7 @@ pub fn parquet_to_datafile(
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
             let id = schema
-                .get_name(column_name)
+                .get_name(&column.column_path().parts().join("."))
                 .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
                 .id;
             column_sizes
