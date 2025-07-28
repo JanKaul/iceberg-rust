@@ -9,7 +9,6 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use datafusion::{
-        arrow::array::{Float64Array, Int64Array, StringArray},
         assert_batches_sorted_eq,
         common::tree_node::{TransformedResult, TreeNode},
         execution::SessionStateBuilder,
@@ -242,35 +241,14 @@ mod tests {
         .await
         .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 17654.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 252270.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+-------------------+---------------+",
+            "| sum(l.l_quantity) | o_orderstatus |",
+            "+-------------------+---------------+",
+            "| 252270.0          | O             |",
+            "+-------------------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
 
         let plan = ctx
             .state()
@@ -322,35 +300,14 @@ WHERE L_SHIPDATE >= '1996-01-01';
         .await
         .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 17654.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 252270.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+------------------------------------------------+---------------+",
+            "| sum(warehouse.tpch.lineitem_orders.l_quantity) | o_orderstatus |",
+            "+------------------------------------------------+---------------+",
+            "| 252270.0                                       | O             |",
+            "+------------------------------------------------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
 
         let sql = "CREATE EXTERNAL TABLE lineitem2 (
         L_ORDERKEY BIGINT NOT NULL,
@@ -402,35 +359,14 @@ WHERE L_SHIPDATE >= '1996-01-01';
         .await
         .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 36713.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 500446.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+-------------------+---------------+",
+            "| sum(l.l_quantity) | o_orderstatus |",
+            "+-------------------+---------------+",
+            "| 500446.0          | O             |",
+            "+-------------------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
 
         ctx.sql("select refresh_materialized_view('warehouse.tpch.lineitem_orders');")
             .await
@@ -449,35 +385,14 @@ WHERE L_SHIPDATE >= '1996-01-01';
         .await
         .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 36713.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 500446.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+------------------------------------------------+---------------+",
+            "| sum(warehouse.tpch.lineitem_orders.l_quantity) | o_orderstatus |",
+            "+------------------------------------------------+---------------+",
+            "| 500446.0                                       | O             |",
+            "+------------------------------------------------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
     }
 
     #[tokio::test]
@@ -693,35 +608,14 @@ WHERE L_SHIPDATE >= '1996-01-01';
         .await
         .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 17654.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 252270.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+-------------------+---------------+",
+            "| sum(l.l_quantity) | o_orderstatus |",
+            "+-------------------+---------------+",
+            "| 252270.0          | O             |",
+            "+-------------------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
 
         let plan = ctx
             .state()
@@ -758,35 +652,14 @@ WHERE L_SHIPDATE >= '1996-01-01';
             .await
             .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 17654.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 252270.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+----------+---------------+",
+            "| total    | o_orderstatus |",
+            "+----------+---------------+",
+            "| 252270.0 | O             |",
+            "+----------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
 
         let sql = "CREATE EXTERNAL TABLE lineitem2 (
         L_ORDERKEY BIGINT NOT NULL,
@@ -838,35 +711,14 @@ WHERE L_SHIPDATE >= '1996-01-01';
         .await
         .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 36713.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 500446.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+-------------------+---------------+",
+            "| sum(l.l_quantity) | o_orderstatus |",
+            "+-------------------+---------------+",
+            "| 500446.0          | O             |",
+            "+-------------------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
 
         ctx.sql("select refresh_materialized_view('warehouse.tpch.lineitem_orders');")
             .await
@@ -885,35 +737,14 @@ WHERE L_SHIPDATE >= '1996-01-01';
             .await
             .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Float64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 36713.0);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 500446.0);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+----------+---------------+",
+            "| total    | o_orderstatus |",
+            "+----------+---------------+",
+            "| 500446.0 | O             |",
+            "+----------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
     }
 
     #[tokio::test]
@@ -1127,42 +958,21 @@ WHERE L_SHIPDATE >= '1996-01-01';
             OR o_orderpriority = '2-HIGH'
             then 1
         else 0
-    end), O.O_ORDERSTATUS from warehouse.tpch.orders O WHERE O_ORDERDATE >= date '1996-01-01' group by O.O_ORDERSTATUS;")
+    end) as total, O.O_ORDERSTATUS from warehouse.tpch.orders O WHERE O_ORDERDATE >= date '1996-01-01' group by O.O_ORDERSTATUS;")
         .await
         .expect("Failed to create plan for select")
         .collect()
         .await
         .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 17654);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 1834);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+-------+---------------+",
+            "| total | o_orderstatus |",
+            "+-------+---------------+",
+            "| 1834  | O             |",
+            "+-------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
 
         let plan = ctx
             .state()
@@ -1204,35 +1014,14 @@ WHERE L_SHIPDATE >= '1996-01-01';
             .await
             .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (amounts, customer_id) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                );
-                for (customer_id, amount) in customer_id.iter().zip(amounts) {
-                    if customer_id.unwrap() == "P" {
-                        assert_eq!(amount.unwrap(), 17654);
-                        once = true
-                    } else if customer_id.unwrap() == "O" {
-                        assert_eq!(amount.unwrap(), 1834);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+-----------------+---------------+",
+            "| high_line_count | o_orderstatus |",
+            "+-----------------+---------------+",
+            "| 1834            | O             |",
+            "+-----------------+---------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
     }
 
     #[tokio::test]
@@ -1532,8 +1321,6 @@ GROUP BY
             .collect()
             .await
             .expect("Failed to execute select query");
-
-        assert_ne!(batches.len(), 0);
 
         let expected = [
             "+------------+-----------------+----------------+",
