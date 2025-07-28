@@ -104,8 +104,8 @@ mod tests {
         assert!(store_repr.contains("region: \"us-east-1\""));
         assert!(store_repr.contains("bucket: \"test-bucket\""));
         assert!(store_repr.contains("key_id: \"test-key\""));
-        assert!(store_repr.contains("secret_key: \"test-secret\""));
-        assert!(store_repr.contains("token: Some(\"test-session\")"));
+        assert!(store_repr.contains("secret_key: \"******\""));
+        assert!(store_repr.contains("token: Some(\"******\")"));
         assert!(store_repr.contains("endpoint: None"));
         assert!(store_repr.contains("allow_http: Parsed(false)"));
         assert!(store_repr.contains("skip_signature: false"));

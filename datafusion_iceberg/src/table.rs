@@ -18,6 +18,12 @@ use std::{
 };
 use tokio::sync::{RwLock, RwLockWriteGuard};
 
+use crate::{
+    error::Error as DataFusionIcebergError,
+    pruning_statistics::{transform_predicate, PruneDataFiles, PruneManifests},
+    statistics::manifest_statistics,
+};
+use datafusion::common::NullEquality;
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
     catalog::Session,
@@ -46,12 +52,6 @@ use datafusion::{
     prelude::Expr,
     scalar::ScalarValue,
     sql::parser::DFParserBuilder,
-};
-
-use crate::{
-    error::Error as DataFusionIcebergError,
-    pruning_statistics::{transform_predicate, PruneDataFiles, PruneManifests},
-    statistics::manifest_statistics,
 };
 
 use iceberg_rust::spec::{schema::Schema, view_metadata::ViewRepresentation};
@@ -767,7 +767,7 @@ async fn table_scan(
                                 &JoinType::RightAnti,
                                 None,
                                 PartitionMode::CollectLeft,
-                                false,
+                                NullEquality::NullEqualsNothing,
                             )?)
                                 as Arc<dyn ExecutionPlan>))
                         }
