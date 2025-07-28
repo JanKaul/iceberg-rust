@@ -10,6 +10,7 @@ mod tests {
 
     use datafusion::{
         arrow::array::{Float64Array, Int64Array, StringArray},
+        assert_batches_sorted_eq,
         common::tree_node::{TransformedResult, TreeNode},
         execution::SessionStateBuilder,
         prelude::SessionContext,
@@ -1532,37 +1533,17 @@ GROUP BY
             .await
             .expect("Failed to execute select query");
 
-        let mut once = false;
-
         assert_ne!(batches.len(), 0);
 
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (shipmode, revenue) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .unwrap(),
-                );
-                for (shipmode, revenue) in shipmode.iter().zip(revenue) {
-                    if shipmode.unwrap() == "MAIL" {
-                        assert_eq!(revenue.unwrap(), 22);
-                        once = true
-                    } else if shipmode.unwrap() == "SHIP" {
-                        assert_eq!(revenue.unwrap(), 22);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+------------+-----------------+----------------+",
+            "| l_shipmode | high_line_count | low_line_count |",
+            "+------------+-----------------+----------------+",
+            "| MAIL       | 22              | 27             |",
+            "| SHIP       | 22              | 33             |",
+            "+------------+-----------------+----------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
 
         let plan = ctx
             .state()
@@ -1624,37 +1605,7 @@ GROUP BY
             .await
             .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        assert_ne!(batches.len(), 0);
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (shipmode, revenue) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .unwrap(),
-                );
-                for (shipmode, revenue) in shipmode.iter().zip(revenue) {
-                    if shipmode.unwrap() == "MAIL" {
-                        assert_eq!(revenue.unwrap(), 22);
-                        once = true
-                    } else if shipmode.unwrap() == "SHIP" {
-                        assert_eq!(revenue.unwrap(), 22);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        assert_batches_sorted_eq!(expected, &batches);
 
         let sql = "CREATE EXTERNAL TABLE lineitem2 (
             L_ORDERKEY BIGINT NOT NULL,
@@ -1733,35 +1684,15 @@ GROUP BY
             .await
             .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (shipmode, revenue) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .unwrap(),
-                );
-                for (shipmode, revenue) in shipmode.iter().zip(revenue) {
-                    if shipmode.unwrap() == "MAIL" {
-                        assert_eq!(revenue.unwrap(), 44);
-                        once = true
-                    } else if shipmode.unwrap() == "SHIP" {
-                        assert_eq!(revenue.unwrap(), 44);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        let expected = [
+            "+------------+-----------------+----------------+",
+            "| l_shipmode | high_line_count | low_line_count |",
+            "+------------+-----------------+----------------+",
+            "| MAIL       | 44              | 66             |",
+            "| SHIP       | 44              | 69             |",
+            "+------------+-----------------+----------------+",
+        ];
+        assert_batches_sorted_eq!(expected, &batches);
 
         ctx.sql("select refresh_materialized_view('warehouse.tpch.query12');")
             .await
@@ -1780,34 +1711,6 @@ GROUP BY
             .await
             .expect("Failed to execute select query");
 
-        let mut once = false;
-
-        for batch in batches {
-            if batch.num_rows() != 0 {
-                let (shipmode, revenue) = (
-                    batch
-                        .column(0)
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap(),
-                    batch
-                        .column(1)
-                        .as_any()
-                        .downcast_ref::<Int64Array>()
-                        .unwrap(),
-                );
-                for (shipmode, revenue) in shipmode.iter().zip(revenue) {
-                    if shipmode.unwrap() == "MAIL" {
-                        assert_eq!(revenue.unwrap(), 44);
-                        once = true
-                    } else if shipmode.unwrap() == "SHIP" {
-                        assert_eq!(revenue.unwrap(), 44);
-                        once = true
-                    }
-                }
-            }
-        }
-
-        assert!(once);
+        assert_batches_sorted_eq!(expected, &batches);
     }
 }
