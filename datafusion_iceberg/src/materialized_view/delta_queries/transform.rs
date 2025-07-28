@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use datafusion::common::NullEquality;
 use datafusion::{
     catalog::TableProvider,
     common::{tree_node::Transformed, Column, DFSchema},
@@ -145,7 +146,7 @@ pub(crate) fn delta_transform_down(
                             filter: None,
                             join_type: JoinType::Inner,
                             join_constraint: JoinConstraint::On,
-                            null_equals_null: false,
+                            null_equality: NullEquality::NullEqualsNothing,
                         }));
 
                         let storage_table_aggregate_exprs = storage_table_aggregate_expressions(
@@ -184,7 +185,7 @@ pub(crate) fn delta_transform_down(
                             filter: None,
                             join_type: JoinType::LeftAnti,
                             join_constraint: JoinConstraint::On,
-                            null_equals_null: false,
+                            null_equality: NullEquality::NullEqualsNothing,
                         }));
 
                         let inputs = vec![aggregate_projection, anti_join];
@@ -251,7 +252,7 @@ pub(crate) fn delta_transform_down(
                             filter: join.filter.clone(),
                             join_type: join.join_type,
                             join_constraint: join.join_constraint,
-                            null_equals_null: join.null_equals_null,
+                            null_equality: join.null_equality,
                         });
                         let left_delta = LogicalPlan::Join(Join {
                             left: join.left.clone(),
@@ -261,7 +262,7 @@ pub(crate) fn delta_transform_down(
                             filter: join.filter.clone(),
                             join_type: join.join_type,
                             join_constraint: join.join_constraint,
-                            null_equals_null: join.null_equals_null,
+                            null_equality: join.null_equality,
                         });
                         let right_delta = LogicalPlan::Join(Join {
                             left: delta_left.clone(),
@@ -271,7 +272,7 @@ pub(crate) fn delta_transform_down(
                             filter: join.filter.clone(),
                             join_type: join.join_type,
                             join_constraint: join.join_constraint,
-                            null_equals_null: join.null_equals_null,
+                            null_equality: join.null_equality,
                         });
                         let inputs = vec![
                             Arc::new(delta_delta),
@@ -327,7 +328,7 @@ pub(crate) fn delta_transform_down(
                             filter: None,
                             join_type: JoinType::Inner,
                             join_constraint: JoinConstraint::On,
-                            null_equals_null: false,
+                            null_equality: NullEquality::NullEqualsNothing,
                         }));
 
                         Ok(Transformed::yes(LogicalPlan::Projection(
@@ -433,7 +434,7 @@ fn transform_join(
             filter: join.filter.clone(),
             join_type: join.join_type,
             join_constraint: join.join_constraint,
-            null_equals_null: join.null_equals_null,
+            null_equality: join.null_equality,
         });
         let left_delta = LogicalPlan::Join(Join {
             left: left.clone(),
@@ -443,7 +444,7 @@ fn transform_join(
             filter: join.filter.clone(),
             join_type: join.join_type,
             join_constraint: join.join_constraint,
-            null_equals_null: join.null_equals_null,
+            null_equality: join.null_equality,
         });
         let right_delta = LogicalPlan::Join(Join {
             left: delta_left_two,
@@ -453,7 +454,7 @@ fn transform_join(
             filter: join.filter.clone(),
             join_type: join.join_type,
             join_constraint: join.join_constraint,
-            null_equals_null: join.null_equals_null,
+            null_equality: join.null_equality,
         });
         inputs.push(Arc::new(delta_delta));
         inputs.push(Arc::new(left_delta));
@@ -467,7 +468,7 @@ fn transform_join(
         filter: join.filter.clone(),
         join_type: join.join_type,
         join_constraint: join.join_constraint,
-        null_equals_null: join.null_equals_null,
+        null_equality: join.null_equality,
     });
     Ok((inputs, Arc::new(left_right)))
 }
