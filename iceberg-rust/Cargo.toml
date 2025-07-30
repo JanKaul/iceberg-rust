@@ -21,8 +21,8 @@ futures = { workspace = true }
 getrandom = { workspace = true }
 iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.8.0" }
 itertools = { workspace = true }
+lru = { workspace = true }
 object_store = { workspace = true }
-once_map = { workspace = true }
 parquet = { workspace = true }
 pin-project-lite = { workspace = true }
 serde = { workspace = true }
@@ -36,6 +36,7 @@ tracing = { workspace = true }
 tokio = { version = "1.43", features = ["sync"] }
 url = { workspace = true }
 uuid = { workspace = true }
+
 
 [dev-dependencies]
 chrono = { workspace = true }

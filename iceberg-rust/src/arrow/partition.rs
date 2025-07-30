@@ -13,6 +13,7 @@ use std::{
     hash::Hash,
     pin::Pin,
     task::{Context, Poll},
+    thread::available_parallelism,
 };
 
 use arrow::{
@@ -33,7 +34,7 @@ use futures::{
 use itertools::{iproduct, Itertools};
 
 use iceberg_rust_spec::{partition::BoundPartitionField, spec::values::Value};
-use once_map::OnceMap;
+use lru::LruCache;
 use pin_project_lite::pin_project;
 
 use crate::error::Error;
@@ -58,7 +59,7 @@ pin_project! {
         #[pin]
         record_batches: Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>,
         partition_fields: &'a [BoundPartitionField<'a>],
-        partition_streams: OnceMap<Vec<Value>, RecordBatchSender>,
+        partition_streams: LruCache<Vec<Value>, RecordBatchSender>,
         queue: VecDeque<Result<(Vec<Value>, RecordBatchReceiver), Error>>,
         sends: Vec<(RecordBatchSender, RecordBatch)>,
     }
@@ -72,7 +73,7 @@ impl<'a> PartitionStream<'a> {
         Self {
             record_batches,
             partition_fields,
-            partition_streams: OnceMap::new(),
+            partition_streams: LruCache::unbounded(),
             queue: VecDeque::new(),
             sends: Vec::new(),
         }
@@ -109,13 +110,22 @@ impl Stream for PartitionStream<'_> {
                 }
             }
 
+            // Limit the number of open partition_streams by available parallelism
+            if this.partition_streams.len() > available_parallelism().unwrap().get() {
+                if let Some((_, mut sender)) = this.partition_streams.pop_lru() {
+                    sender.close_channel();
+                }
+            }
+
             match this.record_batches.as_mut().poll_next(cx) {
                 Poll::Pending => {
                     break Poll::Pending;
                 }
                 Poll::Ready(None) => {
-                    for sender in this.partition_streams.read_only_view().values() {
-                        sender.clone().close_channel();
+                    while let Some((_, sender)) = this.partition_streams.pop_lru() {
+                        if !sender.is_closed() {
+                            sender.clone().close_channel();
+                        }
                     }
                     break Poll::Ready(None);
                 }
@@ -127,16 +137,16 @@ impl Stream for PartitionStream<'_> {
                         let (partition_values, batch) = result?;
 
                         let sender = if let Some(sender) =
-                            this.partition_streams.get_cloned(&partition_values)
+                            this.partition_streams.get(&partition_values).cloned()
                         {
                             sender
                         } else {
+                            let (sender, reciever) = channel(1);
+                            this.queue
+                                .push_back(Ok((partition_values.clone(), reciever)));
                             this.partition_streams
-                                .insert_cloned(partition_values, |key| {
-                                    let (sender, reciever) = channel(1);
-                                    this.queue.push_back(Ok((key.clone(), reciever)));
-                                    sender
-                                })
+                                .push(partition_values, sender.clone());
+                            sender
                         };
 
                         this.sends.push((sender, batch));
