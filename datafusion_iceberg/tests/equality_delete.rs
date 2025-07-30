@@ -108,7 +108,7 @@ pub async fn test_equality_delete() {
     .expect("Failed to insert values into table");
 
     let batches = ctx
-        .sql("select product_id, sum(amount) from warehouse.test.orders group by product_id order by product_id")
+        .sql("select * from warehouse.test.orders order by id")
         .await
         .expect("Failed to create plan for select")
         .collect()
@@ -116,13 +116,16 @@ pub async fn test_equality_delete() {
         .expect("Failed to execute select query");
 
     let expected = [
-        "+------------+-----------------------------------+",
-        "| product_id | sum(warehouse.test.orders.amount) |",
-        "+------------+-----------------------------------+",
-        "| 1          | 7                                 |",
-        "| 2          | 1                                 |",
-        "| 3          | 3                                 |",
-        "+------------+-----------------------------------+",
+        "+----+-------------+------------+------------+--------+",
+        "| id | customer_id | product_id | date       | amount |",
+        "+----+-------------+------------+------------+--------+",
+        "| 1  | 1           | 1          | 2020-01-01 | 1      |",
+        "| 2  | 2           | 1          | 2020-01-01 | 1      |",
+        "| 3  | 3           | 1          | 2020-01-01 | 3      |",
+        "| 4  | 1           | 2          | 2020-02-02 | 1      |",
+        "| 5  | 1           | 1          | 2020-02-02 | 2      |",
+        "| 6  | 3           | 3          | 2020-02-02 | 3      |",
+        "+----+-------------+------------+------------+--------+",
     ];
     assert_batches_eq!(expected, &batches);
 
@@ -174,7 +177,7 @@ pub async fn test_equality_delete() {
         .unwrap();
 
     let batches = ctx
-        .sql("select product_id, sum(amount) from warehouse.test.orders group by product_id order by product_id")
+        .sql("select * from warehouse.test.orders order by id")
         .await
         .expect("Failed to create plan for select")
         .collect()
@@ -182,12 +185,13 @@ pub async fn test_equality_delete() {
         .expect("Failed to execute select query");
 
     let expected = [
-        "+------------+-----------------------------------+",
-        "| product_id | sum(warehouse.test.orders.amount) |",
-        "+------------+-----------------------------------+",
-        "| 1          | 4                                 |",
-        "| 3          | 3                                 |",
-        "+------------+-----------------------------------+",
+        "+----+-------------+------------+------------+--------+",
+        "| id | customer_id | product_id | date       | amount |",
+        "+----+-------------+------------+------------+--------+",
+        "| 2  | 2           | 1          | 2020-01-01 | 1      |",
+        "| 3  | 3           | 1          | 2020-01-01 | 3      |",
+        "| 6  | 3           | 3          | 2020-02-02 | 3      |",
+        "+----+-------------+------------+------------+--------+",
     ];
     assert_batches_eq!(expected, &batches);
 }
