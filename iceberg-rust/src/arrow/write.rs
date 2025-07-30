@@ -65,6 +65,7 @@ use crate::{
 use super::partition::PartitionStream;
 
 const MAX_PARQUET_SIZE: usize = 512_000_000;
+const COMPRESSION_FACTOR: usize = 200;
 
 #[instrument(skip(table, batches), fields(table_name = %table.identifier().name()))]
 /// Writes Arrow record batches as partitioned Parquet files.
@@ -341,7 +342,7 @@ async fn write_parquet_files(
                     let batch_size = record_batch_size(&batch);
                     let new_size = state.bytes_written + batch_size;
 
-                    if new_size > MAX_PARQUET_SIZE {
+                    if new_size > COMPRESSION_FACTOR * MAX_PARQUET_SIZE {
                         // Send current writer to channel
                         let finished_writer = state.writer;
                         let file = finished_writer.1.close().await?;
@@ -362,9 +363,6 @@ async fn write_parquet_files(
                         state.bytes_written = batch_size;
                     } else {
                         state.bytes_written = new_size;
-                        if new_size % 64_000_000 >= 32_000_000 {
-                            state.writer.1.flush().await?;
-                        }
                     }
 
                     state.writer.1.write(&batch).await?;
