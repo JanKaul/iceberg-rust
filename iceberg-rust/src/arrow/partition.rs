@@ -18,11 +18,13 @@ use std::{
 
 use arrow::{
     array::{
-        as_primitive_array, as_string_array, ArrayIter, ArrayRef, BooleanArray,
-        BooleanBufferBuilder, PrimitiveArray, StringArray,
+        as_primitive_array, as_string_array, ArrayRef, BooleanArray, BooleanBufferBuilder,
+        PrimitiveArray, StringArray,
     },
-    compute::kernels::cmp::eq,
-    compute::{and, filter_record_batch},
+    compute::{
+        and, filter, filter_record_batch,
+        kernels::cmp::{distinct, eq},
+    },
     datatypes::{ArrowPrimitiveType, DataType, Int32Type, Int64Type},
     error::ArrowError,
     record_batch::RecordBatch,
@@ -260,12 +262,12 @@ fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
         DataType::Int32 => Ok(DistinctValues::Int(distinct_values_primitive::<
             i32,
             Int32Type,
-        >(array))),
+        >(array)?)),
         DataType::Int64 => Ok(DistinctValues::Long(distinct_values_primitive::<
             i64,
             Int64Type,
-        >(array))),
-        DataType::Utf8 => Ok(DistinctValues::String(distinct_values_string(array))),
+        >(array)?)),
+        DataType::Utf8 => Ok(DistinctValues::String(distinct_values_string(array)?)),
         _ => Err(ArrowError::ComputeError(
             "Datatype not supported for transform.".to_string(),
         )),
@@ -285,15 +287,36 @@ fn distinct_values(array: ArrayRef) -> Result<DistinctValues, ArrowError> {
 /// A HashSet containing all unique values from the array
 fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
     array: ArrayRef,
-) -> HashSet<P::Native> {
-    let mut set = HashSet::new();
+) -> Result<HashSet<P::Native>, ArrowError> {
     let array = as_primitive_array::<P>(&array);
-    for value in ArrayIter::new(array).flatten() {
-        if !set.contains(&value) {
-            set.insert(value);
-        }
+
+    let first = array.value(0);
+
+    let slice_len = array.len() - 1;
+
+    if slice_len == 0 {
+        return Ok(HashSet::from_iter([first]));
     }
-    set
+
+    let v1 = array.slice(0, slice_len);
+    let v2 = array.slice(1, slice_len);
+
+    // Which consecutive entries are different
+    let mask = distinct(&v1, &v2)?;
+
+    let unique = filter(&v2, &mask)?;
+
+    let unique = as_primitive_array::<P>(&unique);
+
+    let set = unique
+        .iter()
+        .fold(HashSet::from_iter([first]), |mut acc, x| {
+            if let Some(x) = x {
+                acc.insert(x);
+            }
+            acc
+        });
+    Ok(set)
 }
 
 /// Extracts distinct string values from an Arrow array into a HashSet
@@ -303,15 +326,36 @@ fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
 ///
 /// # Returns
 /// A HashSet containing all unique string values from the array
-fn distinct_values_string(array: ArrayRef) -> HashSet<String> {
-    let mut set = HashSet::new();
+fn distinct_values_string(array: ArrayRef) -> Result<HashSet<String>, ArrowError> {
+    let slice_len = array.len() - 1;
+
     let array = as_string_array(&array);
-    for value in ArrayIter::new(array).flatten() {
-        if !set.contains(value) {
-            set.insert(value.to_owned());
-        }
+
+    let first = array.value(0).to_owned();
+
+    if slice_len == 0 {
+        return Ok(HashSet::from_iter([first]));
     }
-    set
+
+    let v1 = array.slice(0, slice_len);
+    let v2 = array.slice(1, slice_len);
+
+    // Which consecutive entries are different
+    let mask = distinct(&v1, &v2)?;
+
+    let unique = filter(&v2, &mask)?;
+
+    let unique = as_string_array(&unique);
+
+    let set = unique
+        .iter()
+        .fold(HashSet::from_iter([first]), |mut acc, x| {
+            if let Some(x) = x {
+                acc.insert(x.to_owned());
+            }
+            acc
+        });
+    Ok(set)
 }
 
 /// Represents distinct values found in Arrow arrays during partitioning
