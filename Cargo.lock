@@ -3225,8 +3225,8 @@ dependencies = [
  "iceberg-rust-spec",
  "iceberg-sql-catalog",
  "itertools 0.14.0",
+ "lru",
  "object_store",
- "once_map",
  "parquet",
  "pin-project-lite",
  "serde",
@@ -3741,6 +3741,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lru"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86ea4e65087ff52f3862caff188d489f1fab49a0cb09e01b2e3f1a617b10aaed"
+dependencies = [
+ "hashbrown 0.15.3",
+]
+
+[[package]]
 name = "lz4_flex"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4008,18 +4017,6 @@ name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
-
-[[package]]
-name = "once_map"
-version = "0.4.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bd2cae3bec3936bbed1ccc5a3343b3738858182419f9c0522c7260c80c430b0"
-dependencies = [
- "ahash 0.8.11",
- "hashbrown 0.15.3",
- "parking_lot",
- "stable_deref_trait",
-]
 
 [[package]]
 name = "openssl"
