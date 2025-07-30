@@ -24,6 +24,7 @@ use crate::{
     statistics::manifest_statistics,
 };
 use datafusion::common::NullEquality;
+use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
     catalog::Session,
@@ -53,7 +54,6 @@ use datafusion::{
     scalar::ScalarValue,
     sql::parser::DFParserBuilder,
 };
-
 use iceberg_rust::spec::{schema::Schema, view_metadata::ViewRepresentation};
 use iceberg_rust::{
     arrow::write::write_parquet_partitioned, catalog::tabular::Tabular, error::Error,
@@ -830,7 +830,7 @@ async fn table_scan(
         .await?;
 
     // Create plan for partitions without delete files
-    let file_groups = data_file_groups
+    let file_groups: Vec<_> = data_file_groups
         .into_values()
         .map(|x| {
             x.into_iter()
@@ -853,24 +853,34 @@ async fn table_scan(
                 .collect()
         })
         .collect();
-    let file_scan_config = FileScanConfigBuilder::new(object_store_url, file_schema, file_source)
-        .with_file_groups(file_groups)
-        .with_statistics(statistics)
-        .with_projection(projection)
-        .with_limit(limit)
-        .with_table_partition_cols(table_partition_cols)
-        .build();
 
-    let other_plan = ParquetFormat::default()
-        .create_physical_plan(session, file_scan_config)
-        .await?;
+    if !file_groups.is_empty() {
+        let file_scan_config =
+            FileScanConfigBuilder::new(object_store_url, file_schema, file_source)
+                .with_file_groups(file_groups)
+                .with_statistics(statistics)
+                .with_projection(projection.clone())
+                .with_limit(limit)
+                .with_table_partition_cols(table_partition_cols)
+                .build();
 
-    if plans.is_empty() {
-        Ok(other_plan)
-    } else {
+        let other_plan = ParquetFormat::default()
+            .create_physical_plan(session, file_scan_config)
+            .await?;
+
         plans.push(other_plan);
+    }
 
-        Ok(Arc::new(UnionExec::new(plans)))
+    match plans.len() {
+        0 => {
+            let projected_schema = projection
+                .map(|p| arrow_schema.project(&p))
+                .transpose()?
+                .unwrap_or(arrow_schema.as_ref().clone());
+            Ok(Arc::new(EmptyExec::new(Arc::new(projected_schema))))
+        }
+        1 => Ok(plans.remove(0)),
+        _ => Ok(Arc::new(UnionExec::new(plans))),
     }
 }
 
