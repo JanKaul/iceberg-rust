@@ -419,7 +419,10 @@ pub fn apply_table_updates(
 ) -> Result<(), Error> {
     for update in updates {
         match update {
-            TableUpdate::UpgradeFormatVersion { format_version: _ } => {
+            TableUpdate::UpgradeFormatVersion { format_version } => {
+                if u8::from(metadata.format_version) == format_version as u8 {
+                    return Ok(());
+                }
                 unimplemented!();
             }
             TableUpdate::AssignUuid { uuid } => {
