@@ -8,13 +8,7 @@
 //! * Efficient handling of distinct partition values
 //! * Automatic management of partition streams and channels
 
-use std::{
-    collections::{HashSet, VecDeque},
-    hash::Hash,
-    pin::Pin,
-    task::{Context, Poll},
-    thread::available_parallelism,
-};
+use std::{collections::HashSet, hash::Hash};
 
 use arrow::{
     array::{
@@ -29,135 +23,11 @@ use arrow::{
     error::ArrowError,
     record_batch::RecordBatch,
 };
-use futures::{
-    channel::mpsc::{channel, Receiver, Sender},
-    Stream,
-};
 use itertools::{iproduct, Itertools};
 
 use iceberg_rust_spec::{partition::BoundPartitionField, spec::values::Value};
-use lru::LruCache;
-use pin_project_lite::pin_project;
-
-use crate::error::Error;
 
 use super::transform::transform_arrow;
-
-type RecordBatchSender = Sender<Result<RecordBatch, ArrowError>>;
-type RecordBatchReceiver = Receiver<Result<RecordBatch, ArrowError>>;
-
-pin_project! {
-    /// A stream that partitions Arrow record batches according to partition field specifications
-    ///
-    /// This struct implements Stream to process record batches asynchronously, splitting them into
-    /// separate streams based on partition values. It maintains internal state to:
-    /// * Track active partition streams
-    /// * Buffer pending record batches
-    /// * Manage channel senders/receivers for each partition
-    ///
-    /// # Type Parameters
-    /// * `'a` - Lifetime of the partition field specifications
-    pub(crate) struct PartitionStream<'a> {
-        #[pin]
-        record_batches: Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>,
-        partition_fields: &'a [BoundPartitionField<'a>],
-        partition_streams: LruCache<Vec<Value>, RecordBatchSender>,
-        queue: VecDeque<Result<(Vec<Value>, RecordBatchReceiver), Error>>,
-        sends: Vec<(RecordBatchSender, RecordBatch)>,
-    }
-}
-
-impl<'a> PartitionStream<'a> {
-    pub(crate) fn new(
-        record_batches: Pin<Box<dyn Stream<Item = Result<RecordBatch, ArrowError>> + Send>>,
-        partition_fields: &'a [BoundPartitionField<'a>],
-    ) -> Self {
-        Self {
-            record_batches,
-            partition_fields,
-            partition_streams: LruCache::unbounded(),
-            queue: VecDeque::new(),
-            sends: Vec::new(),
-        }
-    }
-}
-
-impl Stream for PartitionStream<'_> {
-    type Item = Result<(Vec<Value>, RecordBatchReceiver), Error>;
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
-
-        loop {
-            if let Some(result) = this.queue.pop_front() {
-                break Poll::Ready(Some(result));
-            }
-
-            if !this.sends.is_empty() {
-                let mut new_sends = Vec::with_capacity(this.sends.len());
-                while let Some((mut sender, batch)) = this.sends.pop() {
-                    match sender.poll_ready(cx) {
-                        Poll::Pending => {
-                            new_sends.push((sender, batch));
-                        }
-                        Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err.into()))),
-                        Poll::Ready(Ok(())) => {
-                            sender.start_send(Ok(batch))?;
-                        }
-                    }
-                }
-                *this.sends = new_sends;
-
-                if !this.sends.is_empty() {
-                    break Poll::Pending;
-                }
-            }
-
-            // Limit the number of open partition_streams by available parallelism
-            if this.partition_streams.len() > available_parallelism().unwrap().get() {
-                if let Some((_, mut sender)) = this.partition_streams.pop_lru() {
-                    sender.close_channel();
-                }
-            }
-
-            match this.record_batches.as_mut().poll_next(cx) {
-                Poll::Pending => {
-                    break Poll::Pending;
-                }
-                Poll::Ready(None) => {
-                    while let Some((_, sender)) = this.partition_streams.pop_lru() {
-                        if !sender.is_closed() {
-                            sender.clone().close_channel();
-                        }
-                    }
-                    break Poll::Ready(None);
-                }
-                Poll::Ready(Some(Err(err))) => {
-                    break Poll::Ready(Some(Err(err.into())));
-                }
-                Poll::Ready(Some(Ok(batch))) => {
-                    for result in partition_record_batch(&batch, this.partition_fields)? {
-                        let (partition_values, batch) = result?;
-
-                        let sender = if let Some(sender) =
-                            this.partition_streams.get(&partition_values).cloned()
-                        {
-                            sender
-                        } else {
-                            let (sender, reciever) = channel(1);
-                            this.queue
-                                .push_back(Ok((partition_values.clone(), reciever)));
-                            this.partition_streams
-                                .push(partition_values, sender.clone());
-                            sender
-                        };
-
-                        this.sends.push((sender, batch));
-                    }
-                }
-            }
-        }
-    }
-}
 
 /// Partitions a record batch according to the given partition fields.
 ///
@@ -178,7 +48,7 @@ impl Stream for PartitionStream<'_> {
 /// * Required columns are missing from the record batch
 /// * Transformation operations fail
 /// * Data type conversions fail
-fn partition_record_batch<'a>(
+pub(crate) fn partition_record_batch<'a>(
     record_batch: &'a RecordBatch,
     partition_fields: &[BoundPartitionField<'_>],
 ) -> Result<impl Iterator<Item = Result<(Vec<Value>, RecordBatch), ArrowError>> + 'a, ArrowError> {
@@ -368,123 +238,4 @@ enum DistinctValues {
     Int(HashSet<i32>),
     Long(HashSet<i64>),
     String(HashSet<String>),
-}
-
-#[cfg(test)]
-mod tests {
-    use futures::{stream, StreamExt};
-    use std::sync::Arc;
-    use tokio::task::JoinSet;
-
-    use arrow::{
-        array::{ArrayRef, Int64Array, StringArray},
-        error::ArrowError,
-        record_batch::RecordBatch,
-    };
-
-    use iceberg_rust_spec::{
-        partition::BoundPartitionField,
-        spec::{
-            partition::{PartitionField, PartitionSpec, Transform},
-            schema::Schema,
-            types::{PrimitiveType, StructField, Type},
-        },
-    };
-
-    use crate::{arrow::partition::PartitionStream, error::Error};
-
-    #[tokio::test]
-    async fn test_partition() {
-        let batch1 = RecordBatch::try_from_iter(vec![
-            (
-                "x",
-                Arc::new(Int64Array::from(vec![1, 1, 1, 1, 2, 3])) as ArrayRef,
-            ),
-            (
-                "y",
-                Arc::new(Int64Array::from(vec![1, 2, 2, 2, 1, 1])) as ArrayRef,
-            ),
-            (
-                "z",
-                Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E", "F"])) as ArrayRef,
-            ),
-        ])
-        .unwrap();
-        let batch2 = RecordBatch::try_from_iter(vec![
-            (
-                "x",
-                Arc::new(Int64Array::from(vec![1, 1, 2, 2, 2, 3])) as ArrayRef,
-            ),
-            (
-                "y",
-                Arc::new(Int64Array::from(vec![1, 2, 2, 2, 1, 1])) as ArrayRef,
-            ),
-            (
-                "z",
-                Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E", "F"])) as ArrayRef,
-            ),
-        ])
-        .unwrap();
-        let record_batches = stream::iter(
-            vec![Ok::<_, ArrowError>(batch1), Ok::<_, ArrowError>(batch2)].into_iter(),
-        );
-
-        let schema = Schema::builder()
-            .with_schema_id(0)
-            .with_struct_field(StructField {
-                id: 1,
-                name: "x".to_string(),
-                field_type: Type::Primitive(PrimitiveType::Int),
-                required: true,
-                doc: None,
-            })
-            .with_struct_field(StructField {
-                id: 2,
-                name: "y".to_string(),
-                field_type: Type::Primitive(PrimitiveType::Int),
-                required: true,
-                doc: None,
-            })
-            .with_struct_field(StructField {
-                id: 3,
-                name: "z".to_string(),
-                field_type: Type::Primitive(PrimitiveType::String),
-                required: true,
-                doc: None,
-            })
-            .build()
-            .unwrap();
-
-        let partition_spec = PartitionSpec::builder()
-            .with_partition_field(PartitionField::new(1, 1001, "x", Transform::Identity))
-            .build()
-            .unwrap();
-        let partition_fields = partition_spec
-            .fields()
-            .iter()
-            .map(|partition_field| {
-                let field =
-                    schema
-                        .get(*partition_field.source_id() as usize)
-                        .ok_or(Error::NotFound(format!(
-                            "Schema field with id {}",
-                            partition_field.source_id(),
-                        )))?;
-                Ok(BoundPartitionField::new(partition_field, field))
-            })
-            .collect::<Result<Vec<_>, Error>>()
-            .unwrap();
-        let mut streams = PartitionStream::new(Box::pin(record_batches), &partition_fields);
-        let mut set = JoinSet::new();
-        while let Some(Ok((_, receiver))) = streams.next().await {
-            set.spawn(async move { receiver.collect::<Vec<_>>().await });
-        }
-        let output = set.join_all().await;
-
-        for x in output {
-            for y in x {
-                y.unwrap();
-            }
-        }
-    }
 }
