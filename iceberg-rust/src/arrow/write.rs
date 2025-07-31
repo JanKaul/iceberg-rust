@@ -34,11 +34,12 @@
 
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
-    StreamExt, TryStreamExt,
+    SinkExt, StreamExt, TryStreamExt,
 };
+use lru::LruCache;
 use object_store::{buffered::BufWriter, ObjectStore};
-use std::fmt::Write;
 use std::sync::Arc;
+use std::{fmt::Write, thread::available_parallelism};
 use tokio::task::JoinSet;
 use tracing::instrument;
 
@@ -62,7 +63,7 @@ use crate::{
     error::Error, file_format::parquet::parquet_to_datafile, object_store::Bucket, table::Table,
 };
 
-use super::partition::PartitionStream;
+use super::partition::partition_record_batch;
 
 const MAX_PARQUET_SIZE: usize = 512_000_000;
 const COMPRESSION_FACTOR: usize = 200;
@@ -213,49 +214,74 @@ async fn store_parquet_partitioned(
         .await?;
         Ok(files)
     } else {
-        let mut streams = PartitionStream::new(Box::pin(batches), partition_fields);
+        let mut senders: LruCache<Vec<Value>, Sender<Result<RecordBatch, ArrowError>>> =
+            LruCache::unbounded();
 
         let mut set = JoinSet::new();
+        // let receiver_handles = Vec::new();
 
-        while let Some(result) = streams.next().await {
-            let (partition_values, batches) = result?;
-            set.spawn({
-                let arrow_schema = arrow_schema.clone();
-                let object_store = object_store.clone();
-                let data_location = data_location.clone();
-                let schema = schema.clone();
-                let partition_spec = partition_spec.clone();
-                let equality_ids = equality_ids.map(Vec::from);
-                let partition_path = if metadata
-                    .properties
-                    .get(WRITE_OBJECT_STORAGE_ENABLED)
-                    .is_some_and(|x| x == "true")
-                {
-                    None
-                } else {
-                    Some(generate_partition_path(
-                        partition_fields,
-                        &partition_values,
-                    )?)
-                };
-                async move {
-                    let partition_fields =
-                        table_metadata::partition_fields(&partition_spec, &schema)
-                            .map_err(Error::from)?;
-                    let files = write_parquet_files(
-                        &data_location,
-                        &schema,
-                        &arrow_schema,
-                        &partition_fields,
-                        partition_path,
-                        batches,
-                        object_store.clone(),
-                        equality_ids.as_deref(),
-                    )
-                    .await?;
-                    Ok::<_, Error>(files)
+        let mut batches = Box::pin(batches);
+
+        while let Some(batch) = batches.next().await {
+            // Limit the number of concurrent senders
+            if senders.len() > available_parallelism().unwrap().get() {
+                if let Some((_, mut sender)) = senders.pop_lru() {
+                    sender.close_channel();
                 }
-            });
+            }
+
+            for result in partition_record_batch(&batch?, partition_fields)? {
+                let (partition_values, batch) = result?;
+
+                if let Some(sender) = senders.get_mut(&partition_values) {
+                    sender.send(Ok(batch)).await.unwrap();
+                } else {
+                    let (mut sender, reciever) = channel(1);
+                    sender.send(Ok(batch)).await.unwrap();
+                    senders.push(partition_values.clone(), sender);
+                    set.spawn({
+                        let arrow_schema = arrow_schema.clone();
+                        let object_store = object_store.clone();
+                        let data_location = data_location.clone();
+                        let schema = schema.clone();
+                        let partition_spec = partition_spec.clone();
+                        let equality_ids = equality_ids.map(Vec::from);
+                        let partition_path = if metadata
+                            .properties
+                            .get(WRITE_OBJECT_STORAGE_ENABLED)
+                            .is_some_and(|x| x == "true")
+                        {
+                            None
+                        } else {
+                            Some(generate_partition_path(
+                                partition_fields,
+                                &partition_values,
+                            )?)
+                        };
+                        async move {
+                            let partition_fields =
+                                table_metadata::partition_fields(&partition_spec, &schema)
+                                    .map_err(Error::from)?;
+                            let files = write_parquet_files(
+                                &data_location,
+                                &schema,
+                                &arrow_schema,
+                                &partition_fields,
+                                partition_path,
+                                reciever,
+                                object_store.clone(),
+                                equality_ids.as_deref(),
+                            )
+                            .await?;
+                            Ok::<_, Error>(files)
+                        }
+                    });
+                };
+            }
+        }
+
+        while let Some((_, mut sender)) = senders.pop_lru() {
+            sender.close_channel();
         }
 
         let mut files = Vec::new();

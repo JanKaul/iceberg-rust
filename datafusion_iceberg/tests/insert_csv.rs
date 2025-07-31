@@ -163,6 +163,4 @@ async fn test_insert_csv() {
     }
 
     assert!(once);
-    panic!();
 }
-
