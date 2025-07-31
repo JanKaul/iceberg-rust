@@ -34,7 +34,7 @@ pub fn fork_node(plan: Arc<LogicalPlan>) -> (ForkNode, ForkNode) {
     let parallelism = std::thread::available_parallelism().unwrap().get();
     let (sender, receiver): (Vec<_>, Vec<_>) = iter::repeat_n((), parallelism)
         .map(|_| {
-            let (sender, receiver) = channel(1);
+            let (sender, receiver) = channel(0);
             (
                 Arc::new(Mutex::new(Some(sender))),
                 Arc::new(Mutex::new(Some(receiver))),

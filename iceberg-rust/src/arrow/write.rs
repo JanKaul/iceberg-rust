@@ -308,7 +308,7 @@ async fn write_parquet_files(
     equality_ids: Option<&[i32]>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let bucket = Bucket::from_path(data_location)?;
-    let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(1);
+    let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(0);
 
     // Create initial writer
     let initial_writer = create_arrow_writer(
