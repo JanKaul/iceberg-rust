@@ -19,12 +19,14 @@ derive_builder = { workspace = true }
 futures = { workspace = true }
 iceberg-rust = { path = "../iceberg-rust", version = "0.8.0" }
 itertools = { workspace = true }
+lru = { workspace = true }
 object_store = { workspace = true }
 pin-project-lite = "0.2.16"
 regex = "1.11.1"
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.43", features = ["rt-multi-thread"] }
+tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 

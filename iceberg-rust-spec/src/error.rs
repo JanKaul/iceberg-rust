@@ -55,30 +55,9 @@ pub enum Error {
     /// parse int error
     #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
-    /// table metadata builder
+    /// derive builder
     #[error(transparent)]
-    TableMetadataBuilder(#[from] crate::spec::table_metadata::TableMetadataBuilderError),
-    /// view metadata builder
-    #[error(transparent)]
-    ViewMetadataBuilder(#[from] crate::spec::view_metadata::GeneralViewMetadataBuilderError),
-    /// version builder
-    #[error(transparent)]
-    VersionBuilder(#[from] crate::spec::view_metadata::VersionBuilderError),
-    /// manifest builder
-    #[error(transparent)]
-    ManifestEntryBuilder(#[from] crate::spec::manifest::ManifestEntryBuilderError),
-    /// datafile builder
-    #[error(transparent)]
-    DatafileBuilder(#[from] crate::spec::manifest::DataFileBuilderError),
-    /// snapshot builder
-    #[error(transparent)]
-    SnapshotBuilder(#[from] crate::spec::snapshot::SnapshotBuilderError),
-    /// structype builder
-    #[error(transparent)]
-    StructTypeBuilder(#[from] crate::spec::types::StructTypeBuilderError),
-    /// partition spec builder
-    #[error(transparent)]
-    PartitionSpec(#[from] crate::spec::partition::PartitionSpecBuilderError),
+    DeriveBuilder(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl From<apache_avro::Error> for Error {

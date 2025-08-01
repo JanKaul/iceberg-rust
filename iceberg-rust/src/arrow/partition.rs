@@ -48,7 +48,7 @@ use super::transform::transform_arrow;
 /// * Required columns are missing from the record batch
 /// * Transformation operations fail
 /// * Data type conversions fail
-pub(crate) fn partition_record_batch<'a>(
+pub fn partition_record_batch<'a>(
     record_batch: &'a RecordBatch,
     partition_fields: &[BoundPartitionField<'_>],
 ) -> Result<impl Iterator<Item = Result<(Vec<Value>, RecordBatch), ArrowError>> + 'a, ArrowError> {
