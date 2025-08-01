@@ -423,7 +423,7 @@ pub fn apply_table_updates(
                 if u8::from(metadata.format_version) == format_version as u8 {
                     return Ok(());
                 }
-                unimplemented!();
+                unimplemented!("Table format upgrade");
             }
             TableUpdate::AssignUuid { uuid } => {
                 metadata.table_uuid = Uuid::parse_str(&uuid)?;
@@ -519,8 +519,11 @@ pub fn apply_view_updates<T: Materialization + 'static>(
 ) -> Result<(), Error> {
     for update in updates {
         match update {
-            ViewUpdate::UpgradeFormatVersion { format_version: _ } => {
-                unimplemented!();
+            ViewUpdate::UpgradeFormatVersion { format_version } => {
+                if u8::from(metadata.format_version.clone()) == format_version as u8 {
+                    return Ok(());
+                }
+                unimplemented!("Upgrade of format version");
             }
             ViewUpdate::AssignUuid { uuid } => {
                 metadata.view_uuid = Uuid::parse_str(&uuid)?;
