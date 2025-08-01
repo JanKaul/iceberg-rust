@@ -143,7 +143,7 @@ impl<T: Materialization> GeneralViewMetadata<T> {
 }
 
 impl ViewMetadata {
-    pub fn as_ref(&self) -> TabularMetadataRef {
+    pub fn as_ref(&self) -> TabularMetadataRef<'_> {
         TabularMetadataRef::View(self)
     }
 }
@@ -297,6 +297,14 @@ impl From<FormatVersion> for u8 {
     fn from(value: FormatVersion) -> Self {
         match value {
             FormatVersion::V1 => b'1',
+        }
+    }
+}
+
+impl From<FormatVersion> for i32 {
+    fn from(value: FormatVersion) -> Self {
+        match value {
+            FormatVersion::V1 => 1,
         }
     }
 }

@@ -40,7 +40,7 @@ impl Display for Bucket<'_> {
 
 impl Bucket<'_> {
     /// Get the bucket and coud provider from the location string
-    pub fn from_path(path: &str) -> Result<Bucket, Error> {
+    pub fn from_path(path: &str) -> Result<Bucket<'_>, Error> {
         if path.starts_with("s3://") || path.starts_with("s3a://") {
             let prefix = if path.starts_with("s3://") {
                 "s3://"
