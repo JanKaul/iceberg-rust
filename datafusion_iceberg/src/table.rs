@@ -107,6 +107,7 @@ impl From<MaterializedView> for DataFusionTable {
 }
 
 #[derive(Clone, Debug, Builder)]
+#[builder(build_fn(error = "Error"))]
 pub struct DataFusionTableConfig {
     /// With this option, an additional "__data_file_path" column is added to the output of the
     /// TableProvider that contains the path of the data-file the row originates from.

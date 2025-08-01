@@ -37,7 +37,7 @@ use iceberg_rust_spec::{
 };
 use object_store::ObjectStore;
 
-use crate::{error::Error, spec};
+use crate::error::Error;
 
 type ReaderZip<'a, R> = Zip<AvroReader<'a, R>, Repeat<Arc<(Schema, PartitionSpec, FormatVersion)>>>;
 type ReaderMap<'a, R> = Map<
@@ -130,8 +130,7 @@ impl<R: Read> ManifestReader<'_, R> {
         let partition_spec = PartitionSpec::builder()
             .with_spec_id(spec_id)
             .with_fields(partition_fields)
-            .build()
-            .map_err(spec::error::Error::from)?;
+            .build()?;
         Ok(Self {
             reader: reader
                 .zip(repeat(Arc::new((schema, partition_spec, format_version))))
