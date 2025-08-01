@@ -506,7 +506,7 @@ impl Catalog for FileCatalog {
         _identifier: Identifier,
         _metadata_location: &str,
     ) -> Result<Table, IcebergError> {
-        unimplemented!("Register table for file catalog")
+        unimplemented!()
     }
 }
 
