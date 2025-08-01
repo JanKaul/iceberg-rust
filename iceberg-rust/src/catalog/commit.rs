@@ -423,7 +423,7 @@ pub fn apply_table_updates(
                 if i32::from(metadata.format_version) == format_version {
                     return Ok(());
                 }
-                unimplemented!("Table format upgrade");
+                unimplemented!();
             }
             TableUpdate::AssignUuid { uuid } => {
                 metadata.table_uuid = Uuid::parse_str(&uuid)?;
