@@ -670,7 +670,7 @@ impl Value {
                 precision: 38,
                 scale: dec.scale(),
             }),
-            _ => unimplemented!("Datatype for value"),
+            _ => unimplemented!(),
         }
     }
 
@@ -698,7 +698,7 @@ impl Value {
             Value::String(any) => Box::new(any),
             Value::UUID(any) => Box::new(any),
             Value::Decimal(any) => Box::new(any),
-            _ => unimplemented!("Value conversion to any"),
+            _ => unimplemented!(),
         }
     }
 
