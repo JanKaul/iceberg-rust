@@ -892,6 +892,15 @@ impl From<FormatVersion> for u8 {
     }
 }
 
+impl From<FormatVersion> for i32 {
+    fn from(value: FormatVersion) -> Self {
+        match value {
+            FormatVersion::V1 => 1,
+            FormatVersion::V2 => 2,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
