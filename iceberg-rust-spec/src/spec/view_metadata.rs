@@ -301,6 +301,14 @@ impl From<FormatVersion> for u8 {
     }
 }
 
+impl From<FormatVersion> for i32 {
+    fn from(value: FormatVersion) -> Self {
+        match value {
+            FormatVersion::V1 => 1,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder, Getters)]
 #[serde(rename_all = "kebab-case")]
 /// Fields for the version 2 of the view metadata.
