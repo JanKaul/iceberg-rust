@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
 
 use crate::table::transaction::append::append_summary;
+pub use crate::table::transaction::operation::DsnGroup;
 use crate::{catalog::commit::CommitTable, error::Error, table::Table};
 
 use self::operation::Operation;
@@ -120,17 +121,22 @@ impl<'table> TableTransaction<'table> {
         let summary = append_summary(&files);
 
         if let Some(ref mut operation) = self.operations[APPEND_INDEX] {
-            if let Operation::Append {
-                data_files: old, ..
-            } = operation
-            {
-                old.extend_from_slice(&files);
+            if let Operation::Append { dsn_groups, .. } = operation {
+                match dsn_groups.last_mut() {
+                    Some(g) => g.data_files.extend_from_slice(&files),
+                    None => dsn_groups.push(DsnGroup {
+                        data_files: files,
+                        delete_files: vec![],
+                    }),
+                };
             }
         } else {
             self.operations[APPEND_INDEX] = Some(Operation::Append {
                 branch: self.branch.clone(),
-                data_files: files,
-                delete_files: Vec::new(),
+                dsn_groups: vec![DsnGroup {
+                    data_files: files,
+                    delete_files: vec![],
+                }],
                 additional_summary: summary,
             });
         }
@@ -159,19 +165,41 @@ impl<'table> TableTransaction<'table> {
         if let Some(ref mut operation) = self.operations[APPEND_INDEX] {
             if let Operation::Append {
                 branch: _,
-                data_files: _,
-                delete_files: old,
+                dsn_groups,
                 additional_summary: None,
             } = operation
             {
-                old.extend_from_slice(&files);
+                match dsn_groups.last_mut() {
+                    Some(g) => g.delete_files.extend_from_slice(&files),
+                    None => dsn_groups.push(DsnGroup {
+                        data_files: vec![],
+                        delete_files: files,
+                    }),
+                };
             }
         } else {
             self.operations[APPEND_INDEX] = Some(Operation::Append {
                 branch: self.branch.clone(),
-                data_files: Vec::new(),
-                delete_files: files,
+                dsn_groups: vec![DsnGroup {
+                    data_files: vec![],
+                    delete_files: files,
+                }],
                 additional_summary: None,
+            });
+        }
+        self
+    }
+    /// Create a new data sequence number for subsequent appends
+    pub fn new_data_sequence_number(mut self) -> Self {
+        if let Some(Operation::Append {
+            branch: _,
+            ref mut dsn_groups,
+            additional_summary: None,
+        }) = self.operations[APPEND_INDEX]
+        {
+            dsn_groups.push(DsnGroup {
+                data_files: vec![],
+                delete_files: vec![],
             });
         }
         self

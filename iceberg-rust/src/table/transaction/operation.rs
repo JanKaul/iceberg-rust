@@ -37,6 +37,15 @@ use super::append::split_datafiles;
 /// The target number of datafiles per manifest is dynamic, but we don't want to go below this number.
 static MIN_DATAFILES_PER_MANIFEST: usize = 4;
 
+#[derive(Debug, Clone)]
+/// Group of write sharing a Data Sequence Number
+pub struct DsnGroup {
+    /// Delete files. These apply to insert files from previous Data Sequence Groups
+    pub delete_files: Vec<DataFile>,
+    /// Insert files
+    pub data_files: Vec<DataFile>,
+}
+
 #[derive(Debug)]
 ///Table operations
 pub enum Operation {
@@ -55,8 +64,7 @@ pub enum Operation {
     /// Append new files to the table
     Append {
         branch: Option<String>,
-        data_files: Vec<DataFile>,
-        delete_files: Vec<DataFile>,
+        dsn_groups: Vec<DsnGroup>,
         additional_summary: Option<HashMap<String, String>>,
     },
     // /// Quickly append new files to the table
@@ -98,8 +106,7 @@ impl Operation {
         match self {
             Operation::Append {
                 branch,
-                data_files,
-                delete_files,
+                dsn_groups,
                 additional_summary,
             } => {
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
@@ -109,6 +116,22 @@ impl Operation {
                     FormatVersion::V2 => manifest_list_schema_v2(),
                 };
 
+                let mut dsn_offset = 0;
+                let mut data_files: Vec<(DataFile, i64 /* DSN offset */)> = vec![];
+                let mut delete_files: Vec<(DataFile, i64 /* DSN offset */)> = vec![];
+                for dsn_group in dsn_groups.into_iter() {
+                    if !dsn_group.data_files.is_empty() || !dsn_group.delete_files.is_empty() {
+                        dsn_offset += 1;
+                        for data_file in dsn_group.data_files.into_iter() {
+                            data_files.push((data_file, dsn_offset));
+                        }
+                        for delete_file in dsn_group.delete_files.into_iter() {
+                            delete_files.push((delete_file, dsn_offset));
+                        }
+                    }
+                }
+                let multiple_data_sequence_numbers = dsn_offset > 1;
+
                 let n_data_files = data_files.len();
                 let n_delete_files = delete_files.len();
 
@@ -116,7 +139,7 @@ impl Operation {
                     return Ok((None, Vec::new()));
                 }
 
-                let data_files_iter = delete_files.iter().chain(data_files.iter());
+                let data_files_iter = delete_files.iter().chain(data_files.iter()).map(|(x, _)| x);
 
                 let manifest_list_writer = if let Some(manifest_list_bytes) =
                     prefetch_manifest_list(old_snapshot, &object_store)
@@ -140,19 +163,26 @@ impl Operation {
 
                 let n_splits = manifest_list_writer.n_splits(n_data_files + n_delete_files);
 
-                let new_datafile_iter =
-                    delete_files
-                        .into_iter()
-                        .chain(data_files.into_iter())
-                        .map(|data_file| {
-                            ManifestEntry::builder()
-                                .with_format_version(table_metadata.format_version)
-                                .with_status(Status::Added)
-                                .with_data_file(data_file)
-                                .build()
-                                .map_err(crate::spec::error::Error::from)
-                                .map_err(Error::from)
-                        });
+                let new_datafile_iter = delete_files.into_iter().chain(data_files.into_iter()).map(
+                    |(data_file, dsn_offset)| {
+                        let mut builder = ManifestEntry::builder();
+                        builder
+                            .with_format_version(table_metadata.format_version)
+                            .with_status(Status::Added)
+                            .with_data_file(data_file);
+                        // If there is only one data sequence number in this commit, we can just use sequence number inheritance
+                        // If there are multiple data sequence numbers in this commit, we need to set the data sequence number on each manifest
+                        if multiple_data_sequence_numbers {
+                            builder.with_sequence_number(
+                                table_metadata.last_sequence_number + dsn_offset,
+                            );
+                        }
+                        builder
+                            .build()
+                            .map_err(crate::spec::error::Error::from)
+                            .map_err(Error::from)
+                    },
+                );
 
                 let snapshot_id = generate_snapshot_id();
 
@@ -180,11 +210,13 @@ impl Operation {
                     (_, _) => Ok(SnapshotOperation::Overwrite),
                 }?;
 
+                let snapshot_sequence_number = table_metadata.last_sequence_number
+                    + if dsn_offset >= 1 { dsn_offset } else { 1 };
                 let mut snapshot_builder = SnapshotBuilder::default();
                 snapshot_builder
                     .with_snapshot_id(snapshot_id)
                     .with_manifest_list(new_manifest_list_location)
-                    .with_sequence_number(table_metadata.last_sequence_number + 1)
+                    .with_sequence_number(snapshot_sequence_number)
                     .with_summary(Summary {
                         operation: snapshot_operation,
                         other: additional_summary.unwrap_or_default(),

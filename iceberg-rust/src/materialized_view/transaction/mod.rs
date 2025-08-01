@@ -14,7 +14,10 @@ use crate::{
     error::Error,
     table::{
         delete_all_table_files,
-        transaction::{operation::Operation as TableOperation, APPEND_INDEX, REPLACE_INDEX},
+        transaction::{
+            operation::{DsnGroup, Operation as TableOperation},
+            APPEND_INDEX, REPLACE_INDEX,
+        },
     },
     view::transaction::operation::Operation as ViewOperation,
 };
@@ -105,12 +108,17 @@ impl<'view> Transaction<'view> {
         if let Some(ref mut operation) = self.storage_table_operations[APPEND_INDEX] {
             if let TableOperation::Append {
                 branch: _,
-                data_files: old,
-                delete_files: _,
+                dsn_groups,
                 additional_summary: old_lineage,
             } = operation
             {
-                old.extend_from_slice(&files);
+                match dsn_groups.last_mut() {
+                    Some(g) => g.data_files.extend_from_slice(&files),
+                    None => dsn_groups.push(DsnGroup {
+                        data_files: files,
+                        delete_files: vec![],
+                    }),
+                };
                 *old_lineage = Some(HashMap::from_iter(vec![(
                     REFRESH_STATE.to_owned(),
                     refresh_state.clone(),
@@ -119,8 +127,10 @@ impl<'view> Transaction<'view> {
         } else {
             self.storage_table_operations[APPEND_INDEX] = Some(TableOperation::Append {
                 branch: self.branch.clone(),
-                data_files: files,
-                delete_files: Vec::new(),
+                dsn_groups: vec![DsnGroup {
+                    data_files: files,
+                    delete_files: vec![],
+                }],
                 additional_summary: Some(HashMap::from_iter(vec![(
                     REFRESH_STATE.to_owned(),
                     refresh_state,
@@ -140,12 +150,17 @@ impl<'view> Transaction<'view> {
         if let Some(ref mut operation) = self.storage_table_operations[APPEND_INDEX] {
             if let TableOperation::Append {
                 branch: _,
-                data_files: _,
-                delete_files: old,
+                dsn_groups,
                 additional_summary: old_lineage,
             } = operation
             {
-                old.extend_from_slice(&files);
+                match dsn_groups.last_mut() {
+                    Some(g) => g.delete_files.extend_from_slice(&files),
+                    None => dsn_groups.push(DsnGroup {
+                        data_files: vec![],
+                        delete_files: files,
+                    }),
+                };
                 *old_lineage = Some(HashMap::from_iter(vec![(
                     REFRESH_STATE.to_owned(),
                     refresh_state.clone(),
@@ -154,8 +169,10 @@ impl<'view> Transaction<'view> {
         } else {
             self.storage_table_operations[APPEND_INDEX] = Some(TableOperation::Append {
                 branch: self.branch.clone(),
-                data_files: Vec::new(),
-                delete_files: files,
+                dsn_groups: vec![DsnGroup {
+                    data_files: vec![],
+                    delete_files: files,
+                }],
                 additional_summary: Some(HashMap::from_iter(vec![(
                     REFRESH_STATE.to_owned(),
                     refresh_state,
