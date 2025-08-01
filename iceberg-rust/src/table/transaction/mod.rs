@@ -158,10 +158,7 @@ impl<'table> TableTransaction<'table> {
     pub fn append_delete(mut self, files: Vec<DataFile>) -> Self {
         if let Some(ref mut operation) = self.operations[APPEND_INDEX] {
             if let Operation::Append {
-                branch: _,
-                data_files: _,
-                delete_files: old,
-                additional_summary: None,
+                delete_files: old, ..
             } = operation
             {
                 old.extend_from_slice(&files);

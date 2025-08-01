@@ -56,7 +56,7 @@ pub enum Error {
     ParseInt(#[from] std::num::ParseIntError),
     /// parse int error
     #[error(transparent)]
-    ConfigBuilder(#[from] crate::table::DataFusionTableConfigBuilderError),
+    DeriveBuilder(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl From<Error> for DataFusionError {

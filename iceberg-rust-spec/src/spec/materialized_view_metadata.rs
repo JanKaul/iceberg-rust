@@ -29,7 +29,7 @@ pub type MaterializedViewMetadata = GeneralViewMetadata<FullIdentifier>;
 pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<FullIdentifier>;
 
 impl MaterializedViewMetadata {
-    pub fn as_ref(&self) -> TabularMetadataRef {
+    pub fn as_ref(&self) -> TabularMetadataRef<'_> {
         TabularMetadataRef::MaterializedView(self)
     }
 }
