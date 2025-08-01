@@ -89,30 +89,9 @@ pub enum Error {
     /// parse int error
     #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
-    /// table metadata builder
+    /// derive builder
     #[error(transparent)]
-    TableMetadataBuilder(
-        #[from] iceberg_rust_spec::spec::table_metadata::TableMetadataBuilderError,
-    ),
-    /// view metadata builder
-    #[error(transparent)]
-    ViewMetadataBuilder(
-        #[from] iceberg_rust_spec::spec::view_metadata::GeneralViewMetadataBuilderError,
-    ),
-    /// version builder
-    #[error(transparent)]
-    VersionBuilder(#[from] iceberg_rust_spec::spec::view_metadata::VersionBuilderError),
-    /// create table builder
-    #[error(transparent)]
-    CreateTableBuilder(#[from] crate::catalog::create::CreateTableBuilderError),
-    /// create view builder
-    #[error(transparent)]
-    CreateViewBuilder(#[from] crate::catalog::create::CreateViewBuilderError),
-    /// create view builder
-    #[error(transparent)]
-    CreateMaterializedViewBuilder(
-        #[from] crate::catalog::create::CreateMaterializedViewBuilderError,
-    ),
+    DeriveBuilder(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl From<apache_avro::Error> for Error {

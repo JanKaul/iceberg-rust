@@ -16,6 +16,7 @@
 //! * Managing snapshots and branches
 
 use std::collections::HashMap;
+use tracing::debug;
 
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
 
@@ -158,10 +159,7 @@ impl<'table> TableTransaction<'table> {
     pub fn append_delete(mut self, files: Vec<DataFile>) -> Self {
         if let Some(ref mut operation) = self.operations[APPEND_INDEX] {
             if let Operation::Append {
-                branch: _,
-                data_files: _,
-                delete_files: old,
-                additional_summary: None,
+                delete_files: old, ..
             } = operation
             {
                 old.extend_from_slice(&files);
@@ -400,6 +398,14 @@ impl<'table> TableTransaction<'table> {
         if updates.is_empty() {
             return Ok(());
         }
+
+        debug!(
+            "Committing {} updates to table {}: requirements={:?}, updates={:?}",
+            updates.len(),
+            identifier,
+            requirements,
+            updates
+        );
 
         let new_table = catalog
             .clone()

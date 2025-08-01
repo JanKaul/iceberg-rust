@@ -23,6 +23,7 @@ use iceberg_rust_spec::util::strip_prefix;
 use object_store::ObjectStore;
 use smallvec::SmallVec;
 use tokio::task::JoinHandle;
+use tracing::{debug, instrument};
 
 use crate::table::manifest::ManifestWriter;
 use crate::table::manifest_list::ManifestListWriter;
@@ -90,6 +91,7 @@ pub enum Operation {
 }
 
 impl Operation {
+    #[instrument(level = "debug", skip(object_store))]
     pub async fn execute(
         self,
         table_metadata: &TableMetadata,
@@ -102,6 +104,10 @@ impl Operation {
                 delete_files,
                 additional_summary,
             } => {
+                debug!(
+                    "Executing Append operation: branch={:?}, data_files={}, delete_files={}, additional_summary={:?}",
+                    branch, data_files.len(), delete_files.len(), additional_summary
+                );
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
 
                 let manifest_list_schema = match table_metadata.format_version {
@@ -150,7 +156,6 @@ impl Operation {
                                 .with_status(Status::Added)
                                 .with_data_file(data_file)
                                 .build()
-                                .map_err(crate::spec::error::Error::from)
                                 .map_err(Error::from)
                         });
 
@@ -197,9 +202,7 @@ impl Operation {
                 if let Some(snapshot) = old_snapshot {
                     snapshot_builder.with_parent_snapshot_id(*snapshot.snapshot_id());
                 }
-                let snapshot = snapshot_builder
-                    .build()
-                    .map_err(iceberg_rust_spec::error::Error::from)?;
+                let snapshot = snapshot_builder.build()?;
 
                 Ok((
                     old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
@@ -223,6 +226,12 @@ impl Operation {
                 files,
                 additional_summary,
             } => {
+                debug!(
+                    "Executing Replace operation: branch={:?}, files={}, additional_summary={:?}",
+                    branch,
+                    files.len(),
+                    additional_summary
+                );
                 let partition_fields =
                     table_metadata.current_partition_fields(branch.as_deref())?;
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
@@ -254,7 +263,6 @@ impl Operation {
                         .with_sequence_number(sequence_number)
                         .with_data_file(data_file.clone())
                         .build()
-                        .map_err(crate::spec::error::Error::from)
                         .map_err(Error::from)
                 });
 
@@ -346,9 +354,7 @@ impl Operation {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Overwrite,
                         other: additional_summary.unwrap_or_default(),
                     });
-                let snapshot = snapshot_builder
-                    .build()
-                    .map_err(iceberg_rust_spec::error::Error::from)?;
+                let snapshot = snapshot_builder.build()?;
 
                 Ok((
                     old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
@@ -373,6 +379,10 @@ impl Operation {
                 files_to_overwrite,
                 additional_summary,
             } => {
+                debug!(
+                    "Executing Overwrite operation: branch={:?}, data_files={}, files_to_overwrite={:?}, additional_summary={:?}",
+                    branch, data_files.len(), files_to_overwrite, additional_summary
+                );
                 let old_snapshot = table_metadata
                     .current_snapshot(branch.as_deref())?
                     .ok_or(Error::InvalidFormat("Snapshot to overwrite".to_owned()))?;
@@ -423,7 +433,6 @@ impl Operation {
                         .with_status(Status::Added)
                         .with_data_file(data_file)
                         .build()
-                        .map_err(crate::spec::error::Error::from)
                         .map_err(Error::from)
                 });
 
@@ -488,9 +497,7 @@ impl Operation {
                             .schema_id(),
                     );
                 snapshot_builder.with_parent_snapshot_id(*old_snapshot.snapshot_id());
-                let snapshot = snapshot_builder
-                    .build()
-                    .map_err(iceberg_rust_spec::error::Error::from)?;
+                let snapshot = snapshot_builder.build()?;
 
                 Ok((
                     Some(TableRequirement::AssertRefSnapshotId {
@@ -509,26 +516,42 @@ impl Operation {
                     ],
                 ))
             }
-            Operation::UpdateProperties(entries) => Ok((
-                None,
-                vec![TableUpdate::SetProperties {
-                    updates: HashMap::from_iter(entries),
-                }],
-            )),
-            Operation::SetSnapshotRef((key, value)) => Ok((
-                table_metadata
-                    .refs
-                    .get(&key)
-                    .map(|x| TableRequirement::AssertRefSnapshotId {
-                        r#ref: key.clone(),
-                        snapshot_id: x.snapshot_id,
-                    }),
-                vec![TableUpdate::SetSnapshotRef {
-                    ref_name: key,
-                    snapshot_reference: value,
-                }],
-            )),
+            Operation::UpdateProperties(entries) => {
+                debug!(
+                    "Executing UpdateProperties operation: entries={:?}",
+                    entries
+                );
+                Ok((
+                    None,
+                    vec![TableUpdate::SetProperties {
+                        updates: HashMap::from_iter(entries),
+                    }],
+                ))
+            }
+            Operation::SetSnapshotRef((key, value)) => {
+                debug!(
+                    "Executing SetSnapshotRef operation: key={}, value={:?}",
+                    key, value
+                );
+                Ok((
+                    table_metadata
+                        .refs
+                        .get(&key)
+                        .map(|x| TableRequirement::AssertRefSnapshotId {
+                            r#ref: key.clone(),
+                            snapshot_id: x.snapshot_id,
+                        }),
+                    vec![TableUpdate::SetSnapshotRef {
+                        ref_name: key,
+                        snapshot_reference: value,
+                    }],
+                ))
+            }
             Operation::AddSchema(schema) => {
+                debug!(
+                    "Executing AddSchema operation: schema_id={:?}",
+                    schema.schema_id()
+                );
                 let last_column_id = schema.fields().iter().map(|x| x.id).max();
                 Ok((
                     None,
@@ -539,6 +562,7 @@ impl Operation {
                 ))
             }
             Operation::SetDefaultSpec(spec_id) => {
+                debug!("Executing SetDefaultSpec operation: spec_id={}", spec_id);
                 Ok((None, vec![TableUpdate::SetDefaultSpec { spec_id }]))
             }
         }

@@ -2,7 +2,7 @@
 Error type for iceberg
 */
 
-use datafusion::error::DataFusionError;
+use datafusion::{arrow::array::RecordBatch, error::DataFusionError};
 use iceberg_rust::error::Error as IcebergError;
 use thiserror::Error;
 
@@ -54,9 +54,18 @@ pub enum Error {
     /// parse int error
     #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
+    /// Tokio error
+    #[error(transparent)]
+    TokioSend(
+        #[from]
+        tokio::sync::mpsc::error::SendError<(
+            object_store::path::Path,
+            tokio::sync::mpsc::Receiver<RecordBatch>,
+        )>,
+    ),
     /// parse int error
     #[error(transparent)]
-    ConfigBuilder(#[from] crate::table::DataFusionTableConfigBuilderError),
+    DeriveBuilder(#[from] derive_builder::UninitializedFieldError),
 }
 
 impl From<Error> for DataFusionError {
