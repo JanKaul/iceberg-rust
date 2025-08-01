@@ -53,7 +53,7 @@ use super::{identifier::Identifier, Catalog};
 /// can be serialized/deserialized using serde.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
-#[builder(build_fn(name = "create"), setter(prefix = "with"))]
+#[builder(build_fn(name = "create", error = "Error"), setter(prefix = "with"))]
 pub struct CreateTable {
     #[builder(setter(into))]
     /// Name of the table
@@ -175,7 +175,7 @@ impl TryInto<TableMetadata> for CreateTable {
 /// can be serialized/deserialized using serde.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
-#[builder(build_fn(name = "create"), setter(prefix = "with"))]
+#[builder(build_fn(name = "create", error = "Error"), setter(prefix = "with"))]
 pub struct CreateView<T: Materialization> {
     /// Name of the view
     #[builder(setter(into))]
@@ -285,7 +285,7 @@ impl TryInto<MaterializedViewMetadata> for CreateView<FullIdentifier> {
 /// can be serialized/deserialized using serde.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
-#[builder(build_fn(name = "create"), setter(prefix = "with"))]
+#[builder(build_fn(name = "create", error = "Error"), setter(prefix = "with"))]
 pub struct CreateMaterializedView {
     /// Name of the view
     #[builder(setter(into))]

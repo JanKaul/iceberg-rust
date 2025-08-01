@@ -29,7 +29,7 @@ use _serde::SnapshotEnum;
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, Builder, Getters)]
 #[serde(from = "SnapshotEnum", into = "SnapshotEnum")]
-#[builder(setter(prefix = "with"))]
+#[builder(build_fn(error = "Error"), setter(prefix = "with"))]
 /// A snapshot represents the state of a table at some time and is used to access the complete set of data files in the table.
 pub struct Snapshot {
     /// A unique long ID

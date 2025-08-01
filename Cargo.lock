@@ -2297,6 +2297,7 @@ dependencies = [
  "iceberg-rust",
  "iceberg-sql-catalog",
  "itertools 0.14.0",
+ "lru",
  "object_store",
  "pin-project-lite",
  "regex",
@@ -2309,6 +2310,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "tracing",
  "url",
  "uuid",
 ]
