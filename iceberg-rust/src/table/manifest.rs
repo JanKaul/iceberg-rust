@@ -183,6 +183,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
         branch: Option<&str>,
+        content: manifest_list::Content,
     ) -> Result<Self, Error> {
         let mut writer = AvroWriter::new(schema, Vec::new());
 
@@ -236,7 +237,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             manifest_path: manifest_location.to_owned(),
             manifest_length: 0,
             partition_spec_id: table_metadata.default_spec_id,
-            content: manifest_list::Content::Data,
+            content,
             sequence_number: table_metadata.last_sequence_number + 1,
             min_sequence_number: table_metadata.last_sequence_number + 1,
             added_snapshot_id: snapshot_id,

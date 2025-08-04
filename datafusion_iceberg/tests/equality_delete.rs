@@ -1,5 +1,7 @@
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::{arrow::error::ArrowError, assert_batches_eq, prelude::SessionContext};
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
+use duckdb::Connection;
 use futures::stream;
 use iceberg_rust::catalog::identifier::Identifier;
 use iceberg_rust::catalog::tabular::Tabular;
@@ -16,11 +18,16 @@ use iceberg_rust::{
     table::Table,
 };
 use iceberg_sql_catalog::SqlCatalog;
+use object_store::local::LocalFileSystem;
+use object_store::ObjectStore;
 use std::sync::Arc;
+use tempfile::TempDir;
 
 #[tokio::test]
 pub async fn test_equality_delete() {
-    let object_store = ObjectStoreBuilder::memory();
+    let temp_dir = TempDir::new().unwrap();
+    let table_dir = format!("{}/test/orders", temp_dir.path().to_str().unwrap());
+    let object_store = ObjectStoreBuilder::Filesystem(Arc::new(LocalFileSystem::new()));
 
     let catalog: Arc<dyn Catalog> = Arc::new(
         SqlCatalog::new("sqlite://", "warehouse", object_store.clone())
@@ -79,7 +86,7 @@ pub async fn test_equality_delete() {
 
     let table = Table::builder()
         .with_name("orders")
-        .with_location("/test/orders")
+        .with_location(&table_dir)
         .with_schema(schema)
         .with_partition_spec(partition_spec)
         .build(&["test".to_owned()], catalog.clone())
@@ -194,4 +201,31 @@ pub async fn test_equality_delete() {
         "+----+-------------+------------+------------+--------+",
     ];
     assert_batches_eq!(expected, &batches);
+
+    // Now ensure those equality deletes are correctly readable by an external readers as well,
+    // namely DuckDB
+
+    let latest_version = table
+        .object_store()
+        .get(&object_store::path::Path::from(format!(
+            "{table_dir}/metadata/version-hint.text"
+        )))
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    let latest_version_str = std::str::from_utf8(&latest_version).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("install iceberg", []).unwrap();
+    conn.execute("load iceberg", []).unwrap();
+
+    let duckdb_batches: Vec<RecordBatch> = conn
+        .prepare("select * from iceberg_scan(?) order by id")
+        .unwrap()
+        .query_arrow([latest_version_str])
+        .unwrap()
+        .collect();
+    assert_batches_eq!(expected, &duckdb_batches);
 }
