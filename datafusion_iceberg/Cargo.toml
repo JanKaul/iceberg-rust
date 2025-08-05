@@ -31,6 +31,7 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+duckdb = { version = "1.3.2", features = ["bundled"] }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
 reqwest = "0.12"

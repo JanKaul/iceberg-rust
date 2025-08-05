@@ -7,7 +7,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use bytes::Bytes;
 use iceberg_rust_spec::manifest_list::{
-    manifest_list_schema_v1, manifest_list_schema_v2, ManifestListEntry,
+    manifest_list_schema_v1, manifest_list_schema_v2, Content, ManifestListEntry,
 };
 use iceberg_rust_spec::snapshot::{Operation as SnapshotOperation, Snapshot};
 use iceberg_rust_spec::spec::table_metadata::TableMetadata;
@@ -124,7 +124,7 @@ impl Operation {
 
                 let data_files_iter = delete_files.iter().chain(data_files.iter());
 
-                let manifest_list_writer = if let Some(manifest_list_bytes) =
+                let mut manifest_list_writer = if let Some(manifest_list_bytes) =
                     prefetch_manifest_list(old_snapshot, &object_store)
                 {
                     let bytes = manifest_list_bytes.await??;
@@ -146,18 +146,25 @@ impl Operation {
 
                 let n_splits = manifest_list_writer.n_splits(n_data_files + n_delete_files);
 
-                let new_datafile_iter =
-                    delete_files
-                        .into_iter()
-                        .chain(data_files.into_iter())
-                        .map(|data_file| {
-                            ManifestEntry::builder()
-                                .with_format_version(table_metadata.format_version)
-                                .with_status(Status::Added)
-                                .with_data_file(data_file)
-                                .build()
-                                .map_err(Error::from)
-                        });
+                let new_datafile_iter = data_files.into_iter().map(|data_file| {
+                    ManifestEntry::builder()
+                        .with_format_version(table_metadata.format_version)
+                        .with_status(Status::Added)
+                        .with_data_file(data_file)
+                        .build()
+                        .map_err(crate::spec::error::Error::from)
+                        .map_err(Error::from)
+                });
+
+                let new_delete_iter = delete_files.into_iter().map(|data_file| {
+                    ManifestEntry::builder()
+                        .with_format_version(table_metadata.format_version)
+                        .with_status(Status::Added)
+                        .with_data_file(data_file)
+                        .build()
+                        .map_err(crate::spec::error::Error::from)
+                        .map_err(Error::from)
+                });
 
                 let snapshot_id = generate_snapshot_id();
 
@@ -165,16 +172,45 @@ impl Operation {
                 // Split manifest file if limit is exceeded
                 let new_manifest_list_location = if n_splits == 0 {
                     manifest_list_writer
-                        .append_and_finish(new_datafile_iter, snapshot_id, object_store)
+                        .append(
+                            new_datafile_iter,
+                            snapshot_id,
+                            object_store.clone(),
+                            Content::Data,
+                        )
+                        .await?;
+                    manifest_list_writer
+                        .append(
+                            new_delete_iter,
+                            snapshot_id,
+                            object_store.clone(),
+                            Content::Deletes,
+                        )
+                        .await?;
+                    manifest_list_writer
+                        .finish(snapshot_id, object_store)
                         .await?
                 } else {
                     manifest_list_writer
-                        .append_multiple_and_finish(
+                        .append_multiple(
                             new_datafile_iter,
                             snapshot_id,
                             n_splits,
-                            object_store,
+                            object_store.clone(),
+                            Content::Data,
                         )
+                        .await?;
+                    manifest_list_writer
+                        .append_multiple(
+                            new_delete_iter,
+                            snapshot_id,
+                            n_splits,
+                            object_store.clone(),
+                            Content::Deletes,
+                        )
+                        .await?;
+                    manifest_list_writer
+                        .finish(snapshot_id, object_store)
                         .await?
                 };
 
@@ -461,22 +497,30 @@ impl Operation {
                 // Split manifest file if limit is exceeded
                 let new_manifest_list_location = if n_splits == 0 {
                     manifest_list_writer
-                        .append_filtered_and_finish(
+                        .append_filtered(
                             new_datafile_iter,
                             snapshot_id,
                             filter,
-                            object_store,
+                            object_store.clone(),
+                            Content::Data,
                         )
+                        .await?;
+                    manifest_list_writer
+                        .finish(snapshot_id, object_store)
                         .await?
                 } else {
                     manifest_list_writer
-                        .append_multiple_filtered_and_finish(
+                        .append_multiple_filtered(
                             new_datafile_iter,
                             snapshot_id,
                             n_splits,
                             filter,
-                            object_store,
+                            object_store.clone(),
+                            Content::Data,
                         )
+                        .await?;
+                    manifest_list_writer
+                        .finish(snapshot_id, object_store)
                         .await?
                 };
 
