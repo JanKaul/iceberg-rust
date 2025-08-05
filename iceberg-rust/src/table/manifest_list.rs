@@ -809,6 +809,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 snapshot_id,
                 &manifest_schema,
                 self.table_metadata,
+                content,
                 self.branch.as_deref(),
             )?
         };
@@ -1041,6 +1042,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                     snapshot_id,
                     &manifest_schema,
                     self.table_metadata,
+                    content,
                     self.branch.as_deref(),
                 )?;
 
