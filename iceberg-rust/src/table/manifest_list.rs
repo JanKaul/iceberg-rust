@@ -609,9 +609,12 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// ```ignore
     /// let splits = writer.n_splits(1000); // Calculate splits for 1000 new files
     /// ```
-    pub(crate) fn n_splits(&self, n_data_files: usize) -> u32 {
-        let selected_manifest_file_count = self
-            .selected_data_manifest
+    pub(crate) fn n_splits(&self, n_data_files: usize, content: Content) -> u32 {
+        let selected_manifest = match content {
+            Content::Data => &self.selected_data_manifest,
+            Content::Deletes => &self.selected_delete_manifest,
+        };
+        let selected_manifest_file_count = selected_manifest
             .as_ref()
             .and_then(|selected_manifest| {
                 match (
