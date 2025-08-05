@@ -94,7 +94,7 @@ pub struct FieldSummary {
     pub upper_bound: Option<Value>,
 }
 
-#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize_repr, Deserialize_repr, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 /// Type of content stored by the data file.
 pub enum Content {
