@@ -17,7 +17,7 @@ use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::{
         avro_value_to_manifest_list_entry, manifest_list_schema_v1, manifest_list_schema_v2,
-        ManifestListEntry,
+        Content, ManifestListEntry,
     },
     snapshot::Snapshot,
     table_metadata::{FormatVersion, TableMetadata},
@@ -321,7 +321,8 @@ pub async fn snapshot_column_bounds(
 pub(crate) struct ManifestListWriter<'schema, 'metadata> {
     table_metadata: &'metadata TableMetadata,
     writer: AvroWriter<'schema, Vec<u8>>,
-    selected_manifest: Option<ManifestListEntry>,
+    selected_data_manifest: Option<ManifestListEntry>,
+    selected_delete_manifest: Option<ManifestListEntry>,
     bounding_partition_values: Rectangle,
     n_existing_files: usize,
     commit_uuid: String,
@@ -382,7 +383,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         Ok(Self {
             table_metadata,
             writer,
-            selected_manifest: None,
+            selected_data_manifest: None,
+            selected_delete_manifest: None,
             bounding_partition_values,
             n_existing_files: 0,
             commit_uuid,
@@ -456,7 +458,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         let mut writer = AvroWriter::new(schema, Vec::new());
 
         let SelectedManifest {
-            manifest,
+            data_manifest,
+            delete_manifest,
             file_count_all_entries,
         } = if partition_column_names.is_empty() {
             select_manifest_unpartitioned(manifest_list_reader, &mut writer)?
@@ -471,7 +474,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         Ok(Self {
             table_metadata,
             writer,
-            selected_manifest: Some(manifest),
+            selected_data_manifest: Some(data_manifest),
+            selected_delete_manifest: delete_manifest,
             bounding_partition_values,
             n_existing_files: file_count_all_entries,
             commit_uuid,
@@ -573,7 +577,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             Self {
                 table_metadata,
                 writer,
-                selected_manifest: Some(manifest),
+                selected_data_manifest: Some(manifest),
+                selected_delete_manifest: None,
                 bounding_partition_values,
                 n_existing_files: file_count_all_entries,
                 commit_uuid,
@@ -606,7 +611,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// ```
     pub(crate) fn n_splits(&self, n_data_files: usize) -> u32 {
         let selected_manifest_file_count = self
-            .selected_manifest
+            .selected_data_manifest
             .as_ref()
             .and_then(|selected_manifest| {
                 match (
@@ -671,17 +676,19 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// ).await?;
     /// ```
     #[inline]
-    pub(crate) async fn append_and_finish(
-        self,
+    pub(crate) async fn append(
+        &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
         object_store: Arc<dyn ObjectStore>,
-    ) -> Result<String, Error> {
-        self.append_filtered_and_finish(
+        content: Content,
+    ) -> Result<(), Error> {
+        self.append_filtered(
             data_files,
             snapshot_id,
             None::<fn(&Result<ManifestEntry, Error>) -> bool>,
             object_store,
+            content,
         )
         .await
     }
@@ -740,14 +747,19 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
-    pub(crate) async fn append_filtered_and_finish(
-        mut self,
+    pub(crate) async fn append_filtered(
+        &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
         filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
-    ) -> Result<String, Error> {
-        let selected_manifest_bytes_opt = prefetch_manifest(&self.selected_manifest, &object_store);
+        content: Content,
+    ) -> Result<(), Error> {
+        let selected_manifest = match content {
+            Content::Data => self.selected_data_manifest.take(),
+            Content::Deletes => self.selected_delete_manifest.take(),
+        };
+        let selected_manifest_bytes_opt = prefetch_manifest(&selected_manifest, &object_store);
 
         let partition_fields = self
             .table_metadata
@@ -759,7 +771,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         )?;
 
         let mut manifest_writer = if let (Some(mut manifest), Some(manifest_bytes)) =
-            (self.selected_manifest, selected_manifest_bytes_opt)
+            (selected_manifest, selected_manifest_bytes_opt)
         {
             let manifest_bytes = manifest_bytes.await??;
 
@@ -806,23 +818,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
         self.writer.append_ser(manifest)?;
 
-        let new_manifest_list_location = new_manifest_list_location(
-            &self.table_metadata.location,
-            snapshot_id,
-            0,
-            &self.commit_uuid,
-        );
-
-        let manifest_list_bytes = self.writer.into_inner()?;
-
-        object_store
-            .put(
-                &strip_prefix(&new_manifest_list_location).into(),
-                manifest_list_bytes.into(),
-            )
-            .await?;
-
-        Ok(new_manifest_list_location)
+        Ok(())
     }
 
     /// Appends data files by splitting them across multiple manifests and finalizes the manifest list.
@@ -873,19 +869,21 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
-    pub(crate) async fn append_multiple_and_finish(
-        self,
+    pub(crate) async fn append_multiple(
+        &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
         n_splits: u32,
         object_store: Arc<dyn ObjectStore>,
-    ) -> Result<String, Error> {
-        self.append_multiple_filtered_and_finish(
+        content: Content,
+    ) -> Result<(), Error> {
+        self.append_multiple_filtered(
             data_files,
             snapshot_id,
             n_splits,
             None::<fn(&Result<ManifestEntry, Error>) -> bool>,
             object_store,
+            content,
         )
         .await
     }
@@ -951,14 +949,15 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
-    pub(crate) async fn append_multiple_filtered_and_finish(
-        mut self,
+    pub(crate) async fn append_multiple_filtered(
+        &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
         n_splits: u32,
         filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
-    ) -> Result<String, Error> {
+        content: Content,
+    ) -> Result<(), Error> {
         let partition_fields = self
             .table_metadata
             .current_partition_fields(self.branch.as_deref())?;
@@ -974,7 +973,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         )?;
 
         let bounds = self
-            .selected_manifest
+            .selected_data_manifest
             .as_ref()
             .and_then(|x| x.partitions.as_deref())
             .map(summary_to_rectangle)
@@ -983,13 +982,17 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 x.expand(&self.bounding_partition_values);
                 x
             })
-            .unwrap_or(self.bounding_partition_values);
+            .unwrap_or(self.bounding_partition_values.clone());
 
-        let selected_manifest_bytes_opt = prefetch_manifest(&self.selected_manifest, &object_store);
+        let selected_manifest = match content {
+            Content::Data => self.selected_data_manifest.take(),
+            Content::Deletes => self.selected_delete_manifest.take(),
+        };
+        let selected_manifest_bytes_opt = prefetch_manifest(&selected_manifest, &object_store);
 
         // Split datafiles
         let splits = if let (Some(manifest), Some(manifest_bytes)) =
-            (self.selected_manifest, selected_manifest_bytes_opt)
+            (selected_manifest, selected_manifest_bytes_opt)
         {
             let manifest_bytes = manifest_bytes.await??;
             let manifest_reader = ManifestReader::new(&*manifest_bytes)?.map(|entry| {
@@ -1052,6 +1055,14 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             self.writer.append_ser(manifest)?;
         }
 
+        Ok(())
+    }
+
+    pub(crate) async fn finish(
+        self,
+        snapshot_id: i64,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<String, Error> {
         let new_manifest_list_location = new_manifest_list_location(
             &self.table_metadata.location,
             snapshot_id,
@@ -1198,6 +1209,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     }
 
     pub(crate) fn selected_manifest(&self) -> Option<&ManifestListEntry> {
-        self.selected_manifest.as_ref()
+        self.selected_data_manifest.as_ref()
     }
 }
