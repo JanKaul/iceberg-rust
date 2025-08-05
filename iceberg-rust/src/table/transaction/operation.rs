@@ -171,44 +171,52 @@ impl Operation {
                 // Write manifest files
                 // Split manifest file if limit is exceeded
                 let new_manifest_list_location = if n_splits == 0 {
-                    manifest_list_writer
-                        .append(
-                            new_datafile_iter,
-                            snapshot_id,
-                            object_store.clone(),
-                            Content::Data,
-                        )
-                        .await?;
-                    manifest_list_writer
-                        .append(
-                            new_delete_iter,
-                            snapshot_id,
-                            object_store.clone(),
-                            Content::Deletes,
-                        )
-                        .await?;
+                    if n_data_files != 0 {
+                        manifest_list_writer
+                            .append(
+                                new_datafile_iter,
+                                snapshot_id,
+                                object_store.clone(),
+                                Content::Data,
+                            )
+                            .await?;
+                    }
+                    if n_delete_files != 0 {
+                        manifest_list_writer
+                            .append(
+                                new_delete_iter,
+                                snapshot_id,
+                                object_store.clone(),
+                                Content::Deletes,
+                            )
+                            .await?;
+                    }
                     manifest_list_writer
                         .finish(snapshot_id, object_store)
                         .await?
                 } else {
-                    manifest_list_writer
-                        .append_multiple(
-                            new_datafile_iter,
-                            snapshot_id,
-                            n_splits,
-                            object_store.clone(),
-                            Content::Data,
-                        )
-                        .await?;
-                    manifest_list_writer
-                        .append_multiple(
-                            new_delete_iter,
-                            snapshot_id,
-                            n_splits,
-                            object_store.clone(),
-                            Content::Deletes,
-                        )
-                        .await?;
+                    if n_data_files != 0 {
+                        manifest_list_writer
+                            .append_multiple(
+                                new_datafile_iter,
+                                snapshot_id,
+                                n_splits,
+                                object_store.clone(),
+                                Content::Data,
+                            )
+                            .await?;
+                    }
+                    if n_delete_files != 0 {
+                        manifest_list_writer
+                            .append_multiple(
+                                new_delete_iter,
+                                snapshot_id,
+                                n_splits,
+                                object_store.clone(),
+                                Content::Deletes,
+                            )
+                            .await?;
+                    }
                     manifest_list_writer
                         .finish(snapshot_id, object_store)
                         .await?
