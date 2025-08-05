@@ -182,6 +182,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         snapshot_id: i64,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
+        content: manifest_list::Content,
         branch: Option<&str>,
     ) -> Result<Self, Error> {
         let mut writer = AvroWriter::new(schema, Vec::new());
@@ -229,14 +230,20 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             serde_json::to_string(&spec_id)?,
         )?;
 
-        writer.add_user_metadata("content".to_string(), "data")?;
+        writer.add_user_metadata(
+            "content".to_string(),
+            match content {
+                manifest_list::Content::Data => "data",
+                manifest_list::Content::Deletes => "deletes",
+            },
+        )?;
 
         let manifest = ManifestListEntry {
             format_version: table_metadata.format_version,
             manifest_path: manifest_location.to_owned(),
             manifest_length: 0,
             partition_spec_id: table_metadata.default_spec_id,
-            content: manifest_list::Content::Data,
+            content,
             sequence_number: table_metadata.last_sequence_number + 1,
             min_sequence_number: table_metadata.last_sequence_number + 1,
             added_snapshot_id: snapshot_id,
@@ -331,7 +338,13 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             serde_json::to_string(&spec_id)?,
         )?;
 
-        writer.add_user_metadata("content".to_string(), "data")?;
+        writer.add_user_metadata(
+            "content".to_string(),
+            match manifest.content {
+                manifest_list::Content::Data => "data",
+                manifest_list::Content::Deletes => "deletes",
+            },
+        )?;
 
         writer.extend(
             manifest_reader
@@ -455,7 +468,13 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             serde_json::to_string(&spec_id)?,
         )?;
 
-        writer.add_user_metadata("content".to_string(), "data")?;
+        writer.add_user_metadata(
+            "content".to_string(),
+            match manifest.content {
+                manifest_list::Content::Data => "data",
+                manifest_list::Content::Deletes => "deletes",
+            },
+        )?;
 
         writer.extend(manifest_reader.filter_map(|entry| {
             let mut entry = entry

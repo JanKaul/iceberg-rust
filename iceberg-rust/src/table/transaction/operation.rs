@@ -325,6 +325,7 @@ impl Operation {
                         snapshot_id,
                         &manifest_schema,
                         table_metadata,
+                        Content::Data,
                         branch.as_deref(),
                     )?;
 
@@ -356,6 +357,7 @@ impl Operation {
                             snapshot_id,
                             &manifest_schema,
                             table_metadata,
+                            Content::Data,
                             branch.as_deref(),
                         )?;
 
