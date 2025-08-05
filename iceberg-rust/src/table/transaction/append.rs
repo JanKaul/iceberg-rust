@@ -101,7 +101,8 @@ pub(crate) fn split_datafiles(
 }
 
 pub(crate) struct SelectedManifest {
-    pub manifest: ManifestListEntry,
+    pub data_manifest: ManifestListEntry,
+    pub delete_manifest: Option<ManifestListEntry>,
     pub file_count_all_entries: usize,
 }
 
@@ -112,7 +113,8 @@ pub(crate) fn select_manifest_partitioned(
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
     bounding_partition_values: &Rectangle,
 ) -> Result<SelectedManifest, Error> {
-    let mut selected_state = None;
+    let mut selected_data_state = None;
+    let mut selected_delete_state = None;
     let mut file_count_all_entries = 0;
     for manifest_res in manifest_list_reader {
         let manifest = manifest_res?;
@@ -127,29 +129,53 @@ pub(crate) fn select_manifest_partitioned(
 
         file_count_all_entries += manifest.added_files_count.unwrap_or(0) as usize;
 
-        let Some((selected_bounds, selected_manifest)) = &selected_state else {
-            selected_state = Some((bounds, manifest));
-            continue;
-        };
+        match manifest.content {
+            iceberg_rust_spec::manifest_list::Content::Data => {
+                let Some((selected_bounds, selected_manifest)) = &selected_data_state else {
+                    selected_data_state = Some((bounds, manifest));
+                    continue;
+                };
 
-        match selected_bounds.cmp_with_priority(&bounds)? {
-            Ordering::Greater => {
-                manifest_list_writer.append_ser(selected_manifest)?;
-                selected_state = Some((bounds, manifest));
-                continue;
+                match selected_bounds.cmp_with_priority(&bounds)? {
+                    Ordering::Greater => {
+                        manifest_list_writer.append_ser(selected_manifest)?;
+                        selected_data_state = Some((bounds, manifest));
+                        continue;
+                    }
+                    _ => {
+                        manifest_list_writer.append_ser(manifest)?;
+                        continue;
+                    }
+                }
             }
-            _ => {
-                manifest_list_writer.append_ser(manifest)?;
-                continue;
+            iceberg_rust_spec::manifest_list::Content::Deletes => {
+                let Some((selected_bounds, selected_manifest)) = &selected_delete_state else {
+                    selected_delete_state = Some((bounds, manifest));
+                    continue;
+                };
+
+                match selected_bounds.cmp_with_priority(&bounds)? {
+                    Ordering::Greater => {
+                        manifest_list_writer.append_ser(selected_manifest)?;
+                        selected_delete_state = Some((bounds, manifest));
+                        continue;
+                    }
+                    _ => {
+                        manifest_list_writer.append_ser(manifest)?;
+                        continue;
+                    }
+                }
             }
         }
     }
-    selected_state
-        .map(|(_, entry)| SelectedManifest {
-            manifest: entry,
-            file_count_all_entries,
-        })
-        .ok_or(Error::NotFound("Manifest for insert".to_owned()))
+    let (_, data_manifest) =
+        selected_data_state.ok_or(Error::NotFound("Manifest for insert".to_owned()))?;
+
+    Ok(SelectedManifest {
+        data_manifest,
+        delete_manifest: selected_delete_state.map(|(_, x)| x),
+        file_count_all_entries,
+    })
 }
 
 /// Select the manifest with the smallest number of rows.
@@ -157,7 +183,8 @@ pub(crate) fn select_manifest_unpartitioned(
     manifest_list_reader: ManifestListReader<&[u8]>,
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
 ) -> Result<SelectedManifest, Error> {
-    let mut selected_state = None;
+    let mut selected_data_state = None;
+    let mut selected_delete_state = None;
     let mut file_count_all_entries = 0;
     for manifest_res in manifest_list_reader {
         let manifest = manifest_res?;
@@ -165,32 +192,59 @@ pub(crate) fn select_manifest_unpartitioned(
         let row_count = manifest.added_rows_count;
         file_count_all_entries += manifest.added_files_count.unwrap_or(0) as usize;
 
-        let Some((selected_row_count, selected_manifest)) = &selected_state else {
-            selected_state = Some((row_count, manifest));
-            continue;
-        };
+        match manifest.content {
+            iceberg_rust_spec::manifest_list::Content::Data => {
+                let Some((selected_row_count, selected_manifest)) = &selected_data_state else {
+                    selected_data_state = Some((row_count, manifest));
+                    continue;
+                };
 
-        // If the file doesn't have any rows, we select it
-        let Some(row_count) = row_count else {
-            selected_state = Some((row_count, manifest));
-            continue;
-        };
+                // If the file doesn't have any rows, we select it
+                let Some(row_count) = row_count else {
+                    selected_data_state = Some((row_count, manifest));
+                    continue;
+                };
 
-        if selected_row_count.is_some_and(|x| x > row_count) {
-            manifest_list_writer.append_ser(selected_manifest)?;
-            selected_state = Some((Some(row_count), manifest));
-            continue;
-        } else {
-            manifest_list_writer.append_ser(manifest)?;
-            continue;
+                if selected_row_count.is_some_and(|x| x > row_count) {
+                    manifest_list_writer.append_ser(selected_manifest)?;
+                    selected_data_state = Some((Some(row_count), manifest));
+                    continue;
+                } else {
+                    manifest_list_writer.append_ser(manifest)?;
+                    continue;
+                }
+            }
+            iceberg_rust_spec::manifest_list::Content::Deletes => {
+                let Some((selected_row_count, selected_manifest)) = &selected_delete_state else {
+                    selected_delete_state = Some((row_count, manifest));
+                    continue;
+                };
+
+                // If the file doesn't have any rows, we select it
+                let Some(row_count) = row_count else {
+                    selected_delete_state = Some((row_count, manifest));
+                    continue;
+                };
+
+                if selected_row_count.is_some_and(|x| x > row_count) {
+                    manifest_list_writer.append_ser(selected_manifest)?;
+                    selected_delete_state = Some((Some(row_count), manifest));
+                    continue;
+                } else {
+                    manifest_list_writer.append_ser(manifest)?;
+                    continue;
+                }
+            }
         }
     }
-    selected_state
-        .map(|(_, entry)| SelectedManifest {
-            manifest: entry,
-            file_count_all_entries,
-        })
-        .ok_or(Error::NotFound("Manifest for insert".to_owned()))
+    let (_, data_manifest) =
+        selected_data_state.ok_or(Error::NotFound("Manifest for insert".to_owned()))?;
+
+    Ok(SelectedManifest {
+        data_manifest,
+        delete_manifest: selected_delete_state.map(|(_, x)| x),
+        file_count_all_entries,
+    })
 }
 
 pub(crate) fn append_summary(files: &[DataFile]) -> Option<HashMap<String, String>> {
