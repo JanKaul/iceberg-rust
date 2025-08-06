@@ -198,7 +198,7 @@ impl<'table> TableTransaction<'table> {
         if let Some(Operation::Append {
             branch: _,
             ref mut dsn_groups,
-            additional_summary: None,
+            ..
         }) = self.operations[APPEND_INDEX]
         {
             dsn_groups.push(DsnGroup {
