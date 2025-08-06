@@ -600,7 +600,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///
     /// # Example Usage
     /// ```ignore
-    /// let manifest_list_location = writer.append_and_finish(
+    /// let manifest_list_location = writer.append(
     ///     data_files_iter,
     ///     snapshot_id,
     ///     object_store,
@@ -626,7 +626,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
     /// Appends data files to a single manifest with optional filtering and finalizes the manifest list.
     ///
-    /// This method extends the basic `append_and_finish` functionality by providing the ability to
+    /// This method extends the basic `append` functionality by providing the ability to
     /// filter data files during the append process. It creates a single manifest file containing
     /// the provided data files (after filtering), either by appending to an existing reusable
     /// manifest or creating a new one.
@@ -671,7 +671,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///
     /// # Example Usage
     /// ```ignore
-    /// let manifest_list_location = writer.append_filtered_and_finish(
+    /// let manifest_list_location = writer.append_filtered(
     ///     data_files_iter,
     ///     snapshot_id,
     ///     Some(|entry| entry.as_ref().map(|e| e.status() == &Status::Added).unwrap_or(false)),
@@ -792,7 +792,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// # Example Usage
     /// ```ignore
     /// let n_splits = writer.n_splits(data_files.len());
-    /// let manifest_list_location = writer.append_split_and_finish(
+    /// let manifest_list_location = writer.append_split(
     ///     data_files_iter,
     ///     snapshot_id,
     ///     n_splits,
@@ -820,7 +820,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
     /// Appends data files across multiple manifests with optional filtering and finalizes the manifest list.
     ///
-    /// This method extends the `append_multiple_and_finish` functionality by providing the ability to
+    /// This method extends the `append_multiple` functionality by providing the ability to
     /// filter data files during the append and splitting process. It distributes the data files
     /// (after filtering) across the specified number of splits based on partition boundaries,
     /// optimizing for large operations that require conditional processing.
@@ -871,7 +871,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// # Example Usage
     /// ```ignore
     /// let n_splits = writer.n_splits(data_files.len());
-    /// let manifest_list_location = writer.append_multiple_filtered_and_finish(
+    /// let manifest_list_location = writer.append_multiple_filtered(
     ///     data_files_iter,
     ///     snapshot_id,
     ///     n_splits,
