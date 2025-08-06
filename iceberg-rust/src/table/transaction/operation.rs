@@ -20,6 +20,7 @@ use iceberg_rust_spec::spec::{
 };
 use iceberg_rust_spec::table_metadata::FormatVersion;
 use iceberg_rust_spec::util::strip_prefix;
+use itertools::Either;
 use object_store::ObjectStore;
 use smallvec::SmallVec;
 use tokio::task::JoinHandle;
@@ -172,48 +173,36 @@ impl Operation {
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
-                if n_data_files != 0 {
-                    if n_data_splits == 0 {
-                        manifest_list_writer
-                            .append(
-                                new_datafile_iter,
-                                snapshot_id,
-                                object_store.clone(),
-                                Content::Data,
-                            )
-                            .await?;
-                    } else {
-                        manifest_list_writer
-                            .append_multiple(
-                                new_datafile_iter,
-                                snapshot_id,
-                                n_data_splits,
-                                object_store.clone(),
-                                Content::Data,
-                            )
-                            .await?;
-                    }
-                }
-                if n_delete_files != 0 {
-                    if n_delete_splits == 0 {
-                        manifest_list_writer
-                            .append(
-                                new_deletefile_iter,
-                                snapshot_id,
-                                object_store.clone(),
-                                Content::Deletes,
-                            )
-                            .await?;
-                    } else {
-                        manifest_list_writer
-                            .append_multiple(
-                                new_deletefile_iter,
-                                snapshot_id,
-                                n_delete_splits,
-                                object_store.clone(),
-                                Content::Deletes,
-                            )
-                            .await?;
+                for (content, files, n_files, n_splits) in [
+                    (
+                        Content::Data,
+                        Either::Left(new_datafile_iter),
+                        n_data_files,
+                        n_data_splits,
+                    ),
+                    (
+                        Content::Deletes,
+                        Either::Right(new_deletefile_iter),
+                        n_delete_files,
+                        n_delete_splits,
+                    ),
+                ] {
+                    if n_files != 0 {
+                        if n_splits == 0 {
+                            manifest_list_writer
+                                .append(files, snapshot_id, object_store.clone(), content)
+                                .await?;
+                        } else {
+                            manifest_list_writer
+                                .append_multiple(
+                                    files,
+                                    snapshot_id,
+                                    n_data_splits,
+                                    object_store.clone(),
+                                    content,
+                                )
+                                .await?;
+                        }
                     }
                 }
 
