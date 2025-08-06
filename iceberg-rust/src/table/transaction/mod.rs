@@ -129,6 +129,8 @@ impl<'table> TableTransaction<'table> {
                         delete_files: vec![],
                     }),
                 };
+            } else {
+                panic!("Operation at APPEND_INDEX should be an Append");
             }
         } else {
             self.operations[APPEND_INDEX] = Some(Operation::Append {
@@ -166,7 +168,7 @@ impl<'table> TableTransaction<'table> {
             if let Operation::Append {
                 branch: _,
                 dsn_groups,
-                additional_summary: None,
+                ..
             } = operation
             {
                 match dsn_groups.last_mut() {
@@ -176,6 +178,8 @@ impl<'table> TableTransaction<'table> {
                         delete_files: files,
                     }),
                 };
+            } else {
+                panic!("Operation at APPEND_INDEX should be an Append");
             }
         } else {
             self.operations[APPEND_INDEX] = Some(Operation::Append {
