@@ -902,8 +902,12 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             &self.table_metadata.format_version,
         )?;
 
-        let bounds = self
-            .selected_data_manifest
+        let selected_manifest = match content {
+            Content::Data => self.selected_data_manifest.take(),
+            Content::Deletes => self.selected_delete_manifest.take(),
+        };
+
+        let bounds = selected_manifest
             .as_ref()
             .and_then(|x| x.partitions.as_deref())
             .map(summary_to_rectangle)
@@ -914,10 +918,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             })
             .unwrap_or(self.bounding_partition_values.clone());
 
-        let selected_manifest = match content {
-            Content::Data => self.selected_data_manifest.take(),
-            Content::Deletes => self.selected_delete_manifest.take(),
-        };
         let selected_manifest_bytes_opt = prefetch_manifest(&selected_manifest, &object_store);
 
         // Split datafiles
@@ -1131,7 +1131,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         Ok(())
     }
 
-    pub(crate) fn selected_manifest(&self) -> Option<&ManifestListEntry> {
+    pub(crate) fn selected_data_manifest(&self) -> Option<&ManifestListEntry> {
         self.selected_data_manifest.as_ref()
     }
 
