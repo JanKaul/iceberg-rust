@@ -468,7 +468,7 @@ impl Operation {
                 let snapshot_id = generate_snapshot_id();
 
                 let selected_manifest_location = manifest_list_writer
-                    .selected_manifest()
+                    .selected_data_manifest()
                     .map(|x| x.manifest_path.clone())
                     .ok_or(Error::NotFound("Selected manifest".to_owned()))?;
 
