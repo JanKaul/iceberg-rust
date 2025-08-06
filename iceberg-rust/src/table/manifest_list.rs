@@ -988,10 +988,18 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     }
 
     pub(crate) async fn finish(
-        self,
+        mut self,
         snapshot_id: i64,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<String, Error> {
+        if let Some(selected_data_manifest) = self.selected_data_manifest.take() {
+            self.writer.append_ser(selected_data_manifest)?;
+        }
+
+        if let Some(selected_delete_manifest) = self.selected_delete_manifest.take() {
+            self.writer.append_ser(selected_delete_manifest)?;
+        }
+
         let new_manifest_list_location = new_manifest_list_location(
             &self.table_metadata.location,
             snapshot_id,
