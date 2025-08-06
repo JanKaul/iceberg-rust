@@ -7,7 +7,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use bytes::Bytes;
 use iceberg_rust_spec::manifest_list::{
-    manifest_list_schema_v1, manifest_list_schema_v2, ManifestListEntry,
+    manifest_list_schema_v1, manifest_list_schema_v2, Content, ManifestListEntry,
 };
 use iceberg_rust_spec::snapshot::{Operation as SnapshotOperation, Snapshot};
 use iceberg_rust_spec::spec::table_metadata::TableMetadata;
@@ -20,6 +20,7 @@ use iceberg_rust_spec::spec::{
 };
 use iceberg_rust_spec::table_metadata::FormatVersion;
 use iceberg_rust_spec::util::strip_prefix;
+use itertools::Either;
 use object_store::ObjectStore;
 use smallvec::SmallVec;
 use tokio::task::JoinHandle;
@@ -118,7 +119,7 @@ impl Operation {
 
                 let data_files_iter = delete_files.iter().chain(data_files.iter());
 
-                let manifest_list_writer = if let Some(manifest_list_bytes) =
+                let mut manifest_list_writer = if let Some(manifest_list_bytes) =
                     prefetch_manifest_list(old_snapshot, &object_store)
                 {
                     let bytes = manifest_list_bytes.await??;
@@ -138,39 +139,70 @@ impl Operation {
                     )?
                 };
 
-                let n_splits = manifest_list_writer.n_splits(n_data_files + n_delete_files);
+                let n_data_splits = manifest_list_writer.n_splits(n_data_files, Content::Data);
+                let n_delete_splits =
+                    manifest_list_writer.n_splits(n_delete_files, Content::Deletes);
 
-                let new_datafile_iter =
-                    delete_files
-                        .into_iter()
-                        .chain(data_files.into_iter())
-                        .map(|data_file| {
-                            ManifestEntry::builder()
-                                .with_format_version(table_metadata.format_version)
-                                .with_status(Status::Added)
-                                .with_data_file(data_file)
-                                .build()
-                                .map_err(Error::from)
-                        });
+                let new_datafile_iter = data_files.into_iter().map(|data_file| {
+                    ManifestEntry::builder()
+                        .with_format_version(table_metadata.format_version)
+                        .with_status(Status::Added)
+                        .with_data_file(data_file)
+                        .build()
+                        .map_err(crate::spec::error::Error::from)
+                        .map_err(Error::from)
+                });
+
+                let new_deletefile_iter = delete_files.into_iter().map(|data_file| {
+                    ManifestEntry::builder()
+                        .with_format_version(table_metadata.format_version)
+                        .with_status(Status::Added)
+                        .with_data_file(data_file)
+                        .build()
+                        .map_err(crate::spec::error::Error::from)
+                        .map_err(Error::from)
+                });
 
                 let snapshot_id = generate_snapshot_id();
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
-                let new_manifest_list_location = if n_splits == 0 {
-                    manifest_list_writer
-                        .append_and_finish(new_datafile_iter, snapshot_id, object_store)
-                        .await?
-                } else {
-                    manifest_list_writer
-                        .append_multiple_and_finish(
-                            new_datafile_iter,
-                            snapshot_id,
-                            n_splits,
-                            object_store,
-                        )
-                        .await?
-                };
+                for (content, files, n_files, n_splits) in [
+                    (
+                        Content::Data,
+                        Either::Left(new_datafile_iter),
+                        n_data_files,
+                        n_data_splits,
+                    ),
+                    (
+                        Content::Deletes,
+                        Either::Right(new_deletefile_iter),
+                        n_delete_files,
+                        n_delete_splits,
+                    ),
+                ] {
+                    if n_files != 0 {
+                        if n_splits == 0 {
+                            manifest_list_writer
+                                .append(files, snapshot_id, object_store.clone(), content)
+                                .await?;
+                        } else {
+                            manifest_list_writer
+                                .append_multiple(
+                                    files,
+                                    snapshot_id,
+                                    n_data_splits,
+                                    object_store.clone(),
+                                    content,
+                                )
+                                .await?;
+                        }
+                    }
+                }
+
+                let new_manifest_list_location = manifest_list_writer
+                    .finish(snapshot_id, object_store)
+                    .await?;
 
                 let snapshot_operation = match (n_data_files, n_delete_files) {
                     (0, 0) => return Ok((None, Vec::new())),
@@ -279,6 +311,7 @@ impl Operation {
                         snapshot_id,
                         &manifest_schema,
                         table_metadata,
+                        Content::Data,
                         branch.as_deref(),
                     )?;
 
@@ -310,6 +343,7 @@ impl Operation {
                             snapshot_id,
                             &manifest_schema,
                             table_metadata,
+                            Content::Data,
                             branch.as_deref(),
                         )?;
 
@@ -409,7 +443,7 @@ impl Operation {
                     )
                     .await?;
 
-                let n_splits = manifest_list_writer.n_splits(n_data_files);
+                let n_splits = manifest_list_writer.n_splits(n_data_files, Content::Data);
 
                 let new_datafile_iter = data_files.into_iter().map(|data_file| {
                     ManifestEntry::builder()
@@ -423,7 +457,7 @@ impl Operation {
                 let snapshot_id = generate_snapshot_id();
 
                 let selected_manifest_location = manifest_list_writer
-                    .selected_manifest()
+                    .selected_data_manifest()
                     .map(|x| x.manifest_path.clone())
                     .ok_or(Error::NotFound("Selected manifest".to_owned()))?;
 
@@ -445,22 +479,30 @@ impl Operation {
                 // Split manifest file if limit is exceeded
                 let new_manifest_list_location = if n_splits == 0 {
                     manifest_list_writer
-                        .append_filtered_and_finish(
+                        .append_filtered(
                             new_datafile_iter,
                             snapshot_id,
                             filter,
-                            object_store,
+                            object_store.clone(),
+                            Content::Data,
                         )
+                        .await?;
+                    manifest_list_writer
+                        .finish(snapshot_id, object_store)
                         .await?
                 } else {
                     manifest_list_writer
-                        .append_multiple_filtered_and_finish(
+                        .append_multiple_filtered(
                             new_datafile_iter,
                             snapshot_id,
                             n_splits,
                             filter,
-                            object_store,
+                            object_store.clone(),
+                            Content::Data,
                         )
+                        .await?;
+                    manifest_list_writer
+                        .finish(snapshot_id, object_store)
                         .await?
                 };
 
