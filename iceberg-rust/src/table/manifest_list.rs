@@ -250,6 +250,7 @@ pub(crate) struct ManifestListWriter<'schema, 'metadata> {
     bounding_partition_values: Rectangle,
     n_existing_files: usize,
     commit_uuid: String,
+    manifest_count: usize,
     branch: Option<String>,
 }
 
@@ -312,6 +313,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             bounding_partition_values,
             n_existing_files: 0,
             commit_uuid,
+            manifest_count: 0,
             branch: branch.map(ToOwned::to_owned),
         })
     }
@@ -403,6 +405,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             bounding_partition_values,
             n_existing_files: file_count_all_entries,
             commit_uuid,
+            manifest_count: 0,
             branch: branch.map(ToOwned::to_owned),
         })
     }
@@ -506,6 +509,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 bounding_partition_values,
                 n_existing_files: file_count_all_entries,
                 commit_uuid,
+                manifest_count: 0,
                 branch: branch.map(ToOwned::to_owned),
             },
             manifests,
@@ -702,8 +706,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         {
             let manifest_bytes = manifest_bytes.await??;
 
-            manifest.manifest_path =
-                new_manifest_location(&self.table_metadata.location, &self.commit_uuid, 0);
+            manifest.manifest_path = self.next_manifest_location();
 
             let manifest_reader = ManifestReader::new(manifest_bytes.as_ref())?;
 
@@ -725,8 +728,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 )?
             }
         } else {
-            let manifest_location =
-                new_manifest_location(&self.table_metadata.location, &self.commit_uuid, 0);
+            let manifest_location = self.next_manifest_location();
 
             ManifestWriter::new(
                 &manifest_location,
@@ -956,10 +958,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
         let manifest_futures = splits
             .into_iter()
-            .enumerate()
-            .map(|(i, entries)| {
-                let manifest_location =
-                    new_manifest_location(&self.table_metadata.location, &self.commit_uuid, i);
+            .map(|entries| {
+                let manifest_location = self.next_manifest_location();
 
                 let mut manifest_writer = ManifestWriter::new(
                     &manifest_location,
@@ -1078,7 +1078,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         data_files_to_filter: &HashMap<String, Vec<String>>,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<(), Error> {
-        let table_metadata = &self.table_metadata;
         let partition_fields = self
             .table_metadata
             .current_partition_fields(self.branch.as_deref())?;
@@ -1088,48 +1087,43 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             &self.table_metadata.format_version,
         )?);
 
-        let futures = manifests_to_overwrite
-            .into_iter()
-            .enumerate()
-            .map(|(i, mut manifest)| {
-                let object_store = object_store.clone();
-                let location = self.table_metadata.location.clone();
-                let commit_uuid = self.commit_uuid.clone();
-                let manifest_schema = manifest_schema.clone();
-                let branch = self.branch.clone();
-                async move {
-                    let data_files_to_filter: HashSet<String> = data_files_to_filter
-                        .get(&manifest.manifest_path)
-                        .ok_or(Error::NotFound("Datafiles for manifest".to_owned()))?
-                        .iter()
-                        .map(ToOwned::to_owned)
-                        .collect();
+        let futures = manifests_to_overwrite.into_iter().map(|mut manifest| {
+            let object_store = object_store.clone();
+            let manifest_schema = manifest_schema.clone();
+            let branch = self.branch.clone();
+            let manifest_location = self.next_manifest_location();
+            let table_metadata = self.table_metadata;
+            async move {
+                let data_files_to_filter: HashSet<String> = data_files_to_filter
+                    .get(&manifest.manifest_path)
+                    .ok_or(Error::NotFound("Datafiles for manifest".to_owned()))?
+                    .iter()
+                    .map(ToOwned::to_owned)
+                    .collect();
 
-                    let bytes = object_store
-                        .clone()
-                        .get(&strip_prefix(&manifest.manifest_path).into())
-                        .await?
-                        .bytes()
-                        .await?;
+                let bytes = object_store
+                    .clone()
+                    .get(&strip_prefix(&manifest.manifest_path).into())
+                    .await?
+                    .bytes()
+                    .await?;
 
-                    let manifest_location = new_manifest_location(&location, &commit_uuid, i);
+                manifest.manifest_path = manifest_location;
 
-                    manifest.manifest_path = manifest_location;
+                let manifest_writer = ManifestWriter::from_existing_with_filter(
+                    &bytes,
+                    manifest,
+                    &data_files_to_filter,
+                    &manifest_schema,
+                    table_metadata,
+                    branch.as_deref(),
+                )?;
 
-                    let manifest_writer = ManifestWriter::from_existing_with_filter(
-                        &bytes,
-                        manifest,
-                        &data_files_to_filter,
-                        &manifest_schema,
-                        table_metadata,
-                        branch.as_deref(),
-                    )?;
+                let new_manifest = manifest_writer.finish(object_store.clone()).await?;
 
-                    let new_manifest = manifest_writer.finish(object_store.clone()).await?;
-
-                    Ok::<_, Error>(new_manifest)
-                }
-            });
+                Ok::<_, Error>(new_manifest)
+            }
+        });
         for manifest_res in join_all(futures).await {
             let manifest = manifest_res?;
             self.writer.append_ser(manifest)?;
@@ -1139,5 +1133,15 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
     pub(crate) fn selected_manifest(&self) -> Option<&ManifestListEntry> {
         self.selected_data_manifest.as_ref()
+    }
+
+    /// Get the next manifest location, tracking and numbering preceding manifests written by this
+    /// writer.
+    fn next_manifest_location(&mut self) -> String {
+        let next_id = self.manifest_count;
+
+        self.manifest_count += 1;
+
+        new_manifest_location(&self.table_metadata.location, &self.commit_uuid, next_id)
     }
 }
