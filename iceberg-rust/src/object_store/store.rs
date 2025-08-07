@@ -9,6 +9,8 @@ use object_store::{Attributes, ObjectStore, PutOptions, TagSet};
 
 use crate::error::Error;
 use flate2::read::GzDecoder;
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::io::Read;
 
 /// Simplify interaction with iceberg files
@@ -59,7 +61,7 @@ impl<T: ObjectStore> IcebergStore for T {
                     "Path for version-hint for {location}"
                 )))?
                 .into(),
-            location.to_string().into(),
+            version_hint_content(location).into(),
             PutOptions {
                 mode: object_store::PutMode::Overwrite,
                 tags: TagSet::default(),
@@ -83,6 +85,39 @@ fn version_hint_path(original: &str) -> Option<String> {
     )
 }
 
+lazy_static! {
+    static ref SUPPORTED_METADATA_FILE_FORMATS: Vec<Regex> = vec![
+        // The standard metastore format https://iceberg.apache.org/spec/#metastore-tables
+        Regex::new(
+            r"^(?<version>[0-9]{5}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}).(?:gz.)?metadata.json$"
+        )
+        .unwrap(),
+        // The legacy file-system format https://iceberg.apache.org/spec/#file-system-tables
+        Regex::new(r"^v(?<version>[0-9]+).metadata.json$").unwrap(),
+    ];
+}
+
+/// Given a full path to a metadata file, extract an appropriate version hint that other readers
+/// without access to the catalog can parse.
+pub fn version_hint_content(original: &str) -> String {
+    original
+        .split("/")
+        .last()
+        .and_then(|filename| {
+            SUPPORTED_METADATA_FILE_FORMATS
+                .iter()
+                .filter_map(|regex| {
+                    regex.captures(filename).and_then(|capture| {
+                        capture
+                            .name("version")
+                            .and_then(|m| m.as_str().parse().ok())
+                    })
+                })
+                .next()
+        })
+        .unwrap_or(original.to_string())
+}
+
 fn parse_metadata(location: &str, bytes: &[u8]) -> Result<TabularMetadata, Error> {
     if location.ends_with(".gz.metadata.json") {
         let mut decoder = GzDecoder::new(bytes);
@@ -99,6 +134,7 @@ fn parse_metadata(location: &str, bytes: &[u8]) -> Result<TabularMetadata, Error
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
     use std::io::Write;
 
     #[test]
@@ -140,6 +176,21 @@ mod tests {
         let input = "/path/to/file.with.multiple.extensions.json";
         let expected = "/path/to/version-hint.text";
         assert_eq!(version_hint_path(input), Some(expected.to_string()));
+    }
+
+    #[rstest]
+    #[case::file_format("/path/to/metadata/v2.metadata.json", "2")]
+    #[case::metastore_format_no_gzip(
+        "/path/to/metadata/00004-3f569e94-5601-48f3-9199-8d71df4ea7b0.metadata.json",
+        "00004-3f569e94-5601-48f3-9199-8d71df4ea7b0"
+    )]
+    #[case::metastore_format_with_gzip(
+        "/path/to/metadata/00004-3f569e94-5601-48f3-9199-8d71df4ea7b0.gz.metadata.json",
+        "00004-3f569e94-5601-48f3-9199-8d71df4ea7b0"
+    )]
+    #[test]
+    fn test_version_hint_content(#[case] input: &str, #[case] expected: &str) {
+        assert_eq!(version_hint_content(input), expected);
     }
 
     #[test]
