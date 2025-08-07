@@ -781,9 +781,9 @@ pub mod tests {
     use testcontainers_modules::{localstack::LocalStack, postgres::Postgres};
     use tokio::time::sleep;
 
-    use std::{sync::Arc, time::Duration};
-
     use crate::SqlCatalog;
+    use iceberg_rust::object_store::store::version_hint_content;
+    use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
     async fn test_create_update_drop_table() {
@@ -1004,8 +1004,10 @@ pub mod tests {
             .await
             .unwrap();
 
-        assert!(std::str::from_utf8(&version_hint)
-            .unwrap()
-            .ends_with(".metadata.json"));
+        let cache = iceberg_catalog.cache.read().unwrap();
+        let keys = cache.values().collect::<Vec<_>>();
+        let version = version_hint_content(&keys[0].clone().0);
+
+        assert_eq!(std::str::from_utf8(&version_hint).unwrap(), version);
     }
 }
