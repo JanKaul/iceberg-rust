@@ -21,7 +21,7 @@ iceberg-rust = { path = "../iceberg-rust", version = "0.8.0" }
 itertools = { workspace = true }
 object_store = { workspace = true }
 pin-project-lite = "0.2.16"
-regex = "1.11.1"
+regex = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.43", features = ["rt-multi-thread"] }
