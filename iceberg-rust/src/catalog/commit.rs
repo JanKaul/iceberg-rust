@@ -420,10 +420,9 @@ pub fn apply_table_updates(
     for update in updates {
         match update {
             TableUpdate::UpgradeFormatVersion { format_version } => {
-                if i32::from(metadata.format_version) == format_version {
-                    return Ok(());
+                if i32::from(metadata.format_version) != format_version {
+                    unimplemented!("Table format upgrade");
                 }
-                unimplemented!("Table format upgrade");
             }
             TableUpdate::AssignUuid { uuid } => {
                 metadata.table_uuid = Uuid::parse_str(&uuid)?;
@@ -520,10 +519,9 @@ pub fn apply_view_updates<T: Materialization + 'static>(
     for update in updates {
         match update {
             ViewUpdate::UpgradeFormatVersion { format_version } => {
-                if i32::from(metadata.format_version.clone()) == format_version {
-                    return Ok(());
+                if i32::from(metadata.format_version.clone()) != format_version {
+                    unimplemented!("Upgrade of format version");
                 }
-                unimplemented!("Upgrade of format version");
             }
             ViewUpdate::AssignUuid { uuid } => {
                 metadata.view_uuid = Uuid::parse_str(&uuid)?;
