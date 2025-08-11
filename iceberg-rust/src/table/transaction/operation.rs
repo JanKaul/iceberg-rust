@@ -149,7 +149,8 @@ impl Operation {
                                 .with_format_version(table_metadata.format_version)
                                 .with_status(Status::Added)
                                 .with_data_file(data_file)
-                                .build().map_err(Error::from)
+                                .build()
+                                .map_err(Error::from)
                         });
 
                 let snapshot_id = generate_snapshot_id();
@@ -195,8 +196,7 @@ impl Operation {
                 if let Some(snapshot) = old_snapshot {
                     snapshot_builder.with_parent_snapshot_id(*snapshot.snapshot_id());
                 }
-                let snapshot = snapshot_builder
-                    .build()?;
+                let snapshot = snapshot_builder.build()?;
 
                 Ok((
                     old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
@@ -250,7 +250,8 @@ impl Operation {
                         .with_snapshot_id(snapshot_id)
                         .with_sequence_number(sequence_number)
                         .with_data_file(data_file.clone())
-                        .build().map_err(Error::from)
+                        .build()
+                        .map_err(Error::from)
                 });
 
                 let manifest_schema = ManifestEntry::schema(
@@ -341,8 +342,7 @@ impl Operation {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Overwrite,
                         other: additional_summary.unwrap_or_default(),
                     });
-                let snapshot = snapshot_builder
-                    .build()?;
+                let snapshot = snapshot_builder.build()?;
 
                 Ok((
                     old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
@@ -416,7 +416,8 @@ impl Operation {
                         .with_format_version(table_metadata.format_version)
                         .with_status(Status::Added)
                         .with_data_file(data_file)
-                        .build().map_err(Error::from)
+                        .build()
+                        .map_err(Error::from)
                 });
 
                 let snapshot_id = generate_snapshot_id();
@@ -480,8 +481,7 @@ impl Operation {
                             .schema_id(),
                     );
                 snapshot_builder.with_parent_snapshot_id(*old_snapshot.snapshot_id());
-                let snapshot = snapshot_builder
-                    .build()?;
+                let snapshot = snapshot_builder.build()?;
 
                 Ok((
                     Some(TableRequirement::AssertRefSnapshotId {

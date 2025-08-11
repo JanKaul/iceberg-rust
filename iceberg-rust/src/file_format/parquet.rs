@@ -257,8 +257,7 @@ pub fn parquet_to_datafile(
         builder.with_equality_ids(Some(equality_ids.to_vec()));
     }
 
-    let content = builder
-        .build()?;
+    let content = builder.build()?;
     Ok(content)
 }
 
