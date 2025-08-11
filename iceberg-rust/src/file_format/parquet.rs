@@ -257,9 +257,7 @@ pub fn parquet_to_datafile(
         builder.with_equality_ids(Some(equality_ids.to_vec()));
     }
 
-    let content = builder
-        .build()
-        .map_err(iceberg_rust_spec::error::Error::from)?;
+    let content = builder.build()?;
     Ok(content)
 }
 

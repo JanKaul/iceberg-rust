@@ -34,7 +34,7 @@ use super::{
 /// Entry in manifest with the iceberg spec version 2.
 #[derive(Debug, Serialize, PartialEq, Clone, Getters, Builder)]
 #[serde(into = "ManifestEntryEnum")]
-#[builder(setter(prefix = "with"))]
+#[builder(build_fn(error = "Error"), setter(prefix = "with"))]
 pub struct ManifestEntry {
     /// Table format version
     format_version: FormatVersion,
@@ -516,7 +516,7 @@ impl From<HashMap<i32, Value>> for AvroMap<ByteBuf> {
 }
 
 #[derive(Debug, PartialEq, Clone, Getters, Builder)]
-#[builder(setter(prefix = "with"))]
+#[builder(build_fn(error = "Error"), setter(prefix = "with"))]
 /// DataFile found in Manifest.
 pub struct DataFile {
     ///Type of content in data file.
