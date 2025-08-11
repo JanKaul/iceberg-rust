@@ -885,10 +885,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            std::str::from_utf8(&version_hint).unwrap(),
-            "s3://warehouse/tpch/lineitem/metadata/v1.metadata.json"
-        );
+        assert_eq!(std::str::from_utf8(&version_hint).unwrap(), "1");
     }
 
     #[tokio::test]
