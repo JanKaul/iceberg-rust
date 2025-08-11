@@ -215,4 +215,34 @@ pub async fn test_equality_delete() {
         .unwrap()
         .collect();
     assert_batches_eq!(expected, &duckdb_batches);
+
+    // Test that projecting a column that is not included in equality deletes works
+    ctx.sql(
+        "INSERT INTO warehouse.test.orders (id, customer_id, product_id, date, amount) VALUES
+                (7, 3, 2, '2020-01-01', 2),
+                (8, 2, 1, '2020-02-02', 3),
+                (9, 1, 3, '2020-01-01', 1);",
+    )
+    .await
+    .expect("Failed to create query plan for insert")
+    .collect()
+    .await
+    .expect("Failed to insert values into table");
+
+    let batches = ctx
+        .sql("select sum(amount) from warehouse.test.orders")
+        .await
+        .expect("Failed to create plan for select")
+        .collect()
+        .await
+        .expect("Failed to execute select query");
+
+    let expected = [
+        "+-----------------------------------+",
+        "| sum(warehouse.test.orders.amount) |",
+        "+-----------------------------------+",
+        "| 13                                |",
+        "+-----------------------------------+",
+    ];
+    assert_batches_eq!(expected, &batches);
 }
