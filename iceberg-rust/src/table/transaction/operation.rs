@@ -148,9 +148,7 @@ impl Operation {
                         .with_format_version(table_metadata.format_version)
                         .with_status(Status::Added)
                         .with_data_file(data_file)
-                        .build()
-                        .map_err(crate::spec::error::Error::from)
-                        .map_err(Error::from)
+                        .build().map_err(Error::from)
                 });
 
                 let new_deletefile_iter = delete_files.into_iter().map(|data_file| {
@@ -158,9 +156,7 @@ impl Operation {
                         .with_format_version(table_metadata.format_version)
                         .with_status(Status::Added)
                         .with_data_file(data_file)
-                        .build()
-                        .map_err(crate::spec::error::Error::from)
-                        .map_err(Error::from)
+                        .build().map_err(Error::from)
                 });
 
                 let snapshot_id = generate_snapshot_id();
