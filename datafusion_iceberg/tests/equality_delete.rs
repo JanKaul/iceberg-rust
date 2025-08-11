@@ -204,18 +204,6 @@ pub async fn test_equality_delete() {
     ];
     assert_batches_eq!(expected, &batches);
 
-    let latest_version = table
-        .object_store()
-        .get(&object_store::path::Path::from(format!(
-            "{table_dir}/metadata/version-hint.text"
-        )))
-        .await
-        .unwrap()
-        .bytes()
-        .await
-        .unwrap();
-    let latest_version_str = std::str::from_utf8(&latest_version).unwrap();
-
     let conn = Connection::open_in_memory().unwrap();
     conn.execute("install iceberg", []).unwrap();
     conn.execute("load iceberg", []).unwrap();
@@ -223,7 +211,7 @@ pub async fn test_equality_delete() {
     let duckdb_batches: Vec<RecordBatch> = conn
         .prepare("select * from iceberg_scan(?) order by id")
         .unwrap()
-        .query_arrow([latest_version_str])
+        .query_arrow([table_dir])
         .unwrap()
         .collect();
     assert_batches_eq!(expected, &duckdb_batches);
