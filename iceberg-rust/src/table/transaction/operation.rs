@@ -149,9 +149,7 @@ impl Operation {
                                 .with_format_version(table_metadata.format_version)
                                 .with_status(Status::Added)
                                 .with_data_file(data_file)
-                                .build()
-                                .map_err(crate::spec::error::Error::from)
-                                .map_err(Error::from)
+                                .build().map_err(Error::from)
                         });
 
                 let snapshot_id = generate_snapshot_id();
@@ -198,8 +196,7 @@ impl Operation {
                     snapshot_builder.with_parent_snapshot_id(*snapshot.snapshot_id());
                 }
                 let snapshot = snapshot_builder
-                    .build()
-                    .map_err(iceberg_rust_spec::error::Error::from)?;
+                    .build()?;
 
                 Ok((
                     old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
@@ -253,9 +250,7 @@ impl Operation {
                         .with_snapshot_id(snapshot_id)
                         .with_sequence_number(sequence_number)
                         .with_data_file(data_file.clone())
-                        .build()
-                        .map_err(crate::spec::error::Error::from)
-                        .map_err(Error::from)
+                        .build().map_err(Error::from)
                 });
 
                 let manifest_schema = ManifestEntry::schema(
@@ -347,8 +342,7 @@ impl Operation {
                         other: additional_summary.unwrap_or_default(),
                     });
                 let snapshot = snapshot_builder
-                    .build()
-                    .map_err(iceberg_rust_spec::error::Error::from)?;
+                    .build()?;
 
                 Ok((
                     old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
@@ -422,9 +416,7 @@ impl Operation {
                         .with_format_version(table_metadata.format_version)
                         .with_status(Status::Added)
                         .with_data_file(data_file)
-                        .build()
-                        .map_err(crate::spec::error::Error::from)
-                        .map_err(Error::from)
+                        .build().map_err(Error::from)
                 });
 
                 let snapshot_id = generate_snapshot_id();
@@ -489,8 +481,7 @@ impl Operation {
                     );
                 snapshot_builder.with_parent_snapshot_id(*old_snapshot.snapshot_id());
                 let snapshot = snapshot_builder
-                    .build()
-                    .map_err(iceberg_rust_spec::error::Error::from)?;
+                    .build()?;
 
                 Ok((
                     Some(TableRequirement::AssertRefSnapshotId {

@@ -258,8 +258,7 @@ pub fn parquet_to_datafile(
     }
 
     let content = builder
-        .build()
-        .map_err(iceberg_rust_spec::error::Error::from)?;
+        .build()?;
     Ok(content)
 }
 

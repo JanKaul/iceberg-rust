@@ -287,7 +287,7 @@ impl Table {
     ///
     /// The transaction must be committed for any changes to take effect.
     /// Multiple operations can be chained within a single transaction.
-    pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction {
+    pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction<'_> {
         TableTransaction::new(self, branch)
     }
 }

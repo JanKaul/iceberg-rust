@@ -143,7 +143,7 @@ impl<T: Materialization> GeneralViewMetadata<T> {
 }
 
 impl ViewMetadata {
-    pub fn as_ref(&self) -> TabularMetadataRef {
+    pub fn as_ref(&self) -> TabularMetadataRef<'_> {
         TabularMetadataRef::View(self)
     }
 }
