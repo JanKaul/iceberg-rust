@@ -413,30 +413,22 @@ async fn table_scan(
 
     let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
 
-    let projection = projection.cloned().or_else(|| {
-        Some(
-            arrow_schema
-                .fields()
-                .iter()
-                .enumerate()
-                .map(|(i, _)| i)
-                .collect(),
-        )
-    });
+    // If no projection was specified default to projecting all the fields
+    let projection = projection
+        .cloned()
+        .unwrap_or((0..arrow_schema.fields().len()).collect_vec());
 
-    let projection_expr: Option<Vec<_>> = projection.as_ref().map(|projection| {
-        projection
-            .iter()
-            .enumerate()
-            .map(|(i, id)| {
-                let name = arrow_schema.fields[*id].name();
-                (
-                    Arc::new(Column::new(name, i)) as Arc<dyn PhysicalExpr>,
-                    name.to_owned(),
-                )
-            })
-            .collect()
-    });
+    let projection_expr: Vec<_> = projection
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let name = arrow_schema.fields[*id].name();
+            (
+                Arc::new(Column::new(name, i)) as Arc<dyn PhysicalExpr>,
+                name.to_owned(),
+            )
+        })
+        .collect();
 
     if enable_data_file_path_column {
         table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
@@ -621,6 +613,31 @@ async fn table_scan(
 
                 let mut data_file_iter = data_files.into_iter().peekable();
 
+                // Gather the complete equality projection up-front, since in general the requested
+                // projection may differ from the equality delete columns. Moreover, in principle
+                // each equality delete file may have different deletion columns.
+                // And since we need to reconcile them all with data files using joins and unions,
+                // we need to make sure their schemas are fully compatible in all intermediate nodes.
+                let mut equality_projection = projection.clone();
+                delete_files
+                    .iter()
+                    .flat_map(|delete_manifest| delete_manifest.1.data_file().equality_ids())
+                    .flatten()
+                    .unique()
+                    .for_each(|eq_id| {
+                        // Look up the zero-based index of the column based on its equality id
+                        if let Some((id, _)) = schema
+                            .fields()
+                            .iter()
+                            .enumerate()
+                            .find(|(_, f)| f.id == *eq_id)
+                        {
+                            if !equality_projection.contains(&id) {
+                                equality_projection.push(id);
+                            }
+                        }
+                    });
+
                 let mut plan = stream::iter(delete_files.iter())
                     .map(Ok::<_, DataFusionError>)
                     .try_fold(None, |acc, delete_manifest| {
@@ -632,6 +649,8 @@ async fn table_scan(
                         let file_schema: Arc<ArrowSchema> = file_schema.clone();
                         let file_source = file_source.clone();
                         let mut data_files = Vec::new();
+                        let equality_projection = equality_projection.clone();
+
                         while let Some(data_manifest) = data_file_iter.next_if(|x| {
                             x.1.sequence_number().unwrap()
                                 < delete_manifest.1.sequence_number().unwrap()
@@ -663,26 +682,6 @@ async fn table_scan(
                             );
                             let delete_file_schema: SchemaRef =
                                 Arc::new((delete_schema.fields()).try_into().unwrap());
-                            let equality_projection: Option<Vec<usize>> =
-                                match (&projection, delete_manifest.1.data_file().equality_ids()) {
-                                    (Some(projection), Some(equality_ids)) => {
-                                        let collect: Vec<usize> = schema
-                                            .iter()
-                                            .enumerate()
-                                            .filter_map(|(id, x)| {
-                                                if equality_ids.contains(&x.id)
-                                                    && !projection.contains(&id)
-                                                {
-                                                    Some(id)
-                                                } else {
-                                                    None
-                                                }
-                                            })
-                                            .collect();
-                                        Some([projection.as_slice(), &collect].concat())
-                                    }
-                                    _ => None,
-                                };
 
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let manifest_path = if enable_manifest_file_path_column {
@@ -730,7 +729,7 @@ async fn table_scan(
                             )
                             .with_file_group(FileGroup::new(data_files))
                             .with_statistics(statistics)
-                            .with_projection(equality_projection)
+                            .with_projection(Some(equality_projection))
                             .with_limit(limit)
                             .with_table_partition_cols(table_partition_cols)
                             .build();
@@ -810,7 +809,7 @@ async fn table_scan(
                     )
                     .with_file_group(FileGroup::new(additional_data_files))
                     .with_statistics(statistics)
-                    .with_projection(projection.as_ref().cloned())
+                    .with_projection(Some(equality_projection))
                     .with_limit(limit)
                     .with_table_partition_cols(table_partition_cols)
                     .build();
@@ -822,14 +821,8 @@ async fn table_scan(
                     plan = Arc::new(UnionExec::new(vec![plan, data_files_scan]));
                 }
 
-                if let Some(projection_expr) = projection_expr {
-                    Ok::<_, DataFusionError>(Arc::new(ProjectionExec::try_new(
-                        projection_expr,
-                        plan,
-                    )?) as Arc<dyn ExecutionPlan>)
-                } else {
-                    Ok(plan)
-                }
+                Ok::<_, DataFusionError>(Arc::new(ProjectionExec::try_new(projection_expr, plan)?)
+                    as Arc<dyn ExecutionPlan>)
             }
         })
         .try_collect::<Vec<_>>()
@@ -865,7 +858,7 @@ async fn table_scan(
             FileScanConfigBuilder::new(object_store_url, file_schema, file_source)
                 .with_file_groups(file_groups)
                 .with_statistics(statistics)
-                .with_projection(projection.clone())
+                .with_projection(Some(projection.clone()))
                 .with_limit(limit)
                 .with_table_partition_cols(table_partition_cols)
                 .build();
@@ -879,10 +872,7 @@ async fn table_scan(
 
     match plans.len() {
         0 => {
-            let projected_schema = projection
-                .map(|p| arrow_schema.project(&p))
-                .transpose()?
-                .unwrap_or(arrow_schema.as_ref().clone());
+            let projected_schema = arrow_schema.project(&projection)?;
             Ok(Arc::new(EmptyExec::new(Arc::new(projected_schema))))
         }
         1 => Ok(plans.remove(0)),
