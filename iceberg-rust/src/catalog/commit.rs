@@ -447,7 +447,8 @@ pub fn apply_table_updates(
                         metadata.current_schema_id = added_schema_id;
                     } else {
                         return Err(Error::InvalidFormat(
-                            "Cannot set current schema to -1 without adding a schema first".to_string(),
+                            "Cannot set current schema to -1 without adding a schema first"
+                                .to_string(),
                         ));
                     }
                 } else {
@@ -483,7 +484,8 @@ pub fn apply_table_updates(
                         metadata.default_sort_order_id = added_sort_order_id;
                     } else {
                         return Err(Error::InvalidFormat(
-                            "Cannot set default sort order to -1 without adding a sort order first".to_string(),
+                            "Cannot set default sort order to -1 without adding a sort order first"
+                                .to_string(),
                         ));
                     }
                 } else {
