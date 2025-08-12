@@ -155,7 +155,6 @@ impl Operation {
                         .with_status(Status::Added)
                         .with_data_file(data_file)
                         .build()
-                        .map_err(crate::spec::error::Error::from)
                         .map_err(Error::from)
                 });
 
@@ -165,7 +164,6 @@ impl Operation {
                         .with_status(Status::Added)
                         .with_data_file(data_file)
                         .build()
-                        .map_err(crate::spec::error::Error::from)
                         .map_err(Error::from)
                 });
 
