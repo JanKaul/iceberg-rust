@@ -417,6 +417,7 @@ pub fn apply_table_updates(
     metadata: &mut TableMetadata,
     updates: Vec<TableUpdate>,
 ) -> Result<(), Error> {
+    let mut added_schema_id = None;
     for update in updates {
         match update {
             TableUpdate::UpgradeFormatVersion { format_version } => {
@@ -431,13 +432,21 @@ pub fn apply_table_updates(
                 schema,
                 last_column_id,
             } => {
-                metadata.schemas.insert(*schema.schema_id(), schema);
+                let schema_id = *schema.schema_id();
+                metadata.schemas.insert(schema_id, schema);
+                added_schema_id = Some(schema_id);
                 if let Some(last_column_id) = last_column_id {
                     metadata.last_column_id = last_column_id;
                 }
             }
             TableUpdate::SetCurrentSchema { schema_id } => {
-                metadata.current_schema_id = schema_id;
+                if schema_id == -1 {
+                    if let Some(added_schema_id) = added_schema_id {
+                        metadata.current_schema_id = added_schema_id;
+                    }
+                } else {
+                    metadata.current_schema_id = schema_id;
+                }
             }
             TableUpdate::AddSpec { spec } => {
                 metadata.partition_specs.insert(*spec.spec_id(), spec);
