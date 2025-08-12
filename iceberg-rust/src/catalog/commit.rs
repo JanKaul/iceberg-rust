@@ -418,6 +418,8 @@ pub fn apply_table_updates(
     updates: Vec<TableUpdate>,
 ) -> Result<(), Error> {
     let mut added_schema_id = None;
+    let mut added_spec_id = None;
+    let mut added_sort_order_id = None;
     for update in updates {
         match update {
             TableUpdate::UpgradeFormatVersion { format_version } => {
@@ -449,16 +451,32 @@ pub fn apply_table_updates(
                 }
             }
             TableUpdate::AddSpec { spec } => {
-                metadata.partition_specs.insert(*spec.spec_id(), spec);
+                let spec_id = *spec.spec_id();
+                metadata.partition_specs.insert(spec_id, spec);
+                added_spec_id = Some(spec_id);
             }
             TableUpdate::SetDefaultSpec { spec_id } => {
-                metadata.default_spec_id = spec_id;
+                if spec_id == -1 {
+                    if let Some(added_spec_id) = added_spec_id {
+                        metadata.default_spec_id = added_spec_id;
+                    }
+                } else {
+                    metadata.default_spec_id = spec_id;
+                }
             }
             TableUpdate::AddSortOrder { sort_order } => {
-                metadata.sort_orders.insert(sort_order.order_id, sort_order);
+                let sort_order_id = sort_order.order_id;
+                metadata.sort_orders.insert(sort_order_id, sort_order);
+                added_sort_order_id = Some(sort_order_id);
             }
             TableUpdate::SetDefaultSortOrder { sort_order_id } => {
-                metadata.default_sort_order_id = sort_order_id;
+                if sort_order_id == -1 {
+                    if let Some(added_sort_order_id) = added_sort_order_id {
+                        metadata.default_sort_order_id = added_sort_order_id;
+                    }
+                } else {
+                    metadata.default_sort_order_id = sort_order_id;
+                }
             }
             TableUpdate::AddSnapshot { snapshot } => {
                 metadata.snapshot_log.push(SnapshotLog {
