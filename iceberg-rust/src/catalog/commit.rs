@@ -445,6 +445,10 @@ pub fn apply_table_updates(
                 if schema_id == -1 {
                     if let Some(added_schema_id) = added_schema_id {
                         metadata.current_schema_id = added_schema_id;
+                    } else {
+                        return Err(Error::InvalidFormat(
+                            "Cannot set current schema to -1 without adding a schema first".to_string(),
+                        ));
                     }
                 } else {
                     metadata.current_schema_id = schema_id;
@@ -459,6 +463,10 @@ pub fn apply_table_updates(
                 if spec_id == -1 {
                     if let Some(added_spec_id) = added_spec_id {
                         metadata.default_spec_id = added_spec_id;
+                    } else {
+                        return Err(Error::InvalidFormat(
+                            "Cannot set default spec to -1 without adding a spec first".to_string(),
+                        ));
                     }
                 } else {
                     metadata.default_spec_id = spec_id;
@@ -473,6 +481,10 @@ pub fn apply_table_updates(
                 if sort_order_id == -1 {
                     if let Some(added_sort_order_id) = added_sort_order_id {
                         metadata.default_sort_order_id = added_sort_order_id;
+                    } else {
+                        return Err(Error::InvalidFormat(
+                            "Cannot set default sort order to -1 without adding a sort order first".to_string(),
+                        ));
                     }
                 } else {
                     metadata.default_sort_order_id = sort_order_id;
