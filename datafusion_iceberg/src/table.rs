@@ -4,13 +4,21 @@
 
 use async_trait::async_trait;
 use chrono::DateTime;
+use datafusion::arrow::array::RecordBatch;
 use datafusion::execution::RecordBatchStream;
 use datafusion_expr::{dml::InsertOp, utils::conjunction, JoinType};
 use derive_builder::Builder;
 use futures::stream;
 use futures::{StreamExt, TryStreamExt};
+use iceberg_rust::arrow::partition::partition_record_batch;
+use iceberg_rust::arrow::write::{generate_file_path, generate_partition_path};
+use iceberg_rust::spec::partition::BoundPartitionField;
+use iceberg_rust::spec::table_metadata::{self, TableMetadata, WRITE_OBJECT_STORAGE_ENABLED};
 use itertools::Itertools;
+use lru::LruCache;
+use object_store::path::Path;
 use object_store::ObjectMeta;
+use std::thread::available_parallelism;
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
@@ -1080,7 +1088,7 @@ pub async fn write_parquet_with_sink(
         file_extension: "parquet".to_string(),
     };
 
-    let (demux_task, file_receiver) = start_demuxer_task(&config, batches, context);
+    let (demux_task, file_receiver) = start_demuxer_task(metadata, batches, context, branch)?;
 
     let sink = ParquetSink::new(config, parquet_options);
 
@@ -1090,66 +1098,108 @@ pub async fn write_parquet_with_sink(
 }
 
 pub(crate) fn start_demuxer_task(
-    config: &FileSinkConfig,
+    metadata: &TableMetadata,
     data: SendableRecordBatchStream,
     context: &Arc<TaskContext>,
-) -> (
-    SpawnedTask<Result<(), DataFusionError>>,
-    DemuxedStreamReceiver,
-) {
+    branch: Option<&str>,
+) -> Result<
+    (
+        SpawnedTask<Result<(), DataFusionError>>,
+        DemuxedStreamReceiver,
+    ),
+    DataFusionError,
+> {
     let (tx, rx) = mpsc::unbounded_channel();
     let context = Arc::clone(context);
-    let file_extension = config.file_extension.clone();
-    let base_output_path = config.table_paths[0].clone();
-    let task = if config.table_partition_cols.is_empty() {
-        let single_file_output =
-            !base_output_path.is_collection() && base_output_path.file_extension().is_some();
-        SpawnedTask::spawn(async move {
-            row_count_demuxer(
-                tx,
-                data,
-                context,
-                base_output_path,
-                file_extension,
-                single_file_output,
-            )
-            .await
-        })
+    let partition_spec = Arc::new(
+        metadata
+            .default_partition_spec()
+            .map_err(DataFusionIcebergError::from)?
+            .clone(),
+    );
+    let schema = Arc::new(
+        metadata
+            .current_schema(branch)
+            .map_err(DataFusionIcebergError::from)?
+            .clone(),
+    );
+    let task = if partition_spec.fields().is_empty() {
+        SpawnedTask::spawn(async move { row_count_demuxer(tx, data, context).await })
     } else {
         // There could be an arbitrarily large number of parallel hive style partitions being written to, so we cannot
         // bound this channel without risking a deadlock.
-        let partition_by = config.table_partition_cols.clone();
-        let keep_partition_by_columns = config.keep_partition_by_columns;
-        SpawnedTask::spawn(async move {
-            partitions_demuxer(
-                tx,
-                data,
-                context,
-                partition_by,
-                base_output_path,
-                file_extension,
-                keep_partition_by_columns,
-            )
-            .await
+        SpawnedTask::spawn({
+            let partition_spec = partition_spec.clone();
+            let schema = schema.clone();
+            let location = metadata.location.clone();
+            let hash_map = metadata.properties.clone();
+            async move {
+                let partition_fields = table_metadata::partition_fields(&partition_spec, &schema)
+                    .map_err(DataFusionIcebergError::from)?;
+                partitions_demuxer(tx, data, &partition_fields, &hash_map, &location).await
+            }
         })
     };
 
-    (task, rx)
+    Ok((task, rx))
 }
 
 async fn partitions_demuxer(
-    tx: mpsc::UnboundedSender<(
-        object_store::path::Path,
-        mpsc::Receiver<datafusion::arrow::array::RecordBatch>,
-    )>,
-    data: std::pin::Pin<Box<dyn RecordBatchStream + Send + 'static>>,
-    context: Arc<TaskContext>,
-    partition_by: Vec<(String, DataType)>,
-    base_output_path: datafusion::datasource::listing::ListingTableUrl,
-    file_extension: String,
-    keep_partition_by_columns: bool,
+    partition_sender: mpsc::UnboundedSender<(Path, mpsc::Receiver<RecordBatch>)>,
+    mut data: SendableRecordBatchStream,
+    partition_fields: &[BoundPartitionField<'_>],
+    table_properties: &HashMap<String, String>,
+    table_location: &str,
 ) -> Result<(), DataFusionError> {
-    todo!()
+    let mut senders: LruCache<Vec<Value>, mpsc::Sender<RecordBatch>> = LruCache::unbounded();
+
+    // Get partition column indices
+
+    while let Some(batch) = data.next().await {
+        let batch = batch?;
+
+        // Limit the number of concurrent senders to avoid resource exhaustion
+        if senders.len() > available_parallelism().unwrap().get() {
+            if let Some((_, sender)) = senders.pop_lru() {
+                drop(sender);
+            }
+        }
+
+        for result in partition_record_batch(&batch, partition_fields)? {
+            let (partition_values, batch) = result?;
+
+            if let Some(sender) = senders.get_mut(&partition_values) {
+                sender.send(batch).await.unwrap();
+            } else {
+                let (sender, reciever) = mpsc::channel(1);
+                sender.send(batch).await.unwrap();
+                senders.push(partition_values.clone(), sender);
+                let partition_path = if table_properties
+                    .get(WRITE_OBJECT_STORAGE_ENABLED)
+                    .is_some_and(|x| x == "true")
+                {
+                    None
+                } else {
+                    Some(generate_partition_path(
+                        partition_fields,
+                        &partition_values,
+                    )?)
+                };
+                let data_location = table_location.trim_end_matches('/').to_string() + "/data/";
+                let path = generate_file_path(&data_location, partition_path);
+                partition_sender
+                    .send((path.into(), reciever))
+                    .map_err(DataFusionIcebergError::from)?;
+            };
+        }
+    }
+
+    // Close all remaining senders
+    while let Some((_, sender)) = senders.pop_lru() {
+        drop(sender);
+    }
+
+    Ok(())
 }
 
 async fn row_count_demuxer(
@@ -1159,9 +1209,6 @@ async fn row_count_demuxer(
     )>,
     data: std::pin::Pin<Box<dyn RecordBatchStream + Send + 'static>>,
     context: Arc<TaskContext>,
-    base_output_path: datafusion::datasource::listing::ListingTableUrl,
-    file_extension: String,
-    single_file_output: bool,
 ) -> Result<(), DataFusionError> {
     todo!()
 }
