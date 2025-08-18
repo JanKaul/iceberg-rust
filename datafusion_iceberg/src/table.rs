@@ -4,9 +4,11 @@
 
 use async_trait::async_trait;
 use chrono::DateTime;
+use datafusion::execution::RecordBatchStream;
 use datafusion_expr::{dml::InsertOp, utils::conjunction, JoinType};
 use derive_builder::Builder;
-use futures::{stream, Stream, StreamExt, TryStreamExt};
+use futures::stream;
+use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
 use object_store::ObjectMeta;
 use std::{
@@ -16,20 +18,20 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use tokio::sync::{mpsc::unbounded_channel, RwLock, RwLockWriteGuard};
+use tokio::sync::{
+    mpsc::{self},
+    RwLock, RwLockWriteGuard,
+};
 
 use datafusion::{
-    arrow::{
-        array::RecordBatch,
-        datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
-        error::ArrowError,
-    },
+    arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
     catalog::Session,
-    common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
+    common::{not_impl_err, plan_err, runtime::SpawnedTask, DataFusionError, SchemaExt},
     config::TableParquetOptions,
     datasource::{
         file_format::{
             parquet::{ParquetFormat, ParquetSink},
+            write::demux::DemuxedStreamReceiver,
             FileFormat,
         },
         listing::PartitionedFile,
@@ -946,13 +948,8 @@ impl DataSink for IcebergDataSink {
         }
         .map_err(DataFusionIcebergError::from)?;
 
-        let metadata_files = write_parquet_with_sink(
-            table,
-            data.map_err(Into::into),
-            context,
-            self.0.branch.as_deref(),
-        )
-        .await?;
+        let metadata_files =
+            write_parquet_with_sink(table, data, context, self.0.branch.as_deref()).await?;
 
         table
             .new_transaction(self.0.branch.as_deref())
@@ -1054,7 +1051,7 @@ fn value_to_scalarvalue(value: &Value) -> Result<ScalarValue, DataFusionError> {
 
 pub async fn write_parquet_with_sink(
     table: &Table,
-    batches: impl Stream<Item = Result<RecordBatch, DataFusionError>> + Send + 'static,
+    batches: SendableRecordBatchStream,
     context: &Arc<TaskContext>,
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, DataFusionError> {
@@ -1083,14 +1080,89 @@ pub async fn write_parquet_with_sink(
         file_extension: "parquet".to_string(),
     };
 
-    let sink = ParquetSink::new(config, parquet_options);
-    let (file_sender, file_receiver) = unbounded_channel();
+    let (demux_task, file_receiver) = start_demuxer_task(&config, batches, context);
 
-    // TODO: Implement demux_task for partitioning logic
-    let demux_task = todo!("Implement demux task for partitioning batches");
+    let sink = ParquetSink::new(config, parquet_options);
 
     sink.spawn_writer_tasks_and_join(context, demux_task, file_receiver, table.object_store())
         .await;
+    todo!()
+}
+
+pub(crate) fn start_demuxer_task(
+    config: &FileSinkConfig,
+    data: SendableRecordBatchStream,
+    context: &Arc<TaskContext>,
+) -> (
+    SpawnedTask<Result<(), DataFusionError>>,
+    DemuxedStreamReceiver,
+) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let context = Arc::clone(context);
+    let file_extension = config.file_extension.clone();
+    let base_output_path = config.table_paths[0].clone();
+    let task = if config.table_partition_cols.is_empty() {
+        let single_file_output =
+            !base_output_path.is_collection() && base_output_path.file_extension().is_some();
+        SpawnedTask::spawn(async move {
+            row_count_demuxer(
+                tx,
+                data,
+                context,
+                base_output_path,
+                file_extension,
+                single_file_output,
+            )
+            .await
+        })
+    } else {
+        // There could be an arbitrarily large number of parallel hive style partitions being written to, so we cannot
+        // bound this channel without risking a deadlock.
+        let partition_by = config.table_partition_cols.clone();
+        let keep_partition_by_columns = config.keep_partition_by_columns;
+        SpawnedTask::spawn(async move {
+            partitions_demuxer(
+                tx,
+                data,
+                context,
+                partition_by,
+                base_output_path,
+                file_extension,
+                keep_partition_by_columns,
+            )
+            .await
+        })
+    };
+
+    (task, rx)
+}
+
+async fn partitions_demuxer(
+    tx: mpsc::UnboundedSender<(
+        object_store::path::Path,
+        mpsc::Receiver<datafusion::arrow::array::RecordBatch>,
+    )>,
+    data: std::pin::Pin<Box<dyn RecordBatchStream + Send + 'static>>,
+    context: Arc<TaskContext>,
+    partition_by: Vec<(String, DataType)>,
+    base_output_path: datafusion::datasource::listing::ListingTableUrl,
+    file_extension: String,
+    keep_partition_by_columns: bool,
+) -> Result<(), DataFusionError> {
+    todo!()
+}
+
+async fn row_count_demuxer(
+    tx: mpsc::UnboundedSender<(
+        object_store::path::Path,
+        mpsc::Receiver<datafusion::arrow::array::RecordBatch>,
+    )>,
+    data: std::pin::Pin<Box<dyn RecordBatchStream + Send + 'static>>,
+    context: Arc<TaskContext>,
+    base_output_path: datafusion::datasource::listing::ListingTableUrl,
+    file_extension: String,
+    single_file_output: bool,
+) -> Result<(), DataFusionError> {
     todo!()
 }
 
