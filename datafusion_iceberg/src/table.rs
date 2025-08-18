@@ -1207,10 +1207,84 @@ async fn row_count_demuxer(
         object_store::path::Path,
         mpsc::Receiver<datafusion::arrow::array::RecordBatch>,
     )>,
-    data: std::pin::Pin<Box<dyn RecordBatchStream + Send + 'static>>,
+    mut data: std::pin::Pin<Box<dyn RecordBatchStream + Send + 'static>>,
     context: Arc<TaskContext>,
 ) -> Result<(), DataFusionError> {
-    todo!()
+    let exec_options = &context.session_config().options().execution;
+
+    let max_rows_per_file = exec_options.soft_max_rows_per_output_file;
+    let max_buffered_batches = exec_options.max_buffered_batches_per_output_file;
+    let minimum_parallel_files = exec_options.minimum_parallel_output_files;
+    let mut part_idx = 0;
+    let write_id = rand::distributions::Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+
+    let mut open_file_streams = Vec::with_capacity(minimum_parallel_files);
+
+    let mut next_send_steam = 0;
+    let mut row_counts = Vec::with_capacity(minimum_parallel_files);
+
+    while let Some(rb) = data.next().await.transpose()? {
+        // ensure we have at least minimum_parallel_files open
+        if open_file_streams.len() < minimum_parallel_files {
+            open_file_streams.push(create_new_file_stream(
+                &base_output_path,
+                &write_id,
+                part_idx,
+                &file_extension,
+                single_file_output,
+                max_buffered_batches,
+                &mut tx,
+            )?);
+            row_counts.push(0);
+            part_idx += 1;
+        } else if row_counts[next_send_steam] >= max_rows_per_file {
+            row_counts[next_send_steam] = 0;
+            open_file_streams[next_send_steam] = create_new_file_stream(
+                &base_output_path,
+                &write_id,
+                part_idx,
+                &file_extension,
+                single_file_output,
+                max_buffered_batches,
+                &mut tx,
+            )?;
+            part_idx += 1;
+        }
+        row_counts[next_send_steam] += rb.num_rows();
+        open_file_streams[next_send_steam]
+            .send(rb)
+            .await
+            .map_err(|_| {
+                DataFusionError::Execution("Error sending RecordBatch to file stream!".into())
+            })?;
+
+        next_send_steam = (next_send_steam + 1) % minimum_parallel_files;
+    }
+    Ok(())
+}
+
+/// Helper for row count demuxer
+fn create_new_file_stream(
+    base_output_path: &ListingTableUrl,
+    write_id: &str,
+    part_idx: usize,
+    file_extension: &str,
+    single_file_output: bool,
+    max_buffered_batches: usize,
+    tx: &mut mpsc::UnboundedSender<(Path, mpsc::Receiver<RecordBatch>)>,
+) -> Result<mpsc::Sender<RecordBatch>, DataFusionError> {
+    let file_path = generate_file_path(
+        base_output_path,
+        write_id,
+        part_idx,
+        file_extension,
+        single_file_output,
+    );
+    let (tx_file, rx_file) = mpsc::channel(max_buffered_batches / 2);
+    tx.send((file_path, rx_file)).map_err(|_| {
+        DataFusionError::Execution("Error sending RecordBatch to file stream!".into())
+    })?;
+    Ok(tx_file)
 }
 
 #[cfg(test)]
