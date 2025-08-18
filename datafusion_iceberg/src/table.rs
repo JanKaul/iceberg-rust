@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use chrono::DateTime;
 use datafusion_expr::{dml::InsertOp, utils::conjunction, JoinType};
 use derive_builder::Builder;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::{stream, Stream, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use object_store::ObjectMeta;
 use std::{
@@ -16,17 +16,28 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use tokio::sync::{RwLock, RwLockWriteGuard};
+use tokio::sync::{mpsc::unbounded_channel, RwLock, RwLockWriteGuard};
 
 use datafusion::{
-    arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
+    arrow::{
+        array::RecordBatch,
+        datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
+        error::ArrowError,
+    },
     catalog::Session,
     common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
+    config::TableParquetOptions,
     datasource::{
-        file_format::{parquet::ParquetFormat, FileFormat},
+        file_format::{
+            parquet::{ParquetFormat, ParquetSink},
+            FileFormat,
+        },
         listing::PartitionedFile,
         object_store::ObjectStoreUrl,
-        physical_plan::{parquet::source::ParquetSource, FileGroup, FileScanConfigBuilder},
+        physical_plan::{
+            parquet::source::ParquetSource, FileGroup, FileScanConfigBuilder, FileSink,
+            FileSinkConfig,
+        },
         sink::{DataSink, DataSinkExec},
         TableProvider, ViewTable,
     },
@@ -54,10 +65,10 @@ use crate::{
     statistics::manifest_statistics,
 };
 
-use iceberg_rust::spec::{schema::Schema, view_metadata::ViewRepresentation};
+use iceberg_rust::spec::{manifest::DataFile, schema::Schema, view_metadata::ViewRepresentation};
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular, error::Error,
-    materialized_view::MaterializedView, table::Table, view::View,
+    catalog::tabular::Tabular, error::Error, materialized_view::MaterializedView, table::Table,
+    view::View,
 };
 use iceberg_rust::{
     spec::{
@@ -925,7 +936,7 @@ impl DataSink for IcebergDataSink {
     async fn write_all(
         &self,
         data: SendableRecordBatchStream,
-        _context: &Arc<TaskContext>,
+        context: &Arc<TaskContext>,
     ) -> Result<u64, DataFusionError> {
         let mut lock = self.0.tabular.write().await;
         let table = if let Tabular::Table(table) = lock.deref_mut() {
@@ -935,9 +946,13 @@ impl DataSink for IcebergDataSink {
         }
         .map_err(DataFusionIcebergError::from)?;
 
-        let metadata_files =
-            write_parquet_partitioned(table, data.map_err(Into::into), self.0.branch.as_deref())
-                .await?;
+        let metadata_files = write_parquet_with_sink(
+            table,
+            data.map_err(Into::into),
+            context,
+            self.0.branch.as_deref(),
+        )
+        .await?;
 
         table
             .new_transaction(self.0.branch.as_deref())
@@ -1035,6 +1050,48 @@ fn value_to_scalarvalue(value: &Value) -> Result<ScalarValue, DataFusionError> {
             format!("Conversion from Value {x} to ScalarValue"),
         )))),
     }
+}
+
+pub async fn write_parquet_with_sink(
+    table: &Table,
+    batches: impl Stream<Item = Result<RecordBatch, DataFusionError>> + Send + 'static,
+    context: &Arc<TaskContext>,
+    branch: Option<&str>,
+) -> Result<Vec<DataFile>, DataFusionError> {
+    // Get table schema and metadata
+    let schema = table
+        .current_schema(branch)
+        .map_err(DataFusionIcebergError::from)?;
+    let arrow_schema: ArrowSchema =
+        TryInto::<ArrowSchema>::try_into(schema.fields()).map_err(DataFusionIcebergError::from)?;
+    let schema_ref = Arc::new(arrow_schema);
+
+    let metadata = table.metadata();
+    // Create basic parquet options with default settings
+    let parquet_options = TableParquetOptions::default();
+
+    // Create file sink config
+    let config = FileSinkConfig {
+        original_url: metadata.location.clone(),
+        object_store_url: ObjectStoreUrl::parse(&metadata.location)?,
+        file_group: FileGroup::new(vec![]),
+        table_paths: vec![],
+        output_schema: schema_ref,
+        table_partition_cols: vec![], // TODO: Get from table partition spec
+        insert_op: InsertOp::Append,
+        keep_partition_by_columns: false,
+        file_extension: "parquet".to_string(),
+    };
+
+    let sink = ParquetSink::new(config, parquet_options);
+    let (file_sender, file_receiver) = unbounded_channel();
+
+    // TODO: Implement demux_task for partitioning logic
+    let demux_task = todo!("Implement demux task for partitioning batches");
+
+    sink.spawn_writer_tasks_and_join(context, demux_task, file_receiver, table.object_store())
+        .await;
+    todo!()
 }
 
 #[cfg(test)]
