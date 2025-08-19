@@ -1117,7 +1117,7 @@ pub async fn write_parquet_with_sink(
     };
 
     let mut parquet_options = TableParquetOptions::default();
-    parquet_options.set("datafusion.execution.parquet.compression", "zstd(1)")?;
+    parquet_options.set("compression", "zstd(1)")?;
 
     let sink = ParquetSink::new(config, parquet_options);
 
