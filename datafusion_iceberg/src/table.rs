@@ -12,6 +12,8 @@ use futures::stream;
 use futures::{StreamExt, TryStreamExt};
 use iceberg_rust::arrow::partition::partition_record_batch;
 use iceberg_rust::arrow::write::{generate_file_path, generate_partition_path};
+use iceberg_rust::file_format::parquet::parquet_to_datafile;
+use iceberg_rust::object_store::Bucket;
 use iceberg_rust::spec::partition::BoundPartitionField;
 use iceberg_rust::spec::table_metadata::{self, TableMetadata, WRITE_OBJECT_STORAGE_ENABLED};
 use itertools::Itertools;
@@ -1063,6 +1065,7 @@ pub async fn write_parquet_with_sink(
     context: &Arc<TaskContext>,
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, DataFusionError> {
+    let object_store = table.object_store();
     // Get table schema and metadata
     let schema = table
         .current_schema(branch)
@@ -1072,13 +1075,25 @@ pub async fn write_parquet_with_sink(
     let schema_ref = Arc::new(arrow_schema);
 
     let metadata = table.metadata();
+
+    let partition_fields = metadata
+        .current_partition_fields(branch)
+        .map_err(DataFusionIcebergError::from)?;
+
     // Create basic parquet options with default settings
     let parquet_options = TableParquetOptions::default();
 
+    let bucket = Bucket::from_path(&metadata.location).map_err(DataFusionIcebergError::from)?;
     // Create file sink config
+    let object_store_url = if let &Bucket::Local = &bucket {
+        ObjectStoreUrl::local_filesystem()
+    } else {
+        ObjectStoreUrl::parse(bucket.to_string())?
+    };
+
     let config = FileSinkConfig {
         original_url: metadata.location.clone(),
-        object_store_url: ObjectStoreUrl::parse(&metadata.location)?,
+        object_store_url,
         file_group: FileGroup::new(vec![]),
         table_paths: vec![],
         output_schema: schema_ref,
@@ -1088,13 +1103,36 @@ pub async fn write_parquet_with_sink(
         file_extension: "parquet".to_string(),
     };
 
-    let (demux_task, file_receiver) = start_demuxer_task(metadata, batches, context, branch)?;
-
     let sink = ParquetSink::new(config, parquet_options);
 
-    sink.spawn_writer_tasks_and_join(context, demux_task, file_receiver, table.object_store())
-        .await;
-    todo!()
+    let (demux_task, file_receiver) = start_demuxer_task(metadata, batches, context, branch)?;
+
+    sink.spawn_writer_tasks_and_join(context, demux_task, file_receiver, object_store.clone())
+        .await?;
+
+    let files = sink.written();
+
+    let mut datafiles = Vec::with_capacity(files.len());
+
+    for (path, file) in files {
+        let size = object_store
+            .head(&path)
+            .await
+            .map_err(DataFusionIcebergError::from)?
+            .size;
+        datafiles.push(
+            parquet_to_datafile(
+                &(bucket.to_string() + path.as_ref()),
+                size,
+                &file,
+                schema,
+                &partition_fields,
+                None,
+            )
+            .map_err(DataFusionIcebergError::from)?,
+        );
+    }
+    Ok(datafiles)
 }
 
 pub(crate) fn start_demuxer_task(
@@ -1111,18 +1149,10 @@ pub(crate) fn start_demuxer_task(
 > {
     let (tx, rx) = mpsc::unbounded_channel();
     let context = Arc::clone(context);
-    let partition_spec = Arc::new(
-        metadata
-            .default_partition_spec()
-            .map_err(DataFusionIcebergError::from)?
-            .clone(),
-    );
-    let schema = Arc::new(
-        metadata
-            .current_schema(branch)
-            .map_err(DataFusionIcebergError::from)?
-            .clone(),
-    );
+    let partition_spec = metadata
+        .default_partition_spec()
+        .map_err(DataFusionIcebergError::from)?
+        .clone();
     let task = if partition_spec.fields().is_empty() {
         SpawnedTask::spawn({
             let location = metadata.location.clone();
@@ -1133,7 +1163,10 @@ pub(crate) fn start_demuxer_task(
         // bound this channel without risking a deadlock.
         SpawnedTask::spawn({
             let partition_spec = partition_spec.clone();
-            let schema = schema.clone();
+            let schema = metadata
+                .current_schema(branch)
+                .map_err(DataFusionIcebergError::from)?
+                .clone();
             let location = metadata.location.clone();
             let hash_map = metadata.properties.clone();
             async move {
@@ -1342,7 +1375,7 @@ mod tests {
 
         let table = Table::builder()
             .with_name("orders")
-            .with_location("/test/orders")
+            .with_location("memory:///test/orders")
             .with_schema(schema)
             .build(&["test".to_owned()], catalog)
             .await
