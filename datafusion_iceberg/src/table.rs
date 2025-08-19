@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use chrono::DateTime;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::config::ConfigField;
 use datafusion::execution::RecordBatchStream;
 use datafusion_expr::{dml::InsertOp, utils::conjunction, JoinType};
 use derive_builder::Builder;
@@ -1115,7 +1116,8 @@ pub async fn write_parquet_with_sink(
         file_extension: "parquet".to_string(),
     };
 
-    let parquet_options = TableParquetOptions::default();
+    let mut parquet_options = TableParquetOptions::default();
+    parquet_options.set("datafusion.execution.parquet.compression", "zstd(1)")?;
 
     let sink = ParquetSink::new(config, parquet_options);
 
