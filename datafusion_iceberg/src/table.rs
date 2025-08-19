@@ -1094,6 +1094,15 @@ pub async fn write_parquet_with_sink(
         ObjectStoreUrl::parse(bucket.to_string())?
     };
 
+    context.runtime_env().register_object_store(
+        &object_store_url
+            .as_str()
+            .try_into()
+            .map_err(Error::from)
+            .map_err(DataFusionIcebergError::from)?,
+        object_store.clone(),
+    );
+
     let config = FileSinkConfig {
         original_url: metadata.location.clone(),
         object_store_url,
