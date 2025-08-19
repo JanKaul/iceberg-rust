@@ -407,27 +407,7 @@ async fn table_scan(
         None
     };
 
-    // Get all partition columns
-    let mut table_partition_cols: Vec<Field> = partition_fields
-        .iter()
-        .map(|partition_field| {
-            Ok(Field::new(
-                partition_field.name().to_owned(),
-                (&partition_field
-                    .field_type()
-                    .tranform(partition_field.transform())
-                    .map_err(DataFusionIcebergError::from)?)
-                    .try_into()
-                    .map_err(DataFusionIcebergError::from)?,
-                !partition_field.required(),
-            )
-            .with_metadata(HashMap::from_iter(vec![(
-                PARQUET_FIELD_ID_META_KEY.to_string(),
-                partition_field.field_id().to_string(),
-            )])))
-        })
-        .collect::<Result<Vec<_>, DataFusionError>>()
-        .map_err(DataFusionIcebergError::from)?;
+    let mut table_partition_cols = datafusion_partition_columns(partition_fields)?;
 
     let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
 
@@ -913,6 +893,32 @@ async fn table_scan(
     }
 }
 
+fn datafusion_partition_columns(
+    partition_fields: &[BoundPartitionField<'_>],
+) -> Result<Vec<Field>, DataFusionError> {
+    let table_partition_cols: Vec<Field> = partition_fields
+        .iter()
+        .map(|partition_field| {
+            Ok(Field::new(
+                partition_field.name().to_owned(),
+                (&partition_field
+                    .field_type()
+                    .tranform(partition_field.transform())
+                    .map_err(DataFusionIcebergError::from)?)
+                    .try_into()
+                    .map_err(DataFusionIcebergError::from)?,
+                !partition_field.required(),
+            )
+            .with_metadata(HashMap::from_iter(vec![(
+                PARQUET_FIELD_ID_META_KEY.to_string(),
+                partition_field.field_id().to_string(),
+            )])))
+        })
+        .collect::<Result<Vec<_>, DataFusionError>>()
+        .map_err(DataFusionIcebergError::from)?;
+    Ok(table_partition_cols)
+}
+
 impl DisplayAs for DataFusionTable {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match t {
@@ -1066,25 +1072,22 @@ pub async fn write_parquet_with_sink(
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, DataFusionError> {
     let object_store = table.object_store();
+    let metadata = table.metadata();
+
     // Get table schema and metadata
     let schema = table
         .current_schema(branch)
         .map_err(DataFusionIcebergError::from)?;
-    let arrow_schema: ArrowSchema =
-        TryInto::<ArrowSchema>::try_into(schema.fields()).map_err(DataFusionIcebergError::from)?;
-    let schema_ref = Arc::new(arrow_schema);
-
-    let metadata = table.metadata();
+    let arrow_schema = Arc::new(
+        TryInto::<ArrowSchema>::try_into(schema.fields()).map_err(DataFusionIcebergError::from)?,
+    );
 
     let partition_fields = metadata
         .current_partition_fields(branch)
         .map_err(DataFusionIcebergError::from)?;
 
-    // Create basic parquet options with default settings
-    let parquet_options = TableParquetOptions::default();
-
     let bucket = Bucket::from_path(&metadata.location).map_err(DataFusionIcebergError::from)?;
-    // Create file sink config
+
     let object_store_url = if let &Bucket::Local = &bucket {
         ObjectStoreUrl::local_filesystem()
     } else {
@@ -1096,12 +1099,14 @@ pub async fn write_parquet_with_sink(
         object_store_url,
         file_group: FileGroup::new(vec![]),
         table_paths: vec![],
-        output_schema: schema_ref,
-        table_partition_cols: vec![], // TODO: Get from table partition spec
+        output_schema: arrow_schema,
+        table_partition_cols: Vec::new(),
         insert_op: InsertOp::Append,
         keep_partition_by_columns: false,
         file_extension: "parquet".to_string(),
     };
+
+    let parquet_options = TableParquetOptions::default();
 
     let sink = ParquetSink::new(config, parquet_options);
 
