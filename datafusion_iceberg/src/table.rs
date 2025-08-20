@@ -1138,7 +1138,7 @@ pub async fn write_parquet_with_sink(
             .size;
         datafiles.push(
             parquet_to_datafile(
-                &(bucket.to_string() + path.as_ref()),
+                &(bucket.to_string() + "/" + path.as_ref()),
                 size,
                 &file,
                 schema,
@@ -1274,6 +1274,7 @@ async fn row_count_demuxer(
     let mut row_counts = Vec::with_capacity(minimum_parallel_files);
 
     let data_location = table_location.trim_end_matches('/').to_string() + "/data/";
+
     while let Some(rb) = data.next().await.transpose()? {
         // ensure we have at least minimum_parallel_files open
         if open_file_streams.len() < minimum_parallel_files {
