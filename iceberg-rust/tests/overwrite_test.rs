@@ -83,6 +83,8 @@ async fn test_table_transaction_overwrite() {
         .await
         .expect("Failed to create table");
 
+    let mut previous_last_updated_ms = table.metadata().last_updated_ms;
+
     // 4. Create initial Arrow RecordBatch and write to parquet
     let initial_batch = create_initial_record_batch();
     let initial_stream = stream::iter(vec![Ok(initial_batch.clone())]);
@@ -104,6 +106,8 @@ async fn test_table_transaction_overwrite() {
         !table.metadata().snapshots.is_empty(),
         "Table should have at least one snapshot after append"
     );
+    assert!(table.metadata().last_updated_ms > previous_last_updated_ms);
+    previous_last_updated_ms = table.metadata().last_updated_ms;
 
     // 6. Create overwrite RecordBatch with additional rows
     let overwrite_batch = create_overwrite_record_batch();
@@ -134,6 +138,7 @@ async fn test_table_transaction_overwrite() {
         final_snapshots.len() >= 2,
         "Table should have at least 2 snapshots after overwrite"
     );
+    assert!(table.metadata().last_updated_ms > previous_last_updated_ms);
 
     // Get the current snapshot (should be the overwrite snapshot)
     let current_snapshot = table

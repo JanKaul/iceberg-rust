@@ -9,8 +9,6 @@
 //! All changes are made atomically - either all updates succeed or none are applied.
 //! Requirements are checked first to ensure concurrent modifications don't corrupt state.
 
-use std::collections::HashMap;
-
 use iceberg_rust_spec::{
     spec::{
         partition::PartitionSpec,
@@ -24,6 +22,8 @@ use iceberg_rust_spec::{
     view_metadata::Materialization,
 };
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::error::Error;
@@ -530,6 +530,12 @@ pub fn apply_table_updates(
             }
         };
     }
+
+    // Lastly make sure `last-updated-ms` field is up-to-date
+    metadata.last_updated_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
     Ok(())
 }
 
