@@ -1089,11 +1089,8 @@ pub async fn write_parquet_with_sink(
 
     let bucket = Bucket::from_path(&metadata.location).map_err(DataFusionIcebergError::from)?;
 
-    let object_store_url = if let &Bucket::Local = &bucket {
-        ObjectStoreUrl::local_filesystem()
-    } else {
-        ObjectStoreUrl::parse(bucket.to_string())?
-    };
+    let object_store_url =
+        fake_object_store_url(&metadata.location).unwrap_or(ObjectStoreUrl::local_filesystem());
 
     context.runtime_env().register_object_store(
         &object_store_url
