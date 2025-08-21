@@ -1116,10 +1116,15 @@ pub async fn write_parquet_with_sink(
         file_extension: "parquet".to_string(),
     };
 
-    let mut parquet_options = TableParquetOptions::default();
-    parquet_options.set("compression", "zstd(3)")?;
+    let global = context.session_config().options().execution.parquet.clone();
 
-    let sink = ParquetSink::new(config, parquet_options);
+    let mut table_parquet_options = TableParquetOptions {
+        global,
+        ..Default::default()
+    };
+    table_parquet_options.set("compression", "zstd(3)")?;
+
+    let sink = ParquetSink::new(config, table_parquet_options);
 
     let (demux_task, file_receiver) = start_demuxer_task(metadata, batches, context, branch)?;
 
