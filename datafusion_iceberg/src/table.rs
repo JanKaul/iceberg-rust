@@ -1066,6 +1066,25 @@ fn value_to_scalarvalue(value: &Value) -> Result<ScalarValue, DataFusionError> {
     }
 }
 
+/// Writes record batches as Parquet data files to an Iceberg table.
+///
+/// This is a convenience function that writes standard data files (not delete files)
+/// to the specified Iceberg table. The function handles partitioning and file generation,
+/// returning the metadata information needed for the next step of table operations.
+///
+/// # Arguments
+/// * `table` - Reference to the Iceberg table to write to
+/// * `batches` - Stream of record batches to write
+/// * `context` - DataFusion task context for execution
+/// * `branch` - Optional branch name to write to (defaults to main branch)
+///
+/// # Returns
+/// A vector of `DataFile` metadata objects containing information about the written files
+/// that can be used in subsequent table metadata operations.
+///
+/// # Errors
+/// Returns `DataFusionError` if writing fails due to I/O errors, schema mismatches,
+/// or other issues during the write process.
 #[inline]
 pub async fn write_parquet_data_files(
     table: &Table,
@@ -1076,6 +1095,26 @@ pub async fn write_parquet_data_files(
     write_parquet_files(table, batches, context, None, branch).await
 }
 
+/// Writes record batches as Parquet equality delete files to an Iceberg table.
+///
+/// This function creates equality delete files that mark rows for deletion based on
+/// equality constraints on specific columns. The equality IDs specify which columns
+/// are used for the equality comparison when applying the deletes.
+///
+/// # Arguments
+/// * `table` - Reference to the Iceberg table to write delete files to
+/// * `batches` - Stream of record batches containing the delete records
+/// * `context` - DataFusion task context for execution
+/// * `equality_ids` - Field IDs of columns used for equality-based deletion
+/// * `branch` - Optional branch name to write to (defaults to main branch)
+///
+/// # Returns
+/// A vector of `DataFile` metadata objects containing information about the written
+/// delete files that can be used in subsequent table metadata operations.
+///
+/// # Errors
+/// Returns `DataFusionError` if writing fails due to I/O errors, schema mismatches,
+/// or other issues during the write process.
 #[inline]
 pub async fn write_parquet_equality_delete_files(
     table: &Table,
