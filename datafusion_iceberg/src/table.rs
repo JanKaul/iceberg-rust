@@ -966,7 +966,7 @@ impl DataSink for IcebergDataSink {
         .map_err(DataFusionIcebergError::from)?;
 
         let metadata_files =
-            write_parquet_with_sink(table, data, context, self.0.branch.as_deref()).await?;
+            write_parquet_with_sink(table, data, context, None, self.0.branch.as_deref()).await?;
 
         table
             .new_transaction(self.0.branch.as_deref())
@@ -1070,6 +1070,7 @@ pub async fn write_parquet_with_sink(
     table: &Table,
     batches: SendableRecordBatchStream,
     context: &Arc<TaskContext>,
+    equality_ids: Option<&[i32]>,
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, DataFusionError> {
     let object_store = table.object_store();
@@ -1145,7 +1146,7 @@ pub async fn write_parquet_with_sink(
                 &file,
                 schema,
                 &partition_fields,
-                None,
+                equality_ids,
             )
             .map_err(DataFusionIcebergError::from)?,
         );
