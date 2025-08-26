@@ -8,6 +8,8 @@ use datafusion::{
 use datafusion_expr::ScalarUDF;
 use iceberg_rust::object_store::ObjectStoreBuilder;
 use iceberg_sql_catalog::SqlCatalogList;
+use object_store::local::LocalFileSystem;
+use tempfile::TempDir;
 
 use datafusion_iceberg::{
     catalog::catalog_list::IcebergCatalogList,
@@ -16,7 +18,9 @@ use datafusion_iceberg::{
 
 #[tokio::test]
 async fn test_insert_csv() {
-    let object_store = ObjectStoreBuilder::memory();
+    let temp_dir = TempDir::new().unwrap();
+    let warehouse_path = format!("{}/warehouse", temp_dir.path().to_str().unwrap());
+    let object_store = ObjectStoreBuilder::Filesystem(Arc::new(LocalFileSystem::new()));
     let iceberg_catalog_list = Arc::new(
         SqlCatalogList::new("sqlite://", object_store)
             .await
@@ -85,7 +89,7 @@ async fn test_insert_csv() {
         .await
         .expect("Failed to execute query plan.");
 
-    let sql = "CREATE EXTERNAL TABLE warehouse.tpch.lineitem ( 
+    let sql = &format!("CREATE EXTERNAL TABLE warehouse.tpch.lineitem ( 
     L_ORDERKEY BIGINT NOT NULL, 
     L_PARTKEY BIGINT NOT NULL, 
     L_SUPPKEY BIGINT NOT NULL, 
@@ -101,7 +105,7 @@ async fn test_insert_csv() {
     L_RECEIPTDATE DATE NOT NULL, 
     L_SHIPINSTRUCT VARCHAR NOT NULL, 
     L_SHIPMODE VARCHAR NOT NULL, 
-    L_COMMENT VARCHAR NOT NULL ) STORED AS ICEBERG LOCATION '/warehouse/tpch/lineitem' PARTITIONED BY ( \"month(L_SHIPDATE)\" );";
+    L_COMMENT VARCHAR NOT NULL ) STORED AS ICEBERG LOCATION '{}/tpch/lineitem' PARTITIONED BY ( \"month(L_SHIPDATE)\" );", warehouse_path);
 
     let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
