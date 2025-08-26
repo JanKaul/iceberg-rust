@@ -335,24 +335,17 @@ impl TableProvider for DataFusionTable {
 // Create a fake object store URL. Different table paths should produce fake URLs
 // that differ in the host name, because DF's DefaultObjectStoreRegistry only takes
 // hostname into account for object store keys
-fn fake_object_store_url(table_location_url: &str) -> Option<ObjectStoreUrl> {
-    let mut u = url::Url::parse(table_location_url).ok()?;
-    u.set_host(Some(&format!(
-        "{}-{}",
-        u.host_str().unwrap_or(""),
-        // Hex-encode the path to ensure it produces a valid hostname
-        u.path()
-            .as_bytes()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<Vec<_>>()
-            .join("")
-    )))
-    .unwrap();
-    u.set_path("");
-    u.set_query(None);
-    u.set_fragment(None);
-    ObjectStoreUrl::parse(&u).ok()
+fn fake_object_store_url(table_location_url: &str) -> ObjectStoreUrl {
+    // Use quasi url-encoding to escape the characters not allowed in host names, (i.e. for `/` use
+    // `-2F` instead of `%2F`)
+    ObjectStoreUrl::parse(format!(
+        "iceberg-rust://{}",
+        table_location_url
+            .replace('-', "-2D")
+            .replace('/', "-2F")
+            .replace(':', "-3A")
+    ))
+    .expect("Invalid object store url.")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -380,8 +373,7 @@ async fn table_scan(
         .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
 
     // Create a unique URI for this particular object store
-    let object_store_url = fake_object_store_url(&table.metadata().location)
-        .unwrap_or_else(ObjectStoreUrl::local_filesystem);
+    let object_store_url = fake_object_store_url(&table.metadata().location);
     session
         .runtime_env()
         .register_object_store(object_store_url.as_ref(), table.object_store());
@@ -1158,8 +1150,7 @@ async fn write_parquet_files(
 
     let bucket = Bucket::from_path(&metadata.location).map_err(DataFusionIcebergError::from)?;
 
-    let object_store_url =
-        fake_object_store_url(&metadata.location).unwrap_or(ObjectStoreUrl::local_filesystem());
+    let object_store_url = fake_object_store_url(&metadata.location);
 
     context.runtime_env().register_object_store(
         &object_store_url
@@ -2499,12 +2490,23 @@ mod tests {
     fn test_fake_object_store_url() {
         assert_eq!(
             fake_object_store_url("s3://a"),
-            Some(ObjectStoreUrl::parse("s3://a-").unwrap()),
+            ObjectStoreUrl::parse("iceberg-rust://s3-3A-2F-2Fa").unwrap(),
         );
         assert_eq!(
             fake_object_store_url("s3://a/b"),
-            Some(ObjectStoreUrl::parse("s3://a-2f62").unwrap()),
+            ObjectStoreUrl::parse("iceberg-rust://s3-3A-2F-2Fa-2Fb").unwrap(),
         );
-        assert_eq!(fake_object_store_url("invalid url"), None);
+        assert_eq!(
+            fake_object_store_url("/warehouse/tpch/lineitem"),
+            ObjectStoreUrl::parse("iceberg-rust://-2Fwarehouse-2Ftpch-2Flineitem").unwrap()
+        );
+        assert_ne!(
+            fake_object_store_url("s3://a/-/--"),
+            fake_object_store_url("s3://a/--/-"),
+        );
+        assert_ne!(
+            fake_object_store_url("s3://a/table-2Fpath"),
+            fake_object_store_url("s3://a/table/path"),
+        );
     }
 }

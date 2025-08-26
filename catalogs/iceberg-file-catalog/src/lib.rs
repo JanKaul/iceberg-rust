@@ -896,10 +896,7 @@ pub mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            std::str::from_utf8(&version_hint).unwrap(),
-            "s3://warehouse/tpch/lineitem/metadata/v1.metadata.json"
-        );
+        assert_eq!(std::str::from_utf8(&version_hint).unwrap(), "1");
 
         let files = object_store.list(None).collect::<Vec<_>>().await;
 
