@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
 
 use crate::table::transaction::append::append_summary;
+use crate::table::transaction::operation::SequenceGroup;
 use crate::{catalog::commit::CommitTable, error::Error, table::Table};
 
 use self::operation::Operation;
@@ -31,12 +32,13 @@ pub(crate) mod overwrite;
 pub(crate) static ADD_SCHEMA_INDEX: usize = 0;
 pub(crate) static SET_DEFAULT_SPEC_INDEX: usize = 1;
 pub(crate) static APPEND_INDEX: usize = 2;
-pub(crate) static REPLACE_INDEX: usize = 3;
-pub(crate) static OVERWRITE_INDEX: usize = 4;
-pub(crate) static UPDATE_PROPERTIES_INDEX: usize = 5;
-pub(crate) static SET_SNAPSHOT_REF_INDEX: usize = 6;
+pub(crate) static APPEND_SEQUENCE_GROUPS_INDEX: usize = 3;
+pub(crate) static REPLACE_INDEX: usize = 4;
+pub(crate) static OVERWRITE_INDEX: usize = 5;
+pub(crate) static UPDATE_PROPERTIES_INDEX: usize = 6;
+pub(crate) static SET_SNAPSHOT_REF_INDEX: usize = 7;
 
-pub(crate) static NUM_OPERATIONS: usize = 7;
+pub(crate) static NUM_OPERATIONS: usize = 8;
 
 /// A transaction that can perform multiple operations on a table atomically
 ///
@@ -117,6 +119,9 @@ impl<'table> TableTransaction<'table> {
     ///     .await?;
     /// ```
     pub fn append_data(mut self, files: Vec<DataFile>) -> Self {
+        if self.operations[APPEND_SEQUENCE_GROUPS_INDEX].is_some() {
+            panic!("Cannot use append and append_sequence_group in the same transaction");
+        }
         let summary = append_summary(&files);
 
         if let Some(ref mut operation) = self.operations[APPEND_INDEX] {
@@ -156,6 +161,9 @@ impl<'table> TableTransaction<'table> {
     ///     .await?;
     /// ```
     pub fn append_delete(mut self, files: Vec<DataFile>) -> Self {
+        if self.operations[APPEND_SEQUENCE_GROUPS_INDEX].is_some() {
+            panic!("Cannot use append and append_sequence_group in the same transaction");
+        }
         if let Some(ref mut operation) = self.operations[APPEND_INDEX] {
             if let Operation::Append {
                 delete_files: old, ..
@@ -169,6 +177,39 @@ impl<'table> TableTransaction<'table> {
                 data_files: Vec::new(),
                 delete_files: files,
                 additional_summary: None,
+            });
+        }
+        self
+    }
+
+    /// Appends a group of data and delete files to the table
+    ///
+    pub fn append_sequence_group(
+        mut self,
+        data_files: Vec<DataFile>,
+        delete_files: Vec<DataFile>,
+    ) -> Self {
+        if self.operations[APPEND_INDEX].is_some() {
+            panic!("Cannot use append and append_sequence_group in the same transaction");
+        }
+        if let Some(ref mut operation) = self.operations[APPEND_SEQUENCE_GROUPS_INDEX] {
+            if let Operation::AppendSequenceGroups {
+                sequence_groups: old,
+                ..
+            } = operation
+            {
+                old.push(SequenceGroup {
+                    delete_files,
+                    data_files,
+                });
+            }
+        } else {
+            self.operations[APPEND_SEQUENCE_GROUPS_INDEX] = Some(Operation::AppendSequenceGroups {
+                branch: self.branch.clone(),
+                sequence_groups: vec![SequenceGroup {
+                    delete_files,
+                    data_files,
+                }],
             });
         }
         self

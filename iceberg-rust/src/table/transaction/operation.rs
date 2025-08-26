@@ -27,6 +27,7 @@ use tokio::task::JoinHandle;
 
 use crate::table::manifest::ManifestWriter;
 use crate::table::manifest_list::ManifestListWriter;
+use crate::table::transaction::append::append_summary;
 use crate::{
     catalog::commit::{TableRequirement, TableUpdate},
     error::Error,
@@ -37,6 +38,15 @@ use super::append::split_datafiles;
 
 /// The target number of datafiles per manifest is dynamic, but we don't want to go below this number.
 static MIN_DATAFILES_PER_MANIFEST: usize = 4;
+
+#[derive(Debug, Clone)]
+/// Group of writes sharing a Data Sequence Number
+pub struct SequenceGroup {
+    /// Delete files. These apply to insert files from previous Sequence Groups
+    pub delete_files: Vec<DataFile>,
+    /// Insert files
+    pub data_files: Vec<DataFile>,
+}
 
 #[derive(Debug)]
 ///Table operations
@@ -59,6 +69,11 @@ pub enum Operation {
         data_files: Vec<DataFile>,
         delete_files: Vec<DataFile>,
         additional_summary: Option<HashMap<String, String>>,
+    },
+    /// Append new change groups to the table
+    AppendSequenceGroups {
+        branch: Option<String>,
+        sequence_groups: Vec<SequenceGroup>,
     },
     // /// Quickly append new files to the table
     // NewFastAppend {
@@ -97,6 +112,151 @@ impl Operation {
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<(Option<TableRequirement>, Vec<TableUpdate>), Error> {
         match self {
+            Operation::AppendSequenceGroups {
+                branch,
+                sequence_groups,
+            } => {
+                let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
+
+                let manifest_list_schema = match table_metadata.format_version {
+                    FormatVersion::V1 => manifest_list_schema_v1(),
+                    FormatVersion::V2 => manifest_list_schema_v2(),
+                };
+
+                let n_data_files = sequence_groups.iter().map(|d| d.data_files.len()).sum();
+                let n_delete_files = sequence_groups.iter().map(|d| d.delete_files.len()).sum();
+                if n_data_files + n_delete_files == 0 {
+                    return Ok((None, vec![]));
+                };
+
+                let all_files: Vec<DataFile> = sequence_groups
+                    .iter()
+                    .flat_map(|d| d.delete_files.iter().chain(d.data_files.iter()))
+                    .cloned()
+                    .collect();
+                let additional_summary = append_summary(&all_files);
+
+                let mut manifest_list_writer = if let Some(manifest_list_bytes) =
+                    prefetch_manifest_list(old_snapshot, &object_store)
+                {
+                    let bytes = manifest_list_bytes.await??;
+                    ManifestListWriter::from_existing(
+                        &bytes,
+                        all_files.iter(),
+                        manifest_list_schema,
+                        table_metadata,
+                        branch.as_deref(),
+                    )?
+                } else {
+                    ManifestListWriter::new(
+                        all_files.iter(),
+                        manifest_list_schema,
+                        table_metadata,
+                        branch.as_deref(),
+                    )?
+                };
+
+                let snapshot_id = generate_snapshot_id();
+
+                let mut dsn_offset: i64 = 0;
+                for SequenceGroup {
+                    data_files,
+                    delete_files,
+                } in sequence_groups.into_iter()
+                {
+                    dsn_offset += 1;
+                    let n_data_files_in_group = data_files.len();
+                    let n_delete_files_in_group = delete_files.len();
+
+                    let new_datafile_iter = data_files.into_iter().map(|data_file| {
+                        ManifestEntry::builder()
+                            .with_format_version(table_metadata.format_version)
+                            .with_status(Status::Added)
+                            .with_data_file(data_file)
+                            .with_sequence_number(table_metadata.last_sequence_number + dsn_offset)
+                            .build()
+                            .map_err(Error::from)
+                    });
+
+                    let new_deletefile_iter = delete_files.into_iter().map(|data_file| {
+                        ManifestEntry::builder()
+                            .with_format_version(table_metadata.format_version)
+                            .with_status(Status::Added)
+                            .with_data_file(data_file)
+                            .with_sequence_number(table_metadata.last_sequence_number + dsn_offset)
+                            .build()
+                            .map_err(Error::from)
+                    });
+
+                    // Write manifest files
+                    // Split manifest file if limit is exceeded
+                    for (content, files, n_files) in [
+                        (
+                            Content::Data,
+                            Either::Left(new_datafile_iter),
+                            n_data_files_in_group,
+                        ),
+                        (
+                            Content::Deletes,
+                            Either::Right(new_deletefile_iter),
+                            n_delete_files_in_group,
+                        ),
+                    ] {
+                        if n_files != 0 {
+                            manifest_list_writer
+                                .append(files, snapshot_id, object_store.clone(), content)
+                                .await?;
+                        }
+                    }
+                }
+
+                let new_manifest_list_location = manifest_list_writer
+                    .finish(snapshot_id, object_store)
+                    .await?;
+
+                let snapshot_operation = match (n_data_files, n_delete_files) {
+                    (0, 0) => return Ok((None, Vec::new())),
+                    (_, 0) => Ok::<_, Error>(SnapshotOperation::Append),
+                    (0, _) => Ok(SnapshotOperation::Delete),
+                    (_, _) => Ok(SnapshotOperation::Overwrite),
+                }?;
+
+                let mut snapshot_builder = SnapshotBuilder::default();
+                snapshot_builder
+                    .with_snapshot_id(snapshot_id)
+                    .with_manifest_list(new_manifest_list_location)
+                    .with_sequence_number(table_metadata.last_sequence_number + dsn_offset)
+                    .with_summary(Summary {
+                        operation: snapshot_operation,
+                        other: additional_summary.unwrap_or_default(),
+                    })
+                    .with_schema_id(
+                        *table_metadata
+                            .current_schema(branch.as_deref())?
+                            .schema_id(),
+                    );
+                if let Some(snapshot) = old_snapshot {
+                    snapshot_builder.with_parent_snapshot_id(*snapshot.snapshot_id());
+                }
+                let snapshot = snapshot_builder.build()?;
+
+                Ok((
+                    old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
+                        r#ref: branch.clone().unwrap_or("main".to_owned()),
+                        snapshot_id: *x.snapshot_id(),
+                    }),
+                    vec![
+                        TableUpdate::AddSnapshot { snapshot },
+                        TableUpdate::SetSnapshotRef {
+                            ref_name: branch.unwrap_or("main".to_owned()),
+                            snapshot_reference: SnapshotReference {
+                                snapshot_id,
+                                retention: SnapshotRetention::default(),
+                            },
+                        },
+                    ],
+                ))
+            }
             Operation::Append {
                 branch,
                 data_files,
