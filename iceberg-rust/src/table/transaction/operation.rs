@@ -139,10 +139,6 @@ impl Operation {
                     )?
                 };
 
-                let n_data_splits = manifest_list_writer.n_splits(n_data_files, Content::Data);
-                let n_delete_splits =
-                    manifest_list_writer.n_splits(n_delete_files, Content::Deletes);
-
                 let new_datafile_iter = data_files.into_iter().map(|data_file| {
                     ManifestEntry::builder()
                         .with_format_version(table_metadata.format_version)
@@ -165,21 +161,17 @@ impl Operation {
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
-                for (content, files, n_files, n_splits) in [
-                    (
-                        Content::Data,
-                        Either::Left(new_datafile_iter),
-                        n_data_files,
-                        n_data_splits,
-                    ),
+                for (content, files, n_files) in [
+                    (Content::Data, Either::Left(new_datafile_iter), n_data_files),
                     (
                         Content::Deletes,
                         Either::Right(new_deletefile_iter),
                         n_delete_files,
-                        n_delete_splits,
                     ),
                 ] {
                     if n_files != 0 {
+                        let n_splits = manifest_list_writer.n_splits(n_files, content);
+
                         if n_splits == 0 {
                             manifest_list_writer
                                 .append(files, snapshot_id, object_store.clone(), content)
@@ -189,7 +181,7 @@ impl Operation {
                                 .append_multiple(
                                     files,
                                     snapshot_id,
-                                    n_data_splits,
+                                    n_splits,
                                     object_store.clone(),
                                     content,
                                 )
