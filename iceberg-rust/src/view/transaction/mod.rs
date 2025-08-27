@@ -62,7 +62,7 @@ impl<'view> Transaction<'view> {
             }
             updates.extend(update);
         }
-        
+
         debug!(
             "Committing {} updates to view {}: requirements={:?}, updates={:?}",
             updates.len(),
@@ -70,7 +70,7 @@ impl<'view> Transaction<'view> {
             requirements,
             updates
         );
-        
+
         let new_view = catalog
             .clone()
             .update_view(CommitView {
