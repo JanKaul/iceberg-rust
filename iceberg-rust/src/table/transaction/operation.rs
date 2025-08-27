@@ -23,6 +23,7 @@ use iceberg_rust_spec::util::strip_prefix;
 use object_store::ObjectStore;
 use smallvec::SmallVec;
 use tokio::task::JoinHandle;
+use tracing::debug;
 
 use crate::table::manifest::ManifestWriter;
 use crate::table::manifest_list::ManifestListWriter;
@@ -102,6 +103,10 @@ impl Operation {
                 delete_files,
                 additional_summary,
             } => {
+                debug!(
+                    "Executing Append operation: branch={:?}, data_files={}, delete_files={}, additional_summary={:?}",
+                    branch, data_files.len(), delete_files.len(), additional_summary
+                );
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
 
                 let manifest_list_schema = match table_metadata.format_version {
@@ -220,6 +225,10 @@ impl Operation {
                 files,
                 additional_summary,
             } => {
+                debug!(
+                    "Executing Replace operation: branch={:?}, files={}, additional_summary={:?}",
+                    branch, files.len(), additional_summary
+                );
                 let partition_fields =
                     table_metadata.current_partition_fields(branch.as_deref())?;
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
@@ -367,6 +376,10 @@ impl Operation {
                 files_to_overwrite,
                 additional_summary,
             } => {
+                debug!(
+                    "Executing Overwrite operation: branch={:?}, data_files={}, files_to_overwrite={:?}, additional_summary={:?}",
+                    branch, data_files.len(), files_to_overwrite, additional_summary
+                );
                 let old_snapshot = table_metadata
                     .current_snapshot(branch.as_deref())?
                     .ok_or(Error::InvalidFormat("Snapshot to overwrite".to_owned()))?;
@@ -500,26 +513,33 @@ impl Operation {
                     ],
                 ))
             }
-            Operation::UpdateProperties(entries) => Ok((
-                None,
-                vec![TableUpdate::SetProperties {
-                    updates: HashMap::from_iter(entries),
-                }],
-            )),
-            Operation::SetSnapshotRef((key, value)) => Ok((
-                table_metadata
-                    .refs
-                    .get(&key)
-                    .map(|x| TableRequirement::AssertRefSnapshotId {
-                        r#ref: key.clone(),
-                        snapshot_id: x.snapshot_id,
-                    }),
-                vec![TableUpdate::SetSnapshotRef {
-                    ref_name: key,
-                    snapshot_reference: value,
-                }],
-            )),
+            Operation::UpdateProperties(entries) => {
+                debug!("Executing UpdateProperties operation: entries={:?}", entries);
+                Ok((
+                    None,
+                    vec![TableUpdate::SetProperties {
+                        updates: HashMap::from_iter(entries),
+                    }],
+                ))
+            }
+            Operation::SetSnapshotRef((key, value)) => {
+                debug!("Executing SetSnapshotRef operation: key={}, value={:?}", key, value);
+                Ok((
+                    table_metadata
+                        .refs
+                        .get(&key)
+                        .map(|x| TableRequirement::AssertRefSnapshotId {
+                            r#ref: key.clone(),
+                            snapshot_id: x.snapshot_id,
+                        }),
+                    vec![TableUpdate::SetSnapshotRef {
+                        ref_name: key,
+                        snapshot_reference: value,
+                    }],
+                ))
+            }
             Operation::AddSchema(schema) => {
+                debug!("Executing AddSchema operation: schema_id={:?}", schema.schema_id());
                 let last_column_id = schema.fields().iter().map(|x| x.id).max();
                 Ok((
                     None,
@@ -530,6 +550,7 @@ impl Operation {
                 ))
             }
             Operation::SetDefaultSpec(spec_id) => {
+                debug!("Executing SetDefaultSpec operation: spec_id={}", spec_id);
                 Ok((None, vec![TableUpdate::SetDefaultSpec { spec_id }]))
             }
         }
