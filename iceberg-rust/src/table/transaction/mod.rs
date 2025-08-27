@@ -16,6 +16,7 @@
 //! * Managing snapshots and branches
 
 use std::collections::HashMap;
+use tracing::debug;
 
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
 
@@ -397,6 +398,14 @@ impl<'table> TableTransaction<'table> {
         if updates.is_empty() {
             return Ok(());
         }
+
+        debug!(
+            "Committing {} updates to table {}: requirements={:?}, updates={:?}",
+            updates.len(),
+            identifier,
+            requirements,
+            updates
+        );
 
         let new_table = catalog
             .clone()
