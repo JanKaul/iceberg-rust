@@ -23,7 +23,7 @@ use iceberg_rust_spec::util::strip_prefix;
 use object_store::ObjectStore;
 use smallvec::SmallVec;
 use tokio::task::JoinHandle;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use crate::table::manifest::ManifestWriter;
 use crate::table::manifest_list::ManifestListWriter;
@@ -91,6 +91,7 @@ pub enum Operation {
 }
 
 impl Operation {
+    #[instrument(level = "debug", skip(object_store))]
     pub async fn execute(
         self,
         table_metadata: &TableMetadata,
@@ -227,7 +228,9 @@ impl Operation {
             } => {
                 debug!(
                     "Executing Replace operation: branch={:?}, files={}, additional_summary={:?}",
-                    branch, files.len(), additional_summary
+                    branch,
+                    files.len(),
+                    additional_summary
                 );
                 let partition_fields =
                     table_metadata.current_partition_fields(branch.as_deref())?;
@@ -514,7 +517,10 @@ impl Operation {
                 ))
             }
             Operation::UpdateProperties(entries) => {
-                debug!("Executing UpdateProperties operation: entries={:?}", entries);
+                debug!(
+                    "Executing UpdateProperties operation: entries={:?}",
+                    entries
+                );
                 Ok((
                     None,
                     vec![TableUpdate::SetProperties {
@@ -523,7 +529,10 @@ impl Operation {
                 ))
             }
             Operation::SetSnapshotRef((key, value)) => {
-                debug!("Executing SetSnapshotRef operation: key={}, value={:?}", key, value);
+                debug!(
+                    "Executing SetSnapshotRef operation: key={}, value={:?}",
+                    key, value
+                );
                 Ok((
                     table_metadata
                         .refs
@@ -539,7 +548,10 @@ impl Operation {
                 ))
             }
             Operation::AddSchema(schema) => {
-                debug!("Executing AddSchema operation: schema_id={:?}", schema.schema_id());
+                debug!(
+                    "Executing AddSchema operation: schema_id={:?}",
+                    schema.schema_id()
+                );
                 let last_column_id = schema.fields().iter().map(|x| x.id).max();
                 Ok((
                     None,

@@ -12,15 +12,17 @@ use iceberg_rust_spec::{
 };
 use std::{
     collections::HashMap,
+    fmt::Debug,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use crate::{
     catalog::commit::{ViewRequirement, ViewUpdate},
     error::Error,
 };
 
+#[derive(Debug)]
 /// View operation
 pub enum Operation {
     /// Update vresion
@@ -78,7 +80,8 @@ fn upsert_representations(
 
 impl Operation {
     /// Execute operation
-    pub async fn execute<T: Materialization>(
+    #[instrument(level = "debug")]
+    pub async fn execute<T: Materialization + Debug>(
         self,
         metadata: &GeneralViewMetadata<T>,
     ) -> Result<(Option<ViewRequirement>, Vec<ViewUpdate<T>>), Error> {
@@ -166,12 +169,15 @@ impl Operation {
                 ))
             }
             Operation::UpdateProperties(entries) => {
-                debug!("Executing UpdateProperties operation: entries={:?}", entries);
+                debug!(
+                    "Executing UpdateProperties operation: entries={:?}",
+                    entries
+                );
                 Ok((
-                None,
-                vec![ViewUpdate::SetProperties {
-                    updates: HashMap::from_iter(entries),
-                }],
+                    None,
+                    vec![ViewUpdate::SetProperties {
+                        updates: HashMap::from_iter(entries),
+                    }],
                 ))
             }
         }
