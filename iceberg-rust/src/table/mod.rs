@@ -59,7 +59,7 @@ impl Table {
     ///
     /// Returns a `CreateTableBuilder` initialized with default properties:
     /// * WRITE_PARQUET_COMPRESSION_CODEC: "zstd"
-    /// * WRITE_PARQUET_COMPRESSION_LEVEL: "1"
+    /// * WRITE_PARQUET_COMPRESSION_LEVEL: "3"
     /// * WRITE_OBJECT_STORAGE_ENABLED: "false"
     ///
     /// # Returns
