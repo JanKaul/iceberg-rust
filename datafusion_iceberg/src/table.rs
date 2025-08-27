@@ -33,6 +33,7 @@ use tokio::sync::{
     mpsc::{self},
     RwLock, RwLockWriteGuard,
 };
+use tracing::debug;
 
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
@@ -366,6 +367,15 @@ async fn table_scan(
     filters: &[Expr],
     limit: Option<usize>,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
+    debug!(
+        "Starting table scan: table_location={}, snapshot_range={:?}, projection={:?}, filters={}, limit={:?}",
+        table.metadata().location,
+        snapshot_range,
+        projection,
+        filters.len(),
+        limit
+    );
+    
     let schema = snapshot_range
         .1
         .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())

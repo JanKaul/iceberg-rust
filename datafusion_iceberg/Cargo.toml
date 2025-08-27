@@ -26,6 +26,7 @@ regex = "1.11.1"
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.43", features = ["rt-multi-thread"] }
+tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 
