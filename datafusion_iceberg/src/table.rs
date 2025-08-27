@@ -33,6 +33,7 @@ use tokio::sync::{
     mpsc::{self},
     RwLock, RwLockWriteGuard,
 };
+use tracing::instrument;
 
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
@@ -355,6 +356,13 @@ fn fake_object_store_url(table_location_url: &str) -> Option<ObjectStoreUrl> {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip(arrow_schema, statistics, session, filters), fields(
+    table_location = %table.metadata().location,
+    snapshot_range = ?snapshot_range,
+    projection = ?projection,
+    filter_count = filters.len(),
+    limit = ?limit
+))]
 async fn table_scan(
     table: &Table,
     snapshot_range: &(Option<i64>, Option<i64>),

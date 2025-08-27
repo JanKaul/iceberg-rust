@@ -12,14 +12,17 @@ use iceberg_rust_spec::{
 };
 use std::{
     collections::HashMap,
+    fmt::Debug,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tracing::{debug, instrument};
 
 use crate::{
     catalog::commit::{ViewRequirement, ViewUpdate},
     error::Error,
 };
 
+#[derive(Debug)]
 /// View operation
 pub enum Operation {
     /// Update vresion
@@ -77,7 +80,8 @@ fn upsert_representations(
 
 impl Operation {
     /// Execute operation
-    pub async fn execute<T: Materialization>(
+    #[instrument(level = "debug")]
+    pub async fn execute<T: Materialization + Debug>(
         self,
         metadata: &GeneralViewMetadata<T>,
     ) -> Result<(Option<ViewRequirement>, Vec<ViewUpdate<T>>), Error> {
@@ -87,6 +91,12 @@ impl Operation {
                 schema,
                 branch,
             } => {
+                debug!(
+                    "Executing UpdateRepresentations operation: representations={}, schema_fields={}, branch={:?}",
+                    representations.len(),
+                    schema.len(),
+                    branch
+                );
                 let schema_changed = metadata
                     .current_schema(branch.as_deref())
                     .map(|s| schema != *s.fields())
@@ -158,12 +168,18 @@ impl Operation {
                     view_updates,
                 ))
             }
-            Operation::UpdateProperties(entries) => Ok((
-                None,
-                vec![ViewUpdate::SetProperties {
-                    updates: HashMap::from_iter(entries),
-                }],
-            )),
+            Operation::UpdateProperties(entries) => {
+                debug!(
+                    "Executing UpdateProperties operation: entries={:?}",
+                    entries
+                );
+                Ok((
+                    None,
+                    vec![ViewUpdate::SetProperties {
+                        updates: HashMap::from_iter(entries),
+                    }],
+                ))
+            }
         }
     }
 }
