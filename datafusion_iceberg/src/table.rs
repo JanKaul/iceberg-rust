@@ -33,7 +33,7 @@ use tokio::sync::{
     mpsc::{self},
     RwLock, RwLockWriteGuard,
 };
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
