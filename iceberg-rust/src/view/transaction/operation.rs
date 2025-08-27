@@ -14,6 +14,7 @@ use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
+use tracing::debug;
 
 use crate::{
     catalog::commit::{ViewRequirement, ViewUpdate},
@@ -87,6 +88,12 @@ impl Operation {
                 schema,
                 branch,
             } => {
+                debug!(
+                    "Executing UpdateRepresentations operation: representations={}, schema_fields={}, branch={:?}",
+                    representations.len(),
+                    schema.len(),
+                    branch
+                );
                 let schema_changed = metadata
                     .current_schema(branch.as_deref())
                     .map(|s| schema != *s.fields())
@@ -158,12 +165,15 @@ impl Operation {
                     view_updates,
                 ))
             }
-            Operation::UpdateProperties(entries) => Ok((
+            Operation::UpdateProperties(entries) => {
+                debug!("Executing UpdateProperties operation: entries={:?}", entries);
+                Ok((
                 None,
                 vec![ViewUpdate::SetProperties {
                     updates: HashMap::from_iter(entries),
                 }],
-            )),
+                ))
+            }
         }
     }
 }
