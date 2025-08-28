@@ -169,7 +169,7 @@ impl PartitionField {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Default, Builder, Getters)]
 #[serde(rename_all = "kebab-case")]
-#[builder(setter(prefix = "with"))]
+#[builder(build_fn(error = "Error"), setter(prefix = "with"))]
 ///  Partition spec that defines how to produce a tuple of partition values from a record.
 pub struct PartitionSpec {
     /// Identifier for PartitionSpec

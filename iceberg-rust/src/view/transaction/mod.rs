@@ -4,6 +4,7 @@
 
 pub mod operation;
 use iceberg_rust_spec::spec::{types::StructType, view_metadata::ViewRepresentation};
+use tracing::debug;
 
 use crate::{catalog::commit::CommitView, error::Error};
 
@@ -61,6 +62,15 @@ impl<'view> Transaction<'view> {
             }
             updates.extend(update);
         }
+
+        debug!(
+            "Committing {} updates to view {}: requirements={:?}, updates={:?}",
+            updates.len(),
+            identifier,
+            requirements,
+            updates
+        );
+
         let new_view = catalog
             .clone()
             .update_view(CommitView {
