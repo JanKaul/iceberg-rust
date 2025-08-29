@@ -41,6 +41,7 @@ use crate::{
     table::transaction::TableTransaction,
 };
 
+pub mod maintenance;
 pub mod manifest;
 pub mod manifest_list;
 pub mod transaction;
@@ -296,6 +297,34 @@ impl Table {
     /// Multiple operations can be chained within a single transaction.
     pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction<'_> {
         TableTransaction::new(self, branch)
+    }
+
+    /// Creates a new snapshot expiration builder for cleaning up old snapshots
+    ///
+    /// This method returns a builder that can be configured to expire snapshots based on
+    /// various criteria such as age, count, or reference status. The operation is atomic
+    /// and will either succeed completely or not modify the table at all.
+    ///
+    /// # Returns
+    /// * `ExpireSnapshots` - A builder for configuring and executing snapshot expiration
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # async fn example(table: &mut Table) -> Result<(), Box<dyn std::error::Error>> {
+    /// // Expire snapshots older than 7 days but keep at least 5 snapshots
+    /// let result = table.expire_snapshots()
+    ///     .expire_older_than(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
+    ///     .retain_last(5)
+    ///     .clean_orphan_files(true)
+    ///     .execute()
+    ///     .await?;
+    /// 
+    /// println!("Expired {} snapshots", result.expired_snapshot_ids.len());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn expire_snapshots(&mut self) -> maintenance::ExpireSnapshots<'_> {
+        maintenance::ExpireSnapshots::new(self)
     }
 }
 
