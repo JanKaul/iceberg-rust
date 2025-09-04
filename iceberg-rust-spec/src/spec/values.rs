@@ -127,6 +127,13 @@ impl From<Value> for ByteBuf {
                 let bytes = val.mantissa().to_be_bytes()[4..].to_vec();
                 ByteBuf::from(bytes)
             }
+            Value::List(list) => {
+                let mut bytes = Vec::new();
+                for item in list.into_iter().flatten() {
+                    bytes.extend(<ByteBuf as From<Value>>::from(item).into_vec());
+                }
+                ByteBuf::from(bytes)
+            }
             _ => todo!(),
         }
     }
@@ -488,6 +495,9 @@ impl Value {
                     Ok(Value::Decimal(Decimal::from_i128_with_scale(val, *scale)))
                 }
             },
+            Type::List(list) => {
+                Self::try_from_bytes(bytes, &list.element).map(|v| Value::List(vec![Some(v)]))
+            }
             _ => Err(Error::NotSupported("Complex types as bytes".to_string())),
         }
     }
