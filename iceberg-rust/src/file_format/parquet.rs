@@ -149,7 +149,9 @@ pub fn parquet_to_datafile(
                             }
                         }
                     }
-                    if let Some(max_bytes) = statistics.max_bytes_opt() {
+                }
+                if let Some(max_bytes) = statistics.max_bytes_opt() {
+                    if let Type::Primitive(_) = &data_type {
                         let new = Value::try_from_bytes(max_bytes, data_type)?;
                         match upper_bounds.entry(id) {
                             Entry::Occupied(mut entry) => {
@@ -202,30 +204,28 @@ pub fn parquet_to_datafile(
                                 entry.insert(new);
                             }
                         }
+                    }
+                }
 
-                        if let Some(partition_field) = partition_fields.get(column_name) {
-                            if let Some(partition_value) = partition.get_mut(partition_field.name())
+                if let Some(partition_field) = partition_fields.get(column_name) {
+                    if let Some(partition_value) = partition.get_mut(partition_field.name()) {
+                        if partition_value.is_none() {
+                            let partition_field = partition_fields
+                                .get(column_name)
+                                .ok_or_else(|| Error::InvalidFormat("transform".to_string()))?;
+                            if let (Some(min_bytes), Some(max_bytes)) =
+                                (statistics.min_bytes_opt(), statistics.max_bytes_opt())
                             {
-                                if partition_value.is_none() {
-                                    let partition_field =
-                                        partition_fields.get(column_name).ok_or_else(|| {
-                                            Error::InvalidFormat("transform".to_string())
-                                        })?;
-                                    if let (Some(min_bytes), Some(max_bytes)) =
-                                        (statistics.min_bytes_opt(), statistics.max_bytes_opt())
-                                    {
-                                        let min = Value::try_from_bytes(min_bytes, data_type)?
-                                            .transform(partition_field.transform())?;
-                                        let max = Value::try_from_bytes(max_bytes, data_type)?
-                                            .transform(partition_field.transform())?;
-                                        if min == max {
-                                            *partition_value = Some(min)
-                                        } else {
-                                            return Err(Error::InvalidFormat(
-                                                "Partition value of data file".to_owned(),
-                                            ));
-                                        }
-                                    }
+                                let min = Value::try_from_bytes(min_bytes, data_type)?
+                                    .transform(partition_field.transform())?;
+                                let max = Value::try_from_bytes(max_bytes, data_type)?
+                                    .transform(partition_field.transform())?;
+                                if min == max {
+                                    *partition_value = Some(min)
+                                } else {
+                                    return Err(Error::InvalidFormat(
+                                        "Partition value of data file".to_owned(),
+                                    ));
                                 }
                             }
                         }
