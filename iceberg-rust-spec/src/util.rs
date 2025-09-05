@@ -30,6 +30,7 @@ mod tests {
     #[test]
     fn strip_prefix_behaves_as_expected() {
         assert_eq!(strip_prefix("/a/b"), "/a/b");
+        assert_eq!(strip_prefix("memory:///a/b"), "/a/b");
         assert_eq!(strip_prefix("file:///a/b"), "/a/b");
         assert_eq!(strip_prefix("s3://bucket/a/b"), "/a/b");
         assert_eq!(strip_prefix("gs://bucket/a/b"), "/a/b");

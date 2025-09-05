@@ -506,7 +506,7 @@ impl Catalog for FileCatalog {
         _identifier: Identifier,
         _metadata_location: &str,
     ) -> Result<Table, IcebergError> {
-        unimplemented!()
+        unimplemented!("Register table for file catalog")
     }
 }
 
@@ -663,12 +663,13 @@ pub mod tests {
         arrow::array::{Float64Array, Int64Array},
         common::tree_node::{TransformedResult, TreeNode},
         execution::SessionStateBuilder,
-        prelude::SessionContext,
+        prelude::{SessionConfig, SessionContext},
     };
     use datafusion_iceberg::{
         catalog::catalog::IcebergCatalog,
         planner::{iceberg_transform, IcebergQueryPlanner},
     };
+    use futures::StreamExt;
     use iceberg_rust::{
         catalog::{namespace::Namespace, Catalog},
         object_store::{Bucket, ObjectStoreBuilder},
@@ -734,7 +735,17 @@ pub mod tests {
                 .unwrap(),
         );
 
+        let mut config = SessionConfig::default();
+
+        config.options_mut().execution.minimum_parallel_output_files = 1;
+        config
+            .options_mut()
+            .execution
+            .parquet
+            .maximum_parallel_row_group_writers = 4;
+
         let state = SessionStateBuilder::new()
+            .with_config(config)
             .with_default_features()
             .with_query_planner(Arc::new(IcebergQueryPlanner::new()))
             .build();
@@ -801,7 +812,7 @@ pub mod tests {
     L_RECEIPTDATE DATE NOT NULL, 
     L_SHIPINSTRUCT VARCHAR NOT NULL, 
     L_SHIPMODE VARCHAR NOT NULL, 
-    L_COMMENT VARCHAR NOT NULL ) STORED AS ICEBERG LOCATION 's3://warehouse/tpch/lineitem' PARTITIONED BY ( \"month(L_SHIPDATE)\" );";
+    L_COMMENT VARCHAR NOT NULL ) STORED AS ICEBERG LOCATION 's3://warehouse/tpch/lineitem';";
 
         let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
@@ -888,6 +899,21 @@ pub mod tests {
         assert_eq!(
             std::str::from_utf8(&version_hint).unwrap(),
             "s3://warehouse/tpch/lineitem/metadata/v1.metadata.json"
+        );
+
+        let files = object_store.list(None).collect::<Vec<_>>().await;
+
+        assert_eq!(
+            files
+                .iter()
+                .filter(|x| x
+                    .as_ref()
+                    .unwrap()
+                    .location
+                    .extension()
+                    .is_some_and(|x| x == "parquet"))
+                .count(),
+            1
         );
     }
 

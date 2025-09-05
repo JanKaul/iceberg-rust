@@ -196,6 +196,7 @@ impl fmt::Display for PrimitiveType {
 /// DataType for a specific struct
 #[derive(Debug, Serialize, PartialEq, Eq, Clone, Builder)]
 #[serde(rename = "struct", tag = "type")]
+#[builder(build_fn(error = "Error"))]
 pub struct StructType {
     /// Struct fields
     #[builder(setter(each(name = "with_struct_field")))]

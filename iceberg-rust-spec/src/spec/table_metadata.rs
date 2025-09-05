@@ -204,7 +204,7 @@ impl TableMetadata {
     pub fn current_partition_fields(
         &self,
         branch: Option<&str>,
-    ) -> Result<Vec<BoundPartitionField>, Error> {
+    ) -> Result<Vec<BoundPartitionField<'_>>, Error> {
         let schema = self.current_schema(branch)?;
         let partition_spec = self.default_partition_spec()?;
         partition_fields(partition_spec, schema)
@@ -218,7 +218,10 @@ impl TableMetadata {
     /// # Returns
     /// * `Result<Vec<BoundPartitionField>, Error>` - Vector of partition fields bound to their source schema fields,
     ///   or an error if the schema or partition spec cannot be found
-    pub fn partition_fields(&self, snapshot_id: i64) -> Result<Vec<BoundPartitionField>, Error> {
+    pub fn partition_fields(
+        &self,
+        snapshot_id: i64,
+    ) -> Result<Vec<BoundPartitionField<'_>>, Error> {
         let schema = self.schema(snapshot_id)?;
         self.default_partition_spec()?
             .fields()
@@ -325,7 +328,7 @@ impl TableMetadata {
             .map(|x| *x.sequence_number())
     }
 
-    pub fn as_ref(&self) -> TabularMetadataRef {
+    pub fn as_ref(&self) -> TabularMetadataRef<'_> {
         TabularMetadataRef::Table(self)
     }
 }
@@ -888,6 +891,15 @@ impl From<FormatVersion> for u8 {
         match value {
             FormatVersion::V1 => b'1',
             FormatVersion::V2 => b'2',
+        }
+    }
+}
+
+impl From<FormatVersion> for i32 {
+    fn from(value: FormatVersion) -> Self {
+        match value {
+            FormatVersion::V1 => 1,
+            FormatVersion::V2 => 2,
         }
     }
 }

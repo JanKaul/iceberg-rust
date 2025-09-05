@@ -451,7 +451,7 @@ async fn write_parquet_files(
 /// * The partition field name cannot be processed
 /// * The partition value cannot be converted to a string
 #[inline]
-fn generate_partition_path(
+pub fn generate_partition_path(
     partition_fields: &[BoundPartitionField<'_>],
     partition_values: &[Value],
 ) -> Result<String, ArrowError> {
@@ -491,23 +491,7 @@ async fn create_arrow_writer(
     schema: &arrow::datatypes::Schema,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<(String, AsyncArrowWriter<BufWriter>), ArrowError> {
-    let mut rand = [0u8; 6];
-    getrandom::fill(&mut rand)
-        .map_err(|err| ArrowError::ExternalError(Box::new(err)))
-        .unwrap();
-
-    let path = partition_path.unwrap_or_else(|| {
-        rand[0..3]
-            .iter()
-            .fold(String::with_capacity(8), |mut acc, x| {
-                write!(&mut acc, "{x:x}").unwrap();
-                acc
-            })
-            + "/"
-    });
-
-    let parquet_path =
-        strip_prefix(data_location) + &path + &Uuid::now_v1(&rand).to_string() + ".parquet";
+    let parquet_path = generate_file_path(data_location, partition_path);
 
     let writer = BufWriter::new(object_store.clone(), parquet_path.clone().into());
 
@@ -523,6 +507,61 @@ async fn create_arrow_writer(
             ),
         )?,
     ))
+}
+
+/// Generates a unique file path for a Parquet data file.
+///
+/// This function creates a unique file path by combining the data location, partition path,
+/// and a UUID-based filename. If no partition path is provided, it generates a random
+/// directory path using hex-encoded random bytes.
+///
+/// # Arguments
+/// * `data_location` - Base directory where data files should be stored
+/// * `partition_path` - Optional partition path component (e.g., "year=2024/month=01/")
+///
+/// # Returns
+/// * `String` - Complete file path ending with ".parquet"
+///
+/// # File Path Structure
+/// The generated path follows this pattern:
+/// * With partition: `{data_location}/{partition_path}{uuid}.parquet`
+/// * Without partition: `{data_location}/{random_hex}/{uuid}.parquet`
+///
+/// # Examples
+/// ```
+/// use iceberg_rust::arrow::write::generate_file_path;
+///
+/// // With partition path
+/// let path1 = generate_file_path("/data", Some("year=2024/month=01/".to_string()));
+/// // Result: "/data/year=2024/month=01/01234567-89ab-cdef-0123-456789abcdef.parquet"
+///
+/// // Without partition path (generates random directory)
+/// let path2 = generate_file_path("/data", None);
+/// // Result: "/data/a1b/01234567-89ab-cdef-0123-456789abcdef.parquet"
+/// ```
+///
+/// # Implementation Details
+/// * Uses cryptographically secure random bytes for UUID generation
+/// * Creates a UUID v1 timestamp-based identifier for uniqueness
+/// * Random directory names use 3 bytes of entropy (6 hex characters)
+/// * Automatically strips path prefixes using `strip_prefix()`
+pub fn generate_file_path(data_location: &str, partition_path: Option<String>) -> String {
+    let mut rand = [0u8; 6];
+    getrandom::fill(&mut rand)
+        .map_err(|err| ArrowError::ExternalError(Box::new(err)))
+        .unwrap();
+
+    let path = partition_path.unwrap_or_else(|| {
+        rand[0..3]
+            .iter()
+            .fold(String::with_capacity(8), |mut acc, x| {
+                write!(&mut acc, "{x:x}").unwrap();
+                acc
+            })
+            + "/"
+    });
+
+    strip_prefix(data_location) + &path + &Uuid::now_v1(&rand).to_string() + ".parquet"
 }
 
 /// Calculates the approximate size in bytes of an Arrow record batch.

@@ -102,7 +102,7 @@ impl TryFrom<&Type> for DataType {
             },
             Type::List(list) => Ok(DataType::List(Arc::new(
                 Field::new(
-                    "",
+                    "item",
                     (&list.element as &Type).try_into()?,
                     !list.element_required,
                 )

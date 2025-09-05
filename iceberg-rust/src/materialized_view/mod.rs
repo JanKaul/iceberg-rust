@@ -152,7 +152,7 @@ impl MaterializedView {
     ///
     /// # Returns
     /// A new transaction that can be used to perform multiple operations atomically
-    pub fn new_transaction(&mut self, branch: Option<&str>) -> MaterializedViewTransaction {
+    pub fn new_transaction(&mut self, branch: Option<&str>) -> MaterializedViewTransaction<'_> {
         MaterializedViewTransaction::new(self, branch)
     }
     /// Returns the storage table that contains the materialized data for this view
