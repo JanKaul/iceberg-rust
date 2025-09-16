@@ -80,7 +80,7 @@ impl Table {
                 WRITE_PARQUET_COMPRESSION_CODEC.to_owned(),
                 "zstd".to_owned(),
             ))
-            .with_property((WRITE_PARQUET_COMPRESSION_LEVEL.to_owned(), 1.to_string()))
+            .with_property((WRITE_PARQUET_COMPRESSION_LEVEL.to_owned(), 3.to_string()))
             .with_property((WRITE_OBJECT_STORAGE_ENABLED.to_owned(), "false".to_owned()));
         builder
     }
@@ -287,7 +287,7 @@ impl Table {
     ///
     /// The transaction must be committed for any changes to take effect.
     /// Multiple operations can be chained within a single transaction.
-    pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction {
+    pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction<'_> {
         TableTransaction::new(self, branch)
     }
 }

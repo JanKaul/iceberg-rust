@@ -12,7 +12,7 @@ use std::{
 use apache_avro::{
     types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
 };
-use futures::future::join_all;
+use futures::{future::join_all, TryStreamExt};
 use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::{
@@ -28,7 +28,8 @@ use smallvec::SmallVec;
 
 use crate::{
     error::Error,
-    util::{summary_to_rectangle, Rectangle},
+    table::datafiles,
+    util::{summary_to_rectangle, Rectangle, Vec4},
 };
 
 use super::{
@@ -211,6 +212,81 @@ pub async fn snapshot_partition_bounds(
             Ok(acc)
         }
     })
+}
+
+/// Computes the column bounds (minimum and maximum values) for all primitive fields
+/// across all data files in a snapshot.
+///
+/// This function reads all manifests in the snapshot, extracts data files from them,
+/// and computes a bounding rectangle that encompasses the lower and upper bounds
+/// of all primitive columns across all data files.
+///
+/// # Arguments
+///
+/// * `snapshot` - The snapshot to compute column bounds for
+/// * `table_metadata` - Metadata of the table containing schema information
+/// * `object_store` - Object store implementation for reading manifest files
+///
+/// # Returns
+///
+/// Returns `Ok(Some(Rectangle))` containing the computed bounds, or `Ok(None)` if
+/// no data files are found. Returns an error if:
+/// - Schema cannot be resolved for the snapshot
+/// - Manifest files cannot be read
+/// - Column bounds are missing for any primitive field in any data file
+///
+/// # Errors
+///
+/// * `Error::NotFound` - When column bounds are missing for a primitive field
+/// * Other I/O errors from reading manifest or data files
+pub async fn snapshot_column_bounds(
+    snapshot: &Snapshot,
+    table_metadata: &TableMetadata,
+    object_store: Arc<dyn ObjectStore>,
+) -> Result<Option<Rectangle>, Error> {
+    let schema = table_metadata
+        .schema(*snapshot.snapshot_id())
+        .or(table_metadata.current_schema(None))?;
+    let manifests = read_snapshot(snapshot, table_metadata, object_store.clone())
+        .await?
+        .collect::<Result<Vec<_>, _>>()?;
+    let datafiles = datafiles(object_store, &manifests, None, (None, None)).await?;
+
+    let primitive_field_ids = schema.primitive_field_ids().collect::<Vec<_>>();
+    let n = primitive_field_ids.len();
+    datafiles
+        .try_fold(None::<Rectangle>, |acc, (_, manifest)| {
+            let primitive_field_ids = &primitive_field_ids;
+            async move {
+                let mut mins = Vec4::with_capacity(n);
+                let mut maxs = Vec4::with_capacity(n);
+                for (i, id) in primitive_field_ids.iter().enumerate() {
+                    let min = manifest
+                        .data_file()
+                        .lower_bounds()
+                        .as_ref()
+                        .and_then(|x| x.get(id));
+                    let max = manifest
+                        .data_file()
+                        .upper_bounds()
+                        .as_ref()
+                        .and_then(|x| x.get(id));
+                    let (Some(min), Some(max)) = (min, max) else {
+                        return Err(Error::NotFound("column bounds".to_string()));
+                    };
+                    mins[i] = min.clone();
+                    maxs[i] = max.clone();
+                }
+                let rect = Rectangle::new(mins, maxs);
+                if let Some(mut acc) = acc {
+                    acc.expand(&rect);
+                    Ok(Some(acc))
+                } else {
+                    Ok(Some(rect))
+                }
+            }
+        })
+        .await
 }
 
 /// A writer for Iceberg manifest list files that manages the creation and updating of manifest lists.

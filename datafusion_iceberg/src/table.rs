@@ -4,11 +4,24 @@
 
 use async_trait::async_trait;
 use chrono::DateTime;
+use datafusion::arrow::array::RecordBatch;
+use datafusion::config::ConfigField;
+use datafusion::execution::RecordBatchStream;
 use datafusion_expr::{dml::InsertOp, utils::conjunction, JoinType};
 use derive_builder::Builder;
-use futures::{stream, StreamExt, TryStreamExt};
+use futures::stream;
+use futures::{StreamExt, TryStreamExt};
+use iceberg_rust::arrow::partition::partition_record_batch;
+use iceberg_rust::arrow::write::{generate_file_path, generate_partition_path};
+use iceberg_rust::file_format::parquet::parquet_to_datafile;
+use iceberg_rust::object_store::Bucket;
+use iceberg_rust::spec::partition::BoundPartitionField;
+use iceberg_rust::spec::table_metadata::{self, TableMetadata, WRITE_OBJECT_STORAGE_ENABLED};
 use itertools::Itertools;
+use lru::LruCache;
+use object_store::path::Path;
 use object_store::ObjectMeta;
+use std::thread::available_parallelism;
 use std::{
     any::Any,
     collections::{HashMap, HashSet},
@@ -16,7 +29,11 @@ use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use tokio::sync::{RwLock, RwLockWriteGuard};
+use tokio::sync::{
+    mpsc::{self},
+    RwLock, RwLockWriteGuard,
+};
+use tracing::instrument;
 
 use crate::{
     error::Error as DataFusionIcebergError,
@@ -28,12 +45,20 @@ use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
     catalog::Session,
-    common::{not_impl_err, plan_err, DataFusionError, SchemaExt},
+    common::{not_impl_err, plan_err, runtime::SpawnedTask, DataFusionError, SchemaExt},
+    config::TableParquetOptions,
     datasource::{
-        file_format::{parquet::ParquetFormat, FileFormat},
+        file_format::{
+            parquet::{ParquetFormat, ParquetSink},
+            write::demux::DemuxedStreamReceiver,
+            FileFormat,
+        },
         listing::PartitionedFile,
         object_store::ObjectStoreUrl,
-        physical_plan::{parquet::source::ParquetSource, FileGroup, FileScanConfigBuilder},
+        physical_plan::{
+            parquet::source::ParquetSource, FileGroup, FileScanConfigBuilder, FileSink,
+            FileSinkConfig,
+        },
         sink::{DataSink, DataSinkExec},
         TableProvider, ViewTable,
     },
@@ -54,10 +79,10 @@ use datafusion::{
     scalar::ScalarValue,
     sql::parser::DFParserBuilder,
 };
-use iceberg_rust::spec::{schema::Schema, view_metadata::ViewRepresentation};
+use iceberg_rust::spec::{manifest::DataFile, schema::Schema, view_metadata::ViewRepresentation};
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned, catalog::tabular::Tabular, error::Error,
-    materialized_view::MaterializedView, table::Table, view::View,
+    catalog::tabular::Tabular, error::Error, materialized_view::MaterializedView, table::Table,
+    view::View,
 };
 use iceberg_rust::{
     spec::{
@@ -107,6 +132,7 @@ impl From<MaterializedView> for DataFusionTable {
 }
 
 #[derive(Clone, Debug, Builder)]
+#[builder(build_fn(error = "Error"))]
 pub struct DataFusionTableConfig {
     /// With this option, an additional "__data_file_path" column is added to the output of the
     /// TableProvider that contains the path of the data-file the row originates from.
@@ -309,27 +335,28 @@ impl TableProvider for DataFusionTable {
 // Create a fake object store URL. Different table paths should produce fake URLs
 // that differ in the host name, because DF's DefaultObjectStoreRegistry only takes
 // hostname into account for object store keys
-fn fake_object_store_url(table_location_url: &str) -> Option<ObjectStoreUrl> {
-    let mut u = url::Url::parse(table_location_url).ok()?;
-    u.set_host(Some(&format!(
-        "{}-{}",
-        u.host_str().unwrap_or(""),
-        // Hex-encode the path to ensure it produces a valid hostname
-        u.path()
-            .as_bytes()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<Vec<_>>()
-            .join("")
-    )))
-    .unwrap();
-    u.set_path("");
-    u.set_query(None);
-    u.set_fragment(None);
-    ObjectStoreUrl::parse(&u).ok()
+fn fake_object_store_url(table_location_url: &str) -> ObjectStoreUrl {
+    // Use quasi url-encoding to escape the characters not allowed in host names, (i.e. for `/` use
+    // `-2F` instead of `%2F`)
+    ObjectStoreUrl::parse(format!(
+        "iceberg-rust://{}",
+        table_location_url
+            .replace('-', "-2D")
+            .replace('/', "-2F")
+            .replace(':', "-3A")
+            .replace(' ', "-20")
+    ))
+    .expect("Invalid object store url.")
 }
 
 #[allow(clippy::too_many_arguments)]
+#[instrument(level = "debug", skip(arrow_schema, statistics, session, filters), fields(
+    table_location = %table.metadata().location,
+    snapshot_range = ?snapshot_range,
+    projection = ?projection,
+    filter_count = filters.len(),
+    limit = ?limit
+))]
 async fn table_scan(
     table: &Table,
     snapshot_range: &(Option<i64>, Option<i64>),
@@ -347,8 +374,7 @@ async fn table_scan(
         .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
 
     // Create a unique URI for this particular object store
-    let object_store_url = fake_object_store_url(&table.metadata().location)
-        .unwrap_or_else(ObjectStoreUrl::local_filesystem);
+    let object_store_url = fake_object_store_url(&table.metadata().location);
     session
         .runtime_env()
         .register_object_store(object_store_url.as_ref(), table.object_store());
@@ -383,27 +409,7 @@ async fn table_scan(
         None
     };
 
-    // Get all partition columns
-    let mut table_partition_cols: Vec<Field> = partition_fields
-        .iter()
-        .map(|partition_field| {
-            Ok(Field::new(
-                partition_field.name().to_owned(),
-                (&partition_field
-                    .field_type()
-                    .tranform(partition_field.transform())
-                    .map_err(DataFusionIcebergError::from)?)
-                    .try_into()
-                    .map_err(DataFusionIcebergError::from)?,
-                !partition_field.required(),
-            )
-            .with_metadata(HashMap::from_iter(vec![(
-                PARQUET_FIELD_ID_META_KEY.to_string(),
-                partition_field.field_id().to_string(),
-            )])))
-        })
-        .collect::<Result<Vec<_>, DataFusionError>>()
-        .map_err(DataFusionIcebergError::from)?;
+    let mut table_partition_cols = datafusion_partition_columns(partition_fields)?;
 
     let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
 
@@ -884,6 +890,32 @@ async fn table_scan(
     }
 }
 
+fn datafusion_partition_columns(
+    partition_fields: &[BoundPartitionField<'_>],
+) -> Result<Vec<Field>, DataFusionError> {
+    let table_partition_cols: Vec<Field> = partition_fields
+        .iter()
+        .map(|partition_field| {
+            Ok(Field::new(
+                partition_field.name().to_owned(),
+                (&partition_field
+                    .field_type()
+                    .tranform(partition_field.transform())
+                    .map_err(DataFusionIcebergError::from)?)
+                    .try_into()
+                    .map_err(DataFusionIcebergError::from)?,
+                !partition_field.required(),
+            )
+            .with_metadata(HashMap::from_iter(vec![(
+                PARQUET_FIELD_ID_META_KEY.to_string(),
+                partition_field.field_id().to_string(),
+            )])))
+        })
+        .collect::<Result<Vec<_>, DataFusionError>>()
+        .map_err(DataFusionIcebergError::from)?;
+    Ok(table_partition_cols)
+}
+
 impl DisplayAs for DataFusionTable {
     fn fmt_as(&self, t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match t {
@@ -919,7 +951,7 @@ impl DataSink for IcebergDataSink {
     async fn write_all(
         &self,
         data: SendableRecordBatchStream,
-        _context: &Arc<TaskContext>,
+        context: &Arc<TaskContext>,
     ) -> Result<u64, DataFusionError> {
         let mut lock = self.0.tabular.write().await;
         let table = if let Tabular::Table(table) = lock.deref_mut() {
@@ -930,8 +962,7 @@ impl DataSink for IcebergDataSink {
         .map_err(DataFusionIcebergError::from)?;
 
         let metadata_files =
-            write_parquet_partitioned(table, data.map_err(Into::into), self.0.branch.as_deref())
-                .await?;
+            write_parquet_data_files(table, data, context, self.0.branch.as_deref()).await?;
 
         table
             .new_transaction(self.0.branch.as_deref())
@@ -1031,6 +1062,312 @@ fn value_to_scalarvalue(value: &Value) -> Result<ScalarValue, DataFusionError> {
     }
 }
 
+/// Writes record batches as Parquet data files to an Iceberg table.
+///
+/// This is a convenience function that writes standard data files (not delete files)
+/// to the specified Iceberg table. The function handles partitioning and file generation,
+/// returning the metadata information needed for the next step of table operations.
+///
+/// # Arguments
+/// * `table` - Reference to the Iceberg table to write to
+/// * `batches` - Stream of record batches to write
+/// * `context` - DataFusion task context for execution
+/// * `branch` - Optional branch name to write to (defaults to main branch)
+///
+/// # Returns
+/// A vector of `DataFile` metadata objects containing information about the written files
+/// that can be used in subsequent table metadata operations.
+///
+/// # Errors
+/// Returns `DataFusionError` if writing fails due to I/O errors, schema mismatches,
+/// or other issues during the write process.
+#[inline]
+pub async fn write_parquet_data_files(
+    table: &Table,
+    batches: SendableRecordBatchStream,
+    context: &Arc<TaskContext>,
+    branch: Option<&str>,
+) -> Result<Vec<DataFile>, DataFusionError> {
+    write_parquet_files(table, batches, context, None, branch).await
+}
+
+/// Writes record batches as Parquet equality delete files to an Iceberg table.
+///
+/// This function creates equality delete files that mark rows for deletion based on
+/// equality constraints on specific columns. The equality IDs specify which columns
+/// are used for the equality comparison when applying the deletes.
+///
+/// # Arguments
+/// * `table` - Reference to the Iceberg table to write delete files to
+/// * `batches` - Stream of record batches containing the delete records
+/// * `context` - DataFusion task context for execution
+/// * `equality_ids` - Field IDs of columns used for equality-based deletion
+/// * `branch` - Optional branch name to write to (defaults to main branch)
+///
+/// # Returns
+/// A vector of `DataFile` metadata objects containing information about the written
+/// delete files that can be used in subsequent table metadata operations.
+///
+/// # Errors
+/// Returns `DataFusionError` if writing fails due to I/O errors, schema mismatches,
+/// or other issues during the write process.
+#[inline]
+pub async fn write_parquet_equality_delete_files(
+    table: &Table,
+    batches: SendableRecordBatchStream,
+    context: &Arc<TaskContext>,
+    equality_ids: &[i32],
+    branch: Option<&str>,
+) -> Result<Vec<DataFile>, DataFusionError> {
+    write_parquet_files(table, batches, context, Some(equality_ids), branch).await
+}
+
+async fn write_parquet_files(
+    table: &Table,
+    batches: SendableRecordBatchStream,
+    context: &Arc<TaskContext>,
+    equality_ids: Option<&[i32]>,
+    branch: Option<&str>,
+) -> Result<Vec<DataFile>, DataFusionError> {
+    let object_store = table.object_store();
+    let metadata = table.metadata();
+
+    // Get table schema and metadata
+    let schema = table
+        .current_schema(branch)
+        .map_err(DataFusionIcebergError::from)?;
+    let arrow_schema = Arc::new(
+        TryInto::<ArrowSchema>::try_into(schema.fields()).map_err(DataFusionIcebergError::from)?,
+    );
+
+    let partition_fields = metadata
+        .current_partition_fields(branch)
+        .map_err(DataFusionIcebergError::from)?;
+
+    let bucket = Bucket::from_path(&metadata.location).map_err(DataFusionIcebergError::from)?;
+
+    let object_store_url = fake_object_store_url(&metadata.location);
+
+    context.runtime_env().register_object_store(
+        &object_store_url
+            .as_str()
+            .try_into()
+            .map_err(Error::from)
+            .map_err(DataFusionIcebergError::from)?,
+        object_store.clone(),
+    );
+
+    let config = FileSinkConfig {
+        original_url: metadata.location.clone(),
+        object_store_url,
+        file_group: FileGroup::new(vec![]),
+        table_paths: vec![],
+        output_schema: arrow_schema,
+        table_partition_cols: Vec::new(),
+        insert_op: InsertOp::Append,
+        keep_partition_by_columns: false,
+        file_extension: "parquet".to_string(),
+    };
+
+    let global = context.session_config().options().execution.parquet.clone();
+
+    let mut table_parquet_options = TableParquetOptions {
+        global,
+        ..Default::default()
+    };
+    table_parquet_options.set("compression", "zstd(3)")?;
+
+    let sink = ParquetSink::new(config, table_parquet_options);
+
+    let (demux_task, file_receiver) = start_demuxer_task(metadata, batches, context, branch)?;
+
+    sink.spawn_writer_tasks_and_join(context, demux_task, file_receiver, object_store.clone())
+        .await?;
+
+    let files = sink.written();
+
+    let mut datafiles = Vec::with_capacity(files.len());
+
+    for (path, file) in files {
+        let size = object_store
+            .head(&path)
+            .await
+            .map_err(DataFusionIcebergError::from)?
+            .size;
+        datafiles.push(
+            parquet_to_datafile(
+                &(bucket.to_string() + "/" + path.as_ref()),
+                size,
+                &file,
+                schema,
+                &partition_fields,
+                equality_ids,
+            )
+            .map_err(DataFusionIcebergError::from)?,
+        );
+    }
+    Ok(datafiles)
+}
+
+pub(crate) fn start_demuxer_task(
+    metadata: &TableMetadata,
+    data: SendableRecordBatchStream,
+    context: &Arc<TaskContext>,
+    branch: Option<&str>,
+) -> Result<
+    (
+        SpawnedTask<Result<(), DataFusionError>>,
+        DemuxedStreamReceiver,
+    ),
+    DataFusionError,
+> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let context = Arc::clone(context);
+    let partition_spec = metadata
+        .default_partition_spec()
+        .map_err(DataFusionIcebergError::from)?
+        .clone();
+    let task = if partition_spec.fields().is_empty() {
+        SpawnedTask::spawn({
+            let location = metadata.location.clone();
+            async move { row_count_demuxer(tx, data, context, &location).await }
+        })
+    } else {
+        // There could be an arbitrarily large number of parallel hive style partitions being written to, so we cannot
+        // bound this channel without risking a deadlock.
+        SpawnedTask::spawn({
+            let partition_spec = partition_spec.clone();
+            let schema = metadata
+                .current_schema(branch)
+                .map_err(DataFusionIcebergError::from)?
+                .clone();
+            let location = metadata.location.clone();
+            let hash_map = metadata.properties.clone();
+            async move {
+                let partition_fields = table_metadata::partition_fields(&partition_spec, &schema)
+                    .map_err(DataFusionIcebergError::from)?;
+                partitions_demuxer(tx, data, &partition_fields, &hash_map, &location).await
+            }
+        })
+    };
+
+    Ok((task, rx))
+}
+
+async fn partitions_demuxer(
+    partition_sender: mpsc::UnboundedSender<(Path, mpsc::Receiver<RecordBatch>)>,
+    mut data: SendableRecordBatchStream,
+    partition_fields: &[BoundPartitionField<'_>],
+    table_properties: &HashMap<String, String>,
+    table_location: &str,
+) -> Result<(), DataFusionError> {
+    let mut senders: LruCache<Vec<Value>, mpsc::Sender<RecordBatch>> = LruCache::unbounded();
+
+    // Get partition column indices
+
+    while let Some(batch) = data.next().await {
+        let batch = batch?;
+
+        // Limit the number of concurrent senders to avoid resource exhaustion
+        if senders.len() > available_parallelism().unwrap().get() {
+            if let Some((_, sender)) = senders.pop_lru() {
+                drop(sender);
+            }
+        }
+
+        for result in partition_record_batch(&batch, partition_fields)? {
+            let (partition_values, batch) = result?;
+
+            if let Some(sender) = senders.get_mut(&partition_values) {
+                sender.send(batch).await.unwrap();
+            } else {
+                let (sender, reciever) = mpsc::channel(1);
+                sender.send(batch).await.unwrap();
+                senders.push(partition_values.clone(), sender);
+                let partition_path = if table_properties
+                    .get(WRITE_OBJECT_STORAGE_ENABLED)
+                    .is_some_and(|x| x == "true")
+                {
+                    None
+                } else {
+                    Some(generate_partition_path(
+                        partition_fields,
+                        &partition_values,
+                    )?)
+                };
+                let data_location = table_location.trim_end_matches('/').to_string() + "/data/";
+                let path = generate_file_path(&data_location, partition_path);
+                partition_sender
+                    .send((path.into(), reciever))
+                    .map_err(DataFusionIcebergError::from)?;
+            };
+        }
+    }
+
+    // Close all remaining senders
+    while let Some((_, sender)) = senders.pop_lru() {
+        drop(sender);
+    }
+
+    Ok(())
+}
+
+async fn row_count_demuxer(
+    mut tx: mpsc::UnboundedSender<(
+        object_store::path::Path,
+        mpsc::Receiver<datafusion::arrow::array::RecordBatch>,
+    )>,
+    mut data: std::pin::Pin<Box<dyn RecordBatchStream + Send + 'static>>,
+    context: Arc<TaskContext>,
+    table_location: &str,
+) -> Result<(), DataFusionError> {
+    let exec_options = &context.session_config().options().execution;
+
+    let max_rows_per_file = exec_options.soft_max_rows_per_output_file;
+    let minimum_parallel_files = exec_options.minimum_parallel_output_files;
+
+    let mut open_file_streams = Vec::with_capacity(minimum_parallel_files);
+
+    let mut next_send_steam = 0;
+    let mut row_counts = Vec::with_capacity(minimum_parallel_files);
+
+    let data_location = table_location.trim_end_matches('/').to_string() + "/data/";
+
+    while let Some(rb) = data.next().await.transpose()? {
+        // ensure we have at least minimum_parallel_files open
+        if open_file_streams.len() < minimum_parallel_files {
+            open_file_streams.push(create_new_file_stream(&data_location, &mut tx)?);
+            row_counts.push(0);
+        } else if row_counts[next_send_steam] >= max_rows_per_file {
+            row_counts[next_send_steam] = 0;
+            open_file_streams[next_send_steam] = create_new_file_stream(&data_location, &mut tx)?;
+        }
+        row_counts[next_send_steam] += rb.num_rows();
+        open_file_streams[next_send_steam]
+            .send(rb)
+            .await
+            .map_err(|_| {
+                DataFusionError::Execution("Error sending RecordBatch to file stream!".into())
+            })?;
+
+        next_send_steam = (next_send_steam + 1) % minimum_parallel_files;
+    }
+    Ok(())
+}
+
+/// Helper for row count demuxer
+fn create_new_file_stream(
+    data_location: &str,
+    tx: &mut mpsc::UnboundedSender<(Path, mpsc::Receiver<RecordBatch>)>,
+) -> Result<mpsc::Sender<RecordBatch>, DataFusionError> {
+    let file_path = generate_file_path(data_location, None);
+    let (tx_file, rx_file) = mpsc::channel(1);
+    tx.send((file_path.into(), rx_file)).map_err(|_| {
+        DataFusionError::Execution("Error sending RecordBatch to file stream!".into())
+    })?;
+    Ok(tx_file)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -1113,7 +1450,7 @@ mod tests {
 
         let table = Table::builder()
             .with_name("orders")
-            .with_location("/test/orders")
+            .with_location("memory:///test/orders")
             .with_schema(schema)
             .build(&["test".to_owned()], catalog)
             .await
@@ -2149,12 +2486,23 @@ mod tests {
     fn test_fake_object_store_url() {
         assert_eq!(
             fake_object_store_url("s3://a"),
-            Some(ObjectStoreUrl::parse("s3://a-").unwrap()),
+            ObjectStoreUrl::parse("iceberg-rust://s3-3A-2F-2Fa").unwrap(),
         );
         assert_eq!(
             fake_object_store_url("s3://a/b"),
-            Some(ObjectStoreUrl::parse("s3://a-2f62").unwrap()),
+            ObjectStoreUrl::parse("iceberg-rust://s3-3A-2F-2Fa-2Fb").unwrap(),
         );
-        assert_eq!(fake_object_store_url("invalid url"), None);
+        assert_eq!(
+            fake_object_store_url("/warehouse/tpch/lineitem"),
+            ObjectStoreUrl::parse("iceberg-rust://-2Fwarehouse-2Ftpch-2Flineitem").unwrap()
+        );
+        assert_ne!(
+            fake_object_store_url("s3://a/-/--"),
+            fake_object_store_url("s3://a/--/-"),
+        );
+        assert_ne!(
+            fake_object_store_url("s3://a/table-2Fpath"),
+            fake_object_store_url("s3://a/table/path"),
+        );
     }
 }
