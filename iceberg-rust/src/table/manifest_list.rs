@@ -28,7 +28,7 @@ use smallvec::SmallVec;
 
 use crate::{
     error::Error,
-    table::{self, datafiles},
+    table::datafiles,
     util::{summary_to_rectangle, Rectangle, Vec4},
 };
 
