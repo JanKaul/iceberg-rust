@@ -802,7 +802,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             manifest_writer.append(manifest_entry?)?;
         }
 
-        let manifest = manifest_writer.finish(object_store.clone()).await?;
+        let (manifest, handle) = manifest_writer.finish_concurrently(&object_store)?;
 
         self.writer.append_ser(manifest)?;
 
@@ -821,6 +821,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 manifest_list_bytes.into(),
             )
             .await?;
+
+        handle.await?;
 
         Ok(new_manifest_list_location)
     }

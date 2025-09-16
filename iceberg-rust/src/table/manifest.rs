@@ -17,6 +17,7 @@
 
 use std::{
     collections::HashSet,
+    future::Future,
     io::Read,
     iter::{repeat, Map, Repeat, Zip},
     sync::Arc,
@@ -26,6 +27,7 @@ use apache_avro::{
     to_value, types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema,
     Writer as AvroWriter,
 };
+use futures::TryFutureExt;
 use iceberg_rust_spec::{
     manifest::{Content, ManifestEntry, ManifestEntryV1, ManifestEntryV2, Status},
     manifest_list::{self, FieldSummary, ManifestListEntry},
@@ -600,22 +602,68 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * The writer cannot be finalized
     /// * The manifest file cannot be written to storage
     pub(crate) async fn finish(
-        mut self,
+        self,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<ManifestListEntry, Error> {
+        let (result, handle) = self.finish_concurrently(&object_store)?;
+        handle.await?;
+        Ok(result)
+    }
+
+    /// Finishes writing the manifest and returns both the manifest list entry and a future
+    /// for the concurrent write operation to object storage.
+    ///
+    /// This method completes the manifest writing process by finalizing the internal writer,
+    /// calculating the manifest length, and preparing for concurrent upload to object storage.
+    /// It returns a tuple containing the completed manifest list entry and a future that
+    /// performs the actual write operation asynchronously.
+    ///
+    /// # Arguments
+    ///
+    /// * `object_store` - The object store implementation to write the manifest to
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok((ManifestListEntry, Future))` where:
+    /// - `ManifestListEntry` - The completed manifest list entry with updated metadata
+    /// - `Future` - An async handle that performs the write operation when awaited
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The internal writer cannot be finalized
+    /// - Object store operations fail during the write
+    ///
+    /// # Usage
+    ///
+    /// This method enables concurrent manifest writing by allowing the caller to collect
+    /// multiple write futures and execute them concurrently using `join_all` or similar.
+    pub(crate) fn finish_concurrently(
+        mut self,
+        object_store: &dyn ObjectStore,
+    ) -> Result<
+        (
+            ManifestListEntry,
+            impl Future<Output = Result<(), Error>> + use<'_>,
+        ),
+        Error,
+    > {
         let manifest_bytes = self.writer.into_inner()?;
 
         let manifest_length: i64 = manifest_bytes.len() as i64;
 
         self.manifest.manifest_length += manifest_length;
 
-        object_store
-            .put(
-                &strip_prefix(&self.manifest.manifest_path).as_str().into(),
-                manifest_bytes.into(),
-            )
-            .await?;
-        Ok(self.manifest)
+        let path = strip_prefix(&self.manifest.manifest_path).as_str().into();
+
+        let handle = async move {
+            object_store
+                .put(&path, manifest_bytes.into())
+                .map_ok(|_| ())
+                .map_err(Error::from)
+                .await
+        };
+        Ok((self.manifest, handle))
     }
 }
 
