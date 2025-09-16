@@ -1025,7 +1025,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             split_datafiles(data_files, bounds, &partition_column_names, n_splits)?
         };
 
-        let manifest_futures = splits
+        let (manifests, manifest_futures) = splits
             .into_iter()
             .enumerate()
             .map(|(i, entries)| {
@@ -1044,11 +1044,9 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                     manifest_writer.append(manifest_entry)?;
                 }
 
-                Ok::<_, Error>(manifest_writer.finish(object_store.clone()))
+                manifest_writer.finish_concurrently(&object_store)
             })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let manifests = futures::future::try_join_all(manifest_futures).await?;
+            .collect::<Result<(Vec<_>, Vec<_>), _>>()?;
 
         for manifest in manifests {
             self.writer.append_ser(manifest)?;
@@ -1069,6 +1067,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 manifest_list_bytes.into(),
             )
             .await?;
+
+        futures::future::try_join_all(manifest_futures).await?;
 
         Ok(new_manifest_list_location)
     }
