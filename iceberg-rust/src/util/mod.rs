@@ -8,7 +8,7 @@ use smallvec::SmallVec;
 
 use crate::error::Error;
 
-type Vec4<T> = SmallVec<[T; 4]>;
+pub(crate) type Vec4<T> = SmallVec<[T; 4]>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rectangle {
