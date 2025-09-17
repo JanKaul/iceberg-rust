@@ -802,7 +802,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             manifest_writer.append(manifest_entry?)?;
         }
 
-        let (manifest, handle) = manifest_writer.finish_concurrently(&object_store)?;
+        let (manifest, manifest_future) = manifest_writer.finish_concurrently(&object_store)?;
 
         self.writer.append_ser(manifest)?;
 
@@ -815,14 +815,12 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
         let manifest_list_bytes = self.writer.into_inner()?;
 
-        object_store
-            .put(
-                &strip_prefix(&new_manifest_list_location).into(),
-                manifest_list_bytes.into(),
-            )
-            .await?;
+        let path = strip_prefix(&new_manifest_list_location).into();
+        let manifest_list_future = object_store
+            .put(&path, manifest_list_bytes.into())
+            .map_err(Error::from);
 
-        handle.await?;
+        future::try_join(manifest_future, manifest_list_future).await?;
 
         Ok(new_manifest_list_location)
     }
@@ -1062,16 +1060,9 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         let manifest_list_bytes = self.writer.into_inner()?;
 
         let path = strip_prefix(&new_manifest_list_location).into();
-        let manifest_list_future = {
-            let object_store = object_store.clone();
-            async move {
-                object_store
-                    .put(&path, manifest_list_bytes.into())
-                    .map_ok(|_| ())
-                    .map_err(Error::from)
-                    .await
-            }
-        };
+        let manifest_list_future = object_store
+            .put(&path, manifest_list_bytes.into())
+            .map_err(Error::from);
 
         future::try_join(future::try_join_all(manifest_futures), manifest_list_future).await?;
 
