@@ -12,7 +12,7 @@ use std::{
 use apache_avro::{
     types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
 };
-use futures::{future::join_all, TryStreamExt};
+use futures::{future, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::{
@@ -1061,14 +1061,19 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
         let manifest_list_bytes = self.writer.into_inner()?;
 
-        object_store
-            .put(
-                &strip_prefix(&new_manifest_list_location).into(),
-                manifest_list_bytes.into(),
-            )
-            .await?;
+        let path = strip_prefix(&new_manifest_list_location).into();
+        let manifest_list_future = {
+            let object_store = object_store.clone();
+            async move {
+                object_store
+                    .put(&path, manifest_list_bytes.into())
+                    .map_ok(|_| ())
+                    .map_err(Error::from)
+                    .await
+            }
+        };
 
-        futures::future::try_join_all(manifest_futures).await?;
+        future::try_join(future::try_join_all(manifest_futures), manifest_list_future).await?;
 
         Ok(new_manifest_list_location)
     }
@@ -1192,7 +1197,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                     Ok::<_, Error>(new_manifest)
                 }
             });
-        for manifest_res in join_all(futures).await {
+        for manifest_res in future::join_all(futures).await {
             let manifest = manifest_res?;
             self.writer.append_ser(manifest)?;
         }
