@@ -13,7 +13,7 @@ use std::{
 use apache_avro::{
     types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
 };
-use futures::{future::join_all, TryStreamExt};
+use futures::{future::join_all, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::{
@@ -24,7 +24,7 @@ use iceberg_rust_spec::{
     table_metadata::{FormatVersion, TableMetadata},
     util::strip_prefix,
 };
-use object_store::{ObjectStore, PutResult};
+use object_store::ObjectStore;
 use smallvec::SmallVec;
 
 use crate::{
@@ -708,7 +708,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         snapshot_id: i64,
         object_store: Arc<dyn ObjectStore>,
         content: Content,
-    ) -> Result<impl Future<Output = Result<PutResult, Error>>, Error> {
+    ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
         self.append_filtered_concurrently(
             data_files,
             snapshot_id,
@@ -795,7 +795,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
         content: Content,
-    ) -> Result<impl Future<Output = Result<PutResult, Error>>, Error> {
+    ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
         let selected_manifest = match content {
             Content::Data => self.selected_data_manifest.take(),
             Content::Deletes => self.selected_delete_manifest.take(),
@@ -935,7 +935,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         n_splits: u32,
         object_store: Arc<dyn ObjectStore>,
         content: Content,
-    ) -> Result<impl Future<Output = Result<Vec<PutResult>, Error>>, Error> {
+    ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
         self.append_multiple_filtered_concurrently(
             data_files,
             snapshot_id,
@@ -1039,7 +1039,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
         content: Content,
-    ) -> Result<impl Future<Output = Result<Vec<PutResult>, Error>>, Error> {
+    ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
         let partition_fields = self
             .table_metadata
             .current_partition_fields(self.branch.as_deref())?;
@@ -1134,7 +1134,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             self.writer.append_ser(manifest)?;
         }
 
-        let future = futures::future::try_join_all(manifest_futures);
+        let future = futures::future::try_join_all(manifest_futures).map_ok(|_| ());
 
         Ok(future)
     }

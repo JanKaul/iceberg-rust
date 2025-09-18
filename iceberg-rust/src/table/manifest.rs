@@ -37,7 +37,7 @@ use iceberg_rust_spec::{
     util::strip_prefix,
     values::{Struct, Value},
 };
-use object_store::{ObjectStore, PutResult};
+use object_store::ObjectStore;
 
 use crate::error::Error;
 
@@ -664,13 +664,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     pub(crate) fn finish_concurrently(
         mut self,
         object_store: Arc<dyn ObjectStore>,
-    ) -> Result<
-        (
-            ManifestListEntry,
-            impl Future<Output = Result<PutResult, Error>>,
-        ),
-        Error,
-    > {
+    ) -> Result<(ManifestListEntry, impl Future<Output = Result<(), Error>>), Error> {
         let manifest_bytes = self.writer.into_inner()?;
 
         let manifest_length: i64 = manifest_bytes.len() as i64;
@@ -681,6 +675,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         let future = async move {
             object_store
                 .put(&path, manifest_bytes.into())
+                .map_ok(|_| ())
                 .map_err(Error::from)
                 .await
         };
