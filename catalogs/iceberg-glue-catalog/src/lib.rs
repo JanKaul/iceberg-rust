@@ -173,7 +173,7 @@ impl Catalog for GlueCatalog {
                 .into_iter()
                 .map(|x| Namespace::try_new(&[x.name; 1]))
                 .collect::<Result<Vec<_>, spec::error::Error>>()?;
-            namespaces.extend(new.into_iter());
+            namespaces.extend(new);
 
             token = result.next_token;
 

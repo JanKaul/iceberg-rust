@@ -185,7 +185,7 @@ impl Catalog for S3TablesCatalog {
                 .into_iter()
                 .map(|x| Namespace::try_new(&x.namespace))
                 .collect::<Result<Vec<_>, spec::error::Error>>()?;
-            namespaces.extend(new.into_iter());
+            namespaces.extend(new);
 
             token = result.continuation_token;
 
