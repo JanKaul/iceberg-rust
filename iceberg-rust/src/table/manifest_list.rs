@@ -4,6 +4,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    future::Future,
     io::{Cursor, Read},
     iter::{repeat, Map, Repeat, Zip},
     sync::Arc,
@@ -23,7 +24,7 @@ use iceberg_rust_spec::{
     table_metadata::{FormatVersion, TableMetadata},
     util::strip_prefix,
 };
-use object_store::ObjectStore;
+use object_store::{ObjectStore, PutResult};
 use smallvec::SmallVec;
 
 use crate::{
@@ -700,6 +701,20 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         .await
     }
 
+    pub(crate) async fn append_filtered(
+        &mut self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
+        object_store: Arc<dyn ObjectStore>,
+        content: Content,
+    ) -> Result<(), Error> {
+        self.append_filtered_concurrently(data_files, snapshot_id, filter, object_store, content)
+            .await?
+            .await?;
+        Ok(())
+    }
+
     /// Appends data files to a single manifest with optional filtering and finalizes the manifest list.
     ///
     /// This method extends the basic `append` functionality by providing the ability to
@@ -754,14 +769,14 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
-    pub(crate) async fn append_filtered(
+    pub(crate) async fn append_filtered_concurrently(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
         filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
         content: Content,
-    ) -> Result<(), Error> {
+    ) -> Result<impl Future<Output = Result<PutResult, Error>>, Error> {
         let selected_manifest = match content {
             Content::Data => self.selected_data_manifest.take(),
             Content::Deletes => self.selected_delete_manifest.take(),
@@ -820,11 +835,11 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             manifest_writer.append(manifest_entry?)?;
         }
 
-        let manifest = manifest_writer.finish(object_store.clone()).await?;
+        let (manifest, future) = manifest_writer.finish_concurrently(object_store.clone())?;
 
         self.writer.append_ser(manifest)?;
 
-        Ok(())
+        Ok(future)
     }
 
     /// Appends data files by splitting them across multiple manifests and finalizes the manifest list.
@@ -894,6 +909,27 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         .await
     }
 
+    pub(crate) async fn append_multiple_filtered(
+        &mut self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        n_splits: u32,
+        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
+        object_store: Arc<dyn ObjectStore>,
+        content: Content,
+    ) -> Result<(), Error> {
+        self.append_multiple_filtered_concurrently(
+            data_files,
+            snapshot_id,
+            n_splits,
+            filter,
+            object_store,
+            content,
+        )
+        .await?
+        .await?;
+        Ok(())
+    }
     /// Appends data files across multiple manifests with optional filtering and finalizes the manifest list.
     ///
     /// This method extends the `append_multiple` functionality by providing the ability to
@@ -955,7 +991,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
-    pub(crate) async fn append_multiple_filtered(
+    pub(crate) async fn append_multiple_filtered_concurrently(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
@@ -963,7 +999,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
         content: Content,
-    ) -> Result<(), Error> {
+    ) -> Result<impl Future<Output = Result<Vec<PutResult>, Error>>, Error> {
         let partition_fields = self
             .table_metadata
             .current_partition_fields(self.branch.as_deref())?;
@@ -1032,7 +1068,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             split_datafiles(data_files, bounds, &partition_column_names, n_splits)?
         };
 
-        let manifest_futures = splits
+        let (manifests, manifest_futures) = splits
             .into_iter()
             .map(|entries| {
                 let manifest_location = self.next_manifest_location();
@@ -1050,17 +1086,17 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                     manifest_writer.append(manifest_entry)?;
                 }
 
-                Ok::<_, Error>(manifest_writer.finish(object_store.clone()))
+                manifest_writer.finish_concurrently(object_store.clone())
             })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let manifests = futures::future::try_join_all(manifest_futures).await?;
+            .collect::<Result<(Vec<_>, Vec<_>), _>>()?;
 
         for manifest in manifests {
             self.writer.append_ser(manifest)?;
         }
 
-        Ok(())
+        let future = futures::future::try_join_all(manifest_futures);
+
+        Ok(future)
     }
 
     pub(crate) async fn finish(
