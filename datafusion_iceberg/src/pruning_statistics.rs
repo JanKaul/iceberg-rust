@@ -350,7 +350,7 @@ fn transform_literal(expr: Expr, transform: &Transform) -> Result<Expr, DataFusi
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct DateTransform {
     signature: Signature,
 }
