@@ -909,25 +909,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
-    pub(crate) async fn append_multiple(
-        &mut self,
-        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
-        snapshot_id: i64,
-        n_splits: u32,
-        object_store: Arc<dyn ObjectStore>,
-        content: Content,
-    ) -> Result<(), Error> {
-        self.append_multiple_filtered(
-            data_files,
-            snapshot_id,
-            n_splits,
-            None::<fn(&Result<ManifestEntry, Error>) -> bool>,
-            object_store,
-            content,
-        )
-        .await
-    }
-
     pub(crate) async fn append_multiple_concurrently(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
