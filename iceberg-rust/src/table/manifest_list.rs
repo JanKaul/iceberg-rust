@@ -701,18 +701,22 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         .await
     }
 
-    pub(crate) async fn append_filtered(
+    #[inline]
+    pub(crate) async fn append_concurrently(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
-        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
         content: Content,
-    ) -> Result<(), Error> {
-        self.append_filtered_concurrently(data_files, snapshot_id, filter, object_store, content)
-            .await?
-            .await?;
-        Ok(())
+    ) -> Result<impl Future<Output = Result<PutResult, Error>>, Error> {
+        self.append_filtered_concurrently(
+            data_files,
+            snapshot_id,
+            None::<fn(&Result<ManifestEntry, Error>) -> bool>,
+            object_store,
+            content,
+        )
+        .await
     }
 
     /// Appends data files to a single manifest with optional filtering and finalizes the manifest list.
@@ -769,6 +773,21 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
+    #[inline]
+    pub(crate) async fn append_filtered(
+        &mut self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
+        object_store: Arc<dyn ObjectStore>,
+        content: Content,
+    ) -> Result<(), Error> {
+        self.append_filtered_concurrently(data_files, snapshot_id, filter, object_store, content)
+            .await?
+            .await?;
+        Ok(())
+    }
+
     pub(crate) async fn append_filtered_concurrently(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
@@ -909,27 +928,25 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         .await
     }
 
-    pub(crate) async fn append_multiple_filtered(
+    pub(crate) async fn append_multiple_concurrently(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
         n_splits: u32,
-        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
         object_store: Arc<dyn ObjectStore>,
         content: Content,
-    ) -> Result<(), Error> {
+    ) -> Result<impl Future<Output = Result<Vec<PutResult>, Error>>, Error> {
         self.append_multiple_filtered_concurrently(
             data_files,
             snapshot_id,
             n_splits,
-            filter,
+            None::<fn(&Result<ManifestEntry, Error>) -> bool>,
             object_store,
             content,
         )
-        .await?
-        .await?;
-        Ok(())
+        .await
     }
+
     /// Appends data files across multiple manifests with optional filtering and finalizes the manifest list.
     ///
     /// This method extends the `append_multiple` functionality by providing the ability to
@@ -991,6 +1008,29 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
+    #[inline]
+    pub(crate) async fn append_multiple_filtered(
+        &mut self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        n_splits: u32,
+        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
+        object_store: Arc<dyn ObjectStore>,
+        content: Content,
+    ) -> Result<(), Error> {
+        self.append_multiple_filtered_concurrently(
+            data_files,
+            snapshot_id,
+            n_splits,
+            filter,
+            object_store,
+            content,
+        )
+        .await?
+        .await?;
+        Ok(())
+    }
+
     pub(crate) async fn append_multiple_filtered_concurrently(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
