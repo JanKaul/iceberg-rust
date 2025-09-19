@@ -23,10 +23,17 @@ use parquet::{
     schema::types::{from_thrift, SchemaDescriptor},
 };
 use thrift::protocol::{TCompactOutputProtocol, TSerializable};
+use tracing::instrument;
 
 use crate::error::Error;
 
 /// Read datafile statistics from parquetfile
+#[instrument(name = "iceberg_rust::file_format::parquet::parquet_to_datafile", level = "debug", skip(file_metadata, schema, partition_fields), fields(
+    location = location,
+    file_size = file_size,
+    partition_field_count = partition_fields.len(),
+    has_equality_ids = equality_ids.is_some()
+))]
 pub fn parquet_to_datafile(
     location: &str,
     file_size: u64,

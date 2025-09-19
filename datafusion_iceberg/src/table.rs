@@ -350,8 +350,8 @@ fn fake_object_store_url(table_location_url: &str) -> ObjectStoreUrl {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[instrument(level = "debug", skip(arrow_schema, statistics, session, filters), fields(
-    table_location = %table.metadata().location,
+#[instrument(name = "datafusion_iceberg::table_scan", level = "debug", skip(arrow_schema, statistics, session, filters), fields(
+    table_identifier = %table.identifier(),
     snapshot_range = ?snapshot_range,
     projection = ?projection,
     filter_count = filters.len(),
@@ -1112,6 +1112,10 @@ pub async fn write_parquet_equality_delete_files(
     write_parquet_files(table, batches, context, Some(equality_ids), branch).await
 }
 
+#[instrument(name = "datafusion_iceberg::write_parquet_files", level = "debug", skip(table, batches, context), fields(
+    table_identifier = %table.identifier(),
+    branch = ?branch
+))]
 async fn write_parquet_files(
     table: &Table,
     batches: SendableRecordBatchStream,
