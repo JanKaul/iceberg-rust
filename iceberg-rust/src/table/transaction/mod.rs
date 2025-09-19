@@ -16,7 +16,7 @@
 //! * Managing snapshots and branches
 
 use std::collections::HashMap;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
 
@@ -419,6 +419,10 @@ impl<'table> TableTransaction<'table> {
     ///     .commit()
     ///     .await?;
     /// ```
+    #[instrument(name = "iceberg_rust::table::transaction::commit", level = "debug", skip(self), fields(
+        table_identifier = %self.table.identifier,
+        branch = ?self.branch
+    ))]
     pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.table.catalog();
         let identifier = self.table.identifier.clone();

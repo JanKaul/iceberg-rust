@@ -110,7 +110,7 @@ pub enum Operation {
 }
 
 impl Operation {
-    #[instrument(level = "debug", skip(object_store))]
+    #[instrument(name = "iceberg_rust::table::transaction::operation::execute", level = "debug", skip(object_store))]
     pub async fn execute(
         self,
         table_metadata: &TableMetadata,

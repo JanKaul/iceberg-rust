@@ -80,7 +80,10 @@ fn upsert_representations(
 
 impl Operation {
     /// Execute operation
-    #[instrument(level = "debug")]
+    #[instrument(
+        name = "iceberg_rust::view::transaction::operation::execute",
+        level = "debug"
+    )]
     pub async fn execute<T: Materialization + Debug>(
         self,
         metadata: &GeneralViewMetadata<T>,

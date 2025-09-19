@@ -34,6 +34,8 @@ use iceberg_rust_spec::{
     },
 };
 
+use tracing::instrument;
+
 use crate::{
     catalog::{create::CreateTableBuilder, identifier::Identifier, Catalog},
     error::Error,
@@ -199,6 +201,11 @@ impl Table {
     /// Returns an error if:
     /// * The end snapshot ID is invalid
     /// * Reading the manifest list fails
+    #[instrument(name = "iceberg_rust::table::manifests", level = "debug", skip(self), fields(
+        table_identifier = %self.identifier,
+        start = ?start,
+        end = ?end
+    ))]
     pub async fn manifests(
         &self,
         start: Option<i64>,
@@ -295,6 +302,11 @@ impl Table {
 /// Path of a Manifest file
 pub type ManifestPath = String;
 
+#[instrument(name = "iceberg_rust::table::datafiles", level = "debug", skip(object_store, manifests), fields(
+    manifest_count = manifests.len(),
+    filter_provided = filter.is_some(),
+    sequence_range = ?sequence_number_range
+))]
 async fn datafiles(
     object_store: Arc<dyn ObjectStore>,
     manifests: &'_ [ManifestListEntry],
