@@ -13,7 +13,7 @@ use std::{
 use apache_avro::{
     types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
 };
-use futures::{future::join_all, TryFutureExt, TryStreamExt};
+use futures::{future::join_all, stream, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::{
@@ -255,7 +255,7 @@ pub async fn snapshot_column_bounds(
 
     let primitive_field_ids = schema.primitive_field_ids().collect::<Vec<_>>();
     let n = primitive_field_ids.len();
-    datafiles
+    stream::iter(datafiles)
         .try_fold(None::<Rectangle>, |acc, (_, manifest)| {
             let primitive_field_ids = &primitive_field_ids;
             async move {

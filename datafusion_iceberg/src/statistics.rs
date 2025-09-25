@@ -5,7 +5,7 @@ use datafusion::{
     physical_plan::{ColumnStatistics, Statistics},
     scalar::ScalarValue,
 };
-use futures::{future, TryFutureExt, TryStreamExt};
+use futures::{future, stream, TryFutureExt, TryStreamExt};
 use iceberg_rust::spec::{
     manifest::{ManifestEntry, Status},
     schema::Schema,
@@ -48,7 +48,7 @@ pub(crate) async fn table_statistics(
     let datafiles = table
         .datafiles(&manifests, None, sequence_number_range)
         .await?;
-    datafiles
+    stream::iter(datafiles)
         .try_filter(|manifest| future::ready(!matches!(manifest.1.status(), Status::Deleted)))
         .try_fold(
             Statistics {
