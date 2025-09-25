@@ -344,7 +344,7 @@ async fn datafiles(
         })
         .collect();
 
-    Ok(stream.flat_map_unordered(None, move |result| {
+    Ok(stream.flat_map(move |result| {
         let (bytes, path, sequence_number) = result.unwrap();
 
         let reader = ManifestReader::new(bytes).unwrap();
