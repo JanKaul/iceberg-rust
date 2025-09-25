@@ -34,7 +34,7 @@ use iceberg_rust_spec::{
     },
 };
 
-use tracing::instrument;
+use tracing::{instrument, Instrument};
 
 use crate::{
     catalog::{create::CreateTableBuilder, identifier::Identifier, Catalog},
@@ -336,6 +336,7 @@ async fn datafiles(
                     object_store
                         .get(&path)
                         .and_then(|file| file.bytes())
+                        .instrument(tracing::trace_span!("iceberg_rust::get_manifest"))
                         .await?,
                 ));
                 Ok::<_, Error>((bytes, manifest_path, file.sequence_number))

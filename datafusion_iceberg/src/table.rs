@@ -33,7 +33,7 @@ use tokio::sync::{
     mpsc::{self},
     RwLock, RwLockWriteGuard,
 };
-use tracing::instrument;
+use tracing::{instrument, Instrument};
 
 use crate::{
     error::Error as DataFusionIcebergError,
@@ -492,6 +492,9 @@ async fn table_scan(
                 .await
                 .map_err(DataFusionIcebergError::from)?
                 .try_collect()
+                .instrument(tracing::debug_span!(
+                    "datafusion_iceberg::collect_datafiles"
+                ))
                 .await
                 .map_err(DataFusionIcebergError::from)?
         } else {
@@ -500,6 +503,9 @@ async fn table_scan(
                 .await
                 .map_err(DataFusionIcebergError::from)?
                 .try_collect()
+                .instrument(tracing::debug_span!(
+                    "datafusion_iceberg::collect_datafiles"
+                ))
                 .await
                 .map_err(DataFusionIcebergError::from)?
         };
@@ -547,6 +553,9 @@ async fn table_scan(
             .await
             .map_err(DataFusionIcebergError::from)?
             .try_collect()
+            .instrument(tracing::debug_span!(
+                "datafusion_iceberg::collect_datafiles"
+            ))
             .await
             .map_err(DataFusionIcebergError::from)?;
         data_files.into_iter().for_each(|manifest| {
