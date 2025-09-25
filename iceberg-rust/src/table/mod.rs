@@ -12,8 +12,7 @@
 
 use std::{io::Cursor, sync::Arc};
 
-use futures::future;
-use futures::stream::FuturesUnordered;
+use futures::future::{self, try_join_all};
 use itertools::Itertools;
 use manifest::ManifestReader;
 use manifest_list::read_snapshot;
@@ -326,7 +325,7 @@ async fn datafiles(
         None => Box::new(manifests.iter()),
     };
 
-    let stream: FuturesUnordered<_> = iter
+    let futures: Vec<_> = iter
         .map(move |file| {
             let object_store = object_store.clone();
             async move {
@@ -344,8 +343,10 @@ async fn datafiles(
         })
         .collect();
 
-    Ok(stream.flat_map(move |result| {
-        let (bytes, path, sequence_number) = result.unwrap();
+    let results = try_join_all(futures).await?;
+
+    Ok(stream::iter(results).flat_map(move |result| {
+        let (bytes, path, sequence_number) = result;
 
         let reader = ManifestReader::new(bytes).unwrap();
         stream::iter(reader).try_filter_map(move |mut x| {
