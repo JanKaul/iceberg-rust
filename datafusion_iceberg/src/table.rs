@@ -33,7 +33,7 @@ use tokio::sync::{
     mpsc::{self},
     RwLock, RwLockWriteGuard,
 };
-use tracing::instrument;
+use tracing::{instrument, Instrument};
 
 use crate::{
     error::Error as DataFusionIcebergError,
@@ -540,33 +540,35 @@ async fn table_scan(
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
             .map_err(DataFusionIcebergError::from)?;
-        let data_files: Vec<(ManifestPath, ManifestEntry)> = table
+        let mut data_files = table
             .datafiles(&manifests, None, sequence_number_range)
             .await
-            .map_err(DataFusionIcebergError::from)?
-            .try_collect()
             .map_err(DataFusionIcebergError::from)?;
-        data_files.into_iter().for_each(|manifest| {
-            if *manifest.1.status() != Status::Deleted {
-                match manifest.1.data_file().content() {
-                    Content::Data => {
-                        data_file_groups
-                            .entry(manifest.1.data_file().partition().clone())
-                            .or_default()
-                            .push(manifest);
-                    }
-                    Content::EqualityDeletes => {
-                        equality_delete_file_groups
-                            .entry(manifest.1.data_file().partition().clone())
-                            .or_default()
-                            .push(manifest);
-                    }
-                    Content::PositionDeletes => {
-                        panic!("Position deletes not supported.")
+        data_files
+            .try_for_each(|manifest| {
+                let manifest = manifest?;
+                if *manifest.1.status() != Status::Deleted {
+                    match manifest.1.data_file().content() {
+                        Content::Data => {
+                            data_file_groups
+                                .entry(manifest.1.data_file().partition().clone())
+                                .or_default()
+                                .push(manifest);
+                        }
+                        Content::EqualityDeletes => {
+                            equality_delete_file_groups
+                                .entry(manifest.1.data_file().partition().clone())
+                                .or_default()
+                                .push(manifest);
+                        }
+                        Content::PositionDeletes => {
+                            panic!("Position deletes not supported.")
+                        }
                     }
                 }
-            }
-        });
+                Ok::<_, Error>(())
+            })
+            .map_err(DataFusionIcebergError::from)?;
     };
 
     let file_source = Arc::new(
@@ -862,6 +864,9 @@ async fn table_scan(
 
         let other_plan = ParquetFormat::default()
             .create_physical_plan(session, file_scan_config)
+            .instrument(tracing::debug_span!(
+                "datafusion_iceberg::create_physical_plan_scan_data_files"
+            ))
             .await?;
 
         plans.push(other_plan);
