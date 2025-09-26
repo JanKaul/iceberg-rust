@@ -565,15 +565,22 @@ async fn table_scan(
         statistics
     };
 
-    let file_source = Arc::new(
-        if let Some(physical_predicate) = physical_predicate.clone() {
-            ParquetSource::default()
-                .with_predicate(physical_predicate)
-                .with_pushdown_filters(true)
-        } else {
-            ParquetSource::default()
-        },
-    );
+    let file_source = {
+        let physical_predicate = physical_predicate.clone();
+        async move {
+            Arc::new(
+                if let Some(physical_predicate) = physical_predicate.clone() {
+                    ParquetSource::default()
+                        .with_predicate(physical_predicate)
+                        .with_pushdown_filters(true)
+                } else {
+                    ParquetSource::default()
+                },
+            )
+        }
+        .instrument(tracing::debug_span!("datafusion_iceberg::file_source"))
+        .await
+    };
 
     // Create plan for every partition with delete files
     let mut plans = stream::iter(equality_delete_file_groups.into_iter())
@@ -1613,6 +1620,8 @@ mod tests {
         if let Tabular::Table(table) = table.tabular.read().await.deref() {
             assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
         };
+
+        panic!()
     }
 
     #[tokio::test]
