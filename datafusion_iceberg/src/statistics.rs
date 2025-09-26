@@ -1,59 +1,19 @@
-use std::ops::Deref;
-
 use datafusion::{
     common::stats::Precision,
     physical_plan::{ColumnStatistics, Statistics},
     scalar::ScalarValue,
 };
+use iceberg_rust::error::Error;
 use iceberg_rust::spec::{
     manifest::{ManifestEntry, Status},
     schema::Schema,
     values::Value,
 };
-use iceberg_rust::{catalog::tabular::Tabular, error::Error, table::Table};
-use itertools::Itertools;
 
-use super::table::DataFusionTable;
-
-impl DataFusionTable {
-    pub(crate) async fn statistics(&self) -> Result<Statistics, Error> {
-        match self.tabular.read().await.deref() {
-            Tabular::Table(table) => table_statistics(table, &self.snapshot_range).await,
-            Tabular::View(_) => Err(Error::NotSupported("Statistics for views".to_string())),
-            Tabular::MaterializedView(mv) => {
-                let table = mv.storage_table().await?;
-                table_statistics(&table, &self.snapshot_range).await
-            }
-        }
-    }
-}
-
-pub(crate) async fn table_statistics(
-    table: &Table,
-    snapshot_range: &(Option<i64>, Option<i64>),
-) -> Result<Statistics, Error> {
-    let schema = &snapshot_range
-        .1
-        .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
-        .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
-
-    let sequence_number_range = [snapshot_range.0, snapshot_range.1]
-        .iter()
-        .map(|x| x.and_then(|y| table.metadata().sequence_number(y)))
-        .collect_tuple::<(Option<i64>, Option<i64>)>()
-        .unwrap();
-
-    let manifests = table.manifests(snapshot_range.0, snapshot_range.1).await?;
-    let datafiles = table
-        .datafiles(&manifests, None, sequence_number_range)
-        .await?;
-    Ok(statistics_from_datafiles(
-        schema,
-        &datafiles.collect::<Result<Vec<_>, Error>>()?,
-    ))
-}
-
-fn statistics_from_datafiles(schema: &Schema, datafiles: &[(String, ManifestEntry)]) -> Statistics {
+pub(crate) fn statistics_from_datafiles(
+    schema: &Schema,
+    datafiles: &[(String, ManifestEntry)],
+) -> Statistics {
     datafiles
         .iter()
         .filter(|(_, manifest)| !matches!(manifest.status(), Status::Deleted))
