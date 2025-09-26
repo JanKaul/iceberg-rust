@@ -5,7 +5,6 @@ use datafusion::{
     physical_plan::{ColumnStatistics, Statistics},
     scalar::ScalarValue,
 };
-use futures::{future, stream, TryFutureExt, TryStreamExt};
 use iceberg_rust::spec::{
     manifest::{ManifestEntry, Status},
     schema::Schema,
@@ -48,9 +47,17 @@ pub(crate) async fn table_statistics(
     let datafiles = table
         .datafiles(&manifests, None, sequence_number_range)
         .await?;
-    stream::iter(datafiles)
-        .try_filter(|manifest| future::ready(!matches!(manifest.1.status(), Status::Deleted)))
-        .try_fold(
+    Ok(statistics_from_datafiles(
+        schema,
+        &datafiles.collect::<Result<Vec<_>, Error>>()?,
+    ))
+}
+
+fn statistics_from_datafiles(schema: &Schema, datafiles: &[(String, ManifestEntry)]) -> Statistics {
+    datafiles
+        .iter()
+        .filter(|(_, manifest)| !matches!(manifest.status(), Status::Deleted))
+        .fold(
             Statistics {
                 num_rows: Precision::Exact(0),
                 total_byte_size: Precision::Exact(0),
@@ -65,14 +72,14 @@ pub(crate) async fn table_statistics(
                     schema.fields().len()
                 ],
             },
-            |acc, manifest| async move {
-                let column_stats = column_statistics(schema, &manifest.1);
-                Ok(Statistics {
+            |acc, (_, manifest)| {
+                let column_stats = column_statistics(schema, manifest);
+                Statistics {
                     num_rows: acc.num_rows.add(&Precision::Exact(
-                        *manifest.1.data_file().record_count() as usize,
+                        *manifest.data_file().record_count() as usize,
                     )),
                     total_byte_size: acc.total_byte_size.add(&Precision::Exact(
-                        *manifest.1.data_file().file_size_in_bytes() as usize,
+                        *manifest.data_file().file_size_in_bytes() as usize,
                     )),
                     column_statistics: acc
                         .column_statistics
@@ -86,11 +93,9 @@ pub(crate) async fn table_statistics(
                             sum_value: acc.sum_value.add(&x.sum_value),
                         })
                         .collect(),
-                })
+                }
             },
         )
-        .map_err(Error::from)
-        .await
 }
 
 fn column_statistics<'a>(
