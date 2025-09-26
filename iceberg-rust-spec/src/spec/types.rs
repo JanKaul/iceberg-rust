@@ -292,6 +292,7 @@ impl StructType {
     /// # Returns
     /// * `Some(&StructField)` if a field exists at that index
     /// * `None` if no field exists at that index
+    #[inline]
     pub fn get(&self, index: usize) -> Option<&StructField> {
         self.lookup
             .get(&(index as i32))
