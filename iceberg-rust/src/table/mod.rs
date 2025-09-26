@@ -12,14 +12,13 @@
 
 use std::{io::Cursor, sync::Arc};
 
-use futures::future;
-use futures::stream::FuturesUnordered;
+use futures::future::try_join_all;
 use itertools::Itertools;
 use manifest::ManifestReader;
 use manifest_list::read_snapshot;
 use object_store::{path::Path, ObjectStore};
 
-use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::util::{self};
 use iceberg_rust_spec::{
     spec::{
@@ -34,7 +33,7 @@ use iceberg_rust_spec::{
     },
 };
 
-use tracing::instrument;
+use tracing::{instrument, Instrument};
 
 use crate::{
     catalog::{create::CreateTableBuilder, identifier::Identifier, Catalog},
@@ -263,7 +262,8 @@ impl Table {
         manifests: &'a [ManifestListEntry],
         filter: Option<Vec<bool>>,
         sequence_number_range: (Option<i64>, Option<i64>),
-    ) -> Result<impl Stream<Item = Result<(ManifestPath, ManifestEntry), Error>> + 'a, Error> {
+    ) -> Result<impl Iterator<Item = Result<(ManifestPath, ManifestEntry), Error>> + 'a, Error>
+    {
         datafiles(
             self.object_store(),
             manifests,
@@ -280,7 +280,7 @@ impl Table {
     ) -> Result<bool, Error> {
         let manifests = self.manifests(start, end).await?;
         let datafiles = self.datafiles(&manifests, None, (None, None)).await?;
-        datafiles
+        stream::iter(datafiles)
             .try_any(|entry| async move { !matches!(entry.1.data_file().content(), Content::Data) })
             .await
     }
@@ -312,7 +312,7 @@ async fn datafiles(
     manifests: &'_ [ManifestListEntry],
     filter: Option<Vec<bool>>,
     sequence_number_range: (Option<i64>, Option<i64>),
-) -> Result<impl Stream<Item = Result<(ManifestPath, ManifestEntry), Error>> + '_, Error> {
+) -> Result<impl Iterator<Item = Result<(ManifestPath, ManifestEntry), Error>> + '_, Error> {
     // filter manifest files according to filter vector
     let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
         Some(predicate) => {
@@ -326,7 +326,7 @@ async fn datafiles(
         None => Box::new(manifests.iter()),
     };
 
-    let stream: FuturesUnordered<_> = iter
+    let futures: Vec<_> = iter
         .map(move |file| {
             let object_store = object_store.clone();
             async move {
@@ -336,6 +336,7 @@ async fn datafiles(
                     object_store
                         .get(&path)
                         .and_then(|file| file.bytes())
+                        .instrument(tracing::trace_span!("iceberg_rust::get_manifest"))
                         .await?,
                 ));
                 Ok::<_, Error>((bytes, manifest_path, file.sequence_number))
@@ -343,31 +344,36 @@ async fn datafiles(
         })
         .collect();
 
-    Ok(stream.flat_map_unordered(None, move |result| {
-        let (bytes, path, sequence_number) = result.unwrap();
+    let results = try_join_all(futures).await?;
+
+    Ok(results.into_iter().flat_map(move |result| {
+        let (bytes, path, sequence_number) = result;
 
         let reader = ManifestReader::new(bytes).unwrap();
-        stream::iter(reader).try_filter_map(move |mut x| {
-            future::ready({
-                let sequence_number = if let Some(sequence_number) = x.sequence_number() {
-                    *sequence_number
-                } else {
-                    *x.sequence_number_mut() = Some(sequence_number);
-                    sequence_number
-                };
+        reader.filter_map(move |x| {
+            let mut x = match x {
+                Ok(entry) => entry,
+                Err(_) => return None,
+            };
 
-                let filter = match sequence_number_range {
-                    (Some(start), Some(end)) => start < sequence_number && sequence_number <= end,
-                    (Some(start), None) => start < sequence_number,
-                    (None, Some(end)) => sequence_number <= end,
-                    _ => true,
-                };
-                if filter {
-                    Ok(Some((path.to_owned(), x)))
-                } else {
-                    Ok(None)
-                }
-            })
+            let sequence_number = if let Some(sequence_number) = x.sequence_number() {
+                *sequence_number
+            } else {
+                *x.sequence_number_mut() = Some(sequence_number);
+                sequence_number
+            };
+
+            let filter = match sequence_number_range {
+                (Some(start), Some(end)) => start < sequence_number && sequence_number <= end,
+                (Some(start), None) => start < sequence_number,
+                (None, Some(end)) => sequence_number <= end,
+                _ => true,
+            };
+            if filter {
+                Some(Ok((path.to_owned(), x)))
+            } else {
+                None
+            }
         })
     }))
 }
@@ -388,7 +394,7 @@ pub(crate) async fn delete_all_table_files(
     let snapshots = &metadata.snapshots;
 
     // stream::iter(datafiles.into_iter())
-    datafiles
+    stream::iter(datafiles)
         .try_for_each_concurrent(None, |datafile| {
             let object_store = object_store.clone();
             async move {
