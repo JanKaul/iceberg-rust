@@ -5,7 +5,7 @@ use arrow::array::{Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use arrow::record_batch::RecordBatch;
 use futures::stream;
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 
 use iceberg_rust::arrow::read::read;
 use iceberg_rust::arrow::write::write_parquet_partitioned;
@@ -166,13 +166,14 @@ async fn test_table_transaction_overwrite() {
 
     for manifest_entry in final_manifest_entries {
         let manifest_entries = vec![manifest_entry];
-        let data_files = table
+        let mut data_files = table
             .datafiles(&manifest_entries, None, (None, None))
             .await
             .expect("Failed to read data files");
 
         data_files
-            .try_for_each(|(_, entry)| {
+            .try_for_each(|result| {
+                let (_, entry) = result?;
                 total_data_files += 1;
 
                 // Count files by partition
@@ -193,9 +194,8 @@ async fn test_table_transaction_overwrite() {
                     }
                 }
 
-                futures::future::ready(Ok(()))
+                Ok::<_, Error>(())
             })
-            .await
             .expect("Failed to process data files");
     }
 
@@ -219,17 +219,16 @@ async fn test_table_transaction_overwrite() {
     let mut all_manifest_entries = Vec::new();
     for manifest_entry in final_manifest_entries_for_read {
         let manifest_entries = vec![manifest_entry];
-        let data_files = table
+        let mut data_files = table
             .datafiles(&manifest_entries, None, (None, None))
             .await
             .expect("Failed to read data files for verification");
 
         data_files
-            .try_for_each(|(_, entry)| {
-                all_manifest_entries.push(entry);
-                futures::future::ready(Ok(()))
+            .try_for_each(|result| {
+                all_manifest_entries.push(result?.1);
+                Ok::<_, Error>(())
             })
-            .await
             .expect("Failed to collect manifest entries");
     }
 
@@ -409,36 +408,35 @@ async fn create_files_to_overwrite_for_partition(
 
         // Read the data files from this manifest
         let manifest_entries = vec![manifest_entry];
-        let data_files = table
+        let mut data_files = table
             .datafiles(&manifest_entries, None, (None, None))
             .await?;
 
         let mut files_to_overwrite_in_manifest = Vec::new();
 
         // Find files that match the target partition
-        data_files
-            .try_for_each(|(_, manifest_entry)| {
-                // Check if this file belongs to the target partition
-                let should_overwrite = manifest_entry
-                    .data_file()
-                    .partition()
-                    .get("region")
-                    .and_then(|v| v.as_ref())
-                    .and_then(|v| match v {
-                        iceberg_rust_spec::spec::values::Value::String(s) => Some(s.as_str()),
-                        _ => None,
-                    })
-                    .map(|region| region == target_partition_value)
-                    .unwrap_or(false);
+        data_files.try_for_each(|result| {
+            let (_, manifest_entry) = result?;
+            // Check if this file belongs to the target partition
+            let should_overwrite = manifest_entry
+                .data_file()
+                .partition()
+                .get("region")
+                .and_then(|v| v.as_ref())
+                .and_then(|v| match v {
+                    iceberg_rust_spec::spec::values::Value::String(s) => Some(s.as_str()),
+                    _ => None,
+                })
+                .map(|region| region == target_partition_value)
+                .unwrap_or(false);
 
-                if should_overwrite {
-                    files_to_overwrite_in_manifest
-                        .push(manifest_entry.data_file().file_path().to_owned());
-                }
+            if should_overwrite {
+                files_to_overwrite_in_manifest
+                    .push(manifest_entry.data_file().file_path().to_owned());
+            }
 
-                futures::future::ready(Ok(()))
-            })
-            .await?;
+            Ok::<_, Error>(())
+        })?;
 
         // Add to the mapping if there are files to overwrite in this manifest
         if !files_to_overwrite_in_manifest.is_empty() {
