@@ -21,6 +21,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use object_store::path::Path;
 use object_store::ObjectMeta;
+use std::collections::BTreeMap;
 use std::thread::available_parallelism;
 use std::{
     any::Any,
@@ -434,7 +435,9 @@ async fn table_scan(
         HashMap::new();
 
     // Prune data & delete file and insert them into the according map
-    let statistics = if let Some(physical_predicate) = physical_predicate.clone() {
+    let (content_file_iter, statistics) = if let Some(physical_predicate) =
+        physical_predicate.clone()
+    {
         let partition_schema = Arc::new(ArrowSchema::new(table_partition_cols.clone()));
         let partition_column_names = partition_fields
             .iter()
@@ -502,31 +505,11 @@ async fn table_scan(
 
         let statistics = statistics_from_datafiles(&schema, &data_files);
 
-        data_files
+        let iter = data_files
             .into_iter()
             .zip(files_to_prune.into_iter())
-            .for_each(|(manifest, prune_file)| {
-                if prune_file && *manifest.1.status() != Status::Deleted {
-                    match manifest.1.data_file().content() {
-                        Content::Data => {
-                            data_file_groups
-                                .entry(manifest.1.data_file().partition().clone())
-                                .or_default()
-                                .push(manifest);
-                        }
-                        Content::EqualityDeletes => {
-                            equality_delete_file_groups
-                                .entry(manifest.1.data_file().partition().clone())
-                                .or_default()
-                                .push(manifest);
-                        }
-                        Content::PositionDeletes => {
-                            panic!("Position deletes not supported.")
-                        }
-                    }
-                };
-            });
-        statistics
+            .filter_map(|(manifest, prune_file)| if prune_file { Some(manifest) } else { None });
+        (itertools::Either::Left(iter), statistics)
     } else {
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
@@ -541,7 +524,38 @@ async fn table_scan(
 
         let statistics = statistics_from_datafiles(&schema, &data_files);
 
-        data_files.into_iter().for_each(|manifest| {
+        let iter = data_files.into_iter();
+        (itertools::Either::Right(iter), statistics)
+    };
+
+    if partition_fields.is_empty() {
+        let (data_files, equality_delete_files): (Vec<_>, Vec<_>) = content_file_iter
+            .filter(|manifest| *manifest.1.status() != Status::Deleted)
+            .partition(|manifest| match manifest.1.data_file().content() {
+                Content::Data => true,
+                Content::EqualityDeletes => false,
+                Content::PositionDeletes => panic!("Position deletes not supported."),
+            });
+        if !data_files.is_empty() {
+            data_file_groups.insert(
+                Struct {
+                    fields: Vec::new(),
+                    lookup: BTreeMap::new(),
+                },
+                data_files,
+            );
+        }
+        if !equality_delete_files.is_empty() {
+            equality_delete_file_groups.insert(
+                Struct {
+                    fields: Vec::new(),
+                    lookup: BTreeMap::new(),
+                },
+                equality_delete_files,
+            );
+        }
+    } else {
+        content_file_iter.for_each(|manifest| {
             if *manifest.1.status() != Status::Deleted {
                 match manifest.1.data_file().content() {
                     Content::Data => {
@@ -562,18 +576,24 @@ async fn table_scan(
                 }
             }
         });
-        statistics
-    };
+    }
 
-    let file_source = Arc::new(
-        if let Some(physical_predicate) = physical_predicate.clone() {
-            ParquetSource::default()
-                .with_predicate(physical_predicate)
-                .with_pushdown_filters(true)
-        } else {
-            ParquetSource::default()
-        },
-    );
+    let file_source = {
+        let physical_predicate = physical_predicate.clone();
+        async move {
+            Arc::new(
+                if let Some(physical_predicate) = physical_predicate.clone() {
+                    ParquetSource::default()
+                        .with_predicate(physical_predicate)
+                        .with_pushdown_filters(true)
+                } else {
+                    ParquetSource::default()
+                },
+            )
+        }
+        .instrument(tracing::debug_span!("datafusion_iceberg::file_source"))
+        .await
+    };
 
     // Create plan for every partition with delete files
     let mut plans = stream::iter(equality_delete_file_groups.into_iter())
