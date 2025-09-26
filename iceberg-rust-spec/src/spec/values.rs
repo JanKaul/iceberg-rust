@@ -222,6 +222,9 @@ impl Struct {
         schema: &StructType,
         partition_spec: &[PartitionField],
     ) -> Result<Self, Error> {
+        if self.fields.is_empty() {
+            return Ok(self);
+        }
         // Returns a HashMap mapping partition field names to transformed types.
         let map = partition_spec
             .iter()
