@@ -3,10 +3,9 @@
 //! These tests verify that the expire_snapshots API works correctly with real
 //! table metadata structures and various expiration criteria.
 
-use iceberg_rust::table::maintenance::{ExpireSnapshots, ExpireSnapshotsResult};
 use iceberg_rust_spec::spec::{
     snapshot::{Snapshot, SnapshotBuilder, SnapshotReference, SnapshotRetention},
-    table_metadata::{TableMetadata, TableMetadataBuilder, FormatVersion},
+    table_metadata::{TableMetadata, FormatVersion},
 };
 use std::collections::HashMap;
 use uuid::Uuid;
