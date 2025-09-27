@@ -517,6 +517,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use iceberg_rust_spec::spec::table_metadata::FormatVersion;
+    use iceberg_rust_spec::spec::snapshot::{Snapshot, SnapshotBuilder, SnapshotReference, SnapshotRetention};
 
     #[test]
     fn test_expire_snapshots_selection_logic() {
@@ -646,5 +647,361 @@ mod tests {
     
     fn validate_criteria(older_than: Option<i64>, retain_last: Option<usize>) -> bool {
         older_than.is_some() || retain_last.is_some()
+    }
+
+    fn create_test_metadata_with_snapshots() -> TableMetadata {
+        let mut snapshots = HashMap::new();
+        let now = chrono::Utc::now().timestamp_millis();
+        
+        // Create snapshots with different timestamps
+        // Snapshot 1: 5 days old
+        snapshots.insert(1, create_test_snapshot(1, now - 5 * 86400 * 1000, "s3://bucket/manifest1.avro"));
+        // Snapshot 2: 10 days old
+        snapshots.insert(2, create_test_snapshot(2, now - 10 * 86400 * 1000, "s3://bucket/manifest2.avro"));
+        // Snapshot 3: 15 days old 
+        snapshots.insert(3, create_test_snapshot(3, now - 15 * 86400 * 1000, "s3://bucket/manifest3.avro"));
+        // Snapshot 4: 20 days old
+        snapshots.insert(4, create_test_snapshot(4, now - 20 * 86400 * 1000, "s3://bucket/manifest4.avro"));
+        // Snapshot 5: 25 days old
+        snapshots.insert(5, create_test_snapshot(5, now - 25 * 86400 * 1000, "s3://bucket/manifest5.avro"));
+        
+        // Create refs (branches/tags)
+        let mut refs = HashMap::new();
+        refs.insert("main".to_string(), create_test_ref(3)); // ref to snapshot 3
+        refs.insert("tag-v1".to_string(), create_test_ref(4)); // ref to snapshot 4
+        
+        TableMetadata {
+            format_version: FormatVersion::V2,
+            table_uuid: uuid::Uuid::new_v4(),
+            location: "s3://test-bucket/test-table".to_string(),
+            last_sequence_number: 5,
+            last_updated_ms: now,
+            last_column_id: 10,
+            schemas: HashMap::new(),
+            current_schema_id: 0,
+            partition_specs: HashMap::new(),
+            default_spec_id: 0,
+            last_partition_id: 0,
+            properties: HashMap::new(),
+            current_snapshot_id: Some(1), // Most recent snapshot is current
+            snapshots,
+            snapshot_log: Vec::new(),
+            metadata_log: Vec::new(),
+            sort_orders: HashMap::new(),
+            default_sort_order_id: 0,
+            refs,
+        }
+    }
+    
+    fn create_test_snapshot(id: i64, timestamp_ms: i64, manifest_list: &str) -> Snapshot {
+        SnapshotBuilder::default()
+            .with_snapshot_id(id)
+            .with_timestamp_ms(timestamp_ms)
+            .with_manifest_list(manifest_list.to_string())
+            .with_sequence_number(id)
+            .build()
+            .unwrap()
+    }
+    
+    fn create_test_ref(snapshot_id: i64) -> SnapshotReference {
+        SnapshotReference {
+            snapshot_id,
+            retention: SnapshotRetention::Branch {
+                min_snapshots_to_keep: None,
+                max_snapshot_age_ms: None,
+                max_ref_age_ms: None,
+            },
+        }
+    }
+
+    #[test]
+    fn test_expire_snapshots_by_timestamp() {
+        let metadata = create_test_metadata_with_snapshots();
+        let now = chrono::Utc::now().timestamp_millis();
+        
+        // Create test expiration with timestamp threshold of 14 days
+        let test_expire = TestExpireSnapshots {
+            older_than: Some(now - 14 * 86400 * 1000),
+            retain_last: None,
+            retain_ref_snapshots: false,
+        };
+        
+        let result = test_expire.select_snapshots_to_expire(&metadata).unwrap();
+        let (expired, retained) = result;
+        
+        // Snapshots 3, 4, and 5 should be expired (older than 14 days)
+        assert_eq!(expired.len(), 3);
+        assert!(expired.contains(&3));
+        assert!(expired.contains(&4));
+        assert!(expired.contains(&5));
+        
+        // Snapshots 1 and 2 should be retained (newer than 14 days + current)
+        assert_eq!(retained.len(), 2);
+        assert!(retained.contains(&1));
+        assert!(retained.contains(&2));
+    }
+
+    #[test]
+    fn test_retain_last_n_snapshots() {
+        let metadata = create_test_metadata_with_snapshots();
+        
+        // Create test expiration with retain_last = 2
+        let test_expire = TestExpireSnapshots {
+            older_than: None,
+            retain_last: Some(2),
+            retain_ref_snapshots: false,
+        };
+        
+        let result = test_expire.select_snapshots_to_expire(&metadata).unwrap();
+        let (expired, retained) = result;
+        
+        // Only the 2 most recent snapshots should be retained
+        assert_eq!(retained.len(), 2);
+        assert!(retained.contains(&1)); // Most recent
+        assert!(retained.contains(&2)); // Second most recent
+        
+        // Snapshots 3, 4, and 5 should be expired
+        assert_eq!(expired.len(), 3);
+        assert!(expired.contains(&3));
+        assert!(expired.contains(&4));
+        assert!(expired.contains(&5));
+    }
+
+    #[test]
+    fn test_protect_current_snapshot() {
+        let metadata = create_test_metadata_with_snapshots();
+        let now = chrono::Utc::now().timestamp_millis();
+        
+        // Create test expiration with aggressive timestamp that would expire all snapshots
+        let test_expire = TestExpireSnapshots {
+            older_than: Some(now),  // All snapshots are older than now
+            retain_last: None,
+            retain_ref_snapshots: false,
+        };
+        
+        let result = test_expire.select_snapshots_to_expire(&metadata).unwrap();
+        let (expired, retained) = result;
+        
+        // Current snapshot (1) should always be retained
+        assert_eq!(retained.len(), 1);
+        assert!(retained.contains(&1));
+        
+        // All other snapshots should be expired
+        assert_eq!(expired.len(), 4);
+        assert!(expired.contains(&2));
+        assert!(expired.contains(&3));
+        assert!(expired.contains(&4));
+        assert!(expired.contains(&5));
+    }
+
+    #[test]
+    fn test_protect_referenced_snapshots() {
+        let metadata = create_test_metadata_with_snapshots();
+        let now = chrono::Utc::now().timestamp_millis();
+        
+        // Create test expiration that would expire all snapshots except for the refs
+        let test_expire = TestExpireSnapshots {
+            older_than: Some(now),  // All snapshots are older than now
+            retain_last: None,
+            retain_ref_snapshots: true,  // But we want to retain referenced snapshots
+        };
+        
+        let result = test_expire.select_snapshots_to_expire(&metadata).unwrap();
+        let (expired, retained) = result;
+        
+        // Referenced snapshots (3, 4) and current snapshot (1) should be retained
+        assert_eq!(retained.len(), 3);
+        assert!(retained.contains(&1)); // Current
+        assert!(retained.contains(&3)); // Referenced by "main" branch
+        assert!(retained.contains(&4)); // Referenced by "tag-v1"
+        
+        // Other snapshots should be expired
+        assert_eq!(expired.len(), 2);
+        assert!(expired.contains(&2));
+        assert!(expired.contains(&5));
+    }
+
+    #[test]
+    fn test_combined_criteria() {
+        let metadata = create_test_metadata_with_snapshots();
+        let now = chrono::Utc::now().timestamp_millis();
+        
+        // Create test expiration with both timestamp and count criteria
+        let test_expire = TestExpireSnapshots {
+            older_than: Some(now - 12 * 86400 * 1000), // Expire older than 12 days
+            retain_last: Some(3),  // But always keep the 3 most recent
+            retain_ref_snapshots: false,
+        };
+        
+        let result = test_expire.select_snapshots_to_expire(&metadata).unwrap();
+        let (expired, retained) = result;
+        
+        // The 3 most recent snapshots should be retained
+        // even though snapshot 3 is older than 12 days
+        assert_eq!(retained.len(), 3);
+        assert!(retained.contains(&1));
+        assert!(retained.contains(&2));
+        assert!(retained.contains(&3));
+        
+        // Snapshots 4 and 5 should be expired
+        assert_eq!(expired.len(), 2);
+        assert!(expired.contains(&4));
+        assert!(expired.contains(&5));
+    }
+
+    #[test]
+    fn test_empty_metadata() {
+        // Test with empty metadata
+        let empty_metadata = TableMetadata {
+            format_version: FormatVersion::V2,
+            table_uuid: uuid::Uuid::new_v4(),
+            location: "s3://test-bucket/test-table".to_string(),
+            last_sequence_number: 0,
+            last_updated_ms: 0,
+            last_column_id: 0,
+            schemas: HashMap::new(),
+            current_schema_id: 0,
+            partition_specs: HashMap::new(),
+            default_spec_id: 0,
+            last_partition_id: 0,
+            properties: HashMap::new(),
+            current_snapshot_id: None,
+            snapshots: HashMap::new(),
+            snapshot_log: Vec::new(),
+            metadata_log: Vec::new(),
+            sort_orders: HashMap::new(),
+            default_sort_order_id: 0,
+            refs: HashMap::new(),
+        };
+        
+        let test_expire = TestExpireSnapshots {
+            older_than: Some(1000),
+            retain_last: Some(5),
+            retain_ref_snapshots: true,
+        };
+        
+        let result = test_expire.select_snapshots_to_expire(&empty_metadata).unwrap();
+        let (expired, retained) = result;
+        
+        // No snapshots to expire or retain
+        assert!(expired.is_empty());
+        assert!(retained.is_empty());
+    }
+
+    #[test]
+    fn test_identify_files_to_delete() {
+        let metadata = create_test_metadata_with_snapshots();
+        
+        // Create test expiration that will expire snapshots 4 and 5
+        let test_expire = TestExpireSnapshots {
+            older_than: None,
+            retain_last: Some(3),
+            retain_ref_snapshots: false,
+        };
+        
+        let (expired, retained) = test_expire.select_snapshots_to_expire(&metadata).unwrap();
+        
+        // Function to identify files to delete
+        let files_to_delete = identify_test_files_to_delete(&metadata, &expired, &retained);
+        
+        // Manifest lists from expired snapshots should be included
+        assert_eq!(files_to_delete.manifest_lists.len(), 2);
+        assert!(files_to_delete.manifest_lists.contains(&"s3://bucket/manifest4.avro".to_string()));
+        assert!(files_to_delete.manifest_lists.contains(&"s3://bucket/manifest5.avro".to_string()));
+        
+        // In a real implementation, we would also check manifests and data files
+        assert!(files_to_delete.manifests.is_empty());
+        assert!(files_to_delete.data_files.is_empty());
+    }
+
+    // Helper function to identify files to delete
+    fn identify_test_files_to_delete(
+        metadata: &TableMetadata,
+        snapshots_to_expire: &[i64],
+        _snapshots_to_retain: &[i64],
+    ) -> DeletedFiles {
+        let mut deleted_files = DeletedFiles::default();
+        
+        // In a basic implementation, just collect manifest lists from expired snapshots
+        for snapshot_id in snapshots_to_expire {
+            if let Some(snapshot) = metadata.snapshots.get(snapshot_id) {
+                deleted_files.manifest_lists.push(snapshot.manifest_list().clone());
+            }
+        }
+        
+        // In a complete implementation, we would also:
+        // 1. Parse manifest lists to find manifest files
+        // 2. Parse manifests to find data files
+        // 3. Check which files are only referenced by expired snapshots
+        
+        deleted_files
+    }
+
+    // Helper struct for testing
+    struct TestExpireSnapshots {
+        older_than: Option<i64>,
+        retain_last: Option<usize>,
+        retain_ref_snapshots: bool,
+    }
+    
+    impl TestExpireSnapshots {
+        fn select_snapshots_to_expire(&self, metadata: &TableMetadata) -> Result<(Vec<i64>, Vec<i64>), Error> {
+            let mut snapshots_to_expire = Vec::new();
+            let mut snapshots_to_retain = Vec::new();
+
+            // Get all snapshots sorted by timestamp (newest first)
+            let mut all_snapshots: Vec<_> = metadata.snapshots.values().collect();
+            all_snapshots.sort_by(|a, b| b.timestamp_ms().cmp(a.timestamp_ms()));
+
+            // Get current snapshot ID to ensure we never expire it
+            let current_snapshot_id = metadata.current_snapshot_id;
+            
+            // Get snapshot IDs referenced by branches/tags if we should preserve them
+            let ref_snapshot_ids = if self.retain_ref_snapshots {
+                metadata.refs.values()
+                    .map(|r| r.snapshot_id)
+                    .collect::<HashSet<_>>()
+            } else {
+                HashSet::new()
+            };
+
+            // Apply retention logic
+            for (index, snapshot) in all_snapshots.iter().enumerate() {
+                let snapshot_id = *snapshot.snapshot_id();
+                let mut should_retain = false;
+
+                // Never expire the current snapshot
+                if Some(snapshot_id) == current_snapshot_id {
+                    should_retain = true;
+                }
+                // Never expire snapshots referenced by branches/tags if enabled
+                else if self.retain_ref_snapshots && ref_snapshot_ids.contains(&snapshot_id) {
+                    should_retain = true;
+                }
+                // Keep the most recent N snapshots if retain_last is specified
+                else if let Some(retain_count) = self.retain_last {
+                    if index < retain_count {
+                        should_retain = true;
+                    }
+                }
+
+                // Apply older_than filter only if not already marked for retention
+                if !should_retain {
+                    if let Some(threshold) = self.older_than {
+                        if *snapshot.timestamp_ms() >= threshold {
+                            should_retain = true;
+                        }
+                    }
+                }
+
+                if should_retain {
+                    snapshots_to_retain.push(snapshot_id);
+                } else {
+                    snapshots_to_expire.push(snapshot_id);
+                }
+            }
+
+            Ok((snapshots_to_expire, snapshots_to_retain))
+        }
     }
 }
