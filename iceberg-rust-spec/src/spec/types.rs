@@ -19,6 +19,7 @@ use std::{collections::HashMap, fmt, ops::Index, slice::Iter};
 
 use derive_builder::Builder;
 
+use itertools::Itertools;
 use serde::{
     de::{self, Error as SerdeError, IntoDeserializer, MapAccess, Visitor},
     Deserialize, Deserializer, Serialize, Serializer,
@@ -291,6 +292,7 @@ impl StructType {
     /// # Returns
     /// * `Some(&StructField)` if a field exists at that index
     /// * `None` if no field exists at that index
+    #[inline]
     pub fn get(&self, index: usize) -> Option<&StructField> {
         self.lookup
             .get(&(index as i32))
@@ -359,6 +361,29 @@ impl StructType {
     /// * An iterator yielding references to each StructField in order
     pub fn iter(&self) -> Iter<'_, StructField> {
         self.fields.iter()
+    }
+
+    /// Returns an iterator over all field IDs in this struct, sorted in ascending order
+    ///
+    /// # Returns
+    /// * An iterator yielding field IDs (i32) in sorted order
+    pub fn field_ids(&self) -> impl Iterator<Item = i32> {
+        self.lookup.keys().map(ToOwned::to_owned).sorted()
+    }
+
+    /// Returns an iterator over field IDs of primitive-type fields only, sorted in ascending order
+    ///
+    /// This method filters the struct's fields to return only those with primitive types
+    /// (boolean, numeric, string, etc.), excluding complex types like structs, lists, and maps.
+    ///
+    /// # Returns
+    /// * An iterator yielding field IDs (i32) of primitive fields in sorted order
+    pub fn primitive_field_ids(&self) -> impl Iterator<Item = i32> {
+        self.lookup
+            .iter()
+            .filter(|(_, x)| matches!(self.fields[**x].field_type, Type::Primitive(_)))
+            .map(|x| x.0.to_owned())
+            .sorted()
     }
 }
 

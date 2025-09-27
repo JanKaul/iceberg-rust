@@ -3,9 +3,12 @@
 */
 
 use std::collections::HashSet;
+use std::future::Future;
+use std::pin::Pin;
 use std::{collections::HashMap, sync::Arc};
 
 use bytes::Bytes;
+use futures::future;
 use iceberg_rust_spec::manifest_list::{
     manifest_list_schema_v1, manifest_list_schema_v2, Content, ManifestListEntry,
 };
@@ -107,7 +110,11 @@ pub enum Operation {
 }
 
 impl Operation {
-    #[instrument(level = "debug", skip(object_store))]
+    #[instrument(
+        name = "iceberg_rust::table::transaction::operation::execute",
+        level = "debug",
+        skip(object_store)
+    )]
     pub async fn execute(
         self,
         table_metadata: &TableMetadata,
@@ -327,6 +334,10 @@ impl Operation {
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
+                #[allow(clippy::type_complexity)]
+                let mut futures: Vec<
+                    Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>,
+                > = Vec::new();
                 for (content, files, n_files) in [
                     (Content::Data, Either::Left(new_datafile_iter), n_data_files),
                     (
@@ -339,12 +350,18 @@ impl Operation {
                         let n_splits = manifest_list_writer.n_splits(n_files, content);
 
                         if n_splits == 0 {
-                            manifest_list_writer
-                                .append(files, snapshot_id, object_store.clone(), content)
+                            let future = manifest_list_writer
+                                .append_concurrently(
+                                    files,
+                                    snapshot_id,
+                                    object_store.clone(),
+                                    content,
+                                )
                                 .await?;
+                            futures.push(Box::pin(future));
                         } else {
-                            manifest_list_writer
-                                .append_multiple(
+                            let future = manifest_list_writer
+                                .append_multiple_concurrently(
                                     files,
                                     snapshot_id,
                                     n_splits,
@@ -352,13 +369,18 @@ impl Operation {
                                     content,
                                 )
                                 .await?;
+                            futures.push(Box::pin(future));
                         }
                     }
                 }
 
-                let new_manifest_list_location = manifest_list_writer
-                    .finish(snapshot_id, object_store)
-                    .await?;
+                let manifest_future = future::try_join_all(futures);
+
+                let (_, new_manifest_list_location) = future::try_join(
+                    manifest_future,
+                    manifest_list_writer.finish(snapshot_id, object_store),
+                )
+                .await?;
 
                 let snapshot_operation = match (n_data_files, n_delete_files) {
                     (0, 0) => return Ok((None, Vec::new())),

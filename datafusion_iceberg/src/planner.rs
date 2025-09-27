@@ -450,11 +450,7 @@ impl UserDefinedLogicalNode for CreateIcebergTable {
         &self.0.schema
     }
 
-    fn check_invariants(
-        &self,
-        _check: InvariantLevel,
-        _plan: &LogicalPlan,
-    ) -> Result<(), DataFusionError> {
+    fn check_invariants(&self, _check: InvariantLevel) -> Result<(), DataFusionError> {
         Ok(())
     }
 
@@ -520,11 +516,7 @@ impl UserDefinedLogicalNode for CreateIcebergView {
         self.0.input.schema()
     }
 
-    fn check_invariants(
-        &self,
-        _check: InvariantLevel,
-        _plan: &LogicalPlan,
-    ) -> Result<(), DataFusionError> {
+    fn check_invariants(&self, _check: InvariantLevel) -> Result<(), DataFusionError> {
         Ok(())
     }
 
@@ -589,11 +581,7 @@ impl UserDefinedLogicalNode for CreateIcebergNamespace {
         &self.0.schema
     }
 
-    fn check_invariants(
-        &self,
-        _check: InvariantLevel,
-        _plan: &LogicalPlan,
-    ) -> Result<(), DataFusionError> {
+    fn check_invariants(&self, _check: InvariantLevel) -> Result<(), DataFusionError> {
         Ok(())
     }
 
@@ -658,11 +646,7 @@ impl UserDefinedLogicalNode for DropIcebergTable {
         &self.0.schema
     }
 
-    fn check_invariants(
-        &self,
-        _check: InvariantLevel,
-        _plan: &LogicalPlan,
-    ) -> Result<(), DataFusionError> {
+    fn check_invariants(&self, _check: InvariantLevel) -> Result<(), DataFusionError> {
         Ok(())
     }
 
@@ -727,11 +711,7 @@ impl UserDefinedLogicalNode for DropIcebergNamespace {
         &self.0.schema
     }
 
-    fn check_invariants(
-        &self,
-        _check: InvariantLevel,
-        _plan: &LogicalPlan,
-    ) -> Result<(), DataFusionError> {
+    fn check_invariants(&self, _check: InvariantLevel) -> Result<(), DataFusionError> {
         Ok(())
     }
 
@@ -781,6 +761,20 @@ impl RefreshMaterializedView {
             catalog_list,
             signature: Signature::exact(vec![DataType::Utf8], Volatility::Volatile),
         }
+    }
+}
+
+impl PartialEq for RefreshMaterializedView {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for RefreshMaterializedView {}
+
+impl Hash for RefreshMaterializedView {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        "RefreshMaterializedView".hash(state);
     }
 }
 

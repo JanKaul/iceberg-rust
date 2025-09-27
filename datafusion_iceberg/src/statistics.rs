@@ -1,56 +1,23 @@
-use std::ops::Deref;
-
 use datafusion::{
     common::stats::Precision,
     physical_plan::{ColumnStatistics, Statistics},
     scalar::ScalarValue,
 };
-use futures::{future, TryFutureExt, TryStreamExt};
+use iceberg_rust::error::Error;
 use iceberg_rust::spec::{
     manifest::{ManifestEntry, Status},
     schema::Schema,
     values::Value,
 };
-use iceberg_rust::{catalog::tabular::Tabular, error::Error, table::Table};
-use itertools::Itertools;
 
-use super::table::DataFusionTable;
-
-impl DataFusionTable {
-    pub(crate) async fn statistics(&self) -> Result<Statistics, Error> {
-        match self.tabular.read().await.deref() {
-            Tabular::Table(table) => table_statistics(table, &self.snapshot_range).await,
-            Tabular::View(_) => Err(Error::NotSupported("Statistics for views".to_string())),
-            Tabular::MaterializedView(mv) => {
-                let table = mv.storage_table().await?;
-                table_statistics(&table, &self.snapshot_range).await
-            }
-        }
-    }
-}
-
-pub(crate) async fn table_statistics(
-    table: &Table,
-    snapshot_range: &(Option<i64>, Option<i64>),
-) -> Result<Statistics, Error> {
-    let schema = &snapshot_range
-        .1
-        .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
-        .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
-
-    let sequence_number_range = [snapshot_range.0, snapshot_range.1]
-        .iter()
-        .map(|x| x.and_then(|y| table.metadata().sequence_number(y)))
-        .collect_tuple::<(Option<i64>, Option<i64>)>()
-        .unwrap();
-
-    let manifests = table.manifests(snapshot_range.0, snapshot_range.1).await?;
-    let datafiles = table
-        .datafiles(&manifests, None, sequence_number_range)
-        .await?;
+pub(crate) fn statistics_from_datafiles(
+    schema: &Schema,
+    datafiles: &[(String, ManifestEntry)],
+) -> Statistics {
     datafiles
-        .try_filter(|manifest| future::ready(!matches!(manifest.1.status(), Status::Deleted)))
-        .try_fold(
+        .iter()
+        .filter(|(_, manifest)| !matches!(manifest.status(), Status::Deleted))
+        .fold(
             Statistics {
                 num_rows: Precision::Exact(0),
                 total_byte_size: Precision::Exact(0),
@@ -65,14 +32,14 @@ pub(crate) async fn table_statistics(
                     schema.fields().len()
                 ],
             },
-            |acc, manifest| async move {
-                let column_stats = column_statistics(schema, &manifest.1);
-                Ok(Statistics {
+            |acc, (_, manifest)| {
+                let column_stats = column_statistics(schema, manifest);
+                Statistics {
                     num_rows: acc.num_rows.add(&Precision::Exact(
-                        *manifest.1.data_file().record_count() as usize,
+                        *manifest.data_file().record_count() as usize,
                     )),
                     total_byte_size: acc.total_byte_size.add(&Precision::Exact(
-                        *manifest.1.data_file().file_size_in_bytes() as usize,
+                        *manifest.data_file().file_size_in_bytes() as usize,
                     )),
                     column_statistics: acc
                         .column_statistics
@@ -86,11 +53,9 @@ pub(crate) async fn table_statistics(
                             sum_value: acc.sum_value.add(&x.sum_value),
                         })
                         .collect(),
-                })
+                }
             },
         )
-        .map_err(Error::from)
-        .await
 }
 
 fn column_statistics<'a>(

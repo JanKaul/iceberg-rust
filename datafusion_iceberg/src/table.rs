@@ -21,6 +21,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use object_store::path::Path;
 use object_store::ObjectMeta;
+use std::collections::BTreeMap;
 use std::thread::available_parallelism;
 use std::{
     any::Any,
@@ -33,8 +34,9 @@ use tokio::sync::{
     mpsc::{self},
     RwLock, RwLockWriteGuard,
 };
-use tracing::instrument;
+use tracing::{instrument, Instrument};
 
+use crate::statistics::statistics_from_datafiles;
 use crate::{
     error::Error as DataFusionIcebergError,
     pruning_statistics::{transform_predicate, PruneDataFiles, PruneManifests},
@@ -73,7 +75,6 @@ use datafusion::{
         projection::ProjectionExec,
         union::UnionExec,
         DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, SendableRecordBatchStream,
-        Statistics,
     },
     prelude::Expr,
     scalar::ScalarValue,
@@ -259,16 +260,11 @@ impl TableProvider for DataFusionTable {
             }
             Tabular::Table(table) => {
                 let schema = self.schema();
-                let statistics = self
-                    .statistics()
-                    .await
-                    .map_err(DataFusionIcebergError::from)?;
                 table_scan(
                     table,
                     &self.snapshot_range,
                     schema,
                     self.config.as_ref(),
-                    statistics,
                     session_state,
                     projection,
                     filters,
@@ -282,16 +278,11 @@ impl TableProvider for DataFusionTable {
                     .await
                     .map_err(DataFusionIcebergError::from)?;
                 let schema = self.schema();
-                let statistics = self
-                    .statistics()
-                    .await
-                    .map_err(DataFusionIcebergError::from)?;
                 table_scan(
                     &table,
                     &self.snapshot_range,
                     schema,
                     self.config.as_ref(),
-                    statistics,
                     session_state,
                     projection,
                     filters,
@@ -350,8 +341,8 @@ fn fake_object_store_url(table_location_url: &str) -> ObjectStoreUrl {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[instrument(level = "debug", skip(arrow_schema, statistics, session, filters), fields(
-    table_location = %table.metadata().location,
+#[instrument(name = "datafusion_iceberg::table_scan", level = "debug", skip(arrow_schema, session, filters), fields(
+    table_identifier = %table.identifier(),
     snapshot_range = ?snapshot_range,
     projection = ?projection,
     filter_count = filters.len(),
@@ -362,7 +353,6 @@ async fn table_scan(
     snapshot_range: &(Option<i64>, Option<i64>),
     arrow_schema: SchemaRef,
     config: Option<&DataFusionTableConfig>,
-    statistics: Statistics,
     session: &SessionState,
     projection: Option<&Vec<usize>>,
     filters: &[Expr],
@@ -445,7 +435,9 @@ async fn table_scan(
         HashMap::new();
 
     // Prune data & delete file and insert them into the according map
-    if let Some(physical_predicate) = physical_predicate.clone() {
+    let (content_file_iter, statistics) = if let Some(physical_predicate) =
+        physical_predicate.clone()
+    {
         let partition_schema = Arc::new(ArrowSchema::new(table_partition_cols.clone()));
         let partition_column_names = partition_fields
             .iter()
@@ -492,7 +484,6 @@ async fn table_scan(
                 .await
                 .map_err(DataFusionIcebergError::from)?
                 .try_collect()
-                .await
                 .map_err(DataFusionIcebergError::from)?
         } else {
             table
@@ -500,7 +491,6 @@ async fn table_scan(
                 .await
                 .map_err(DataFusionIcebergError::from)?
                 .try_collect()
-                .await
                 .map_err(DataFusionIcebergError::from)?
         };
 
@@ -513,43 +503,59 @@ async fn table_scan(
             &data_files,
         ))?;
 
-        data_files
+        let statistics = statistics_from_datafiles(&schema, &data_files);
+
+        let iter = data_files
             .into_iter()
             .zip(files_to_prune.into_iter())
-            .for_each(|(manifest, prune_file)| {
-                if prune_file && *manifest.1.status() != Status::Deleted {
-                    match manifest.1.data_file().content() {
-                        Content::Data => {
-                            data_file_groups
-                                .entry(manifest.1.data_file().partition().clone())
-                                .or_default()
-                                .push(manifest);
-                        }
-                        Content::EqualityDeletes => {
-                            equality_delete_file_groups
-                                .entry(manifest.1.data_file().partition().clone())
-                                .or_default()
-                                .push(manifest);
-                        }
-                        Content::PositionDeletes => {
-                            panic!("Position deletes not supported.")
-                        }
-                    }
-                };
-            });
+            .filter_map(|(manifest, prune_file)| if prune_file { Some(manifest) } else { None });
+        (itertools::Either::Left(iter), statistics)
     } else {
         let manifests = table
             .manifests(snapshot_range.0, snapshot_range.1)
             .await
             .map_err(DataFusionIcebergError::from)?;
-        let data_files: Vec<(ManifestPath, ManifestEntry)> = table
+        let data_files: Vec<_> = table
             .datafiles(&manifests, None, sequence_number_range)
             .await
             .map_err(DataFusionIcebergError::from)?
             .try_collect()
-            .await
             .map_err(DataFusionIcebergError::from)?;
-        data_files.into_iter().for_each(|manifest| {
+
+        let statistics = statistics_from_datafiles(&schema, &data_files);
+
+        let iter = data_files.into_iter();
+        (itertools::Either::Right(iter), statistics)
+    };
+
+    if partition_fields.is_empty() {
+        let (data_files, equality_delete_files): (Vec<_>, Vec<_>) = content_file_iter
+            .filter(|manifest| *manifest.1.status() != Status::Deleted)
+            .partition(|manifest| match manifest.1.data_file().content() {
+                Content::Data => true,
+                Content::EqualityDeletes => false,
+                Content::PositionDeletes => panic!("Position deletes not supported."),
+            });
+        if !data_files.is_empty() {
+            data_file_groups.insert(
+                Struct {
+                    fields: Vec::new(),
+                    lookup: BTreeMap::new(),
+                },
+                data_files,
+            );
+        }
+        if !equality_delete_files.is_empty() {
+            equality_delete_file_groups.insert(
+                Struct {
+                    fields: Vec::new(),
+                    lookup: BTreeMap::new(),
+                },
+                equality_delete_files,
+            );
+        }
+    } else {
+        content_file_iter.for_each(|manifest| {
             if *manifest.1.status() != Status::Deleted {
                 match manifest.1.data_file().content() {
                     Content::Data => {
@@ -570,17 +576,24 @@ async fn table_scan(
                 }
             }
         });
-    };
+    }
 
-    let file_source = Arc::new(
-        if let Some(physical_predicate) = physical_predicate.clone() {
-            ParquetSource::default()
-                .with_predicate(physical_predicate)
-                .with_pushdown_filters(true)
-        } else {
-            ParquetSource::default()
-        },
-    );
+    let file_source = {
+        let physical_predicate = physical_predicate.clone();
+        async move {
+            Arc::new(
+                if let Some(physical_predicate) = physical_predicate.clone() {
+                    ParquetSource::default()
+                        .with_predicate(physical_predicate)
+                        .with_pushdown_filters(true)
+                } else {
+                    ParquetSource::default()
+                },
+            )
+        }
+        .instrument(tracing::debug_span!("datafusion_iceberg::file_source"))
+        .await
+    };
 
     // Create plan for every partition with delete files
     let mut plans = stream::iter(equality_delete_file_groups.into_iter())
@@ -865,6 +878,9 @@ async fn table_scan(
 
         let other_plan = ParquetFormat::default()
             .create_physical_plan(session, file_scan_config)
+            .instrument(tracing::debug_span!(
+                "datafusion_iceberg::create_physical_plan_scan_data_files"
+            ))
             .await?;
 
         plans.push(other_plan);
@@ -1112,6 +1128,10 @@ pub async fn write_parquet_equality_delete_files(
     write_parquet_files(table, batches, context, Some(equality_ids), branch).await
 }
 
+#[instrument(name = "datafusion_iceberg::write_parquet_files", level = "debug", skip(table, batches, context), fields(
+    table_identifier = %table.identifier(),
+    branch = ?branch
+))]
 async fn write_parquet_files(
     table: &Table,
     batches: SendableRecordBatchStream,

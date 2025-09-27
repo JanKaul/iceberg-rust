@@ -4,6 +4,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    future::Future,
     io::{Cursor, Read},
     iter::{repeat, Map, Repeat, Zip},
     sync::Arc,
@@ -12,7 +13,7 @@ use std::{
 use apache_avro::{
     types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
 };
-use futures::future::join_all;
+use futures::{future::join_all, stream, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::{
@@ -28,7 +29,8 @@ use smallvec::SmallVec;
 
 use crate::{
     error::Error,
-    util::{summary_to_rectangle, Rectangle},
+    table::datafiles,
+    util::{summary_to_rectangle, Rectangle, Vec4},
 };
 
 use super::{
@@ -211,6 +213,81 @@ pub async fn snapshot_partition_bounds(
             Ok(acc)
         }
     })
+}
+
+/// Computes the column bounds (minimum and maximum values) for all primitive fields
+/// across all data files in a snapshot.
+///
+/// This function reads all manifests in the snapshot, extracts data files from them,
+/// and computes a bounding rectangle that encompasses the lower and upper bounds
+/// of all primitive columns across all data files.
+///
+/// # Arguments
+///
+/// * `snapshot` - The snapshot to compute column bounds for
+/// * `table_metadata` - Metadata of the table containing schema information
+/// * `object_store` - Object store implementation for reading manifest files
+///
+/// # Returns
+///
+/// Returns `Ok(Some(Rectangle))` containing the computed bounds, or `Ok(None)` if
+/// no data files are found. Returns an error if:
+/// - Schema cannot be resolved for the snapshot
+/// - Manifest files cannot be read
+/// - Column bounds are missing for any primitive field in any data file
+///
+/// # Errors
+///
+/// * `Error::NotFound` - When column bounds are missing for a primitive field
+/// * Other I/O errors from reading manifest or data files
+pub async fn snapshot_column_bounds(
+    snapshot: &Snapshot,
+    table_metadata: &TableMetadata,
+    object_store: Arc<dyn ObjectStore>,
+) -> Result<Option<Rectangle>, Error> {
+    let schema = table_metadata
+        .schema(*snapshot.snapshot_id())
+        .or(table_metadata.current_schema(None))?;
+    let manifests = read_snapshot(snapshot, table_metadata, object_store.clone())
+        .await?
+        .collect::<Result<Vec<_>, _>>()?;
+    let datafiles = datafiles(object_store, &manifests, None, (None, None)).await?;
+
+    let primitive_field_ids = schema.primitive_field_ids().collect::<Vec<_>>();
+    let n = primitive_field_ids.len();
+    stream::iter(datafiles)
+        .try_fold(None::<Rectangle>, |acc, (_, manifest)| {
+            let primitive_field_ids = &primitive_field_ids;
+            async move {
+                let mut mins = Vec4::with_capacity(n);
+                let mut maxs = Vec4::with_capacity(n);
+                for (i, id) in primitive_field_ids.iter().enumerate() {
+                    let min = manifest
+                        .data_file()
+                        .lower_bounds()
+                        .as_ref()
+                        .and_then(|x| x.get(id));
+                    let max = manifest
+                        .data_file()
+                        .upper_bounds()
+                        .as_ref()
+                        .and_then(|x| x.get(id));
+                    let (Some(min), Some(max)) = (min, max) else {
+                        return Err(Error::NotFound("column bounds".to_string()));
+                    };
+                    mins[i] = min.clone();
+                    maxs[i] = max.clone();
+                }
+                let rect = Rectangle::new(mins, maxs);
+                if let Some(mut acc) = acc {
+                    acc.expand(&rect);
+                    Ok(Some(acc))
+                } else {
+                    Ok(Some(rect))
+                }
+            }
+        })
+        .await
 }
 
 /// A writer for Iceberg manifest list files that manages the creation and updating of manifest lists.
@@ -624,6 +701,24 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         .await
     }
 
+    #[inline]
+    pub(crate) async fn append_concurrently(
+        &mut self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        object_store: Arc<dyn ObjectStore>,
+        content: Content,
+    ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
+        self.append_filtered_concurrently(
+            data_files,
+            snapshot_id,
+            None::<fn(&Result<ManifestEntry, Error>) -> bool>,
+            object_store,
+            content,
+        )
+        .await
+    }
+
     /// Appends data files to a single manifest with optional filtering and finalizes the manifest list.
     ///
     /// This method extends the basic `append` functionality by providing the ability to
@@ -678,6 +773,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
+    #[inline]
     pub(crate) async fn append_filtered(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
@@ -686,6 +782,20 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         object_store: Arc<dyn ObjectStore>,
         content: Content,
     ) -> Result<(), Error> {
+        self.append_filtered_concurrently(data_files, snapshot_id, filter, object_store, content)
+            .await?
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn append_filtered_concurrently(
+        &mut self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
+        object_store: Arc<dyn ObjectStore>,
+        content: Content,
+    ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
         let selected_manifest = match content {
             Content::Data => self.selected_data_manifest.take(),
             Content::Deletes => self.selected_delete_manifest.take(),
@@ -744,11 +854,11 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             manifest_writer.append(manifest_entry?)?;
         }
 
-        let manifest = manifest_writer.finish(object_store.clone()).await?;
+        let (manifest, future) = manifest_writer.finish_concurrently(object_store.clone())?;
 
         self.writer.append_ser(manifest)?;
 
-        Ok(())
+        Ok(future)
     }
 
     /// Appends data files by splitting them across multiple manifests and finalizes the manifest list.
@@ -799,15 +909,15 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
-    pub(crate) async fn append_multiple(
+    pub(crate) async fn append_multiple_concurrently(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
         snapshot_id: i64,
         n_splits: u32,
         object_store: Arc<dyn ObjectStore>,
         content: Content,
-    ) -> Result<(), Error> {
-        self.append_multiple_filtered(
+    ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
+        self.append_multiple_filtered_concurrently(
             data_files,
             snapshot_id,
             n_splits,
@@ -879,6 +989,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     object_store,
     /// ).await?;
     /// ```
+    #[inline]
     pub(crate) async fn append_multiple_filtered(
         &mut self,
         data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
@@ -888,6 +999,28 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         object_store: Arc<dyn ObjectStore>,
         content: Content,
     ) -> Result<(), Error> {
+        self.append_multiple_filtered_concurrently(
+            data_files,
+            snapshot_id,
+            n_splits,
+            filter,
+            object_store,
+            content,
+        )
+        .await?
+        .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn append_multiple_filtered_concurrently(
+        &mut self,
+        data_files: impl Iterator<Item = Result<ManifestEntry, Error>>,
+        snapshot_id: i64,
+        n_splits: u32,
+        filter: Option<impl Fn(&Result<ManifestEntry, Error>) -> bool>,
+        object_store: Arc<dyn ObjectStore>,
+        content: Content,
+    ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
         let partition_fields = self
             .table_metadata
             .current_partition_fields(self.branch.as_deref())?;
@@ -956,7 +1089,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             split_datafiles(data_files, bounds, &partition_column_names, n_splits)?
         };
 
-        let manifest_futures = splits
+        let (manifests, manifest_futures) = splits
             .into_iter()
             .map(|entries| {
                 let manifest_location = self.next_manifest_location();
@@ -974,17 +1107,17 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                     manifest_writer.append(manifest_entry)?;
                 }
 
-                Ok::<_, Error>(manifest_writer.finish(object_store.clone()))
+                manifest_writer.finish_concurrently(object_store.clone())
             })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let manifests = futures::future::try_join_all(manifest_futures).await?;
+            .collect::<Result<(Vec<_>, Vec<_>), _>>()?;
 
         for manifest in manifests {
             self.writer.append_ser(manifest)?;
         }
 
-        Ok(())
+        let future = futures::future::try_join_all(manifest_futures).map_ok(|_| ());
+
+        Ok(future)
     }
 
     pub(crate) async fn finish(

@@ -17,6 +17,7 @@
 
 use std::{
     collections::HashSet,
+    future::Future,
     io::Read,
     iter::{repeat, Map, Repeat, Zip},
     sync::Arc,
@@ -26,6 +27,7 @@ use apache_avro::{
     to_value, types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema,
     Writer as AvroWriter,
 };
+use futures::TryFutureExt;
 use iceberg_rust_spec::{
     manifest::{Content, ManifestEntry, ManifestEntryV1, ManifestEntryV2, Status},
     manifest_list::{self, FieldSummary, ManifestListEntry},
@@ -635,6 +637,49 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             )
             .await?;
         Ok(self.manifest)
+    }
+
+    /// Finishes writing the manifest file concurrently.
+    ///
+    /// This method completes the manifest writing process by finalizing the writer
+    /// and returning both the manifest list entry and a future for the actual file upload.
+    /// The upload operation can be awaited separately, allowing for concurrent processing
+    /// of multiple manifest writes.
+    ///
+    /// # Arguments
+    ///
+    /// * `object_store` - The object store implementation used to persist the manifest file
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple containing:
+    /// - `ManifestListEntry`: The completed manifest entry with updated metadata
+    /// - `impl Future<Output = Result<PutResult, Error>>`: A future that performs the actual file upload
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The writer cannot be finalized
+    /// - There are issues preparing the upload operation
+    pub(crate) fn finish_concurrently(
+        mut self,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<(ManifestListEntry, impl Future<Output = Result<(), Error>>), Error> {
+        let manifest_bytes = self.writer.into_inner()?;
+
+        let manifest_length: i64 = manifest_bytes.len() as i64;
+
+        self.manifest.manifest_length += manifest_length;
+
+        let path = strip_prefix(&self.manifest.manifest_path).as_str().into();
+        let future = async move {
+            object_store
+                .put(&path, manifest_bytes.into())
+                .map_ok(|_| ())
+                .map_err(Error::from)
+                .await
+        };
+        Ok((self.manifest, future))
     }
 }
 
