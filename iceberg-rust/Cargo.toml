@@ -24,6 +24,7 @@ itertools = { workspace = true }
 lazy_static = { workspace = true }
 lru = { workspace = true }
 object_store = { workspace = true }
+fasthash = { workspace = true }
 parquet = { workspace = true }
 pin-project-lite = { workspace = true }
 regex = { workspace = true }
@@ -44,4 +45,3 @@ uuid = { workspace = true }
 rstest = "0.23.0"
 chrono = { workspace = true }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
-
