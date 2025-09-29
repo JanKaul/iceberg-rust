@@ -103,8 +103,14 @@ pub enum Operation {
        // NewRowDelta,
        // /// Delete files in the table and commit
        // NewDelete,
-       // /// Expire snapshots in the table
-       // ExpireSnapshots,
+    /// Expire snapshots in the table
+    ExpireSnapshots {
+        older_than: Option<i64>,
+        retain_last: Option<usize>,
+        clean_orphan_files: bool,
+        retain_ref_snapshots: bool,
+        dry_run: bool,
+    },
        // /// Manage snapshots in the table
        // ManageSnapshots,
        // /// Read and write table data and metadata files
@@ -841,6 +847,95 @@ impl Operation {
             Operation::SetDefaultSpec(spec_id) => {
                 debug!("Executing SetDefaultSpec operation: spec_id={}", spec_id);
                 Ok((None, vec![TableUpdate::SetDefaultSpec { spec_id }]))
+            }
+            Operation::ExpireSnapshots {
+                older_than,
+                retain_last,
+                clean_orphan_files: _,
+                retain_ref_snapshots,
+                dry_run,
+            } => {
+                debug!("Executing ExpireSnapshots operation");
+                
+                // Validate parameters
+                if older_than.is_none() && retain_last.is_none() {
+                    return Err(Error::InvalidFormat(
+                        "Must specify either older_than or retain_last for snapshot expiration".into()
+                    ));
+                }
+
+                // Get all snapshots sorted by timestamp (newest first)
+                let mut all_snapshots: Vec<_> = table_metadata.snapshots.values().collect();
+                all_snapshots.sort_by(|a, b| b.timestamp_ms().cmp(a.timestamp_ms()));
+
+                // Get current snapshot ID to ensure we never expire it
+                let current_snapshot_id = table_metadata.current_snapshot_id;
+
+                // Get snapshot IDs referenced by branches/tags if we should preserve them
+                let ref_snapshot_ids = if retain_ref_snapshots {
+                    let mut referenced_ids = std::collections::HashSet::new();
+                    for snapshot_ref in table_metadata.refs.values() {
+                        referenced_ids.insert(snapshot_ref.snapshot_id);
+                    }
+                    referenced_ids
+                } else {
+                    std::collections::HashSet::new()
+                };
+
+                let mut snapshots_to_expire = Vec::new();
+
+                // Apply retention logic
+                for (index, snapshot) in all_snapshots.iter().enumerate() {
+                    let snapshot_id = *snapshot.snapshot_id();
+                    let mut should_retain = false;
+
+                    // Never expire the current snapshot
+                    if Some(snapshot_id) == current_snapshot_id {
+                        should_retain = true;
+                    }
+                    // Never expire snapshots referenced by branches/tags
+                    else if ref_snapshot_ids.contains(&snapshot_id) {
+                        should_retain = true;
+                    }
+                    // Keep the most recent N snapshots if retain_last is specified
+                    else if let Some(retain_count) = retain_last {
+                        if index < retain_count {
+                            should_retain = true;
+                        }
+                    }
+
+                    // Apply older_than filter only if not already marked for retention
+                    if !should_retain {
+                        if let Some(threshold) = older_than {
+                            if *snapshot.timestamp_ms() >= threshold {
+                                should_retain = true;
+                            }
+                        }
+                    }
+
+                    if !should_retain {
+                        snapshots_to_expire.push(snapshot_id);
+                    }
+                }
+
+                // If dry run, return without making changes
+                if dry_run {
+                    debug!("Dry run: would expire {} snapshots: {:?}", snapshots_to_expire.len(), snapshots_to_expire);
+                    return Ok((None, vec![]));
+                }
+
+                // If no snapshots to expire, return early
+                if snapshots_to_expire.is_empty() {
+                    debug!("No snapshots to expire");
+                    return Ok((None, vec![]));
+                }
+
+                debug!("Expiring {} snapshots: {:?}", snapshots_to_expire.len(), snapshots_to_expire);
+
+                // Return the RemoveSnapshots update
+                Ok((None, vec![TableUpdate::RemoveSnapshots {
+                    snapshot_ids: snapshots_to_expire,
+                }]))
             }
         }
     }

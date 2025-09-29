@@ -38,8 +38,9 @@ pub(crate) static REPLACE_INDEX: usize = 4;
 pub(crate) static OVERWRITE_INDEX: usize = 5;
 pub(crate) static UPDATE_PROPERTIES_INDEX: usize = 6;
 pub(crate) static SET_SNAPSHOT_REF_INDEX: usize = 7;
+pub(crate) static EXPIRE_SNAPSHOTS_INDEX: usize = 8;
 
-pub(crate) static NUM_OPERATIONS: usize = 8;
+pub(crate) static NUM_OPERATIONS: usize = 9;
 
 /// A transaction that can perform multiple operations on a table atomically
 ///
@@ -395,6 +396,54 @@ impl<'table> TableTransaction<'table> {
         self.operations[SET_SNAPSHOT_REF_INDEX] = Some(Operation::SetSnapshotRef(entry));
         self
     }
+
+    /// Expire snapshots based on the provided configuration
+    ///
+    /// This operation expires snapshots according to the retention policies specified.
+    /// It can expire snapshots older than a certain timestamp, retain only the most recent N snapshots,
+    /// and optionally clean up orphaned data files.
+    ///
+    /// # Arguments
+    /// * `older_than` - Optional timestamp (ms since Unix epoch) to expire snapshots older than this time
+    /// * `retain_last` - Optional number of most recent snapshots to keep, regardless of timestamp
+    /// * `clean_orphan_files` - Whether to clean up data files that are no longer referenced
+    /// * `retain_ref_snapshots` - Whether to preserve snapshots that are referenced by branches/tags
+    /// * `dry_run` - Whether to perform a dry run without actually deleting anything
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    ///
+    /// # Examples
+    /// ```
+    /// let result = table.new_transaction(None)
+    ///     .expire_snapshots(
+    ///         Some(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000),
+    ///         Some(5),
+    ///         true,
+    ///         true,
+    ///         false
+    ///     )
+    ///     .commit()
+    ///     .await?;
+    /// ```
+    pub fn expire_snapshots(
+        mut self,
+        older_than: Option<i64>,
+        retain_last: Option<usize>,
+        clean_orphan_files: bool,
+        retain_ref_snapshots: bool,
+        dry_run: bool,
+    ) -> Self {
+        self.operations[EXPIRE_SNAPSHOTS_INDEX] = Some(Operation::ExpireSnapshots {
+            older_than,
+            retain_last,
+            clean_orphan_files,
+            retain_ref_snapshots,
+            dry_run,
+        });
+        self
+    }
+
     /// Commits all operations in this transaction atomically
     ///
     /// This method executes all operations in the transaction and updates the table
