@@ -1,13 +1,12 @@
-//! Snapshot expiration functionality for Iceberg tables
+//! Snapshot expiration functionality for Iceberg tables (Legacy implementation)
 //!
-//! This module provides the ability to expire old snapshots and clean up associated
-//! manifest and data files. The implementation follows Iceberg's atomic commit model
-//! and supports various expiration criteria including:
+//! **Note: This module contains the standalone implementation of snapshot expiration.** 
+//! **The recommended approach is to use `table.expire_snapshots()` which integrates**
+//! **with the Operation framework for better transaction support.**
 //!
-//! * Time-based expiration (older than timestamp)
-//! * Count-based retention (keep only last N snapshots)
-//! * Reference-aware cleanup (preserve snapshots referenced by branches/tags)
-//! * Optional orphaned file cleanup
+//! This module provides functionality to expire (remove) old snapshots from Iceberg tables
+//! based on various retention policies. Snapshot expiration helps manage storage costs
+//! by removing metadata for old table versions while preserving data integrity.
 
 use std::collections::HashSet;
 
