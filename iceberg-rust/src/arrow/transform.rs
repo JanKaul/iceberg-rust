@@ -125,13 +125,17 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
         )),
         (DataType::Int32, Transform::Bucket(m)) => Ok(Arc::<PrimitiveArray<Int32Type>>::new(
             unary(as_primitive_array::<Int32Type>(&array), |i| {
-                (fasthash::murmur3::hash32_with_seed((i as i64).to_le_bytes(), 0) as i32)
+                let mut buffer = std::io::Cursor::new((i as i64).to_le_bytes());
+                (murmur3::murmur3_32(&mut buffer, 0).expect("murmur3 hash failled for some reason")
+                    as i32)
                     .rem_euclid(*m as i32)
             }),
         )),
         (DataType::Int64, Transform::Bucket(m)) => Ok(Arc::<PrimitiveArray<Int32Type>>::new(
             unary(as_primitive_array::<Int64Type>(&array), |i| {
-                (fasthash::murmur3::hash32_with_seed(i.to_le_bytes(), 0) as i32)
+                let mut buffer = std::io::Cursor::new((i).to_le_bytes());
+                (murmur3::murmur3_32(&mut buffer, 0).expect("murmur3 hash failled for some reason")
+                    as i32)
                     .rem_euclid(*m as i32)
             }),
         )),
@@ -141,7 +145,9 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
             Ok(Arc::<PrimitiveArray<Int32Type>>::new(unary(
                 as_primitive_array::<Int32Type>(&temp),
                 |i| {
-                    (fasthash::murmur3::hash32_with_seed(i.to_le_bytes(), 0) as i32)
+                    let mut buffer = std::io::Cursor::new((i as i64).to_le_bytes());
+                    (murmur3::murmur3_32(&mut buffer, 0)
+                        .expect("murmur3 hash failled for some reason") as i32)
                         .rem_euclid(*m as i32)
                 },
             )))
@@ -152,7 +158,9 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
             Ok(Arc::<PrimitiveArray<Int32Type>>::new(unary(
                 as_primitive_array::<Int32Type>(&temp),
                 |i: i32| {
-                    (fasthash::murmur3::hash32_with_seed((i as i64).to_le_bytes(), 0) as i32)
+                    let mut buffer = std::io::Cursor::new((i as i64).to_le_bytes());
+                    (murmur3::murmur3_32(&mut buffer, 0)
+                        .expect("murmur3 hash failled for some reason") as i32)
                         .rem_euclid(*m as i32)
                 },
             )))
@@ -164,7 +172,9 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
             Ok(Arc::new(PrimitiveArray::<Int32Type>::new(
                 ScalarBuffer::from_iter(local_array.iter().map(|a| {
                     if let Some(value) = a {
-                        fasthash::murmur3::hash32_with_seed(value.as_bytes(), 0) as i32
+                        murmur3::murmur3_32(&mut value.as_bytes(), 0)
+                            .expect("murmur3 hash failled for some reason")
+                            as i32
                     } else {
                         0
                     }
@@ -386,40 +396,36 @@ mod tests {
         // Check value match https://iceberg.apache.org/spec/#appendix-b-32-bit-hash-requirements
 
         // 34 -> 2017239379
-        assert_eq!(
-            fasthash::murmur3::hash32_with_seed((34i32 as i64).to_le_bytes(), 0),
-            2017239379
-        );
+        let mut buffer = std::io::Cursor::new((34i32 as i64).to_le_bytes());
+        assert_eq!(murmur3::murmur3_32(&mut buffer, 0).unwrap(), 2017239379);
+
         // 34 -> 2017239379
-        assert_eq!(
-            fasthash::murmur3::hash32_with_seed((34i64).to_le_bytes(), 0),
-            2017239379
-        );
+        let mut buffer = std::io::Cursor::new((34i64).to_le_bytes());
+        assert_eq!(murmur3::murmur3_32(&mut buffer, 0).unwrap(), 2017239379);
+
         // daysFromUnixEpoch(2017-11-16) -> 17_486 -> -653330422
+        let mut buffer = std::io::Cursor::new((17_486i32 as i64).to_le_bytes());
         assert_eq!(
-            fasthash::murmur3::hash32_with_seed((17_486i32 as i64).to_le_bytes(), 0) as i32,
+            murmur3::murmur3_32(&mut buffer, 0).unwrap() as i32,
             -653330422
         );
+
         // 81_068_000_000 number of micros from midnight 22:31:08
+        let mut buffer = std::io::Cursor::new((81_068_000_000i64).to_le_bytes());
         assert_eq!(
-            fasthash::murmur3::hash32_with_seed((81_068_000_000i64).to_le_bytes(), 0) as i32,
+            murmur3::murmur3_32(&mut buffer, 0).unwrap() as i32,
             -662762989
         );
 
         // utf8Bytes(iceberg) -> 1210000089
         assert_eq!(
-            fasthash::murmur3::hash32_with_seed("iceberg".as_bytes(), 0) as i32,
+            murmur3::murmur3_32(&mut "iceberg".as_bytes(), 0).unwrap() as i32,
             1210000089
         );
     }
 
     #[test]
     fn test_int32_bucket_transform() {
-        assert_eq!(
-            fasthash::murmur3::hash32_with_seed(17_486i64.to_le_bytes(), 0) as i32,
-            -653_330_422
-        );
-
         let array = Arc::new(arrow::array::Int32Array::from(vec![
             Some(34),       // Spec value
             Some(17_486),   // number of day between 2017-11-16 and epoch
