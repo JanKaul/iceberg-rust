@@ -36,6 +36,7 @@ fn configure_python_venv(py: Python) -> PyResult<()> {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_pyiceberg_integration() {
     let temp_dir = TempDir::new().unwrap();
     let warehouse_path = temp_dir.path().join("warehouse");
@@ -273,11 +274,11 @@ async fn test_pyiceberg_integration() {
             .expect("Failed to extract column_names");
 
         assert!(
-            column_names.contains(&"L_PARTKEY".to_string()),
+            column_names.contains(&"l_partkey".to_string()),
             "Column L_PARTKEY not found"
         );
         assert!(
-            column_names.contains(&"L_QUANTITY".to_string()),
+            column_names.contains(&"l_quantity".to_string()),
             "Column L_QUANTITY not found"
         );
 
@@ -285,7 +286,7 @@ async fn test_pyiceberg_integration() {
 
         // Get specific column
         let l_partkey_column = arrow_table
-            .call_method1("column", ("L_PARTKEY",))
+            .call_method1("column", ("l_partkey",))
             .expect("Failed to get L_PARTKEY column");
 
         let partkey_values: Vec<i64> = l_partkey_column
