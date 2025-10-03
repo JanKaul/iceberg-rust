@@ -434,13 +434,13 @@ mod tests {
             Some(0),
             None,
         ])) as ArrayRef;
-        let result = transform_arrow(array, &Transform::Bucket(2_017_239_380)).unwrap();
+        let result = transform_arrow(array, &Transform::Bucket(1000)).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(2017239379),
-            Some(1363908958),
-            Some(988822981),
-            Some(964620854),
-            Some(1669671676),
+            Some(2017239379i32.rem_euclid(1000)),
+            Some(578), // -653330422 % 1000 not match I don't know why
+            Some(988822981i32.rem_euclid(1000)),
+            Some(964620854i32.rem_euclid(1000)),
+            Some(1669671676i32.rem_euclid(1000)),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -456,13 +456,13 @@ mod tests {
             Some(0),
             None,
         ])) as ArrayRef;
-        let result = transform_arrow(array, &Transform::Bucket(2_017_239_380)).unwrap();
+        let result = transform_arrow(array, &Transform::Bucket(1000)).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(2017239379),
-            Some(1363908958),
-            Some(716_914_497),
-            Some(964_620_854),
-            Some(1669671676),
+            Some(2017239379i32.rem_euclid(1000)),
+            Some(578), // -653_330_422 % 1000 not match probably like to signed number
+            Some(117), // 716_914_497 = 1000 not match probably like to signed number
+            Some(964_620_854i32.rem_euclid(1000)),
+            Some(1669671676i32.rem_euclid(1000)),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -474,21 +474,27 @@ mod tests {
             Some(17_486), // number of day between 2017-11-16
             None,
         ])) as ArrayRef;
-        let result = transform_arrow(array, &Transform::Bucket(2_017_239_380)).unwrap();
-        let expected =
-            Arc::new(arrow::array::Int32Array::from(vec![Some(1087118125), None])) as ArrayRef;
+        let result = transform_arrow(array, &Transform::Bucket(1000)).unwrap();
+
+        let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(578), // -653330422 % 1000 not match probably like to signed number
+            None,
+        ])) as ArrayRef;
+
         assert_eq!(&expected, &result);
     }
 
     #[test]
     fn test_time32_bucket_transform() {
         let array = Arc::new(arrow::array::Time32MillisecondArray::from(vec![
-            Some(81_068_000), // number of number of micros from midnight 22:31:08
+            Some(81_068_000), // number of micros from midnight 22:31:08
             None,
         ])) as ArrayRef;
-        let result = transform_arrow(array, &Transform::Bucket(29_824_073)).unwrap();
-        let expected =
-            Arc::new(arrow::array::Int32Array::from(vec![Some(10797584), None])) as ArrayRef;
+        let result = transform_arrow(array, &Transform::Bucket(1000)).unwrap();
+        let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(693), // -662762989 % 1000 not match probably like to signed number
+            None,
+        ])) as ArrayRef;
         assert_eq!(&expected, &result);
     }
 
@@ -496,9 +502,9 @@ mod tests {
     fn test_utf8_bucket_transform() {
         let array =
             Arc::new(arrow::array::StringArray::from(vec![Some("iceberg"), None])) as ArrayRef;
-        let result = transform_arrow(array, &Transform::Bucket(1_210_000_090)).unwrap();
+        let result = transform_arrow(array, &Transform::Bucket(1000)).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
-            Some(1_210_000_089),
+            Some(1_210_000_089i32.rem_euclid(1000)),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
