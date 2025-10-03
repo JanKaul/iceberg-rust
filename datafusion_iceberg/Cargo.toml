@@ -34,6 +34,7 @@ uuid = { workspace = true }
 duckdb = { version = "1.4", features = ["bundled"] }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
+pyo3 = { version = "0.25", features = ["auto-initialize"] }
 reqwest = "0.12"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 tempfile = "3.17.1"
