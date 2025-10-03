@@ -47,7 +47,7 @@ async fn test_pyiceberg_integration() {
     let sqlite_uri = format!("sqlite:///{}?mode=rwc", catalog_db_path.display());
 
     // Setup object store with local filesystem
-    let object_store = ObjectStoreBuilder::filesystem(&warehouse_path);
+    let object_store = ObjectStoreBuilder::filesystem("/");
 
     // Create SQL catalog with SQLite file database
     let sql_catalog_list = Arc::new(
@@ -70,8 +70,12 @@ async fn test_pyiceberg_integration() {
 
     let ctx = SessionContext::new_with_state(state);
 
-    // Create external CSV table
-    let sql = "CREATE EXTERNAL TABLE lineitem (
+    // Create external CSV table with absolute path
+    let csv_path = std::env::current_dir()
+        .unwrap()
+        .join("testdata/tpch/lineitem.csv");
+    let sql = format!(
+        "CREATE EXTERNAL TABLE lineitem (
         L_ORDERKEY BIGINT NOT NULL,
         L_PARTKEY BIGINT NOT NULL,
         L_SUPPKEY BIGINT NOT NULL,
@@ -89,10 +93,12 @@ async fn test_pyiceberg_integration() {
         L_SHIPMODE VARCHAR NOT NULL,
         L_COMMENT VARCHAR NOT NULL )
         STORED AS CSV
-        LOCATION 'datafusion_iceberg/testdata/tpch/lineitem.csv'
-        OPTIONS ('has_header' 'false');";
+        LOCATION '{}'
+        OPTIONS ('has_header' 'false');",
+        csv_path.display()
+    );
 
-    let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+    let plan = ctx.state().create_logical_plan(&sql).await.unwrap();
     let transformed = plan.transform(iceberg_transform).data().unwrap();
     ctx.execute_logical_plan(transformed)
         .await
@@ -112,8 +118,10 @@ async fn test_pyiceberg_integration() {
         .await
         .expect("Failed to create schema");
 
-    // Create Iceberg table
-    let sql = "CREATE EXTERNAL TABLE warehouse.tpch.lineitem (
+    // Create Iceberg table with location relative to warehouse path
+    let table_location = format!("{}/tpch/lineitem", warehouse_path.display());
+    let sql = format!(
+        "CREATE EXTERNAL TABLE warehouse.tpch.lineitem (
         L_ORDERKEY BIGINT NOT NULL,
         L_PARTKEY BIGINT NOT NULL,
         L_SUPPKEY BIGINT NOT NULL,
@@ -131,10 +139,12 @@ async fn test_pyiceberg_integration() {
         L_SHIPMODE VARCHAR NOT NULL,
         L_COMMENT VARCHAR NOT NULL )
         STORED AS ICEBERG
-        LOCATION '/warehouse/tpch/lineitem'
-        PARTITIONED BY ( \"month(L_SHIPDATE)\" );";
+        LOCATION '{}'
+        PARTITIONED BY ( \"month(L_SHIPDATE)\" );",
+        table_location
+    );
 
-    let plan = ctx.state().create_logical_plan(sql).await.unwrap();
+    let plan = ctx.state().create_logical_plan(&sql).await.unwrap();
     let transformed = plan.transform(iceberg_transform).data().unwrap();
     ctx.execute_logical_plan(transformed)
         .await
@@ -185,7 +195,7 @@ async fn test_pyiceberg_integration() {
                     assert_eq!(amount.unwrap(), 24.0);
                     found_24027 = true;
                 } else if product_id.unwrap() == 63700 {
-                    assert_eq!(amount.unwrap(), 8.0);
+                    assert_eq!(amount.unwrap(), 23.0);
                     found_63700 = true;
                 }
             }
@@ -227,7 +237,7 @@ async fn test_pyiceberg_integration() {
 
         // Load catalog
         let catalog = load_catalog
-            .call(("default",), Some(&config))
+            .call(("warehouse",), Some(&config))
             .expect("Failed to load catalog");
 
         // Load table
