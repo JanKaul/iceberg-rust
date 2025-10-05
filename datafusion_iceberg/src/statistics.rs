@@ -4,6 +4,7 @@ use datafusion::{
     scalar::ScalarValue,
 };
 use iceberg_rust::error::Error;
+use iceberg_rust::file_format::parquet::estimate_distinct_count;
 use iceberg_rust::spec::{
     manifest::{ManifestEntry, Status},
     schema::Schema,
@@ -45,12 +46,16 @@ pub(crate) fn statistics_from_datafiles(
                         .column_statistics
                         .into_iter()
                         .zip(column_stats)
-                        .map(|(acc, x)| ColumnStatistics {
-                            null_count: acc.null_count.add(&x.null_count),
-                            max_value: acc.max_value.max(&x.max_value),
-                            min_value: acc.min_value.min(&x.min_value),
-                            distinct_count: acc.distinct_count.add(&x.distinct_count),
-                            sum_value: acc.sum_value.add(&x.sum_value),
+                        .map(|(acc, x)| {
+                            let new_distinct_count = new_distinct_count(&acc, &x);
+
+                            ColumnStatistics {
+                                null_count: acc.null_count.add(&x.null_count),
+                                max_value: acc.max_value.max(&x.max_value),
+                                min_value: acc.min_value.min(&x.min_value),
+                                distinct_count: new_distinct_count,
+                                sum_value: acc.sum_value.add(&x.sum_value),
+                            }
                         })
                         .collect(),
                 }
@@ -132,5 +137,51 @@ fn convert_value_to_scalar_value(value: Value) -> Result<ScalarValue, Error> {
             "Iceberg value".to_string(),
             format!("{x:?}"),
         )),
+    }
+}
+
+fn new_distinct_count(acc: &ColumnStatistics, x: &ColumnStatistics) -> Precision<usize> {
+    match (
+        &acc.distinct_count,
+        &x.distinct_count,
+        &acc.min_value,
+        &acc.max_value,
+        &x.min_value,
+        &x.max_value,
+    ) {
+        (
+            Precision::Exact(old_count),
+            Precision::Exact(new_count),
+            Precision::Exact(ScalarValue::Int32(Some(old_min))),
+            Precision::Exact(ScalarValue::Int32(Some(old_max))),
+            Precision::Exact(ScalarValue::Int32(Some(new_min))),
+            Precision::Exact(ScalarValue::Int32(Some(new_max))),
+        ) => {
+            let estimated = estimate_distinct_count(
+                &[old_min, old_max],
+                &[new_min, new_max],
+                *old_count as i64,
+                *new_count as i64,
+            );
+            Precision::Inexact(*old_count + estimated as usize)
+        }
+        (
+            Precision::Exact(old_count),
+            Precision::Exact(new_count),
+            Precision::Exact(ScalarValue::Int64(Some(old_min))),
+            Precision::Exact(ScalarValue::Int64(Some(old_max))),
+            Precision::Exact(ScalarValue::Int64(Some(new_min))),
+            Precision::Exact(ScalarValue::Int64(Some(new_max))),
+        ) => {
+            let estimated = estimate_distinct_count(
+                &[old_min, old_max],
+                &[new_min, new_max],
+                *old_count as i64,
+                *new_count as i64,
+            );
+            Precision::Inexact(*old_count + estimated as usize)
+        }
+        (Precision::Absent, Precision::Exact(_), _, _, _, _) => x.distinct_count,
+        _ => acc.distinct_count.add(&x.distinct_count),
     }
 }
