@@ -113,14 +113,15 @@ pub fn parquet_to_datafile(
                             Some(Value::Int(current_min)),
                             Some(Value::Int(current_max)),
                         ) => {
-                            let overlap =
-                                range_overlap(&[current_min, current_max], &[&min, &max]).max(0);
                             distinct_counts
                                 .entry(id)
                                 .and_modify(|x| {
-                                    *x += ((1 - overlap as i64 / (max - min) as i64)
-                                        * distinct_count as i64)
-                                        as i64
+                                    *x += estimate_distinct_count(
+                                        &[current_min, current_max],
+                                        &[&min, &max],
+                                        *x,
+                                        distinct_count as i64,
+                                    );
                                 })
                                 .or_insert(distinct_count as i64);
                         }
@@ -134,12 +135,6 @@ pub fn parquet_to_datafile(
                             distinct_counts.entry(id).or_insert(distinct_count as i64);
                         }
                         _ => (),
-                    }
-                    if let Type::Primitive(_) = &data_type {
-                        distinct_counts
-                            .entry(id)
-                            .and_modify(|x| *x += distinct_count as i64)
-                            .or_insert(distinct_count as i64);
                     }
                 }
 
@@ -325,4 +320,43 @@ fn range_overlap<T: Ord + Sub + Copy>(
     let overlap_start = (*old_range[0]).max(*new_range[0]);
     let overlap_end = (*old_range[1]).min(*new_range[1]);
     overlap_end - overlap_start
+}
+
+fn estimate_distinct_count<T>(
+    old_range: &[&T; 2],
+    new_range: &[&T; 2],
+    old_distinct_count: i64,
+    new_distinct_count: i64,
+) -> i64
+where
+    T: Ord + Sub<Output = T> + Copy + Into<f64> + Default,
+{
+    let new_range_size: f64 = (*new_range[1] - *new_range[0]).into();
+    let current_range_size: f64 = (*old_range[1] - *old_range[0]).into();
+    let overlap = range_overlap(old_range, new_range);
+    let overlap_size: f64 = if overlap >= T::default() {
+        overlap.into()
+    } else {
+        0.0
+    };
+    let n2 = new_distinct_count as f64;
+    let n1 = old_distinct_count as f64;
+
+    // Values outside overlap are definitely new
+    let outside_overlap = ((new_range_size - overlap_size) / new_range_size * n2).max(0.0);
+
+    // For overlap region: estimate how many new values exist
+    // using independence approximation: P(value not covered) = ((R-1)/R)^k
+    // Expected new values in overlap = n2_overlap * ((R-1)/R)^(n1_overlap)
+    let n2_overlap = (overlap_size / new_range_size * n2).max(0.0);
+    let expected_n1_in_overlap = (overlap_size / current_range_size * n1).max(0.0);
+
+    let new_in_overlap = if overlap_size > 0.0 {
+        let prob_not_covered = ((overlap_size - 1.0) / overlap_size).powf(expected_n1_in_overlap);
+        n2_overlap * prob_not_covered
+    } else {
+        0.0
+    };
+
+    (outside_overlap + new_in_overlap).round() as i64
 }
