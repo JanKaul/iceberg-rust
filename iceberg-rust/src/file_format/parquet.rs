@@ -322,6 +322,39 @@ fn range_overlap<T: Ord + Sub + Copy>(
     overlap_end - overlap_start
 }
 
+/// Estimates the number of new distinct values when merging two sets of statistics.
+///
+/// This function assumes uniform distribution of distinct values within their respective ranges
+/// and uses an independence approximation to estimate overlap probability.
+///
+/// # Algorithm
+///
+/// The estimation is split into two parts:
+/// 1. **Non-overlapping region**: All values in the new range that fall outside the old range
+///    are guaranteed to be new.
+/// 2. **Overlapping region**: Uses the independence approximation:
+///    - P(specific value not covered) = ((R-1)/R)^k
+///    - where R is the overlap size and k is the expected number of old values in the overlap
+///    - Expected new values = n2_overlap × P(not covered)
+///
+/// # Parameters
+///
+/// * `old_range` - [min, max] of the existing value range
+/// * `new_range` - [min, max] of the new value range
+/// * `old_distinct_count` - Number of distinct values in the old range
+/// * `new_distinct_count` - Number of distinct values in the new range
+///
+/// # Returns
+///
+/// Estimated number of new distinct values to add to the running total
+///
+/// # Example
+///
+/// ```ignore
+/// // Old range [0, 1000] with 100 distinct values
+/// // New range [500, 1500] with 50 distinct values
+/// let new_count = estimate_distinct_count(&[&0, &1000], &[&500, &1500], 100, 50);
+/// ```
 fn estimate_distinct_count<T>(
     old_range: &[&T; 2],
     new_range: &[&T; 2],
