@@ -334,8 +334,20 @@ fn range_overlap<T: Ord + Sub + Copy>(
     overlap_end - overlap_start
 }
 
-/// Helper trait to convert numeric types to f64 for statistical calculations
-trait ToF64 {
+/// Helper trait to convert numeric types to f64 for statistical calculations.
+///
+/// This trait provides a uniform interface for converting integer types to f64,
+/// which is necessary for the statistical estimation algorithms. The conversion
+/// may be lossy for very large i64 values (beyond 2^53), but this is acceptable
+/// for statistical approximations.
+pub trait ToF64 {
+    /// Converts the value to f64.
+    ///
+    /// # Note
+    ///
+    /// For i64 values larger than 2^53, precision may be lost in the conversion.
+    /// This is acceptable for statistical calculations where exact precision is
+    /// not required.
     fn to_f64(self) -> f64;
 }
 
@@ -384,7 +396,7 @@ impl ToF64 for i64 {
 /// // New range [500, 1500] with 50 distinct values
 /// let new_count = estimate_distinct_count(&[&0, &1000], &[&500, &1500], 100, 50);
 /// ```
-fn estimate_distinct_count<T>(
+pub fn estimate_distinct_count<T>(
     old_range: &[&T; 2],
     new_range: &[&T; 2],
     old_distinct_count: i64,
