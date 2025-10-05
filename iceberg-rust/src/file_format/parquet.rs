@@ -4,6 +4,7 @@
 
 use std::{
     collections::{hash_map::Entry, HashMap},
+    ops::Sub,
     sync::Arc,
 };
 
@@ -89,17 +90,58 @@ pub fn parquet_to_datafile(
                         .and_modify(|x| *x += null_count as i64)
                         .or_insert(null_count as i64);
                 }
-                if let Some(distinct_count) = statistics.distinct_count_opt() {
-                    distinct_counts
-                        .entry(id)
-                        .and_modify(|x| *x += distinct_count as i64)
-                        .or_insert(distinct_count as i64);
-                }
+
                 let data_type = &schema
                     .fields()
                     .get(id as usize)
                     .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
                     .field_type;
+
+                if let (Some(distinct_count), Some(min_bytes), Some(max_bytes)) = (
+                    statistics.distinct_count_opt(),
+                    statistics.min_bytes_opt(),
+                    statistics.max_bytes_opt(),
+                ) {
+                    let min = Value::try_from_bytes(min_bytes, data_type)?;
+                    let max = Value::try_from_bytes(max_bytes, data_type)?;
+                    let current_min = lower_bounds.get(&id);
+                    let current_max = upper_bounds.get(&id);
+                    match (min, max, current_min, current_max) {
+                        (
+                            Value::Int(min),
+                            Value::Int(max),
+                            Some(Value::Int(current_min)),
+                            Some(Value::Int(current_max)),
+                        ) => {
+                            let overlap =
+                                range_overlap(&[current_min, current_max], &[&min, &max]).max(0);
+                            distinct_counts
+                                .entry(id)
+                                .and_modify(|x| {
+                                    *x += ((1 - overlap as i64 / (max - min) as i64)
+                                        * distinct_count as i64)
+                                        as i64
+                                })
+                                .or_insert(distinct_count as i64);
+                        }
+                        (
+                            Value::LongInt(_min),
+                            Value::LongInt(_max),
+                            Some(Value::LongInt(_current_min)),
+                            Some(Value::LongInt(_current_max)),
+                        ) => (),
+                        (_, _, None, None) => {
+                            distinct_counts.entry(id).or_insert(distinct_count as i64);
+                        }
+                        _ => (),
+                    }
+                    if let Type::Primitive(_) = &data_type {
+                        distinct_counts
+                            .entry(id)
+                            .and_modify(|x| *x += distinct_count as i64)
+                            .or_insert(distinct_count as i64);
+                    }
+                }
 
                 if let Some(min_bytes) = statistics.min_bytes_opt() {
                     if let Type::Primitive(_) = &data_type {
@@ -274,4 +316,13 @@ pub fn thrift_size<T: TSerializable>(metadata: &T) -> Result<usize, Error> {
     let mut protocol = TCompactOutputProtocol::new(&mut buffer);
     metadata.write_to_out_protocol(&mut protocol)?;
     Ok(buffer.bytes_written())
+}
+
+fn range_overlap<T: Ord + Sub + Copy>(
+    old_range: &[&T; 2],
+    new_range: &[&T; 2],
+) -> <T as Sub>::Output {
+    let overlap_start = (*old_range[0]).max(*new_range[0]);
+    let overlap_end = (*old_range[1]).min(*new_range[1]);
+    overlap_end - overlap_start
 }
