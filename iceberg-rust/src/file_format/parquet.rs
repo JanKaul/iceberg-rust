@@ -126,11 +126,23 @@ pub fn parquet_to_datafile(
                                 .or_insert(distinct_count as i64);
                         }
                         (
-                            Value::LongInt(_min),
-                            Value::LongInt(_max),
-                            Some(Value::LongInt(_current_min)),
-                            Some(Value::LongInt(_current_max)),
-                        ) => (),
+                            Value::LongInt(min),
+                            Value::LongInt(max),
+                            Some(Value::LongInt(current_min)),
+                            Some(Value::LongInt(current_max)),
+                        ) => {
+                            distinct_counts
+                                .entry(id)
+                                .and_modify(|x| {
+                                    *x += estimate_distinct_count(
+                                        &[current_min, current_max],
+                                        &[&min, &max],
+                                        *x,
+                                        distinct_count as i64,
+                                    );
+                                })
+                                .or_insert(distinct_count as i64);
+                        }
                         (_, _, None, None) => {
                             distinct_counts.entry(id).or_insert(distinct_count as i64);
                         }
@@ -322,6 +334,23 @@ fn range_overlap<T: Ord + Sub + Copy>(
     overlap_end - overlap_start
 }
 
+/// Helper trait to convert numeric types to f64 for statistical calculations
+trait ToF64 {
+    fn to_f64(self) -> f64;
+}
+
+impl ToF64 for i32 {
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+}
+
+impl ToF64 for i64 {
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+}
+
 /// Estimates the number of new distinct values when merging two sets of statistics.
 ///
 /// This function assumes uniform distribution of distinct values within their respective ranges
@@ -362,13 +391,13 @@ fn estimate_distinct_count<T>(
     new_distinct_count: i64,
 ) -> i64
 where
-    T: Ord + Sub<Output = T> + Copy + Into<f64> + Default,
+    T: Ord + Sub<Output = T> + Copy + Default + ToF64,
 {
-    let new_range_size: f64 = (*new_range[1] - *new_range[0]).into();
-    let current_range_size: f64 = (*old_range[1] - *old_range[0]).into();
+    let new_range_size = (*new_range[1] - *new_range[0]).to_f64();
+    let current_range_size = (*old_range[1] - *old_range[0]).to_f64();
     let overlap = range_overlap(old_range, new_range);
     let overlap_size: f64 = if overlap >= T::default() {
-        overlap.into()
+        overlap.to_f64()
     } else {
         0.0
     };
