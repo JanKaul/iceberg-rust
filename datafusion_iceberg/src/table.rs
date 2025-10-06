@@ -34,7 +34,7 @@ use tokio::sync::{
     mpsc::{self},
     RwLock, RwLockWriteGuard,
 };
-use tracing::{instrument, Instrument};
+use tracing::{instrument, trace, Instrument};
 
 use crate::statistics::statistics_from_datafiles;
 use crate::{
@@ -875,6 +875,8 @@ async fn table_scan(
                 .with_limit(limit)
                 .with_table_partition_cols(table_partition_cols)
                 .build();
+
+        trace!("{:?}", file_scan_config);
 
         let other_plan = ParquetFormat::default()
             .create_physical_plan(session, file_scan_config)
