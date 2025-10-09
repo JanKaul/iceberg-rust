@@ -8,7 +8,7 @@ new_key_type! {
 }
 
 pub(crate) struct Node<T> {
-    data: T,
+    pub data: T,
     connections: Vec<EdgeId>,
 }
 
@@ -17,8 +17,12 @@ impl<N> Node<N> {
         &self.connections
     }
 
-    pub(crate) fn neighbours<E>(&self, query_graph: &QueryGraph<N, E>) -> Vec<NodeId> {
-        todo!()
+    pub(crate) fn neighbours<E>(&self, query_graph: &UndirectedGraph<N, E>) -> Vec<NodeId> {
+        self.connections
+            .iter()
+            .filter_map(|edge_id| query_graph.get_edge(*edge_id))
+            .flat_map(|edge| edge.nodes)
+            .collect()
     }
 }
 
@@ -30,17 +34,19 @@ new_key_type! {
 
 pub(crate) struct Edge<T> {
     nodes: [NodeId; 2],
-    data: T,
+    pub data: T,
 }
 
 pub(crate) type QueryEdge = Edge<Join>;
 
-pub(crate) struct QueryGraph<N, E> {
+pub(crate) struct UndirectedGraph<N, E> {
     nodes: SlotMap<NodeId, Node<N>>,
     edges: SlotMap<EdgeId, Edge<E>>,
 }
 
-impl<N, E> QueryGraph<N, E> {
+pub(crate) type QueryGraph = UndirectedGraph<Arc<LogicalPlan>, Join>;
+
+impl<N, E> UndirectedGraph<N, E> {
     pub(crate) fn add_node(&mut self, other: NodeId, node_data: N, edge_data: E) -> Option<NodeId> {
         if self.nodes.contains_key(other) {
             let new_id = self.nodes.insert(Node {
@@ -107,15 +113,15 @@ impl<N, E> QueryGraph<N, E> {
         }
     }
 
-    fn nodes(&self) -> Iter<'_, NodeId, Node<N>> {
+    pub(crate) fn nodes(&self) -> Iter<'_, NodeId, Node<N>> {
         self.nodes.iter()
     }
 
-    fn get_node(&self, key: NodeId) -> Option<&Node<N>> {
+    pub(crate) fn get_node(&self, key: NodeId) -> Option<&Node<N>> {
         self.nodes.get(key)
     }
 
-    fn get_edge(&self, key: EdgeId) -> Option<&Edge<E>> {
+    pub(crate) fn get_edge(&self, key: EdgeId) -> Option<&Edge<E>> {
         self.edges.get(key)
     }
 }

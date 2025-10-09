@@ -1,6 +1,7 @@
 use datafusion::common::Statistics;
 use datafusion_expr::LogicalPlan;
 
+pub(crate) mod precedence_graph;
 pub(crate) mod query_graph;
 
 trait LogicalStatisticsProvider {
