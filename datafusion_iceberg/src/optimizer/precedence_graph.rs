@@ -5,17 +5,18 @@ use iceberg_rust::error::Error as IcebergError;
 use crate::{
     error::Error,
     optimizer::{
-        cardinality::CardinalityEstimate,
+        cost::CostEstimator,
         query_graph::{NodeId, QueryGraph},
-        selectivity::SelectivityEstimate,
     },
 };
 
 struct PrecedenceNode<'graph> {
     query_nodes: Vec<NodeId>,
     children: Vec<PrecedenceNode<'graph>>,
+    // T in Ibaraki,Kameda
     cardinality: usize,
-    selectivity: f64,
+    // C in Ibaraki,Kameda
+    cost: f64,
     query_graph: &'graph QueryGraph,
 }
 
@@ -38,6 +39,7 @@ impl<'graph> PrecedenceNode<'graph> {
         let node = query_graph
             .get_node(node_id)
             .ok_or(IcebergError::NotFound("Root node".to_owned()))?;
+        let cardinality = Self::cardinality(&node.data).unwrap_or(1);
         let connections = node.connections();
         let children = connections
             .iter()
@@ -49,9 +51,10 @@ impl<'graph> PrecedenceNode<'graph> {
                         .find(|x| *x != node_id && remaining.contains(x))
                     {
                         remaining.remove(&other);
+                        let selectivity = Self::selectivity(&edge.data);
                         Some(PrecedenceNode::from_query_node(
                             other,
-                            Self::selectivity(&edge.data),
+                            selectivity,
                             query_graph,
                             remaining,
                         ))
@@ -66,12 +69,11 @@ impl<'graph> PrecedenceNode<'graph> {
         Ok(PrecedenceNode {
             query_nodes: vec![node_id],
             children,
-            cardinality: Self::cardinality(&node.data).unwrap_or(1),
-            selectivity,
+            cardinality: (selectivity * cardinality as f64) as usize,
+            cost: Self::cost(selectivity, cardinality),
             query_graph,
         })
     }
 }
 
-impl<'graph> SelectivityEstimate for PrecedenceNode<'graph> {}
-impl<'graph> CardinalityEstimate for PrecedenceNode<'graph> {}
+impl<'graph> CostEstimator for PrecedenceNode<'graph> {}

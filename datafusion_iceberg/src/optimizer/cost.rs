@@ -1,14 +1,20 @@
-use std::sync::Arc;
-
 use datafusion::{common::stats::Precision, datasource::DefaultTableSource};
-use datafusion_expr::LogicalPlan;
+use datafusion_expr::{Join, LogicalPlan};
 
 use crate::error::Error;
 use iceberg_rust::error::Error as IcebergError;
 
-pub trait CardinalityEstimate {
+pub trait CostEstimator {
     fn cardinality(plan: &LogicalPlan) -> Option<usize> {
         estimate_cardinality(plan).ok()
+    }
+
+    fn selectivity(_join: &Join) -> f64 {
+        0.1
+    }
+
+    fn cost(selectivity: f64, cardinality: usize) -> f64 {
+        selectivity * cardinality as f64
     }
 }
 
