@@ -17,11 +17,16 @@ impl<N> Node<N> {
         &self.connections
     }
 
-    pub(crate) fn neighbours<E>(&self, query_graph: &UndirectedGraph<N, E>) -> Vec<NodeId> {
+    pub(crate) fn neighbours<E>(
+        &self,
+        node_id: NodeId,
+        query_graph: &UndirectedGraph<N, E>,
+    ) -> Vec<NodeId> {
         self.connections
             .iter()
             .filter_map(|edge_id| query_graph.get_edge(*edge_id))
             .flat_map(|edge| edge.nodes)
+            .filter(|&id| id != node_id)
             .collect()
     }
 }
