@@ -4,7 +4,11 @@ use iceberg_rust::error::Error as IcebergError;
 
 use crate::{
     error::Error,
-    optimizer::query_graph::{NodeId, QueryGraph},
+    optimizer::{
+        cardinality::CardinalityEstimate,
+        query_graph::{NodeId, QueryGraph},
+        selectivity::SelectivityEstimate,
+    },
 };
 
 struct PrecedenceNode<'graph> {
@@ -22,24 +26,38 @@ impl<'graph> PrecedenceNode<'graph> {
     ) -> Result<Self, Error> {
         let mut remaining: HashSet<NodeId> = graph.nodes().map(|(x, _)| x).collect();
         remaining.remove(&root_id);
-        PrecedenceNode::from_query_node(root_id, graph, &mut remaining)
+        PrecedenceNode::from_query_node(root_id, 1.0, graph, &mut remaining)
     }
 
     fn from_query_node(
         node_id: NodeId,
+        selectivity: f64,
         query_graph: &'graph QueryGraph,
         remaining: &mut HashSet<NodeId>,
     ) -> Result<Self, Error> {
         let node = query_graph
             .get_node(node_id)
             .ok_or(IcebergError::NotFound("Root node".to_owned()))?;
-        let children = node
-            .neighbours(node_id, query_graph)
-            .into_iter()
-            .filter_map(|x| {
-                if remaining.contains(&x) {
-                    remaining.remove(&x);
-                    Some(PrecedenceNode::from_query_node(x, query_graph, remaining))
+        let connections = node.connections();
+        let children = connections
+            .iter()
+            .filter_map(|edge| {
+                if let Some(edge) = query_graph.get_edge(*edge) {
+                    if let Some(other) = edge
+                        .nodes
+                        .into_iter()
+                        .find(|x| *x != node_id && remaining.contains(x))
+                    {
+                        remaining.remove(&other);
+                        Some(PrecedenceNode::from_query_node(
+                            other,
+                            Self::selectivity(&edge.data),
+                            query_graph,
+                            remaining,
+                        ))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
@@ -48,9 +66,12 @@ impl<'graph> PrecedenceNode<'graph> {
         Ok(PrecedenceNode {
             query_nodes: vec![node_id],
             children,
-            cardinality: 0,
-            selectivity: 1.0,
+            cardinality: Self::cardinality(&node.data).unwrap_or(1),
+            selectivity,
             query_graph,
         })
     }
 }
+
+impl<'graph> SelectivityEstimate for PrecedenceNode<'graph> {}
+impl<'graph> CardinalityEstimate for PrecedenceNode<'graph> {}

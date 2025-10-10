@@ -38,7 +38,7 @@ new_key_type! {
 }
 
 pub(crate) struct Edge<T> {
-    nodes: [NodeId; 2],
+    pub nodes: [NodeId; 2],
     pub data: T,
 }
 
