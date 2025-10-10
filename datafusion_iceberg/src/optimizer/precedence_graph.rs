@@ -10,7 +10,7 @@ use crate::{
     },
 };
 
-struct PrecedenceNode {
+struct NodeEstimates {
     node_id: NodeId,
     // T in [IbarakiKameda86]
     cardinality: usize,
@@ -19,7 +19,7 @@ struct PrecedenceNode {
 }
 
 struct PrecedenceTreeNode<'graph> {
-    query_nodes: Vec<PrecedenceNode>,
+    query_nodes: Vec<NodeEstimates>,
     children: Vec<PrecedenceTreeNode<'graph>>,
     query_graph: &'graph QueryGraph,
 }
@@ -71,7 +71,7 @@ impl<'graph> PrecedenceTreeNode<'graph> {
             })
             .collect::<Result<Vec<_>, Error>>()?;
         Ok(PrecedenceTreeNode {
-            query_nodes: vec![PrecedenceNode {
+            query_nodes: vec![NodeEstimates {
                 node_id,
                 cardinality: (selectivity * input_cardinality as f64) as usize,
                 cost: Self::cost(selectivity, input_cardinality),
