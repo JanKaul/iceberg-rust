@@ -39,7 +39,7 @@ impl<'graph> PrecedenceNode<'graph> {
         let node = query_graph
             .get_node(node_id)
             .ok_or(IcebergError::NotFound("Root node".to_owned()))?;
-        let cardinality = Self::cardinality(&node.data).unwrap_or(1);
+        let input_cardinality = Self::cardinality(&node.data).unwrap_or(1);
         let connections = node.connections();
         let children = connections
             .iter()
@@ -69,10 +69,14 @@ impl<'graph> PrecedenceNode<'graph> {
         Ok(PrecedenceNode {
             query_nodes: vec![node_id],
             children,
-            cardinality: (selectivity * cardinality as f64) as usize,
-            cost: Self::cost(selectivity, cardinality),
+            cardinality: (selectivity * input_cardinality as f64) as usize,
+            cost: Self::cost(selectivity, input_cardinality),
             query_graph,
         })
+    }
+
+    fn rank(&self) -> f64 {
+        (self.cardinality - 1) as f64 / self.cost
     }
 }
 
