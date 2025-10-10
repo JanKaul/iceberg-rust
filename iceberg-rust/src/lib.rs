@@ -46,13 +46,13 @@
 //!     .await?;
 //!
 //! // Expire old snapshots for maintenance
-//! let result = table.expire_snapshots()
+//! let expired_snapshot_ids = table.expire_snapshots()
 //!     .expire_older_than(chrono::Utc::now().timestamp_millis() - 30 * 24 * 60 * 60 * 1000)
 //!     .retain_last(10)
 //!     .execute()
 //!     .await?;
 //!     
-//! println!("Expired {} snapshots", result.expired_snapshot_ids.len());
+//! println!("Expired {} snapshots", expired_snapshot_ids.len());
 //! # Ok(())
 //! # }
 //! ```
