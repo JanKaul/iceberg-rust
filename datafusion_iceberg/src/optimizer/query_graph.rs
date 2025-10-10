@@ -17,6 +17,17 @@ impl<N> Node<N> {
         &self.connections
     }
 
+    pub(crate) fn connection_with<'graph, E>(
+        &self,
+        node_id: NodeId,
+        query_graph: &'graph UndirectedGraph<N, E>,
+    ) -> Option<&'graph Edge<E>> {
+        self.connections
+            .iter()
+            .filter_map(|edge_id| query_graph.get_edge(*edge_id))
+            .find(move |x| x.nodes.contains(&node_id))
+    }
+
     pub(crate) fn neighbours<E>(
         &self,
         node_id: NodeId,

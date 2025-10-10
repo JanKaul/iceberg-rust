@@ -10,13 +10,17 @@ use crate::{
     },
 };
 
-struct PrecedenceTreeNode<'graph> {
-    query_nodes: Vec<NodeId>,
-    children: Vec<PrecedenceTreeNode<'graph>>,
-    // T in Ibaraki,Kameda
+struct PrecedenceNode {
+    node_id: NodeId,
+    // T in [IbarakiKameda86]
     cardinality: usize,
-    // C in Ibaraki,Kameda
+    // C in [IbarakiKameda86]
     cost: f64,
+}
+
+struct PrecedenceTreeNode<'graph> {
+    query_nodes: Vec<PrecedenceNode>,
+    children: Vec<PrecedenceTreeNode<'graph>>,
     query_graph: &'graph QueryGraph,
 }
 
@@ -67,16 +71,26 @@ impl<'graph> PrecedenceTreeNode<'graph> {
             })
             .collect::<Result<Vec<_>, Error>>()?;
         Ok(PrecedenceTreeNode {
-            query_nodes: vec![node_id],
+            query_nodes: vec![PrecedenceNode {
+                node_id,
+                cardinality: (selectivity * input_cardinality as f64) as usize,
+                cost: Self::cost(selectivity, input_cardinality),
+            }],
             children,
-            cardinality: (selectivity * input_cardinality as f64) as usize,
-            cost: Self::cost(selectivity, input_cardinality),
             query_graph,
         })
     }
 
     fn rank(&self) -> f64 {
-        (self.cardinality - 1) as f64 / self.cost
+        let (cardinality, cost) =
+            self.query_nodes
+                .iter()
+                .fold((0, 0.0), |(cardinality, cost), node| {
+                    let cost = cost + cardinality as f64 * node.cost;
+                    let cardinality = cardinality * node.cardinality;
+                    (cardinality, cost)
+                });
+        (cardinality - 1) as f64 / cost
     }
 
     fn normalize(&mut self) {
@@ -84,10 +98,8 @@ impl<'graph> PrecedenceTreeNode<'graph> {
             0 => (),
             1 => {
                 if self.children[0].rank() < self.rank() {
-                    // Create normalized sequence with child node
+                    // Create normalized node as a sequence with child node
                     let mut child = self.children.pop().unwrap();
-                    self.cost += self.cardinality as f64 * child.cost;
-                    self.cardinality *= child.cardinality;
                     self.query_nodes.append(&mut child.query_nodes);
                     self.children = child.children;
                     self.normalize();
@@ -122,6 +134,18 @@ impl<'graph> PrecedenceTreeNode<'graph> {
             first.children = vec![first.children.pop().unwrap().merge(second)];
         }
         first
+    }
+
+    fn denormalize(&mut self) -> Result<(), Error> {
+        if self.children.len() != 1 {
+            return Err(IcebergError::InvalidFormat("Not normalized tree".to_owned()).into());
+        }
+        if self.query_nodes.len() == 1 {
+            self.children[0].denormalize()
+        } else {
+            todo!();
+            Ok(())
+        }
     }
 }
 
