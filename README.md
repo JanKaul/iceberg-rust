@@ -67,7 +67,7 @@ It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org
 
 ## Example
 
-Check out the [datafusion examples](datafusion_iceberg/examples) and [maintenance examples](iceberg-rust/examples/).
+Check out the [datafusion examples](datafusion_iceberg/examples).
 
 ### Basic Table Operations
 
