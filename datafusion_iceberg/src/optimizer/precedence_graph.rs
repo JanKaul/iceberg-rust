@@ -10,7 +10,7 @@ use crate::{
     },
 };
 
-struct NodeEstimates {
+struct JoinNode {
     node_id: NodeId,
     // T in [IbarakiKameda86]
     cardinality: usize,
@@ -18,14 +18,43 @@ struct NodeEstimates {
     cost: f64,
 }
 
-impl NodeEstimates {
+impl JoinNode {
     fn rank(&self) -> f64 {
         (self.cardinality - 1) as f64 / self.cost
     }
 }
 
+/// A node in the precedence tree for query optimization.
+///
+/// The precedence tree is a data structure used by the Ibaraki-Kameda algorithm for
+/// optimizing join ordering in database queries. It can represent both arbitrary tree
+/// structures and linear chain structures (where each node has at most one child).
+///
+/// # Lifecycle
+///
+/// A typical precedence tree goes through three phases:
+///
+/// 1. **Construction** ([`from_query_graph`](Self::from_query_graph)): Build an initial tree
+///    from a query graph, creating nodes with cost/cardinality estimates
+/// 2. **Normalization** ([`normalize`](Self::normalize)): Transform the tree into a chain
+///    where nodes are ordered by rank, potentially merging multiple query operations into
+///    single nodes
+/// 3. **Denormalization** ([`denormalize`](Self::denormalize)): Split merged operations back
+///    into individual nodes while maintaining the optimized chain structure
+///
+/// The result is a linear execution order that minimizes intermediate result sizes.
+///
+/// # Fields
+///
+/// * `query_nodes` - Vector of query operations with cost estimates. In an initial tree,
+///   contains one operation. After normalization, may contain multiple merged operations.
+///   After denormalization, contains exactly one operation.
+/// * `children` - Child nodes in the tree. In a normalized/denormalized chain, contains
+///   at most one child. In an arbitrary tree, may contain multiple children.
+/// * `query_graph` - Reference to the original query graph, used for accessing node
+///   relationships and metadata during tree transformations.
 struct PrecedenceTreeNode<'graph> {
-    query_nodes: Vec<NodeEstimates>,
+    query_nodes: Vec<JoinNode>,
     children: Vec<PrecedenceTreeNode<'graph>>,
     query_graph: &'graph QueryGraph,
 }
@@ -123,7 +152,7 @@ impl<'graph> PrecedenceTreeNode<'graph> {
             .collect::<Result<Vec<_>, Error>>()?;
 
         Ok(PrecedenceTreeNode {
-            query_nodes: vec![NodeEstimates {
+            query_nodes: vec![JoinNode {
                 node_id,
                 cardinality: (selectivity * input_cardinality as f64) as usize,
                 cost: Self::cost(selectivity, input_cardinality),
@@ -237,6 +266,36 @@ impl<'graph> PrecedenceTreeNode<'graph> {
         first
     }
 
+    /// Denormalizes a normalized precedence tree by splitting merged query nodes.
+    ///
+    /// This is the inverse operation of normalization, but with a critical property:
+    /// **the result is still a chain structure** (each node has at most one child).
+    /// It converts a normalized chain where nodes contain multiple query operations
+    /// into a longer chain where each node contains exactly one query operation.
+    ///
+    /// The denormalization process:
+    /// 1. **Validates input**: Ensures the tree is normalized (0 or 1 children per node)
+    /// 2. **Recursively processes children**: Denormalizes the child chain first
+    /// 3. **Splits merged nodes**: For nodes with multiple query operations, iteratively
+    ///    extracts operations one at a time based on neighbor relationships with the child
+    /// 4. **Maintains ordering**: Uses rank-based selection to determine which query node
+    ///    to extract next, choosing the highest-ranked neighbor of the child node
+    ///
+    /// **Key property**: After denormalization, the result remains a chain (not a tree with
+    /// branches). Each node contains exactly one query operation, but the chain structure
+    /// is preserved. This is the essence of the normalize-denormalize algorithm: transforming
+    /// an arbitrary tree into an optimized chain while respecting query dependencies.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The tree is not normalized (has more than one child at any level)
+    ///
+    /// # Algorithm
+    ///
+    /// The splitting process uses the query graph's neighbor relationships to determine
+    /// which nodes should be adjacent in the chain, maintaining logical dependencies
+    /// between query operations while producing a linear execution order.
     fn denormalize(&mut self) -> Result<(), Error> {
         // Normalized trees must have 0 or 1 children
         match self.children.len() {
