@@ -149,15 +149,31 @@ impl<'graph> PrecedenceTreeNode<'graph> {
             return Err(IcebergError::InvalidFormat("Not normalized tree".to_owned()).into());
         }
         self.children[0].denormalize()?;
-        if self.query_nodes.len() != 1 {
+        while self.query_nodes.len() > 1 {
             let child_id = self.children[0].query_nodes[0].node_id;
             let child_node = self.query_graph.get_node(child_id).unwrap();
             let neighbours = child_node.neighbours(child_id, self.query_graph);
-            let highest_rank_node = self
+
+            let highest_rank_idx = self
                 .query_nodes
                 .iter()
-                .filter(|node| neighbours.contains(&node.node_id))
-                .max_by(|a, b| a.rank().partial_cmp(&b.rank()).unwrap());
+                .enumerate()
+                .filter(|(_, node)| neighbours.contains(&node.node_id))
+                .max_by(|(_, a), (_, b)| a.rank().partial_cmp(&b.rank()).unwrap())
+                .map(|(idx, _)| idx)
+                .unwrap();
+
+            let highest_rank_node = self.query_nodes.remove(highest_rank_idx);
+
+            let current_child = self.children.pop().unwrap();
+
+            let new_child = PrecedenceTreeNode {
+                query_nodes: vec![highest_rank_node],
+                children: vec![current_child],
+                query_graph: self.query_graph,
+            };
+
+            self.children = vec![new_child];
         }
         Ok(())
     }
