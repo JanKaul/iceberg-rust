@@ -7,7 +7,7 @@ new_key_type! {
     pub struct NodeId;
 }
 
-pub(crate) struct Node<T> {
+pub struct Node<T> {
     pub data: T,
     connections: Vec<EdgeId>,
 }
@@ -42,25 +42,25 @@ impl<N> Node<N> {
     }
 }
 
-pub(crate) type QueryNode = Node<Arc<LogicalPlan>>;
+pub type QueryNode = Node<Arc<LogicalPlan>>;
 
 new_key_type! {
     pub struct EdgeId;
 }
 
-pub(crate) struct Edge<T> {
+pub struct Edge<T> {
     pub nodes: [NodeId; 2],
     pub data: T,
 }
 
-pub(crate) type QueryEdge = Edge<Join>;
+pub type QueryEdge = Edge<Join>;
 
-pub(crate) struct UndirectedGraph<N, E> {
+pub struct UndirectedGraph<N, E> {
     nodes: SlotMap<NodeId, Node<N>>,
     edges: SlotMap<EdgeId, Edge<E>>,
 }
 
-pub(crate) type QueryGraph = UndirectedGraph<Arc<LogicalPlan>, Join>;
+pub type QueryGraph = UndirectedGraph<Arc<LogicalPlan>, Join>;
 
 impl<N, E> UndirectedGraph<N, E> {
     pub(crate) fn add_node(&mut self, other: NodeId, node_data: N, edge_data: E) -> Option<NodeId> {

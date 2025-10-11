@@ -44,7 +44,7 @@ use crate::{
 /// - The query graph is empty or invalid
 /// - Tree construction, normalization, or denormalization fails
 /// - No valid precedence graph can be generated
-pub(crate) fn linearized_join_plan(
+pub fn linearized_join_plan(
     query_graph: QueryGraph,
     cost_estimator: Rc<dyn CostEstimator>,
 ) -> Result<LogicalPlan, Error> {
