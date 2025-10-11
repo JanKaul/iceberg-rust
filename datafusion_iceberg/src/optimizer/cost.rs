@@ -5,15 +5,15 @@ use crate::error::Error;
 use iceberg_rust::error::Error as IcebergError;
 
 pub trait CostEstimator {
-    fn cardinality(plan: &LogicalPlan) -> Option<usize> {
+    fn cardinality(&self, plan: &LogicalPlan) -> Option<usize> {
         estimate_cardinality(plan).ok()
     }
 
-    fn selectivity(_join: &Join) -> f64 {
+    fn selectivity(&self, _join: &Join) -> f64 {
         0.1
     }
 
-    fn cost(selectivity: f64, cardinality: usize) -> f64 {
+    fn cost(&self, selectivity: f64, cardinality: usize) -> f64 {
         selectivity * cardinality as f64
     }
 }

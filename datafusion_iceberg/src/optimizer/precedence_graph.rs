@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, rc::Rc};
 
 use datafusion_expr::LogicalPlan;
 use iceberg_rust::error::Error as IcebergError;
@@ -32,6 +32,7 @@ use crate::{
 /// # Arguments
 ///
 /// * `query_graph` - The query graph containing logical plan nodes and join specifications
+/// * `cost_estimator` - The cost estimator to use for calculating cardinality, selectivity, and cost
 ///
 /// # Returns
 ///
@@ -43,11 +44,15 @@ use crate::{
 /// - The query graph is empty or invalid
 /// - Tree construction, normalization, or denormalization fails
 /// - No valid precedence graph can be generated
-pub(crate) fn linearized_join_plan(query_graph: QueryGraph) -> Result<LogicalPlan, Error> {
+pub(crate) fn linearized_join_plan(
+    query_graph: QueryGraph,
+    cost_estimator: Rc<dyn CostEstimator>,
+) -> Result<LogicalPlan, Error> {
     let mut best_graph: Option<PrecedenceTreeNode> = None;
 
     for (node_id, _) in query_graph.nodes() {
-        let mut precedence_graph = PrecedenceTreeNode::from_query_graph(&query_graph, node_id)?;
+        let mut precedence_graph =
+            PrecedenceTreeNode::from_query_graph(&query_graph, node_id, cost_estimator.clone())?;
         precedence_graph.normalize();
         precedence_graph.denormalize()?;
 
@@ -137,6 +142,7 @@ impl<'graph> PrecedenceTreeNode<'graph> {
     ///
     /// * `graph` - The query graph to transform into a precedence tree
     /// * `root_id` - The ID of the node to use as the root of the tree
+    /// * `cost_estimator` - The cost estimator to use for calculating cardinality, selectivity, and cost
     ///
     /// # Returns
     ///
@@ -151,10 +157,11 @@ impl<'graph> PrecedenceTreeNode<'graph> {
     pub(crate) fn from_query_graph(
         graph: &'graph QueryGraph,
         root_id: NodeId,
+        cost_estimator: Rc<dyn CostEstimator>,
     ) -> Result<Self, Error> {
         let mut remaining: HashSet<NodeId> = graph.nodes().map(|(x, _)| x).collect();
         remaining.remove(&root_id);
-        PrecedenceTreeNode::from_query_node(root_id, 1.0, graph, &mut remaining)
+        PrecedenceTreeNode::from_query_node(root_id, 1.0, graph, &mut remaining, cost_estimator)
     }
 
     /// Recursively constructs a precedence tree node from a query graph node.
@@ -170,6 +177,7 @@ impl<'graph> PrecedenceTreeNode<'graph> {
     /// * `selectivity` - The selectivity factor from the parent edge (1.0 for root)
     /// * `query_graph` - Reference to the query graph being transformed
     /// * `remaining` - Mutable set of node IDs not yet visited (updated during traversal)
+    /// * `cost_estimator` - The cost estimator to use for calculating cardinality, selectivity, and cost
     ///
     /// # Returns
     ///
@@ -185,11 +193,12 @@ impl<'graph> PrecedenceTreeNode<'graph> {
         selectivity: f64,
         query_graph: &'graph QueryGraph,
         remaining: &mut HashSet<NodeId>,
+        cost_estimator: Rc<dyn CostEstimator>,
     ) -> Result<Self, Error> {
         let node = query_graph
             .get_node(node_id)
             .ok_or(IcebergError::NotFound("Root node".to_owned()))?;
-        let input_cardinality = Self::cardinality(&node.data).unwrap_or(1);
+        let input_cardinality = cost_estimator.cardinality(&node.data).unwrap_or(1);
 
         let children = node
             .connections()
@@ -202,12 +211,13 @@ impl<'graph> PrecedenceTreeNode<'graph> {
                     .find(|x| *x != node_id && remaining.contains(x))?;
 
                 remaining.remove(&other);
-                let child_selectivity = Self::selectivity(&edge.data);
+                let child_selectivity = cost_estimator.selectivity(&edge.data);
                 Some(PrecedenceTreeNode::from_query_node(
                     other,
                     child_selectivity,
                     query_graph,
                     remaining,
+                    cost_estimator.clone(),
                 ))
             })
             .collect::<Result<Vec<_>, Error>>()?;
@@ -216,7 +226,7 @@ impl<'graph> PrecedenceTreeNode<'graph> {
             query_nodes: vec![JoinNode {
                 node_id,
                 cardinality: (selectivity * input_cardinality as f64) as usize,
-                cost: Self::cost(selectivity, input_cardinality),
+                cost: cost_estimator.cost(selectivity, input_cardinality),
             }],
             children,
             query_graph,
@@ -489,5 +499,3 @@ impl<'graph> PrecedenceTreeNode<'graph> {
         Ok(current_plan)
     }
 }
-
-impl<'graph> CostEstimator for PrecedenceTreeNode<'graph> {}
