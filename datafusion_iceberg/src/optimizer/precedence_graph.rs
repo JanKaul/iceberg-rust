@@ -31,6 +31,33 @@ struct PrecedenceTreeNode<'graph> {
 }
 
 impl<'graph> PrecedenceTreeNode<'graph> {
+    /// Creates a precedence tree from a query graph.
+    ///
+    /// This is the main entry point for transforming a query graph into a precedence tree
+    /// structure. The tree represents an initial join ordering with cost and cardinality
+    /// estimates for query optimization.
+    ///
+    /// The function performs a depth-first traversal starting from the root node,
+    /// building a tree where:
+    /// - Each node contains cost/cardinality estimates for a query operation
+    /// - Children represent connected query nodes (joins, filters, etc.)
+    /// - The root node starts with selectivity of 1.0 (no filtering)
+    ///
+    /// # Arguments
+    ///
+    /// * `graph` - The query graph to transform into a precedence tree
+    /// * `root_id` - The ID of the node to use as the root of the tree
+    ///
+    /// # Returns
+    ///
+    /// Returns a `PrecedenceTreeNode` representing the entire query graph as a tree structure,
+    /// with the specified root node at the top.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The `root_id` is not found in the query graph
+    /// - Any connected node cannot be found during traversal
     pub(crate) fn from_query_graph(
         graph: &'graph QueryGraph,
         root_id: NodeId,
@@ -40,6 +67,29 @@ impl<'graph> PrecedenceTreeNode<'graph> {
         PrecedenceTreeNode::from_query_node(root_id, 1.0, graph, &mut remaining)
     }
 
+    /// Recursively constructs a precedence tree node from a query graph node.
+    ///
+    /// This function builds a tree structure by:
+    /// 1. Creating a node with cost and cardinality estimates for the current query node
+    /// 2. Recursively processing all connected unvisited nodes as children
+    /// 3. Removing visited nodes from the `remaining` set to avoid cycles
+    ///
+    /// # Arguments
+    ///
+    /// * `node_id` - The ID of the query graph node to process
+    /// * `selectivity` - The selectivity factor from the parent edge (1.0 for root)
+    /// * `query_graph` - Reference to the query graph being transformed
+    /// * `remaining` - Mutable set of node IDs not yet visited (updated during traversal)
+    ///
+    /// # Returns
+    ///
+    /// Returns a `PrecedenceTreeNode` containing:
+    /// - A single `NodeEstimates` with cardinality and cost based on input cardinality and selectivity
+    /// - Child nodes for each connected unvisited neighbor in the query graph
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the specified `node_id` is not found in the query graph.
     fn from_query_node(
         node_id: NodeId,
         selectivity: f64,
@@ -142,9 +192,7 @@ impl<'graph> PrecedenceTreeNode<'graph> {
         match self.children.len() {
             0 => return Ok(()),
             1 => self.children[0].denormalize()?,
-            _ => {
-                return Err(IcebergError::InvalidFormat("Not normalized tree".to_owned()).into())
-            }
+            _ => return Err(IcebergError::InvalidFormat("Not normalized tree".to_owned()).into()),
         }
 
         // Split query nodes into a chain based on neighbor relationships
