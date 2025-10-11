@@ -103,8 +103,8 @@ impl<'graph> PrecedenceTreeNode<'graph> {
         match self.children.len() {
             0 => (),
             1 => {
+                // If child has lower rank, merge it into current node
                 if self.children[0].rank() < self.rank() {
-                    // Create normalized node as a sequence with child node
                     let mut child = self.children.pop().unwrap();
                     self.query_nodes.append(&mut child.query_nodes);
                     self.children = child.children;
@@ -114,16 +114,15 @@ impl<'graph> PrecedenceTreeNode<'graph> {
                 }
             }
             _ => {
+                // Normalize all child trees into chains, then merge them
                 for child in &mut self.children {
-                    // Normalize child trees into chains
                     child.normalize();
                 }
-                let mut children = std::mem::take(&mut self.children).into_iter();
-                // Merge child chains into single chain
-                let left = children.next().unwrap();
-                let child = children.fold(left, Self::merge);
-
-                self.children = vec![child]
+                let child = std::mem::take(&mut self.children)
+                    .into_iter()
+                    .reduce(Self::merge)
+                    .unwrap();
+                self.children = vec![child];
             }
         }
     }
