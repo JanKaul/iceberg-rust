@@ -11,6 +11,37 @@ use crate::{
     },
 };
 
+pub(crate) fn linearized_join_plan(query_graph: QueryGraph) -> Result<LogicalPlan, Error> {
+    // Collect node IDs first to avoid borrowing issues
+    let node_ids: Vec<NodeId> = query_graph.nodes().map(|(id, _)| id).collect();
+
+    let mut best_graph: Option<PrecedenceTreeNode> = None;
+
+    for node_id in node_ids {
+        let mut precedence_graph = PrecedenceTreeNode::from_query_graph(&query_graph, node_id)?;
+        precedence_graph.normalize();
+        precedence_graph.denormalize()?;
+
+        best_graph = match best_graph.take() {
+            Some(current) => {
+                let new_cost = precedence_graph.query_nodes[0].cost;
+                if new_cost < current.query_nodes[0].cost {
+                    Some(precedence_graph)
+                } else {
+                    Some(current)
+                }
+            }
+            None => Some(precedence_graph),
+        };
+    }
+
+    best_graph
+        .ok_or(IcebergError::InvalidFormat(
+            "No valid precedence graph found".to_owned(),
+        ))?
+        .into_logical_plan(&query_graph)
+}
+
 struct JoinNode {
     node_id: NodeId,
     // T in [IbarakiKameda86]
@@ -365,7 +396,7 @@ impl<'graph> PrecedenceTreeNode<'graph> {
     /// Returns an error if:
     /// - A node or edge is missing from the query graph
     /// - The precedence tree is not in the expected chain format
-    pub(crate) fn into_logical_plan(self, query_graph: QueryGraph) -> Result<LogicalPlan, Error> {
+    pub(crate) fn into_logical_plan(self, query_graph: &QueryGraph) -> Result<LogicalPlan, Error> {
         // Get the first node's logical plan
         let mut current_node_id = self.query_nodes[0].node_id;
         let mut current_plan = query_graph
@@ -403,7 +434,7 @@ impl<'graph> PrecedenceTreeNode<'graph> {
                     )))?;
 
             let edge = current_node
-                .connection_with(next_node_id, &query_graph)
+                .connection_with(next_node_id, query_graph)
                 .ok_or(IcebergError::NotFound(format!(
                     "Edge between {:?} and {:?}",
                     current_node_id, next_node_id
