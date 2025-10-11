@@ -11,13 +11,42 @@ use crate::{
     },
 };
 
+/// Generates an optimized linear join plan from a query graph using the Ibaraki-Kameda algorithm.
+///
+/// This function finds the optimal join ordering for a query by:
+/// 1. Trying each node in the query graph as a potential root
+/// 2. For each root, building a precedence tree and optimizing it through normalization/denormalization
+/// 3. Selecting the plan with the lowest estimated cost
+///
+/// The optimization process uses the Ibaraki-Kameda algorithm, which arranges joins to minimize
+/// intermediate result sizes by considering both cardinality and cost estimates.
+///
+/// # Algorithm Steps
+///
+/// For each candidate root node:
+/// 1. **Construction**: Build a precedence tree from the query graph starting at that node
+/// 2. **Normalization**: Transform the tree into a chain structure ordered by rank
+/// 3. **Denormalization**: Split merged operations back into individual nodes while maintaining chain structure
+/// 4. **Cost Comparison**: Compare the resulting plan's cost against the current best
+///
+/// # Arguments
+///
+/// * `query_graph` - The query graph containing logical plan nodes and join specifications
+///
+/// # Returns
+///
+/// Returns a `LogicalPlan` representing the optimal join ordering with the lowest estimated cost.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The query graph is empty or invalid
+/// - Tree construction, normalization, or denormalization fails
+/// - No valid precedence graph can be generated
 pub(crate) fn linearized_join_plan(query_graph: QueryGraph) -> Result<LogicalPlan, Error> {
-    // Collect node IDs first to avoid borrowing issues
-    let node_ids: Vec<NodeId> = query_graph.nodes().map(|(id, _)| id).collect();
-
     let mut best_graph: Option<PrecedenceTreeNode> = None;
 
-    for node_id in node_ids {
+    for (node_id, _) in query_graph.nodes() {
         let mut precedence_graph = PrecedenceTreeNode::from_query_graph(&query_graph, node_id)?;
         precedence_graph.normalize();
         precedence_graph.denormalize()?;
