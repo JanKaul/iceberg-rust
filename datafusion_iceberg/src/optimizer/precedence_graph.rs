@@ -18,6 +18,12 @@ struct NodeEstimates {
     cost: f64,
 }
 
+impl NodeEstimates {
+    fn rank(&self) -> f64 {
+        (self.cardinality - 1) as f64 / self.cost
+    }
+}
+
 struct PrecedenceTreeNode<'graph> {
     query_nodes: Vec<NodeEstimates>,
     children: Vec<PrecedenceTreeNode<'graph>>,
@@ -137,15 +143,23 @@ impl<'graph> PrecedenceTreeNode<'graph> {
     }
 
     fn denormalize(&mut self) -> Result<(), Error> {
-        if self.children.len() != 1 {
+        if self.children.is_empty() {
+            return Ok(());
+        } else if self.children.len() != 1 {
             return Err(IcebergError::InvalidFormat("Not normalized tree".to_owned()).into());
         }
-        if self.query_nodes.len() == 1 {
-            self.children[0].denormalize()
-        } else {
-            todo!();
-            Ok(())
+        self.children[0].denormalize()?;
+        if self.query_nodes.len() != 1 {
+            let child_id = self.children[0].query_nodes[0].node_id;
+            let child_node = self.query_graph.get_node(child_id).unwrap();
+            let neighbours = child_node.neighbours(child_id, self.query_graph);
+            let highest_rank_node = self
+                .query_nodes
+                .iter()
+                .filter(|node| neighbours.contains(&node.node_id))
+                .max_by(|a, b| a.rank().partial_cmp(&b.rank()).unwrap());
         }
+        Ok(())
     }
 }
 
