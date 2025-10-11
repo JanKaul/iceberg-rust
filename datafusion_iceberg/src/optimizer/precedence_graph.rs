@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use datafusion_expr::LogicalPlan;
 use iceberg_rust::error::Error as IcebergError;
 
 use crate::{
@@ -334,6 +335,98 @@ impl<'graph> PrecedenceTreeNode<'graph> {
             self.children[0].children = vec![child];
         }
         Ok(())
+    }
+
+    /// Converts the precedence tree chain into a DataFusion `LogicalPlan`.
+    ///
+    /// This method walks down the optimized chain structure, building a left-deep join tree
+    /// by repeatedly joining the accumulated result with the next node in the chain.
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Start with the first node's `LogicalPlan` from the query graph
+    /// 2. For each subsequent node in the chain:
+    ///    - Get the node's `LogicalPlan` from the query graph
+    ///    - Find the edge connecting the current and next nodes
+    ///    - Create a join using the edge's join specification
+    ///    - The accumulated plan becomes the left side of the join
+    /// 3. Return the final joined `LogicalPlan`
+    ///
+    /// # Arguments
+    ///
+    /// * `query_graph` - The query graph containing the logical plans and join specifications
+    ///
+    /// # Returns
+    ///
+    /// Returns a `LogicalPlan` representing the optimized join execution order.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - A node or edge is missing from the query graph
+    /// - The precedence tree is not in the expected chain format
+    pub(crate) fn into_logical_plan(self, query_graph: QueryGraph) -> Result<LogicalPlan, Error> {
+        // Get the first node's logical plan
+        let mut current_node_id = self.query_nodes[0].node_id;
+        let mut current_plan = query_graph
+            .get_node(current_node_id)
+            .ok_or(IcebergError::NotFound(format!(
+                "Node {:?}",
+                current_node_id
+            )))?
+            .data
+            .as_ref()
+            .clone();
+
+        // Walk down the chain, joining each subsequent node
+        let mut current_chain = &self;
+
+        while !current_chain.children.is_empty() {
+            let child = &current_chain.children[0];
+            let next_node_id = child.query_nodes[0].node_id;
+
+            // Get the next node's logical plan
+            let next_plan = query_graph
+                .get_node(next_node_id)
+                .ok_or(IcebergError::NotFound(format!("Node {:?}", next_node_id)))?
+                .data
+                .as_ref()
+                .clone();
+
+            // Find the edge connecting current and next nodes
+            let current_node =
+                query_graph
+                    .get_node(current_node_id)
+                    .ok_or(IcebergError::NotFound(format!(
+                        "Node {:?}",
+                        current_node_id
+                    )))?;
+
+            let edge = current_node
+                .connection_with(next_node_id, &query_graph)
+                .ok_or(IcebergError::NotFound(format!(
+                    "Edge between {:?} and {:?}",
+                    current_node_id, next_node_id
+                )))?;
+
+            // Create the join plan
+            current_plan = LogicalPlan::Join(datafusion_expr::Join {
+                left: std::sync::Arc::new(current_plan),
+                right: std::sync::Arc::new(next_plan),
+                on: edge.data.on.clone(),
+                filter: edge.data.filter.clone(),
+                join_type: edge.data.join_type,
+                join_constraint: edge.data.join_constraint,
+                schema: edge.data.schema.clone(),
+                null_equality: edge.data.null_equality,
+            });
+
+            // Move to the next node in the chain
+            current_node_id = next_node_id;
+            current_chain = child;
+        }
+
+        Ok(current_plan)
     }
 }
 
