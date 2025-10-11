@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
 use datafusion_expr::{Join, LogicalPlan};
-use slotmap::{basic::Iter, new_key_type, SlotMap};
 
-new_key_type! {
-    pub struct NodeId;
-}
+pub type NodeId = usize;
+pub type EdgeId = usize;
 
 pub struct Node<T> {
     pub data: T,
@@ -44,10 +42,6 @@ impl<N> Node<N> {
 
 pub type QueryNode = Node<Arc<LogicalPlan>>;
 
-new_key_type! {
-    pub struct EdgeId;
-}
-
 pub struct Edge<T> {
     pub nodes: [NodeId; 2],
     pub data: T,
@@ -56,13 +50,20 @@ pub struct Edge<T> {
 pub type QueryEdge = Edge<Join>;
 
 pub struct UndirectedGraph<N, E> {
-    nodes: SlotMap<NodeId, Node<N>>,
-    edges: SlotMap<EdgeId, Edge<E>>,
+    nodes: VecMap<Node<N>>,
+    edges: VecMap<Edge<E>>,
 }
 
 pub type QueryGraph = UndirectedGraph<Arc<LogicalPlan>, Join>;
 
 impl<N, E> UndirectedGraph<N, E> {
+    pub(crate) fn new() -> Self {
+        Self {
+            nodes: VecMap::new(),
+            edges: VecMap::new(),
+        }
+    }
+
     pub(crate) fn add_node(&mut self, other: NodeId, node_data: N, edge_data: E) -> Option<NodeId> {
         if self.nodes.contains_key(other) {
             let new_id = self.nodes.insert(Node {
@@ -129,7 +130,7 @@ impl<N, E> UndirectedGraph<N, E> {
         }
     }
 
-    pub(crate) fn nodes(&self) -> Iter<'_, NodeId, Node<N>> {
+    pub(crate) fn nodes(&self) -> impl Iterator<Item = (NodeId, &Node<N>)> {
         self.nodes.iter()
     }
 
@@ -139,5 +140,44 @@ impl<N, E> UndirectedGraph<N, E> {
 
     pub(crate) fn get_edge(&self, key: EdgeId) -> Option<&Edge<E>> {
         self.edges.get(key)
+    }
+}
+
+/// A simple Vec-based map that uses Option<T> for sparse storage
+/// Keys are never reused once removed
+struct VecMap<V>(Vec<Option<V>>);
+
+impl<V> VecMap<V> {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn insert(&mut self, value: V) -> usize {
+        let idx = self.0.len();
+        self.0.push(Some(value));
+        idx
+    }
+
+    fn get(&self, key: usize) -> Option<&V> {
+        self.0.get(key)?.as_ref()
+    }
+
+    fn get_mut(&mut self, key: usize) -> Option<&mut V> {
+        self.0.get_mut(key)?.as_mut()
+    }
+
+    fn remove(&mut self, key: usize) -> Option<V> {
+        self.0.get_mut(key)?.take()
+    }
+
+    fn contains_key(&self, key: usize) -> bool {
+        self.0.get(key).and_then(|v| v.as_ref()).is_some()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (usize, &V)> {
+        self.0
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, slot)| slot.as_ref().map(|v| (idx, v)))
     }
 }
