@@ -50,32 +50,28 @@ impl<'graph> PrecedenceTreeNode<'graph> {
             .get_node(node_id)
             .ok_or(IcebergError::NotFound("Root node".to_owned()))?;
         let input_cardinality = Self::cardinality(&node.data).unwrap_or(1);
+
         let children = node
             .connections()
             .iter()
-            .filter_map(|edge| {
-                if let Some(edge) = query_graph.get_edge(*edge) {
-                    if let Some(other) = edge
-                        .nodes
-                        .into_iter()
-                        .find(|x| *x != node_id && remaining.contains(x))
-                    {
-                        remaining.remove(&other);
-                        let selectivity = Self::selectivity(&edge.data);
-                        Some(PrecedenceTreeNode::from_query_node(
-                            other,
-                            selectivity,
-                            query_graph,
-                            remaining,
-                        ))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+            .filter_map(|edge_id| {
+                let edge = query_graph.get_edge(*edge_id)?;
+                let other = edge
+                    .nodes
+                    .into_iter()
+                    .find(|x| *x != node_id && remaining.contains(x))?;
+
+                remaining.remove(&other);
+                let child_selectivity = Self::selectivity(&edge.data);
+                Some(PrecedenceTreeNode::from_query_node(
+                    other,
+                    child_selectivity,
+                    query_graph,
+                    remaining,
+                ))
             })
             .collect::<Result<Vec<_>, Error>>()?;
+
         Ok(PrecedenceTreeNode {
             query_nodes: vec![NodeEstimates {
                 node_id,
