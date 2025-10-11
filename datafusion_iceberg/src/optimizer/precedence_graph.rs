@@ -133,6 +133,7 @@ impl<'graph> PrecedenceTreeNode<'graph> {
         })
     }
 
+    /// Rank function according to IbarakiKameda86
     fn rank(&self) -> f64 {
         let (cardinality, cost) =
             self.query_nodes
@@ -145,6 +146,28 @@ impl<'graph> PrecedenceTreeNode<'graph> {
         (cardinality - 1) as f64 / cost
     }
 
+    /// Normalizes the precedence tree into a linear chain structure.
+    ///
+    /// This transformation converts the tree into a normalized form where each node
+    /// has at most one child, creating a linear sequence of query nodes. The normalization
+    /// process uses the rank function to determine optimal ordering according to the
+    /// Ibaraki-Kameda algorithm.
+    ///
+    /// The normalization handles three cases:
+    /// - **Leaf nodes (0 children)**: Already normalized, no action needed
+    /// - **Single child (1 child)**: If the child has lower rank than current node, merge
+    ///   the child's query nodes into the current node, creating a sequence. Otherwise,
+    ///   recursively normalize the child.
+    /// - **Multiple children (2+ children)**: Recursively normalize all children into chains,
+    ///   then merge all child chains into a single chain using the merge operation.
+    ///
+    /// After normalization, the tree becomes a chain where nodes are ordered by their
+    /// rank values, with each node containing one or more query operations in sequence.
+    ///
+    /// # Algorithm
+    ///
+    /// Based on the Ibaraki-Kameda join ordering algorithm, which optimizes query
+    /// execution by arranging operations to minimize intermediate result sizes.
     fn normalize(&mut self) {
         match self.children.len() {
             0 => (),
@@ -173,6 +196,33 @@ impl<'graph> PrecedenceTreeNode<'graph> {
         }
     }
 
+    /// Merges two precedence tree chains into a single chain.
+    ///
+    /// This operation combines two normalized tree chains (each with at most one child)
+    /// into a single chain, preserving rank ordering. The chain with the lower rank becomes
+    /// the parent, and the higher-ranked chain is attached as a descendant.
+    ///
+    /// The merge strategy depends on whether the lower-ranked chain has children:
+    /// - **No children**: The higher-ranked chain becomes the direct child
+    /// - **Has child**: Recursively merge the higher-ranked chain with the child,
+    ///   maintaining the chain structure
+    ///
+    /// This ensures the resulting chain maintains proper rank ordering from root to leaf,
+    /// which is essential for the Ibaraki-Kameda optimization algorithm.
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - The first tree chain to merge
+    /// * `other` - The second tree chain to merge
+    ///
+    /// # Returns
+    ///
+    /// Returns a merged `PrecedenceTreeNode` chain with both input chains combined,
+    /// ordered by rank values.
+    ///
+    /// # Panics
+    ///
+    /// May panic if called on non-normalized trees (trees with multiple children).
     fn merge(self, other: PrecedenceTreeNode<'graph>) -> Self {
         let (mut first, second) = if self.rank() < other.rank() {
             (self, other)
