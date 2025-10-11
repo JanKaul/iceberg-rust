@@ -143,17 +143,22 @@ impl<'graph> PrecedenceTreeNode<'graph> {
     }
 
     fn denormalize(&mut self) -> Result<(), Error> {
-        if self.children.is_empty() {
-            return Ok(());
-        } else if self.children.len() != 1 {
-            return Err(IcebergError::InvalidFormat("Not normalized tree".to_owned()).into());
+        // Normalized trees must have 0 or 1 children
+        match self.children.len() {
+            0 => return Ok(()),
+            1 => self.children[0].denormalize()?,
+            _ => {
+                return Err(IcebergError::InvalidFormat("Not normalized tree".to_owned()).into())
+            }
         }
-        self.children[0].denormalize()?;
+
+        // Split query nodes into a chain based on neighbor relationships
         while self.query_nodes.len() > 1 {
             let child_id = self.children[0].query_nodes[0].node_id;
             let child_node = self.query_graph.get_node(child_id).unwrap();
             let neighbours = child_node.neighbours(child_id, self.query_graph);
 
+            // Find the highest-ranked neighbor node
             let highest_rank_idx = self
                 .query_nodes
                 .iter()
@@ -163,17 +168,18 @@ impl<'graph> PrecedenceTreeNode<'graph> {
                 .map(|(idx, _)| idx)
                 .unwrap();
 
-            let highest_rank_node = self.query_nodes.remove(highest_rank_idx);
+            let node = self.query_nodes.remove(highest_rank_idx);
 
-            let current_child = self.children.pop().unwrap();
-
-            let new_child = PrecedenceTreeNode {
-                query_nodes: vec![highest_rank_node],
-                children: vec![current_child],
-                query_graph: self.query_graph,
-            };
-
-            self.children = vec![new_child];
+            // Insert the node between current and its child
+            let child = std::mem::replace(
+                &mut self.children[0],
+                PrecedenceTreeNode {
+                    query_nodes: vec![node],
+                    children: Vec::new(),
+                    query_graph: self.query_graph,
+                },
+            );
+            self.children[0].children = vec![child];
         }
         Ok(())
     }
