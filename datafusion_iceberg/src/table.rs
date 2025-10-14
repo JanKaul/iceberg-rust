@@ -1004,7 +1004,7 @@ impl DataSink for IcebergDataSink {
         };
 
         let metadata_files =
-            write_parquet_data_files(&mut table, data, context, self.0.branch.as_deref()).await?;
+            write_parquet_data_files(&table, data, context, self.0.branch.as_deref()).await?;
 
         table
             .new_transaction(self.0.branch.as_deref())
