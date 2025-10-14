@@ -10,8 +10,9 @@ use std::{collections::HashMap, sync::Arc};
 use bytes::Bytes;
 use futures::future;
 use iceberg_rust_spec::manifest_list::{
-    manifest_list_schema_v1, manifest_list_schema_v2, Content, ManifestListEntry,
+    manifest_list_schema_v1, manifest_list_schema_v2, Content as ManifestListContent, ManifestListEntry,
 };
+use iceberg_rust_spec::spec::manifest::Content;
 use iceberg_rust_spec::snapshot::{Operation as SnapshotOperation, Snapshot};
 use iceberg_rust_spec::spec::table_metadata::TableMetadata;
 use iceberg_rust_spec::spec::{
@@ -201,12 +202,12 @@ impl Operation {
                     // Split manifest file if limit is exceeded
                     for (content, files, n_files) in [
                         (
-                            Content::Data,
+                            ManifestListContent::Data,
                             Either::Left(new_datafile_iter),
                             n_data_files_in_group,
                         ),
                         (
-                            Content::Deletes,
+                            ManifestListContent::Deletes,
                             Either::Right(new_deletefile_iter),
                             n_delete_files_in_group,
                         ),
@@ -230,6 +231,28 @@ impl Operation {
                     (_, _) => Ok(SnapshotOperation::Overwrite),
                 }?;
 
+                // Compute updated snapshot summary
+                // Separate data files from delete files
+                let data_files_vec: Vec<DataFile> = all_files
+                    .iter()
+                    .filter(|f| *f.content() == Content::Data)
+                    .cloned()
+                    .collect();
+                let delete_files_vec: Vec<DataFile> = all_files
+                    .iter()
+                    .filter(|f| *f.content() != Content::Data)
+                    .cloned()
+                    .collect();
+
+                let mut summary_fields = update_snapshot_summary(
+                    old_snapshot.map(|s| s.summary()),
+                    &data_files_vec,
+                    &delete_files_vec,
+                );
+
+                // Merge with any additional summary fields
+                summary_fields.extend(additional_summary.unwrap_or_default());
+
                 let mut snapshot_builder = SnapshotBuilder::default();
                 snapshot_builder
                     .with_snapshot_id(snapshot_id)
@@ -237,7 +260,7 @@ impl Operation {
                     .with_sequence_number(table_metadata.last_sequence_number + dsn_offset)
                     .with_summary(Summary {
                         operation: snapshot_operation,
-                        other: additional_summary.unwrap_or_default(),
+                        other: summary_fields,
                     })
                     .with_schema_id(
                         *table_metadata
@@ -290,6 +313,13 @@ impl Operation {
                     return Ok((None, Vec::new()));
                 }
 
+                // Compute summary before moving data_files and delete_files
+                let summary_fields = update_snapshot_summary(
+                    old_snapshot.map(|s| s.summary()),
+                    &data_files,
+                    &delete_files,
+                );
+
                 let data_files_iter = delete_files.iter().chain(data_files.iter());
 
                 let mut manifest_list_writer = if let Some(manifest_list_bytes) =
@@ -339,9 +369,9 @@ impl Operation {
                     Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>,
                 > = Vec::new();
                 for (content, files, n_files) in [
-                    (Content::Data, Either::Left(new_datafile_iter), n_data_files),
+                    (ManifestListContent::Data, Either::Left(new_datafile_iter), n_data_files),
                     (
-                        Content::Deletes,
+                        ManifestListContent::Deletes,
                         Either::Right(new_deletefile_iter),
                         n_delete_files,
                     ),
@@ -389,6 +419,12 @@ impl Operation {
                     (_, _) => Ok(SnapshotOperation::Overwrite),
                 }?;
 
+                // Merge with any additional summary fields provided by the caller
+                let mut summary_fields = summary_fields;
+                if let Some(additional) = additional_summary {
+                    summary_fields.extend(additional);
+                }
+
                 let mut snapshot_builder = SnapshotBuilder::default();
                 snapshot_builder
                     .with_snapshot_id(snapshot_id)
@@ -396,7 +432,7 @@ impl Operation {
                     .with_sequence_number(table_metadata.last_sequence_number + 1)
                     .with_summary(Summary {
                         operation: snapshot_operation,
-                        other: additional_summary.unwrap_or_default(),
+                        other: summary_fields,
                     })
                     .with_schema_id(
                         *table_metadata
@@ -495,7 +531,7 @@ impl Operation {
                         snapshot_id,
                         &manifest_schema,
                         table_metadata,
-                        Content::Data,
+                        ManifestListContent::Data,
                         branch.as_deref(),
                     )?;
 
@@ -527,7 +563,7 @@ impl Operation {
                             snapshot_id,
                             &manifest_schema,
                             table_metadata,
-                            Content::Data,
+                            ManifestListContent::Data,
                             branch.as_deref(),
                         )?;
 
@@ -550,6 +586,37 @@ impl Operation {
                     )
                     .await?;
 
+                // For Replace operation, we're replacing all data with new files
+                // Compute summary for the new state (not incremental)
+                let data_files_vec: Vec<DataFile> = files
+                    .iter()
+                    .filter(|f| *f.content() == Content::Data)
+                    .cloned()
+                    .collect();
+                let delete_files_vec: Vec<DataFile> = files
+                    .iter()
+                    .filter(|f| *f.content() != Content::Data)
+                    .cloned()
+                    .collect();
+
+                // For replace, set totals to match only the new files
+                let total_records: i64 = data_files_vec.iter().map(|f| f.record_count()).sum();
+                let total_file_size: i64 = files.iter().map(|f| f.file_size_in_bytes()).sum();
+
+                let mut summary_fields = HashMap::new();
+                summary_fields.insert("total-records".to_string(), total_records.to_string());
+                summary_fields.insert("total-data-files".to_string(), data_files_vec.len().to_string());
+                summary_fields.insert("total-delete-files".to_string(), delete_files_vec.len().to_string());
+                summary_fields.insert("total-file-size-bytes".to_string(), total_file_size.to_string());
+                summary_fields.insert("added-records".to_string(), total_records.to_string());
+                summary_fields.insert("added-data-files".to_string(), data_files_vec.len().to_string());
+                summary_fields.insert("added-files-size-bytes".to_string(), total_file_size.to_string());
+
+                // Merge with any additional summary fields
+                if let Some(additional) = additional_summary {
+                    summary_fields.extend(additional);
+                }
+
                 let mut snapshot_builder = SnapshotBuilder::default();
                 snapshot_builder
                     .with_snapshot_id(snapshot_id)
@@ -558,7 +625,7 @@ impl Operation {
                     .with_manifest_list(new_manifest_list_location)
                     .with_summary(Summary {
                         operation: iceberg_rust_spec::spec::snapshot::Operation::Overwrite,
-                        other: additional_summary.unwrap_or_default(),
+                        other: summary_fields,
                     });
                 let snapshot = snapshot_builder.build()?;
 
@@ -604,6 +671,14 @@ impl Operation {
                     return Ok((None, Vec::new()));
                 }
 
+                // Compute summary before moving data_files
+                let empty_vec = Vec::new();
+                let summary_fields = update_snapshot_summary(
+                    Some(old_snapshot.summary()),
+                    &data_files,
+                    &empty_vec, // No separate delete files in this operation
+                );
+
                 let data_files_iter = data_files.iter();
 
                 let manifests_to_overwrite: HashSet<String> =
@@ -631,7 +706,7 @@ impl Operation {
                     )
                     .await?;
 
-                let n_splits = manifest_list_writer.n_splits(n_data_files, Content::Data);
+                let n_splits = manifest_list_writer.n_splits(n_data_files, ManifestListContent::Data);
 
                 let new_datafile_iter = data_files.into_iter().map(|data_file| {
                     ManifestEntry::builder()
@@ -649,9 +724,9 @@ impl Operation {
                     .map(|x| x.manifest_path.clone())
                     .ok_or(Error::NotFound("Selected manifest".to_owned()))?;
 
-                let data_files = files_to_overwrite.get(&selected_manifest_location);
+                let files_to_filter = files_to_overwrite.get(&selected_manifest_location);
 
-                let filter = if let Some(filter_files) = data_files {
+                let filter = if let Some(filter_files) = files_to_filter {
                     let filter_files: HashSet<String> =
                         filter_files.iter().map(ToOwned::to_owned).collect();
                     Some(move |file: &Result<ManifestEntry, Error>| {
@@ -672,7 +747,7 @@ impl Operation {
                             snapshot_id,
                             filter,
                             object_store.clone(),
-                            Content::Data,
+                            ManifestListContent::Data,
                         )
                         .await?;
                     manifest_list_writer
@@ -686,7 +761,7 @@ impl Operation {
                             n_splits,
                             filter,
                             object_store.clone(),
-                            Content::Data,
+                            ManifestListContent::Data,
                         )
                         .await?;
                     manifest_list_writer
@@ -696,6 +771,12 @@ impl Operation {
 
                 let snapshot_operation = SnapshotOperation::Overwrite;
 
+                // Merge with any additional summary fields
+                let mut summary_fields = summary_fields;
+                if let Some(additional) = additional_summary {
+                    summary_fields.extend(additional);
+                }
+
                 let mut snapshot_builder = SnapshotBuilder::default();
                 snapshot_builder
                     .with_snapshot_id(snapshot_id)
@@ -703,7 +784,7 @@ impl Operation {
                     .with_sequence_number(table_metadata.last_sequence_number + 1)
                     .with_summary(Summary {
                         operation: snapshot_operation,
-                        other: additional_summary.unwrap_or_default(),
+                        other: summary_fields,
                     })
                     .with_schema_id(
                         *table_metadata
@@ -838,6 +919,82 @@ fn prefetch_manifest_list(
                 }
             })
         })
+}
+
+/// Updates snapshot summary fields incrementally based on operation changes.
+///
+/// This function computes snapshot summary metrics by:
+/// 1. Parsing existing totals from the old snapshot summary
+/// 2. Computing deltas from the new data/delete files being added
+/// 3. Adding deltas to existing totals
+///
+/// # Arguments
+/// * `old_summary` - The summary from the parent snapshot (if it exists)
+/// * `data_files` - New data files being added in this operation
+/// * `delete_files` - New delete files being added in this operation
+///
+/// # Returns
+/// A HashMap with updated summary fields including:
+/// - `total-records`: Total record count across all data files
+/// - `total-data-files`: Total number of data files
+/// - `total-delete-files`: Total number of delete files
+/// - `total-file-size-bytes`: Total size of all files in bytes
+/// - `added-records`: Records added in this operation
+/// - `added-data-files`: Data files added in this operation
+/// - `added-files-size-bytes`: Size of files added in this operation
+pub fn update_snapshot_summary(
+    old_summary: Option<&Summary>,
+    data_files: &[DataFile],
+    delete_files: &[DataFile],
+) -> HashMap<String, String> {
+    // Parse existing values from old summary
+    let old_other = old_summary.map(|s| &s.other);
+
+    let parse_i64 = |key: &str| -> i64 {
+        old_other
+            .and_then(|m| m.get(key))
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(0)
+    };
+
+    let old_total_records = parse_i64("total-records");
+    let old_total_data_files = parse_i64("total-data-files");
+    let old_total_delete_files = parse_i64("total-delete-files");
+    let old_total_file_size = parse_i64("total-file-size-bytes");
+
+    // Compute deltas from new files
+    let added_data_files = data_files.len() as i64;
+    let added_delete_files = delete_files.len() as i64;
+
+    let added_records: i64 = data_files
+        .iter()
+        .filter(|f| *f.content() == Content::Data)
+        .map(|f| f.record_count())
+        .sum();
+
+    let added_files_size: i64 = data_files
+        .iter()
+        .chain(delete_files.iter())
+        .map(|f| f.file_size_in_bytes())
+        .sum();
+
+    // Compute new totals
+    let total_records = old_total_records + added_records;
+    let total_data_files = old_total_data_files + added_data_files;
+    let total_delete_files = old_total_delete_files + added_delete_files;
+    let total_file_size = old_total_file_size + added_files_size;
+
+    // Build result map
+    let mut result = HashMap::new();
+    result.insert("total-records".to_string(), total_records.to_string());
+    result.insert("total-data-files".to_string(), total_data_files.to_string());
+    result.insert("total-delete-files".to_string(), total_delete_files.to_string());
+    result.insert("total-file-size-bytes".to_string(), total_file_size.to_string());
+    result.insert("added-records".to_string(), added_records.to_string());
+    result.insert("added-data-files".to_string(), added_data_files.to_string());
+    result.insert("added-files-size-bytes".to_string(), added_files_size.to_string());
+
+    result
 }
 
 pub(crate) fn new_manifest_location(
