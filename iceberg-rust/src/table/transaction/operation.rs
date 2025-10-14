@@ -10,10 +10,11 @@ use std::{collections::HashMap, sync::Arc};
 use bytes::Bytes;
 use futures::future;
 use iceberg_rust_spec::manifest_list::{
-    manifest_list_schema_v1, manifest_list_schema_v2, Content as ManifestListContent, ManifestListEntry,
+    manifest_list_schema_v1, manifest_list_schema_v2, Content as ManifestListContent,
+    ManifestListEntry,
 };
-use iceberg_rust_spec::spec::manifest::Content;
 use iceberg_rust_spec::snapshot::{Operation as SnapshotOperation, Snapshot};
+use iceberg_rust_spec::spec::manifest::Content;
 use iceberg_rust_spec::spec::table_metadata::TableMetadata;
 use iceberg_rust_spec::spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
@@ -232,22 +233,14 @@ impl Operation {
                 }?;
 
                 // Compute updated snapshot summary
-                // Separate data files from delete files
-                let data_files_vec: Vec<DataFile> = all_files
-                    .iter()
-                    .filter(|f| *f.content() == Content::Data)
-                    .cloned()
-                    .collect();
-                let delete_files_vec: Vec<DataFile> = all_files
-                    .iter()
-                    .filter(|f| *f.content() != Content::Data)
-                    .cloned()
-                    .collect();
+                // Separate data files from delete files using iterators
+                let data_files_iter = all_files.iter().filter(|f| *f.content() == Content::Data);
+                let delete_files_iter = all_files.iter().filter(|f| *f.content() != Content::Data);
 
                 let mut summary_fields = update_snapshot_summary(
                     old_snapshot.map(|s| s.summary()),
-                    &data_files_vec,
-                    &delete_files_vec,
+                    data_files_iter,
+                    delete_files_iter,
                 );
 
                 // Merge with any additional summary fields
@@ -316,8 +309,8 @@ impl Operation {
                 // Compute summary before moving data_files and delete_files
                 let summary_fields = update_snapshot_summary(
                     old_snapshot.map(|s| s.summary()),
-                    &data_files,
-                    &delete_files,
+                    data_files.iter(),
+                    delete_files.iter(),
                 );
 
                 let data_files_iter = delete_files.iter().chain(data_files.iter());
@@ -369,7 +362,11 @@ impl Operation {
                     Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>,
                 > = Vec::new();
                 for (content, files, n_files) in [
-                    (ManifestListContent::Data, Either::Left(new_datafile_iter), n_data_files),
+                    (
+                        ManifestListContent::Data,
+                        Either::Left(new_datafile_iter),
+                        n_data_files,
+                    ),
                     (
                         ManifestListContent::Deletes,
                         Either::Right(new_deletefile_iter),
@@ -588,29 +585,15 @@ impl Operation {
 
                 // For Replace operation, we're replacing all data with new files
                 // Compute summary for the new state (not incremental)
-                let data_files_vec: Vec<DataFile> = files
-                    .iter()
-                    .filter(|f| *f.content() == Content::Data)
-                    .cloned()
-                    .collect();
-                let delete_files_vec: Vec<DataFile> = files
-                    .iter()
-                    .filter(|f| *f.content() != Content::Data)
-                    .cloned()
-                    .collect();
+                // We set old_summary to None so totals equal the new files only
+                let data_files_iter = files.iter().filter(|f| *f.content() == Content::Data);
+                let delete_files_iter = files.iter().filter(|f| *f.content() != Content::Data);
 
-                // For replace, set totals to match only the new files
-                let total_records: i64 = data_files_vec.iter().map(|f| f.record_count()).sum();
-                let total_file_size: i64 = files.iter().map(|f| f.file_size_in_bytes()).sum();
-
-                let mut summary_fields = HashMap::new();
-                summary_fields.insert("total-records".to_string(), total_records.to_string());
-                summary_fields.insert("total-data-files".to_string(), data_files_vec.len().to_string());
-                summary_fields.insert("total-delete-files".to_string(), delete_files_vec.len().to_string());
-                summary_fields.insert("total-file-size-bytes".to_string(), total_file_size.to_string());
-                summary_fields.insert("added-records".to_string(), total_records.to_string());
-                summary_fields.insert("added-data-files".to_string(), data_files_vec.len().to_string());
-                summary_fields.insert("added-files-size-bytes".to_string(), total_file_size.to_string());
+                let mut summary_fields = update_snapshot_summary(
+                    None, // No old summary - this is a full replacement
+                    data_files_iter,
+                    delete_files_iter,
+                );
 
                 // Merge with any additional summary fields
                 if let Some(additional) = additional_summary {
@@ -672,11 +655,10 @@ impl Operation {
                 }
 
                 // Compute summary before moving data_files
-                let empty_vec = Vec::new();
                 let summary_fields = update_snapshot_summary(
                     Some(old_snapshot.summary()),
-                    &data_files,
-                    &empty_vec, // No separate delete files in this operation
+                    data_files.iter(),
+                    std::iter::empty::<&DataFile>(), // No separate delete files in this operation
                 );
 
                 let data_files_iter = data_files.iter();
@@ -706,7 +688,8 @@ impl Operation {
                     )
                     .await?;
 
-                let n_splits = manifest_list_writer.n_splits(n_data_files, ManifestListContent::Data);
+                let n_splits =
+                    manifest_list_writer.n_splits(n_data_files, ManifestListContent::Data);
 
                 let new_datafile_iter = data_files.into_iter().map(|data_file| {
                     ManifestEntry::builder()
@@ -930,8 +913,8 @@ fn prefetch_manifest_list(
 ///
 /// # Arguments
 /// * `old_summary` - The summary from the parent snapshot (if it exists)
-/// * `data_files` - New data files being added in this operation
-/// * `delete_files` - New delete files being added in this operation
+/// * `data_files` - Iterator over new data files being added in this operation
+/// * `delete_files` - Iterator over new delete files being added in this operation
 ///
 /// # Returns
 /// A HashMap with updated summary fields including:
@@ -942,10 +925,10 @@ fn prefetch_manifest_list(
 /// - `added-records`: Records added in this operation
 /// - `added-data-files`: Data files added in this operation
 /// - `added-files-size-bytes`: Size of files added in this operation
-pub fn update_snapshot_summary(
+pub fn update_snapshot_summary<'files>(
     old_summary: Option<&Summary>,
-    data_files: &[DataFile],
-    delete_files: &[DataFile],
+    data_files: impl Iterator<Item = &'files DataFile>,
+    delete_files: impl Iterator<Item = &'files DataFile>,
 ) -> HashMap<String, String> {
     // Parse existing values from old summary
     let old_other = old_summary.map(|s| &s.other);
@@ -962,21 +945,28 @@ pub fn update_snapshot_summary(
     let old_total_delete_files = parse_i64("total-delete-files");
     let old_total_file_size = parse_i64("total-file-size-bytes");
 
-    // Compute deltas from new files
-    let added_data_files = data_files.len() as i64;
-    let added_delete_files = delete_files.len() as i64;
+    // Compute deltas from new files - we need to iterate to count and sum
+    let mut added_data_files = 0i64;
+    let mut added_records = 0i64;
+    let mut added_data_files_size = 0i64;
 
-    let added_records: i64 = data_files
-        .iter()
-        .filter(|f| *f.content() == Content::Data)
-        .map(|f| f.record_count())
-        .sum();
+    for file in data_files {
+        added_data_files += 1;
+        if *file.content() == Content::Data {
+            added_records += file.record_count();
+        }
+        added_data_files_size += file.file_size_in_bytes();
+    }
 
-    let added_files_size: i64 = data_files
-        .iter()
-        .chain(delete_files.iter())
-        .map(|f| f.file_size_in_bytes())
-        .sum();
+    let mut added_delete_files = 0i64;
+    let mut added_delete_files_size = 0i64;
+
+    for file in delete_files {
+        added_delete_files += 1;
+        added_delete_files_size += file.file_size_in_bytes();
+    }
+
+    let added_files_size = added_data_files_size + added_delete_files_size;
 
     // Compute new totals
     let total_records = old_total_records + added_records;
@@ -988,11 +978,20 @@ pub fn update_snapshot_summary(
     let mut result = HashMap::new();
     result.insert("total-records".to_string(), total_records.to_string());
     result.insert("total-data-files".to_string(), total_data_files.to_string());
-    result.insert("total-delete-files".to_string(), total_delete_files.to_string());
-    result.insert("total-file-size-bytes".to_string(), total_file_size.to_string());
+    result.insert(
+        "total-delete-files".to_string(),
+        total_delete_files.to_string(),
+    );
+    result.insert(
+        "total-file-size-bytes".to_string(),
+        total_file_size.to_string(),
+    );
     result.insert("added-records".to_string(), added_records.to_string());
     result.insert("added-data-files".to_string(), added_data_files.to_string());
-    result.insert("added-files-size-bytes".to_string(), added_files_size.to_string());
+    result.insert(
+        "added-files-size-bytes".to_string(),
+        added_files_size.to_string(),
+    );
 
     result
 }
