@@ -27,13 +27,10 @@ use std::{
     any::Any,
     collections::{HashMap, HashSet},
     fmt,
-    ops::{Deref, DerefMut},
-    sync::Arc,
+    ops::Deref,
+    sync::{Arc, RwLock},
 };
-use tokio::sync::{
-    mpsc::{self},
-    RwLock, RwLockWriteGuard,
-};
+use tokio::sync::mpsc::{self};
 use tracing::{instrument, Instrument};
 
 use crate::statistics::statistics_from_datafiles;
@@ -42,7 +39,7 @@ use crate::{
     pruning_statistics::{transform_predicate, PruneDataFiles, PruneManifests},
     statistics::manifest_statistics,
 };
-use datafusion::common::NullEquality;
+use datafusion::common::{NullEquality, Statistics};
 use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
@@ -213,8 +210,8 @@ impl DataFusionTable {
         Self::new(Tabular::Table(table), start, end, branch)
     }
 
-    pub async fn inner_mut(&self) -> RwLockWriteGuard<'_, Tabular> {
-        self.tabular.write().await
+    pub fn inner_mut(&self) -> std::sync::RwLockWriteGuard<'_, Tabular> {
+        self.tabular.write().unwrap()
     }
 }
 
@@ -237,7 +234,9 @@ impl TableProvider for DataFusionTable {
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
         let session_state = session.as_any().downcast_ref::<SessionState>().unwrap();
-        match self.tabular.read().await.deref() {
+        // Clone the tabular to avoid holding the lock across await points
+        let tabular = self.tabular.read().unwrap().clone();
+        match tabular {
             Tabular::View(view) => {
                 let metadata = view.metadata();
                 let version = self
@@ -261,7 +260,7 @@ impl TableProvider for DataFusionTable {
             Tabular::Table(table) => {
                 let schema = self.schema();
                 table_scan(
-                    table,
+                    &table,
                     &self.snapshot_range,
                     schema,
                     self.config.as_ref(),
@@ -320,6 +319,40 @@ impl TableProvider for DataFusionTable {
             .iter()
             .map(|_| TableProviderFilterPushDown::Inexact)
             .collect())
+    }
+
+    fn statistics(&self) -> Option<Statistics> {
+        use datafusion::common::stats::Precision;
+
+        // Clone the tabular to avoid holding the lock
+        let tabular = self.tabular.read().unwrap().clone();
+
+        match tabular {
+            Tabular::Table(table) => {
+                // Get the current snapshot
+                let snapshot = table
+                    .metadata()
+                    .current_snapshot(self.branch.as_deref())
+                    .ok()
+                    .flatten()?;
+
+                // Extract total-records from the snapshot summary
+                let num_rows = snapshot
+                    .summary()
+                    .other
+                    .get("total-records")
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .map(Precision::Inexact)
+                    .unwrap_or(Precision::Absent);
+
+                Some(datafusion::physical_plan::Statistics {
+                    num_rows,
+                    total_byte_size: Precision::Absent,
+                    column_statistics: vec![],
+                })
+            }
+            Tabular::View(_) | Tabular::MaterializedView(_) => None,
+        }
     }
 }
 
@@ -959,16 +992,19 @@ impl DataSink for IcebergDataSink {
         data: SendableRecordBatchStream,
         context: &Arc<TaskContext>,
     ) -> Result<u64, DataFusionError> {
-        let mut lock = self.0.tabular.write().await;
-        let table = if let Tabular::Table(table) = lock.deref_mut() {
-            Ok(table)
-        } else {
-            Err(Error::InvalidFormat("database entity".to_string()))
-        }
-        .map_err(DataFusionIcebergError::from)?;
+        // Clone the table from the read lock
+        let mut table = {
+            let lock = self.0.tabular.read().unwrap();
+            if let Tabular::Table(table) = lock.deref() {
+                Ok(table.clone())
+            } else {
+                Err(Error::InvalidFormat("database entity".to_string()))
+            }
+            .map_err(DataFusionIcebergError::from)?
+        };
 
         let metadata_files =
-            write_parquet_data_files(table, data, context, self.0.branch.as_deref()).await?;
+            write_parquet_data_files(&mut table, data, context, self.0.branch.as_deref()).await?;
 
         table
             .new_transaction(self.0.branch.as_deref())
@@ -976,6 +1012,10 @@ impl DataSink for IcebergDataSink {
             .commit()
             .await
             .map_err(DataFusionIcebergError::from)?;
+
+        // Acquire write lock and overwrite the old table with the new one
+        let mut lock = self.0.tabular.write().unwrap();
+        *lock = Tabular::Table(table);
 
         Ok(0)
     }
@@ -1630,7 +1670,7 @@ mod tests {
             }
         }
 
-        if let Tabular::Table(table) = table.tabular.read().await.deref() {
+        if let Tabular::Table(table) = table.tabular.read().unwrap().deref() {
             assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
         };
     }
@@ -1816,7 +1856,7 @@ mod tests {
             }
         }
 
-        if let Tabular::Table(table) = table.tabular.read().await.deref() {
+        if let Tabular::Table(table) = table.tabular.read().unwrap().deref() {
             assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
         };
     }
@@ -2007,7 +2047,7 @@ mod tests {
             }
         }
 
-        if let Tabular::Table(table) = table.tabular.read().await.deref() {
+        if let Tabular::Table(table) = table.tabular.read().unwrap().deref() {
             assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
         };
     }
