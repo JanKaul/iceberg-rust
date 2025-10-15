@@ -1445,7 +1445,7 @@ mod tests {
     };
     use iceberg_sql_catalog::SqlCatalog;
 
-    use std::{ops::Deref, sync::Arc};
+    use std::sync::Arc;
 
     use crate::{catalog::catalog::IcebergCatalog, table::fake_object_store_url, DataFusionTable};
 
@@ -1670,9 +1670,12 @@ mod tests {
             }
         }
 
-        if let Tabular::Table(table) = table.tabular.read().unwrap().deref() {
-            assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
+        let table = if let Tabular::Table(table) = table.tabular.read().unwrap().clone() {
+            table
+        } else {
+            panic!()
         };
+        assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -1856,9 +1859,12 @@ mod tests {
             }
         }
 
-        if let Tabular::Table(table) = table.tabular.read().unwrap().deref() {
-            assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
+        let table = if let Tabular::Table(table) = table.tabular.read().unwrap().clone() {
+            table
+        } else {
+            panic!();
         };
+        assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -2047,9 +2053,12 @@ mod tests {
             }
         }
 
-        if let Tabular::Table(table) = table.tabular.read().unwrap().deref() {
-            assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
+        let table = if let Tabular::Table(table) = table.tabular.read().unwrap().clone() {
+            table
+        } else {
+            panic!();
         };
+        assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
     }
 
     #[tokio::test]
