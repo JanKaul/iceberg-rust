@@ -18,49 +18,46 @@ pub(crate) fn statistics_from_datafiles(
     datafiles
         .iter()
         .filter(|(_, manifest)| !matches!(manifest.status(), Status::Deleted))
-        .fold(
+        .map(|(_, manifest)| {
+            let column_stats = column_statistics(schema, manifest);
             Statistics {
-                num_rows: Precision::Exact(0),
-                total_byte_size: Precision::Exact(0),
-                column_statistics: vec![
-                    ColumnStatistics {
-                        null_count: Precision::Absent,
-                        max_value: Precision::Absent,
-                        min_value: Precision::Absent,
-                        distinct_count: Precision::Absent,
-                        sum_value: Precision::Absent,
-                    };
-                    schema.fields().len()
-                ],
-            },
-            |acc, (_, manifest)| {
-                let column_stats = column_statistics(schema, manifest);
-                Statistics {
-                    num_rows: acc.num_rows.add(&Precision::Exact(
-                        *manifest.data_file().record_count() as usize,
-                    )),
-                    total_byte_size: acc.total_byte_size.add(&Precision::Exact(
-                        *manifest.data_file().file_size_in_bytes() as usize,
-                    )),
-                    column_statistics: acc
-                        .column_statistics
-                        .into_iter()
-                        .zip(column_stats)
-                        .map(|(acc, x)| {
-                            let new_distinct_count = new_distinct_count(&acc, &x);
+                num_rows: Precision::Exact(*manifest.data_file().record_count() as usize),
+                total_byte_size: Precision::Exact(
+                    *manifest.data_file().file_size_in_bytes() as usize
+                ),
+                column_statistics: column_stats
+                    .into_iter()
+                    .map(|x| ColumnStatistics {
+                        null_count: x.null_count,
+                        max_value: x.max_value,
+                        min_value: x.min_value,
+                        distinct_count: x.distinct_count,
+                        sum_value: x.sum_value,
+                    })
+                    .collect(),
+            }
+        })
+        .reduce(|acc, x| Statistics {
+            num_rows: acc.num_rows.add(&x.num_rows),
+            total_byte_size: acc.total_byte_size.add(&x.total_byte_size),
+            column_statistics: acc
+                .column_statistics
+                .into_iter()
+                .zip(x.column_statistics)
+                .map(|(acc, x)| {
+                    let new_distinct_count = new_distinct_count(&acc, &x);
 
-                            ColumnStatistics {
-                                null_count: acc.null_count.add(&x.null_count),
-                                max_value: acc.max_value.max(&x.max_value),
-                                min_value: acc.min_value.min(&x.min_value),
-                                distinct_count: new_distinct_count,
-                                sum_value: acc.sum_value.add(&x.sum_value),
-                            }
-                        })
-                        .collect(),
-                }
-            },
-        )
+                    ColumnStatistics {
+                        null_count: acc.null_count.add(&x.null_count),
+                        max_value: acc.max_value.max(&x.max_value),
+                        min_value: acc.min_value.min(&x.min_value),
+                        distinct_count: new_distinct_count,
+                        sum_value: acc.sum_value.add(&x.sum_value),
+                    }
+                })
+                .collect(),
+        })
+        .unwrap_or_default()
 }
 
 fn column_statistics<'a>(
