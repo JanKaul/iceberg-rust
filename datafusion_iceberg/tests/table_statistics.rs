@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use datafusion::{
-    common::{stats::Precision, tree_node::{TransformedResult, TreeNode}, ScalarValue},
+    common::{
+        stats::Precision,
+        tree_node::{TransformedResult, TreeNode},
+        ScalarValue,
+    },
     execution::{context::SessionContext, SessionStateBuilder},
 };
 use datafusion_expr::ScalarUDF;
