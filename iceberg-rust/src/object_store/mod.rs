@@ -149,18 +149,31 @@ impl ObjectStoreBuilder {
         ObjectStoreBuilder::Memory(Arc::new(InMemory::new()))
     }
     /// Set config value for builder
-    pub fn with_config(self, key: ConfigKey, value: impl Into<String>) -> Self {
-        match (self, key) {
-            (ObjectStoreBuilder::Azure(azure), ConfigKey::Azure(key)) => {
-                ObjectStoreBuilder::Azure(Box::new(azure.with_config(key, value)))
+    pub fn with_config(
+        self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<Self, Error> {
+        match self {
+            ObjectStoreBuilder::Azure(azure) => {
+                let key: AzureConfigKey = key.into().parse()?;
+                Ok(ObjectStoreBuilder::Azure(Box::new(
+                    azure.with_config(key, value),
+                )))
             }
-            (ObjectStoreBuilder::S3(aws), ConfigKey::AWS(key)) => {
-                ObjectStoreBuilder::S3(Box::new(aws.with_config(key, value)))
+            ObjectStoreBuilder::S3(aws) => {
+                let key: AmazonS3ConfigKey = key.into().parse()?;
+                Ok(ObjectStoreBuilder::S3(Box::new(
+                    aws.with_config(key, value),
+                )))
             }
-            (ObjectStoreBuilder::GCS(gcs), ConfigKey::GCS(key)) => {
-                ObjectStoreBuilder::GCS(Box::new(gcs.with_config(key, value)))
+            ObjectStoreBuilder::GCS(gcs) => {
+                let key: GoogleConfigKey = key.into().parse()?;
+                Ok(ObjectStoreBuilder::GCS(Box::new(
+                    gcs.with_config(key, value),
+                )))
             }
-            (x, _) => x,
+            x => Ok(x),
         }
     }
     /// Create objectstore from template
