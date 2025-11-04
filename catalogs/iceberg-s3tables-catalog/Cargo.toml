@@ -1,6 +1,6 @@
 [package]
 name = "iceberg-s3tables-catalog"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 
 description = "S3Tables catalog for the unofficial Iceberg table format implementation"
@@ -14,7 +14,7 @@ async-trait.workspace = true
 aws-config = "1.5.16"
 aws-sdk-s3tables = "1.10.0"
 futures.workspace = true
-iceberg-rust = { path = "../../iceberg-rust", version = "0.8.0" }
+iceberg-rust = { path = "../../iceberg-rust", version = "0.9.0" }
 object_store.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -23,7 +23,7 @@ uuid = { version = "1.13.2", features = ["v4"] }
 
 [dev-dependencies]
 datafusion.workspace = true
-datafusion_iceberg = { path = "../../datafusion_iceberg", version = "0.8.0" }
+datafusion_iceberg = { path = "../../datafusion_iceberg", version = "0.9.0" }
 testcontainers = "0.23"
 testcontainers-modules = { version = "0.11", features = ["localstack"] }
 tokio = "1"

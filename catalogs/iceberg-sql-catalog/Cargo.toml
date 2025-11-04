@@ -1,6 +1,6 @@
 [package]
 name = "iceberg-sql-catalog"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 
 description = "Sql catalog for the unofficial Iceberg table format implementation"
@@ -17,7 +17,7 @@ runtime-async-std = ["sqlx/runtime-async-std"]
 [dependencies]
 async-trait.workspace = true
 futures.workspace = true
-iceberg-rust = { path = "../../iceberg-rust", version = "0.8.0" }
+iceberg-rust = { path = "../../iceberg-rust", version = "0.9.0" }
 object_store.workspace = true
 serde_json.workspace = true
 sqlx = { version = "0.8", features = ["tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
@@ -27,7 +27,7 @@ uuid = { version = "1.13.2", features = ["v4"] }
 
 [dev-dependencies]
 datafusion.workspace = true
-datafusion_iceberg = { path = "../../datafusion_iceberg", version = "0.8.0" }
+datafusion_iceberg = { path = "../../datafusion_iceberg", version = "0.9.0" }
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 testcontainers = "0.23"
 testcontainers-modules = { version = "0.11", features = ["localstack", "postgres"] }

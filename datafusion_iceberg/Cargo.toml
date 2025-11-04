@@ -1,6 +1,6 @@
 [package]
 name = "datafusion_iceberg"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 
 description = "Datafusion integration for Iceberg table format"
@@ -17,7 +17,7 @@ datafusion = { workspace = true }
 datafusion-expr = { workspace = true }
 derive_builder = { workspace = true }
 futures = { workspace = true }
-iceberg-rust = { path = "../iceberg-rust", version = "0.8.0" }
+iceberg-rust = { path = "../iceberg-rust", version = "0.9.0" }
 itertools = { workspace = true }
 lru = { workspace = true }
 object_store = { workspace = true }
