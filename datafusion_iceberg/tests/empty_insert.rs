@@ -44,14 +44,19 @@ pub async fn test_empty_insert() {
     let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
 
     let object_store = ObjectStoreBuilder::s3()
-        .with_config("aws_access_key_id".parse().unwrap(), "user")
-        .with_config("aws_secret_access_key".parse().unwrap(), "password")
+        .with_config("aws_access_key_id", "user")
+        .unwrap()
+        .with_config("aws_secret_access_key", "password")
+        .unwrap()
         .with_config(
-            "endpoint".parse().unwrap(),
+            "endpoint",
             format!("http://{localstack_host}:{localstack_port}"),
         )
-        .with_config("region".parse().unwrap(), "us-east-1")
-        .with_config("allow_http".parse().unwrap(), "true");
+        .unwrap()
+        .with_config("region", "us-east-1")
+        .unwrap()
+        .with_config("allow_http", "true")
+        .unwrap();
 
     let iceberg_catalog_list = Arc::new(
         SqlCatalogList::new("sqlite://", object_store.clone())
