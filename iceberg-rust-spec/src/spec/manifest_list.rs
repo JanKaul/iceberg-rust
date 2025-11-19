@@ -515,6 +515,7 @@ pub fn manifest_list_schema_v1() -> &'static AvroSchema {
                         "null",
                         "bytes"
                     ],
+                    "default": null,
                     "field-id": 519
                 }
             ]
@@ -651,6 +652,7 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
                         "null",
                         "bytes"
                     ],
+                    "default": null,
                     "field-id": 519
                 }
             ]
