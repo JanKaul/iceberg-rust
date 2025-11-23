@@ -84,7 +84,15 @@ pub(crate) fn split_datafiles(
     let [(smaller, smaller_rect), (larger, larger_rect)] =
         split_datafiles_once(files, rect, names)?;
     if n_split == 1 {
-        Ok(vec![smaller, larger])
+        // Filter out empty splits to avoid creating manifests with no entries
+        let mut result = Vec::new();
+        if !smaller.is_empty() {
+            result.push(smaller);
+        }
+        if !larger.is_empty() {
+            result.push(larger);
+        }
+        Ok(result)
     } else {
         let mut smaller = split_datafiles(
             smaller.into_iter().map(Ok),
