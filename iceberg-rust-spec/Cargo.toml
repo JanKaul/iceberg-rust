@@ -1,6 +1,6 @@
 [package]
 name = "iceberg-rust-spec"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 
 license = "Apache-2.0"
@@ -16,7 +16,7 @@ derive-getters = { workspace = true }
 derive_builder = { workspace = true }
 getrandom = { workspace = true }
 itertools = { workspace = true }
-murmur3 = "0.5.2"
+murmur3 = { workspace = true }
 ordered-float = { version = "5.0.0", features = ["serde"] }
 rust_decimal = "1.36.0"
 serde = { workspace = true }

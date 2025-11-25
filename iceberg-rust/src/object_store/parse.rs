@@ -3,6 +3,7 @@
 
 use crate::error::Error;
 use object_store::aws::{AmazonS3Builder, AmazonS3ConfigKey};
+use object_store::azure::{AzureConfigKey, MicrosoftAzureBuilder};
 use object_store::gcp::{GcpCredential, GoogleCloudStorageBuilder, GoogleConfigKey};
 use object_store::{parse_url_opts, ObjectStore, ObjectStoreScheme, StaticCredentialProvider};
 use std::collections::HashMap;
@@ -22,6 +23,12 @@ const AWS_ALLOW_ANONYMOUS: &str = "s3.allow-anonymous";
 const GCS_BUCKET: &str = "gcs.bucket";
 const GCS_CREDENTIALS_JSON: &str = "gcs.credentials-json";
 const GCS_TOKEN: &str = "gcs.oauth2.token";
+
+/// Azure configs
+const AZURE_CONTAINER_NAME: &str = "azure.container-name";
+const AZURE_ENDPOINT: &str = "azure.endpoint";
+const AZURE_STORAGE_ACCESS_KEY: &str = "azure.access-key";
+const AZURE_STORAGE_ACCOUNT_NAME: &str = "azure.account-name";
 
 /// Parse the url and Iceberg format of variuos storage options into the equivalent `object_store`
 /// options and build the corresponding `ObjectStore`.
@@ -69,6 +76,27 @@ pub fn object_store_from_config(
                     _ => continue,
                 };
                 builder = builder.with_config(gcs_key, option);
+            }
+            Arc::new(builder.build()?) as Arc<dyn ObjectStore>
+        }
+
+        (ObjectStoreScheme::MicrosoftAzure, _) => {
+            let mut builder = MicrosoftAzureBuilder::new().with_url(url);
+            for (key, option) in config {
+                let azure_key = match key.as_str() {
+                    AZURE_CONTAINER_NAME => AzureConfigKey::ContainerName,
+                    AZURE_STORAGE_ACCOUNT_NAME => AzureConfigKey::AccountName,
+                    AZURE_STORAGE_ACCESS_KEY => AzureConfigKey::AccessKey,
+                    AZURE_ENDPOINT => {
+                        if option.starts_with("http://") {
+                            // This is mainly used for testing, e.g. against Azurite
+                            builder = builder.with_allow_http(true);
+                        }
+                        AzureConfigKey::Endpoint
+                    }
+                    _ => continue,
+                };
+                builder = builder.with_config(azure_key, option);
             }
             Arc::new(builder.build()?) as Arc<dyn ObjectStore>
         }
@@ -168,5 +196,52 @@ mod tests {
 
         assert!(store_repr.contains("bearer: \"oauth-token-123\""));
         assert!(store_repr.contains("bucket_name: \"test-bucket\""));
+    }
+
+    #[test]
+    fn test_azure_config_basic() {
+        let url = Url::parse("https://testaccount.blob.core.windows.net/test-container").unwrap();
+        let mut config = HashMap::new();
+        config.insert(
+            AZURE_STORAGE_ACCOUNT_NAME.to_string(),
+            "testaccount".to_string(),
+        );
+        config.insert(AZURE_STORAGE_ACCESS_KEY.to_string(), "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==".to_string());
+
+        let store = object_store_from_config(url, config).unwrap();
+        let store_repr = format!("{store:?}");
+
+        println!("{}", store_repr);
+        assert!(store_repr.contains("account: \"testaccount\""));
+        assert!(store_repr.contains("container: \"test-container\""));
+        assert!(store_repr.contains("host: Some(Domain(\"testaccount.blob.core.windows.net\"))"));
+        assert!(store_repr.contains("port: None"));
+        assert!(store_repr.contains("scheme: \"https\""));
+        assert!(store_repr.contains("allow_http: Parsed(false)"));
+    }
+
+    #[test]
+    fn test_azure_config_with_http_endpoint() {
+        let url = Url::parse("https://testaccount.blob.core.windows.net/test-container").unwrap();
+        let mut config = HashMap::new();
+        config.insert(
+            AZURE_ENDPOINT.to_string(),
+            "http://localhost:9000".to_string(),
+        );
+        config.insert(
+            AZURE_STORAGE_ACCOUNT_NAME.to_string(),
+            "testaccount".to_string(),
+        );
+        config.insert(AZURE_STORAGE_ACCESS_KEY.to_string(), "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==".to_string());
+
+        let store = object_store_from_config(url, config).unwrap();
+        let store_repr = format!("{store:?}");
+
+        assert!(store_repr.contains("account: \"testaccount\""));
+        assert!(store_repr.contains("container: \"test-container\""));
+        assert!(store_repr.contains("host: Some(Domain(\"localhost\"))"));
+        assert!(store_repr.contains("port: Some(9000)"));
+        assert!(store_repr.contains("scheme: \"http\""));
+        assert!(store_repr.contains("allow_http: Parsed(true)"));
     }
 }

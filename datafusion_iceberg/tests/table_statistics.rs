@@ -1,65 +1,27 @@
 use std::sync::Arc;
 
 use datafusion::{
-    common::tree_node::{TransformedResult, TreeNode},
-    execution::SessionStateBuilder,
-    prelude::SessionContext,
+    common::{
+        stats::Precision,
+        tree_node::{TransformedResult, TreeNode},
+        ScalarValue,
+    },
+    execution::{context::SessionContext, SessionStateBuilder},
 };
 use datafusion_expr::ScalarUDF;
+use iceberg_rust::object_store::ObjectStoreBuilder;
+use iceberg_sql_catalog::SqlCatalogList;
+
 use datafusion_iceberg::{
     catalog::catalog_list::IcebergCatalogList,
     planner::{iceberg_transform, IcebergQueryPlanner, RefreshMaterializedView},
 };
-use futures::TryStreamExt;
-use iceberg_rust::object_store::{Bucket, ObjectStoreBuilder};
-use iceberg_sql_catalog::SqlCatalogList;
-use object_store::ObjectMeta;
-use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
-use testcontainers_modules::localstack::LocalStack;
 
 #[tokio::test]
-pub async fn test_empty_insert() {
-    let localstack = LocalStack::default()
-        .with_env_var("SERVICES", "s3")
-        .with_env_var("AWS_ACCESS_KEY_ID", "user")
-        .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
-        .start()
-        .await
-        .unwrap();
-
-    let mut command = localstack
-        .exec(ExecCommand::new(vec![
-            "awslocal",
-            "s3api",
-            "create-bucket",
-            "--bucket",
-            "warehouse",
-        ]))
-        .await
-        .unwrap();
-
-    command.stdout_to_vec().await.unwrap();
-
-    let localstack_host = localstack.get_host().await.unwrap();
-    let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
-
-    let object_store = ObjectStoreBuilder::s3()
-        .with_config("aws_access_key_id", "user")
-        .unwrap()
-        .with_config("aws_secret_access_key", "password")
-        .unwrap()
-        .with_config(
-            "endpoint",
-            format!("http://{localstack_host}:{localstack_port}"),
-        )
-        .unwrap()
-        .with_config("region", "us-east-1")
-        .unwrap()
-        .with_config("allow_http", "true")
-        .unwrap();
-
+async fn test_table_statistics() {
+    let object_store = ObjectStoreBuilder::memory();
     let iceberg_catalog_list = Arc::new(
-        SqlCatalogList::new("sqlite://", object_store.clone())
+        SqlCatalogList::new("sqlite://", object_store)
             .await
             .unwrap(),
     );
@@ -113,7 +75,7 @@ pub async fn test_empty_insert() {
         .await
         .expect("Failed to execute query plan.");
 
-    let sql = &"CREATE SCHEMA warehouse.tpch;".to_string();
+    let sql = "CREATE SCHEMA warehouse.tpch;";
 
     let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
@@ -142,7 +104,7 @@ pub async fn test_empty_insert() {
     L_RECEIPTDATE DATE NOT NULL, 
     L_SHIPINSTRUCT VARCHAR NOT NULL, 
     L_SHIPMODE VARCHAR NOT NULL, 
-    L_COMMENT VARCHAR NOT NULL ) STORED AS ICEBERG LOCATION 's3://warehouse/tpch/lineitem' PARTITIONED BY ( \"month(L_SHIPDATE)\" );";
+    L_COMMENT VARCHAR NOT NULL ) STORED AS ICEBERG LOCATION '/warehouse/tpch/lineitem' PARTITIONED BY ( \"month(L_SHIPDATE)\" );";
 
     let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
@@ -155,7 +117,7 @@ pub async fn test_empty_insert() {
         .await
         .expect("Failed to execute query plan.");
 
-    let sql = "insert into warehouse.tpch.lineitem select * from lineitem where l_quantity > 9999;";
+    let sql = "insert into warehouse.tpch.lineitem select * from lineitem;";
 
     let plan = ctx.state().create_logical_plan(sql).await.unwrap();
 
@@ -168,12 +130,56 @@ pub async fn test_empty_insert() {
         .await
         .expect("Failed to execute query plan.");
 
-    let object_store = object_store.build(Bucket::S3("warehouse")).unwrap();
-    let datafiles: Vec<ObjectMeta> = object_store
-        .list(Some(&"s3://warehouse/tpch/lineitem/data".into()))
-        .try_collect()
+    let sql = ctx
+        .sql("select sum(L_QUANTITY), L_PARTKEY from warehouse.tpch.lineitem group by L_PARTKEY;")
         .await
-        .unwrap();
+        .expect("Failed to create plan for select");
 
-    assert!(datafiles.is_empty());
+    let physical_plan = sql.create_physical_plan().await.unwrap();
+
+    let stats = physical_plan.partition_statistics(None).unwrap();
+
+    // Validate table-level statistics
+    assert_eq!(
+        stats.num_rows,
+        Precision::Inexact(47048),
+        "num_rows should match the total rows in the CSV file"
+    );
+    assert!(
+        matches!(stats.total_byte_size, Precision::Inexact(size) if size > 0),
+        "total_byte_size should be Inexact and greater than 0"
+    );
+
+    // Validate column count (sum(L_QUANTITY) and L_PARTKEY)
+    assert_eq!(
+        stats.column_statistics.len(),
+        2,
+        "Should have statistics for 2 columns"
+    );
+
+    // Validate first column (sum(L_QUANTITY)) - aggregate column should have Absent statistics
+    assert!(
+        matches!(stats.column_statistics[0].min_value, Precision::Absent),
+        "Aggregate column min_value should be Absent"
+    );
+    assert!(
+        matches!(stats.column_statistics[0].max_value, Precision::Absent),
+        "Aggregate column max_value should be Absent"
+    );
+    assert!(
+        matches!(stats.column_statistics[0].null_count, Precision::Absent),
+        "Aggregate column null_count should be Absent"
+    );
+
+    // Validate second column (L_PARTKEY) - should have min/max bounds from Iceberg metadata
+    assert_eq!(
+        stats.column_statistics[1].min_value,
+        Precision::Exact(ScalarValue::Int64(Some(2))),
+        "L_PARTKEY min_value should be 2"
+    );
+    assert_eq!(
+        stats.column_statistics[1].max_value,
+        Precision::Exact(ScalarValue::Int64(Some(200000))),
+        "L_PARTKEY max_value should be 200000"
+    );
 }

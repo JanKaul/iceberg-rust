@@ -1,6 +1,6 @@
 [package]
 name = "datafusion_iceberg"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 
 description = "Datafusion integration for Iceberg table format"
@@ -17,7 +17,7 @@ datafusion = { workspace = true }
 datafusion-expr = { workspace = true }
 derive_builder = { workspace = true }
 futures = { workspace = true }
-iceberg-rust = { path = "../iceberg-rust", version = "0.8.0" }
+iceberg-rust = { path = "../iceberg-rust", version = "0.9.0" }
 itertools = { workspace = true }
 lru = { workspace = true }
 object_store = { workspace = true }
@@ -34,6 +34,7 @@ uuid = { workspace = true }
 duckdb = { version = "1.4", features = ["bundled"] }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
+pyo3 = { version = "0.25", features = ["auto-initialize"] }
 reqwest = "0.12"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 tempfile = "3.17.1"

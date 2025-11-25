@@ -1042,7 +1042,7 @@ fn sub_string(left: &str, right: &str) -> u64 {
         .skip_while(|(l, r)| l == r)
         .try_fold(0, |acc, (l, r)| {
             if let (Some(l), Some(r)) = (l.to_digit(36), r.to_digit(36)) {
-                Some(acc + (l - r).pow(2))
+                Some(acc + l.abs_diff(r).pow(2))
             } else {
                 None
             }
@@ -1055,7 +1055,7 @@ fn sub_string(left: &str, right: &str) -> u64 {
         let left = hasher.finish();
         hasher.write(right.as_bytes());
         let right = hasher.finish();
-        left - right
+        left.abs_diff(right)
     }
 }
 
@@ -1554,5 +1554,17 @@ mod tests {
         let value = Value::Date(0);
         let result = value.transform(&Transform::Hour);
         assert!(matches!(result, Err(Error::NotSupported(_))));
+    }
+
+    #[test]
+    fn test_sub_string() {
+        assert_eq!(
+            sub_string("zyxwvutsrqponmlkjihgfedcba", "abcdefghijklmnopqrstuvxyz"),
+            5354
+        );
+        assert_eq!(
+            sub_string("abcdefghijklmnopqrstuvxyz", "zyxwvutsrqponmlkjihgfedcba"),
+            5354
+        );
     }
 }
