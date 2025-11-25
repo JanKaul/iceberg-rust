@@ -45,86 +45,6 @@ pub mod manifest;
 pub mod manifest_list;
 pub mod transaction;
 
-/// Builder for configuring and executing snapshot expiration operations
-///
-/// This builder provides a fluent API for configuring how snapshots should be expired:
-/// * [`expire_older_than`](ExpireSnapshotsBuilder::expire_older_than) - Remove snapshots older than a timestamp
-/// * [`retain_last`](ExpireSnapshotsBuilder::retain_last) - Keep only the most recent N snapshots
-/// * [`clean_orphan_files`](ExpireSnapshotsBuilder::clean_orphan_files) - Also remove unreferenced data files
-/// * [`dry_run`](ExpireSnapshotsBuilder::dry_run) - Preview what would be deleted without actually deleting
-pub struct ExpireSnapshotsBuilder<'a> {
-    table: &'a mut Table,
-    older_than: Option<i64>,
-    retain_last: Option<usize>,
-    clean_orphan_files: bool,
-    retain_ref_snapshots: bool,
-    dry_run: bool,
-}
-
-impl<'a> ExpireSnapshotsBuilder<'a> {
-    /// Create a new snapshot expiration builder for the given table
-    fn new(table: &'a mut Table) -> Self {
-        Self {
-            table,
-            older_than: None,
-            retain_last: None,
-            clean_orphan_files: false,
-            retain_ref_snapshots: true,
-            dry_run: false,
-        }
-    }
-
-    /// Expire snapshots older than the given timestamp (in milliseconds since Unix epoch)
-    pub fn expire_older_than(mut self, timestamp_ms: i64) -> Self {
-        self.older_than = Some(timestamp_ms);
-        self
-    }
-
-    /// Retain only the most recent N snapshots, expiring all others
-    pub fn retain_last(mut self, count: usize) -> Self {
-        self.retain_last = Some(count);
-        self
-    }
-
-    /// Enable or disable cleanup of orphaned data files
-    pub fn clean_orphan_files(mut self, enabled: bool) -> Self {
-        self.clean_orphan_files = enabled;
-        self
-    }
-
-    /// Control whether snapshots referenced by branches/tags should be preserved
-    pub fn retain_ref_snapshots(mut self, enabled: bool) -> Self {
-        self.retain_ref_snapshots = enabled;
-        self
-    }
-
-    /// Enable dry run mode to preview what would be deleted without actually deleting
-    pub fn dry_run(mut self, enabled: bool) -> Self {
-        self.dry_run = enabled;
-        self
-    }
-
-    /// Execute the snapshot expiration operation
-    pub async fn execute(self) -> Result<Vec<i64>, Error> {
-        let _result = self.table.new_transaction(None)
-            .expire_snapshots(
-                self.older_than,
-                self.retain_last,
-                self.clean_orphan_files,
-                self.retain_ref_snapshots,
-                self.dry_run,
-            )
-            .commit()
-            .await?;
-
-        // Extract the expired snapshot IDs from the commit result
-        // For now, we'll need to return empty vec since the transaction commit
-        // doesn't directly return the expired snapshot IDs
-        // TODO: Enhance transaction result to include operation-specific details
-        Ok(vec![])
-    }
-}
-
 #[derive(Debug, Clone)]
 /// Iceberg table
 pub struct Table {
@@ -378,39 +298,6 @@ impl Table {
         TableTransaction::new(self, branch)
     }
 
-    /// Configures snapshot expiration for this table
-    ///
-    /// Returns a builder that allows configuring snapshot expiration policies:
-    /// * Time-based expiration: Remove snapshots older than a timestamp
-    /// * Count-based retention: Keep only the most recent N snapshots  
-    /// * Orphan file cleanup: Remove data files no longer referenced by any snapshot
-    /// * Reference preservation: Protect snapshots referenced by branches/tags
-    /// * Dry run mode: Preview what would be deleted without actually deleting
-    ///
-    /// The operation is executed through the table's transaction system, ensuring
-    /// atomicity and consistency with other table operations.
-    ///
-    /// # Returns
-    /// * `ExpireSnapshotsBuilder` - A builder for configuring expiration parameters
-    ///
-    /// # Examples
-    /// ```rust,no_run
-    /// # async fn example(table: &mut Table) -> Result<(), Box<dyn std::error::Error>> {
-    /// // Expire snapshots older than 7 days but keep at least 5 snapshots
-    /// let result = table.expire_snapshots()
-    ///     .expire_older_than(chrono::Utc::now().timestamp_millis() - 7 * 24 * 60 * 60 * 1000)
-    ///     .retain_last(5)
-    ///     .clean_orphan_files(true)
-    ///     .execute()
-    ///     .await?;
-    /// 
-    /// println!("Expired {} snapshots", result.len());
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn expire_snapshots(&mut self) -> ExpireSnapshotsBuilder<'_> {
-        ExpireSnapshotsBuilder::new(self)
-    }
 }
 
 /// Path of a Manifest file
