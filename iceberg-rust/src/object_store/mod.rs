@@ -25,8 +25,13 @@ pub enum Bucket<'s> {
     S3(&'s str),
     /// GCS bucket
     GCS(&'s str),
-    /// Azure container
-    Azure(&'s str),
+    /// Azure
+    Azure {
+        /// Account name
+        account: &'s str,
+        /// Container name
+        container: &'s str,
+    },
     /// No bucket
     Local,
 }
@@ -36,7 +41,9 @@ impl Display for Bucket<'_> {
         match self {
             Bucket::S3(s) => write!(f, "s3://{s}"),
             Bucket::GCS(s) => write!(f, "gs://{s}"),
-            Bucket::Azure(s) => write!(f, "https://{s}"),
+            Bucket::Azure { account, container } => {
+                write!(f, "https://{account}.blob.core.windows.net/{container}")
+            }
             Bucket::Local => write!(f, ""),
         }
     }
@@ -45,39 +52,83 @@ impl Display for Bucket<'_> {
 impl Bucket<'_> {
     /// Get the bucket and cloud provider from the location string
     pub fn from_path(path: &str) -> Result<Bucket<'_>, Error> {
+        let extract_prefix = |path: &str| {
+            path.split("://")
+                .next()
+                .map(|p| format!("{}://", p))
+                .unwrap_or_default()
+        };
+
         if path.starts_with("s3://") || path.starts_with("s3a://") {
-            let prefix = if path.starts_with("s3://") {
-                "s3://"
-            } else {
-                "s3a://"
-            };
-            path.trim_start_matches(prefix)
+            let prefix = extract_prefix(path);
+            path.trim_start_matches(prefix.as_str())
                 .split('/')
                 .next()
                 .map(Bucket::S3)
                 .ok_or(Error::NotFound(format!("Bucket in path {path}")))
         } else if path.starts_with("gcs://") || path.starts_with("gs://") {
-            let prefix = if path.starts_with("gcs://") {
-                "gcs://"
-            } else {
-                "gs://"
-            };
-            path.trim_start_matches(prefix)
+            let prefix = extract_prefix(path);
+            path.trim_start_matches(prefix.as_str())
                 .split('/')
                 .next()
                 .map(Bucket::GCS)
                 .ok_or(Error::NotFound(format!("Bucket in path {path}")))
+        } else if path.starts_with("az://")
+            || path.starts_with("adl://")
+            || path.starts_with("azure://")
+        {
+            // Format: az://container/path or adl://container/path or azure://container/path
+            let prefix = extract_prefix(path);
+            let container = path
+                .trim_start_matches(prefix.as_str())
+                .split('/')
+                .next()
+                .ok_or(Error::NotFound(format!("Container in path {path}")))?;
+            Ok(Bucket::Azure {
+                account: "",
+                container,
+            })
+        } else if path.starts_with("abfs://") || path.starts_with("abfss://") {
+            let prefix = extract_prefix(path);
+            let remainder = path.trim_start_matches(prefix.as_str());
+
+            if remainder.contains('@') {
+                // Format: abfs[s]://file_system@account_name.dfs.core.windows.net/path
+                let container = remainder
+                    .split('@')
+                    .next()
+                    .ok_or(Error::NotFound(format!("Container in path {path}")))?;
+                let account = remainder
+                    .split('@')
+                    .nth(1)
+                    .and_then(|s| s.split('.').next())
+                    .ok_or(Error::NotFound(format!("Account in path {path}")))?;
+                Ok(Bucket::Azure { account, container })
+            } else {
+                // Format: abfs[s]://container/path
+                let container = remainder
+                    .split('/')
+                    .next()
+                    .ok_or(Error::NotFound(format!("Container in path {path}")))?;
+                Ok(Bucket::Azure {
+                    account: "",
+                    container,
+                })
+            }
         } else if path.starts_with("https://")
             && (path.contains("dfs.core.windows.net")
                 || path.contains("blob.core.windows.net")
                 || path.contains("dfs.fabric.microsoft.com")
                 || path.contains("blob.fabric.microsoft.com"))
         {
-            path.trim_start_matches("https://")
-                .split('/')
-                .nth(1)
-                .map(Bucket::Azure)
-                .ok_or(Error::NotFound(format!("Bucket in path {path}")))
+            // Format: https://account.dfs.core.windows.net/container/path
+            let remainder = path.trim_start_matches("https://");
+            let account = remainder
+                .split('.')
+                .next()
+                .ok_or(Error::NotFound(format!("Account in path {path}")))?;
+            let container = remainder.split('/').nth(1).unwrap_or("");
+            Ok(Bucket::Azure { account, container })
         } else {
             Ok(Bucket::Local)
         }
@@ -179,13 +230,16 @@ impl ObjectStoreBuilder {
     /// Create objectstore from template
     pub fn build(&self, bucket: Bucket) -> Result<Arc<dyn ObjectStore>, Error> {
         match (bucket, self) {
-            (Bucket::Azure(bucket), Self::Azure(builder)) => Ok::<_, Error>(Arc::new(
-                (**builder)
-                    .clone()
-                    .with_container_name(bucket)
-                    .build()
-                    .map_err(Error::from)?,
-            )),
+            (Bucket::Azure { account, container }, Self::Azure(builder)) => {
+                Ok::<_, Error>(Arc::new(
+                    (**builder)
+                        .clone()
+                        .with_account(account)
+                        .with_container_name(container)
+                        .build()
+                        .map_err(Error::from)?,
+                ))
+            }
             (Bucket::S3(bucket), Self::S3(builder)) => Ok::<_, Error>(Arc::new(
                 (**builder)
                     .clone()
@@ -249,45 +303,212 @@ mod tests {
     }
 
     #[test]
-    fn test_from_path_azure_dfs() {
-        let bucket =
-            Bucket::from_path("https://mystorageaccount.dfs.core.windows.net/container/path")
-                .unwrap();
+    fn test_from_path_azure_abfs_simple() {
+        let bucket = Bucket::from_path("abfs://container/path").unwrap();
         match bucket {
-            Bucket::Azure(name) => assert_eq!(name, "container"),
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "");
+                assert_eq!(container, "container");
+            }
             _ => panic!("Expected Azure bucket"),
         }
     }
 
     #[test]
-    fn test_from_path_azure_blob() {
-        let bucket =
-            Bucket::from_path("https://mystorageaccount.blob.core.windows.net/container/path")
-                .unwrap();
+    fn test_from_path_azure_abfss_simple() {
+        let bucket = Bucket::from_path("abfss://container/path").unwrap();
         match bucket {
-            Bucket::Azure(name) => assert_eq!(name, "container"),
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "");
+                assert_eq!(container, "container");
+            }
             _ => panic!("Expected Azure bucket"),
         }
     }
 
     #[test]
-    fn test_from_path_azure_fabric_dfs() {
-        let bucket =
-            Bucket::from_path("https://mystorageaccount.dfs.fabric.microsoft.com/container/path")
-                .unwrap();
+    fn test_from_path_azure_abfs_with_account() {
+        let bucket = Bucket::from_path(
+            "abfs://myfilesystem@mystorageaccount.dfs.core.windows.net/path/to/file",
+        )
+        .unwrap();
         match bucket {
-            Bucket::Azure(name) => assert_eq!(name, "container"),
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "myfilesystem");
+            }
             _ => panic!("Expected Azure bucket"),
         }
     }
 
     #[test]
-    fn test_from_path_azure_fabric_blob() {
+    fn test_from_path_azure_abfss_with_account() {
+        let bucket = Bucket::from_path(
+            "abfss://myfilesystem@mystorageaccount.dfs.core.windows.net/path/to/file",
+        )
+        .unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "myfilesystem");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_abfs_fabric() {
+        let bucket = Bucket::from_path(
+            "abfs://myfilesystem@mystorageaccount.dfs.fabric.microsoft.com/path/to/file",
+        )
+        .unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "myfilesystem");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_abfss_fabric() {
+        let bucket = Bucket::from_path(
+            "abfss://myfilesystem@mystorageaccount.dfs.fabric.microsoft.com/path/to/file",
+        )
+        .unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "myfilesystem");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_az() {
+        let bucket = Bucket::from_path("az://container/path/to/file").unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "");
+                assert_eq!(container, "container");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_adl() {
+        let bucket = Bucket::from_path("adl://container/path/to/file").unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "");
+                assert_eq!(container, "container");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_azure_scheme() {
+        let bucket = Bucket::from_path("azure://container/path/to/file").unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "");
+                assert_eq!(container, "container");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_https_dfs_core() {
+        let bucket = Bucket::from_path("https://mystorageaccount.dfs.core.windows.net").unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_https_blob_core() {
+        let bucket = Bucket::from_path("https://mystorageaccount.blob.core.windows.net").unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_https_blob_core_with_container() {
         let bucket =
-            Bucket::from_path("https://mystorageaccount.blob.fabric.microsoft.com/container/path")
+            Bucket::from_path("https://mystorageaccount.blob.core.windows.net/container").unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "container");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_https_dfs_fabric() {
+        let bucket =
+            Bucket::from_path("https://mystorageaccount.dfs.fabric.microsoft.com").unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_https_dfs_fabric_with_container() {
+        let bucket =
+            Bucket::from_path("https://mystorageaccount.dfs.fabric.microsoft.com/container")
                 .unwrap();
         match bucket {
-            Bucket::Azure(name) => assert_eq!(name, "container"),
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "container");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_https_blob_fabric() {
+        let bucket =
+            Bucket::from_path("https://mystorageaccount.blob.fabric.microsoft.com").unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "");
+            }
+            _ => panic!("Expected Azure bucket"),
+        }
+    }
+
+    #[test]
+    fn test_from_path_azure_https_blob_fabric_with_container() {
+        let bucket =
+            Bucket::from_path("https://mystorageaccount.blob.fabric.microsoft.com/container")
+                .unwrap();
+        match bucket {
+            Bucket::Azure { account, container } => {
+                assert_eq!(account, "mystorageaccount");
+                assert_eq!(container, "container");
+            }
             _ => panic!("Expected Azure bucket"),
         }
     }
