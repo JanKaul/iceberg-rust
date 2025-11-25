@@ -46,13 +46,17 @@
 //!     .await?;
 //!
 //! // Expire old snapshots for maintenance
-//! let expired_snapshot_ids = table.expire_snapshots()
-//!     .expire_older_than(chrono::Utc::now().timestamp_millis() - 30 * 24 * 60 * 60 * 1000)
-//!     .retain_last(10)
-//!     .execute()
+//! table
+//!     .new_transaction(None)
+//!     .expire_snapshots(
+//!         Some(chrono::Utc::now().timestamp_millis() - 30 * 24 * 60 * 60 * 1000),
+//!         Some(10),
+//!         true,
+//!         true,
+//!         false,
+//!     )
+//!     .commit()
 //!     .await?;
-//!     
-//! println!("Expired {} snapshots", expired_snapshot_ids.len());
 //! # Ok(())
 //! # }
 //! ```
