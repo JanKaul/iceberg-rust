@@ -42,7 +42,7 @@ impl Display for Bucket<'_> {
             Bucket::S3(s) => write!(f, "s3://{s}"),
             Bucket::GCS(s) => write!(f, "gs://{s}"),
             Bucket::Azure { account, container } => {
-                write!(f, "abfs://{container}@{account}.dfs.core.windows.net/")
+                write!(f, "abfss://{container}@{account}.dfs.core.windows.net/")
             }
             Bucket::Local => write!(f, ""),
         }
