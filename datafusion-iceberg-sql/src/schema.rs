@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
-use arrow_schema::{FieldRef, Schema};
+use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_sql::{
     planner::SqlToRel,
     sqlparser::{dialect::GenericDialect, parser::Parser},
 };
-use iceberg_rust::{catalog::CatalogList, spec::types::StructType};
+use iceberg_rust::{
+    catalog::CatalogList,
+    spec::{arrow::schema::new_fields_with_ids, types::StructType},
+};
 
 use crate::context::IcebergContext;
 
@@ -24,7 +27,7 @@ pub async fn get_schema(
     let planner = SqlToRel::new(&context);
 
     let logical_plan = planner.sql_statement_to_plan(statement)?;
-    let fields: Vec<FieldRef> = logical_plan.schema().fields().iter().cloned().collect();
+    let fields = new_fields_with_ids(logical_plan.schema().fields(), &mut 1);
     let struct_type = StructType::try_from(&Schema::new(fields))
         .map_err(|err| DataFusionError::External(Box::new(err)))?;
     Ok(struct_type)
