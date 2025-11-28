@@ -18,6 +18,24 @@ use crate::error::Error;
 pub mod parse;
 pub mod store;
 
+/// Azure endpoint types
+#[derive(Debug)]
+pub enum AzureEndpointType {
+    /// Distributed File System
+    DFS,
+    /// Binary Large Object
+    Blob,
+}
+
+impl Display for AzureEndpointType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AzureEndpointType::DFS => write!(f, "dfs"),
+            AzureEndpointType::Blob => write!(f, "blob"),
+        }
+    }
+}
+
 /// Type for buckets for different cloud providers
 #[derive(Debug)]
 pub enum Bucket<'s> {
@@ -31,6 +49,8 @@ pub enum Bucket<'s> {
         account: &'s str,
         /// Container name
         container: &'s str,
+        /// Endpoint type
+        endpoint_type: AzureEndpointType,
     },
     /// No bucket
     Local,
@@ -41,8 +61,15 @@ impl Display for Bucket<'_> {
         match self {
             Bucket::S3(s) => write!(f, "s3://{s}"),
             Bucket::GCS(s) => write!(f, "gs://{s}"),
-            Bucket::Azure { account, container } => {
-                write!(f, "abfss://{container}@{account}.dfs.core.windows.net/")
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
+                write!(
+                    f,
+                    "https://{account}.{endpoint_type}.core.windows.net/{container}"
+                )
             }
             Bucket::Local => write!(f, ""),
         }
@@ -87,6 +114,7 @@ impl Bucket<'_> {
             Ok(Bucket::Azure {
                 account: "",
                 container,
+                endpoint_type: AzureEndpointType::DFS,
             })
         } else if path.starts_with("abfs://") || path.starts_with("abfss://") {
             let prefix = extract_prefix(path);
@@ -103,7 +131,11 @@ impl Bucket<'_> {
                     .nth(1)
                     .and_then(|s| s.split('.').next())
                     .ok_or(Error::NotFound(format!("Account in path {path}")))?;
-                Ok(Bucket::Azure { account, container })
+                Ok(Bucket::Azure {
+                    account,
+                    container,
+                    endpoint_type: AzureEndpointType::DFS,
+                })
             } else {
                 // Format: abfs[s]://container/path
                 let container = remainder
@@ -113,6 +145,7 @@ impl Bucket<'_> {
                 Ok(Bucket::Azure {
                     account: "",
                     container,
+                    endpoint_type: AzureEndpointType::DFS,
                 })
             }
         } else if path.starts_with("https://")
@@ -128,7 +161,18 @@ impl Bucket<'_> {
                 .next()
                 .ok_or(Error::NotFound(format!("Account in path {path}")))?;
             let container = remainder.split('/').nth(1).unwrap_or("");
-            Ok(Bucket::Azure { account, container })
+
+            let endpoint_type = if remainder.contains("blob.") {
+                AzureEndpointType::Blob
+            } else {
+                AzureEndpointType::DFS
+            };
+
+            Ok(Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            })
         } else {
             Ok(Bucket::Local)
         }
@@ -230,16 +274,19 @@ impl ObjectStoreBuilder {
     /// Create objectstore from template
     pub fn build(&self, bucket: Bucket) -> Result<Arc<dyn ObjectStore>, Error> {
         match (bucket, self) {
-            (Bucket::Azure { account, container }, Self::Azure(builder)) => {
-                Ok::<_, Error>(Arc::new(
-                    (**builder)
-                        .clone()
-                        .with_account(account)
-                        .with_container_name(container)
-                        .build()
-                        .map_err(Error::from)?,
-                ))
-            }
+            (
+                Bucket::Azure {
+                    account, container, ..
+                },
+                Self::Azure(builder),
+            ) => Ok::<_, Error>(Arc::new(
+                (**builder)
+                    .clone()
+                    .with_account(account)
+                    .with_container_name(container)
+                    .build()
+                    .map_err(Error::from)?,
+            )),
             (Bucket::S3(bucket), Self::S3(builder)) => Ok::<_, Error>(Arc::new(
                 (**builder)
                     .clone()
@@ -306,9 +353,14 @@ mod tests {
     fn test_from_path_azure_abfs_simple() {
         let bucket = Bucket::from_path("abfs://container/path").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "");
                 assert_eq!(container, "container");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -318,9 +370,14 @@ mod tests {
     fn test_from_path_azure_abfss_simple() {
         let bucket = Bucket::from_path("abfss://container/path").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "");
                 assert_eq!(container, "container");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -333,9 +390,14 @@ mod tests {
         )
         .unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "myfilesystem");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -348,9 +410,14 @@ mod tests {
         )
         .unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "myfilesystem");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -363,9 +430,14 @@ mod tests {
         )
         .unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "myfilesystem");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -378,9 +450,14 @@ mod tests {
         )
         .unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "myfilesystem");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -390,9 +467,14 @@ mod tests {
     fn test_from_path_azure_az() {
         let bucket = Bucket::from_path("az://container/path/to/file").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "");
                 assert_eq!(container, "container");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -402,9 +484,14 @@ mod tests {
     fn test_from_path_azure_adl() {
         let bucket = Bucket::from_path("adl://container/path/to/file").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "");
                 assert_eq!(container, "container");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -414,9 +501,14 @@ mod tests {
     fn test_from_path_azure_azure_scheme() {
         let bucket = Bucket::from_path("azure://container/path/to/file").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "");
                 assert_eq!(container, "container");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -426,9 +518,14 @@ mod tests {
     fn test_from_path_azure_https_dfs_core() {
         let bucket = Bucket::from_path("https://mystorageaccount.dfs.core.windows.net").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -438,9 +535,14 @@ mod tests {
     fn test_from_path_azure_https_blob_core() {
         let bucket = Bucket::from_path("https://mystorageaccount.blob.core.windows.net").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "");
+                assert!(matches!(endpoint_type, AzureEndpointType::Blob));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -451,9 +553,14 @@ mod tests {
         let bucket =
             Bucket::from_path("https://mystorageaccount.blob.core.windows.net/container").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "container");
+                assert!(matches!(endpoint_type, AzureEndpointType::Blob));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -464,9 +571,14 @@ mod tests {
         let bucket =
             Bucket::from_path("https://mystorageaccount.dfs.fabric.microsoft.com").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -478,9 +590,14 @@ mod tests {
             Bucket::from_path("https://mystorageaccount.dfs.fabric.microsoft.com/container")
                 .unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "container");
+                assert!(matches!(endpoint_type, AzureEndpointType::DFS));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -491,9 +608,14 @@ mod tests {
         let bucket =
             Bucket::from_path("https://mystorageaccount.blob.fabric.microsoft.com").unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "");
+                assert!(matches!(endpoint_type, AzureEndpointType::Blob));
             }
             _ => panic!("Expected Azure bucket"),
         }
@@ -505,9 +627,14 @@ mod tests {
             Bucket::from_path("https://mystorageaccount.blob.fabric.microsoft.com/container")
                 .unwrap();
         match bucket {
-            Bucket::Azure { account, container } => {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type,
+            } => {
                 assert_eq!(account, "mystorageaccount");
                 assert_eq!(container, "container");
+                assert!(matches!(endpoint_type, AzureEndpointType::Blob));
             }
             _ => panic!("Expected Azure bucket"),
         }
