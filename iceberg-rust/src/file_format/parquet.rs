@@ -19,9 +19,7 @@ use iceberg_rust_spec::{
     },
 };
 use parquet::{
-    file::{metadata::RowGroupMetaData, writer::TrackedWrite},
-    format::FileMetaData,
-    schema::types::{from_thrift, SchemaDescriptor},
+    file::{metadata::ParquetMetaData, writer::TrackedWrite},
 };
 use thrift::protocol::{TCompactOutputProtocol, TSerializable};
 use tracing::instrument;
@@ -38,7 +36,7 @@ use crate::error::Error;
 pub fn parquet_to_datafile(
     location: &str,
     file_size: u64,
-    file_metadata: &FileMetaData,
+    file_metadata: &ParquetMetaData,
     schema: &Schema,
     partition_fields: &[BoundPartitionField<'_>],
     equality_ids: Option<&[i32]>,
@@ -56,7 +54,7 @@ pub fn parquet_to_datafile(
             ))
         })
         .collect::<Result<HashMap<String, PartitionField>, Error>>()?;
-    let parquet_schema = Arc::new(SchemaDescriptor::new(from_thrift(&file_metadata.schema)?));
+    let _parquet_schema = file_metadata.file_metadata().schema_descr_ptr();
 
     let mut column_sizes = AvroMap(HashMap::new());
     let mut value_counts = AvroMap(HashMap::new());
@@ -65,8 +63,7 @@ pub fn parquet_to_datafile(
     let mut lower_bounds: HashMap<i32, Value> = HashMap::new();
     let mut upper_bounds: HashMap<i32, Value> = HashMap::new();
 
-    for row_group in &file_metadata.row_groups {
-        let row_group = RowGroupMetaData::from_thrift(parquet_schema.clone(), row_group.clone())?;
+    for row_group in file_metadata.row_groups() {
 
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
@@ -300,7 +297,7 @@ pub fn parquet_to_datafile(
         .with_file_path(location.to_string())
         .with_file_format(FileFormat::Parquet)
         .with_partition(partition)
-        .with_record_count(file_metadata.num_rows)
+        .with_record_count(file_metadata.file_metadata().num_rows())
         .with_file_size_in_bytes(file_size as i64)
         .with_column_sizes(Some(column_sizes))
         .with_value_counts(Some(value_counts))
