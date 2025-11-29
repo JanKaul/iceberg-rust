@@ -297,7 +297,6 @@ impl Table {
     pub fn new_transaction(&mut self, branch: Option<&str>) -> TableTransaction<'_> {
         TableTransaction::new(self, branch)
     }
-
 }
 
 /// Path of a Manifest file
