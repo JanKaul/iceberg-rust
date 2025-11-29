@@ -25,6 +25,25 @@ use object_store::local::LocalFileSystem;
 use std::sync::Arc;
 use tempfile::TempDir;
 
+/// Convert DuckDB's Arrow RecordBatch to DataFusion's Arrow RecordBatch
+/// using Arrow IPC format as an interchange format.
+/// This allows compatibility between different Arrow versions.
+fn convert_duckdb_batch_to_datafusion(
+    duckdb_batch: duckdb::arrow::record_batch::RecordBatch,
+) -> RecordBatch {
+    use arrow_ipc::writer::StreamWriter as DuckDBWriter;
+    use datafusion::arrow::ipc::reader::StreamReader as DataFusionReader;
+
+    let mut buffer = Vec::new();
+    let mut writer = DuckDBWriter::try_new(&mut buffer, &duckdb_batch.schema()).unwrap();
+    writer.write(&duckdb_batch).unwrap();
+    writer.finish().unwrap();
+    drop(writer);
+
+    let mut reader = DataFusionReader::try_new(std::io::Cursor::new(buffer), None).unwrap();
+    reader.next().unwrap().unwrap()
+}
+
 #[tokio::test]
 pub async fn test_equality_delete() {
     let temp_dir = TempDir::new().unwrap();
@@ -213,6 +232,7 @@ pub async fn test_equality_delete() {
         .unwrap()
         .query_arrow([table_dir])
         .unwrap()
+        .map(|batch| convert_duckdb_batch_to_datafusion(batch))
         .collect();
     assert_batches_eq!(expected, &duckdb_batches);
 

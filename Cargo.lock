@@ -147,7 +147,7 @@ dependencies = [
  "arrow-cast 57.1.0",
  "arrow-csv",
  "arrow-data 57.1.0",
- "arrow-ipc",
+ "arrow-ipc 57.1.0",
  "arrow-json",
  "arrow-ord 57.1.0",
  "arrow-row 57.1.0",
@@ -323,6 +323,20 @@ dependencies = [
  "half",
  "num-integer",
  "num-traits",
+]
+
+[[package]]
+name = "arrow-ipc"
+version = "56.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d3594dcddccc7f20fd069bc8e9828ce37220372680ff638c5e00dea427d88f5"
+dependencies = [
+ "arrow-array 56.2.0",
+ "arrow-buffer 56.2.0",
+ "arrow-data 56.2.0",
+ "arrow-schema 56.2.0",
+ "arrow-select 56.2.0",
+ "flatbuffers",
 ]
 
 [[package]]
@@ -1885,7 +1899,7 @@ checksum = "7c10f7659e96127d25e8366be7c8be4109595d6a2c3eac70421f380a7006a1b0"
 dependencies = [
  "ahash 0.8.12",
  "arrow 57.1.0",
- "arrow-ipc",
+ "arrow-ipc 57.1.0",
  "chrono",
  "half",
  "hashbrown 0.14.5",
@@ -1954,7 +1968,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "804fa9b4ecf3157982021770617200ef7c1b2979d57bec9044748314775a9aea"
 dependencies = [
  "arrow 57.1.0",
- "arrow-ipc",
+ "arrow-ipc 57.1.0",
  "async-trait",
  "bytes",
  "datafusion-common",
@@ -2438,6 +2452,7 @@ dependencies = [
 name = "datafusion_iceberg"
 version = "0.9.0"
 dependencies = [
+ "arrow-ipc 56.2.0",
  "async-trait",
  "chrono",
  "dashmap",
@@ -4359,7 +4374,7 @@ dependencies = [
  "arrow-buffer 57.1.0",
  "arrow-cast 57.1.0",
  "arrow-data 57.1.0",
- "arrow-ipc",
+ "arrow-ipc 57.1.0",
  "arrow-schema 57.1.0",
  "arrow-select 57.1.0",
  "base64 0.22.1",
