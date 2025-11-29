@@ -366,6 +366,7 @@ impl DateTransform {
                 ]),
             ]),
             volatility: Volatility::Immutable,
+            parameter_names: None,
         };
         Self { signature }
     }
