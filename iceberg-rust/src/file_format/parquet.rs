@@ -5,7 +5,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
     ops::Sub,
-    sync::Arc,
 };
 
 use iceberg_rust_spec::{
