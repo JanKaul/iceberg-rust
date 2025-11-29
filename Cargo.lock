@@ -74,9 +74,9 @@ dependencies = [
 
 [[package]]
 name = "apache-avro"
-version = "0.18.0"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61a81f4e6304e455a9d52cf8ab667cb2fcf792f2cee2a31c28800901a335ecd5"
+checksum = "36fa98bc79671c7981272d91a8753a928ff6a1cd8e4f20a44c45bd5d313840bf"
 dependencies = [
  "bigdecimal",
  "bon",
@@ -1201,7 +1201,6 @@ dependencies = [
  "num-integer",
  "num-traits",
  "serde",
- "serde_json",
 ]
 
 [[package]]

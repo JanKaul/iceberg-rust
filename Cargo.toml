@@ -14,7 +14,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-apache-avro = "0.18"
+apache-avro = "0.21"
 arrow = "57"
 arrow-schema = "57"
 async-trait = "0.1"
