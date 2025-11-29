@@ -775,7 +775,7 @@ async fn table_scan(
                             )
                             .with_file_group(FileGroup::new(data_files))
                             .with_statistics(statistics)
-                            .with_projection(Some(equality_projection))
+                            .with_projection_indices(Some(equality_projection))
                             .with_limit(limit)
                             .with_table_partition_cols(table_partition_cols)
                             .build();
@@ -785,7 +785,7 @@ async fn table_scan(
                                 .await?;
 
                             let right = if let Some(acc) = acc {
-                                Arc::new(UnionExec::new(vec![acc, data_files_scan]))
+                                UnionExec::try_new(vec![acc, data_files_scan])?
                             } else {
                                 data_files_scan
                             };
@@ -855,7 +855,7 @@ async fn table_scan(
                     )
                     .with_file_group(FileGroup::new(additional_data_files))
                     .with_statistics(statistics)
-                    .with_projection(Some(equality_projection))
+                    .with_projection_indices(Some(equality_projection))
                     .with_limit(limit)
                     .with_table_partition_cols(table_partition_cols)
                     .build();
@@ -864,7 +864,7 @@ async fn table_scan(
                         .create_physical_plan(session, file_scan_config)
                         .await?;
 
-                    plan = Arc::new(UnionExec::new(vec![plan, data_files_scan]));
+                    plan = UnionExec::try_new(vec![plan, data_files_scan])?;
                 }
 
                 Ok::<_, DataFusionError>(Arc::new(ProjectionExec::try_new(projection_expr, plan)?)
@@ -904,7 +904,7 @@ async fn table_scan(
             FileScanConfigBuilder::new(object_store_url, file_schema, file_source)
                 .with_file_groups(file_groups)
                 .with_statistics(statistics)
-                .with_projection(Some(projection.clone()))
+                .with_projection_indices(Some(projection.clone()))
                 .with_limit(limit)
                 .with_table_partition_cols(table_partition_cols)
                 .build();
@@ -925,7 +925,7 @@ async fn table_scan(
             Ok(Arc::new(EmptyExec::new(Arc::new(projected_schema))))
         }
         1 => Ok(plans.remove(0)),
-        _ => Ok(Arc::new(UnionExec::new(plans))),
+        _ => Ok(UnionExec::try_new(plans)?),
     }
 }
 
