@@ -951,145 +951,6 @@ impl Operation {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use futures::executor::block_on;
-    use iceberg_rust_spec::spec::schema::SchemaBuilder;
-    use iceberg_rust_spec::spec::table_metadata::TableMetadataBuilder;
-    use iceberg_rust_spec::spec::types::{PrimitiveType, StructField, Type};
-    use object_store::memory::InMemory;
-
-    fn sample_metadata(
-        snapshot_defs: &[(i64, i64)],
-        current_snapshot: Option<i64>,
-        refs: &[(&str, i64)],
-    ) -> TableMetadata {
-        let schema = SchemaBuilder::default()
-            .with_schema_id(0)
-            .with_struct_field(StructField {
-                id: 1,
-                name: "id".to_string(),
-                required: true,
-                field_type: Type::Primitive(PrimitiveType::Long),
-                doc: None,
-            })
-            .build()
-            .unwrap();
-
-        let snapshots = snapshot_defs
-            .iter()
-            .enumerate()
-            .map(|(idx, (snapshot_id, timestamp))| {
-                let snapshot = SnapshotBuilder::default()
-                    .with_snapshot_id(*snapshot_id)
-                    .with_sequence_number((idx + 1) as i64)
-                    .with_timestamp_ms(*timestamp)
-                    .with_manifest_list(format!("manifest-{snapshot_id}.avro"))
-                    .with_summary(Summary {
-                        operation: SnapshotOperation::Append,
-                        other: HashMap::new(),
-                    })
-                    .with_schema_id(0)
-                    .build()
-                    .unwrap();
-                (*snapshot_id, snapshot)
-            })
-            .collect::<HashMap<_, _>>();
-
-        let refs = refs
-            .iter()
-            .map(|(name, snapshot_id)| {
-                (
-                    (*name).to_string(),
-                    SnapshotReference {
-                        snapshot_id: *snapshot_id,
-                        retention: SnapshotRetention::default(),
-                    },
-                )
-            })
-            .collect::<HashMap<_, _>>();
-
-        TableMetadataBuilder::default()
-            .location("s3://tests/table".to_owned())
-            .current_schema_id(0)
-            .schemas(HashMap::from_iter(vec![(0, schema)]))
-            .snapshots(snapshots)
-            .current_snapshot_id(current_snapshot)
-            .last_sequence_number(snapshot_defs.len() as i64)
-            .refs(refs)
-            .build()
-            .unwrap()
-    }
-
-    fn execute_operation(
-        metadata: &TableMetadata,
-        older_than: Option<i64>,
-        retain_last: Option<usize>,
-        retain_refs: bool,
-        dry_run: bool,
-    ) -> Result<Vec<TableUpdate>, Error> {
-        let op = Operation::ExpireSnapshots {
-            older_than,
-            retain_last,
-            _clean_orphan_files: false,
-            retain_ref_snapshots: retain_refs,
-            dry_run,
-        };
-        let store = Arc::new(InMemory::new());
-        block_on(op.execute(metadata, store)).map(|(_, updates)| updates)
-    }
-
-    fn collect_snapshot_ids(updates: &[TableUpdate]) -> Vec<i64> {
-        updates
-            .iter()
-            .flat_map(|update| match update {
-                TableUpdate::RemoveSnapshots { snapshot_ids } => snapshot_ids.clone(),
-                _ => Vec::new(),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn snapshot_expiration_requires_policy() {
-        let metadata = sample_metadata(&[(1, 1_000)], Some(1), &[]);
-        let result = execute_operation(&metadata, None, None, true, false);
-        assert!(matches!(result, Err(Error::InvalidFormat(_))));
-    }
-
-    #[test]
-    fn snapshot_expiration_applies_time_and_count_filters() {
-        let metadata = sample_metadata(
-            &[(1, 1_000), (2, 2_000), (3, 3_000), (4, 4_000)],
-            Some(4),
-            &[],
-        );
-        let updates = execute_operation(&metadata, Some(2_500), Some(2), true, false).unwrap();
-        let mut expired = collect_snapshot_ids(&updates);
-        expired.sort();
-        assert_eq!(expired, vec![1, 2]);
-    }
-
-    #[test]
-    fn snapshot_expiration_preserves_current_and_refs() {
-        let metadata = sample_metadata(
-            &[(10, 1_000), (20, 2_000), (30, 3_000)],
-            Some(30),
-            &[("branch", 20)],
-        );
-        let updates = execute_operation(&metadata, Some(1_500), None, true, false).unwrap();
-        // Snapshot 10 is the only candidate because 20 is referenced and 30 is current.
-        assert_eq!(collect_snapshot_ids(&updates), vec![10]);
-    }
-
-    #[test]
-    fn snapshot_expiration_supports_dry_run() {
-        let metadata = sample_metadata(&[(1, 1_000), (2, 900)], Some(1), &[]);
-        let updates = execute_operation(&metadata, Some(950), None, true, true).unwrap();
-        assert!(updates.is_empty());
-    }
-}
-
 pub fn bounding_partition_values<'a>(
     mut iter: impl Iterator<Item = &'a DataFile>,
     partition_column_names: &SmallVec<[&str; 4]>,
@@ -1307,5 +1168,144 @@ pub fn compute_n_splits(
     match new_manifest_file_count / limit {
         0 => 0,
         x => x.ilog2() + 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::executor::block_on;
+    use iceberg_rust_spec::spec::schema::SchemaBuilder;
+    use iceberg_rust_spec::spec::table_metadata::TableMetadataBuilder;
+    use iceberg_rust_spec::spec::types::{PrimitiveType, StructField, Type};
+    use object_store::memory::InMemory;
+
+    fn sample_metadata(
+        snapshot_defs: &[(i64, i64)],
+        current_snapshot: Option<i64>,
+        refs: &[(&str, i64)],
+    ) -> TableMetadata {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .build()
+            .unwrap();
+
+        let snapshots = snapshot_defs
+            .iter()
+            .enumerate()
+            .map(|(idx, (snapshot_id, timestamp))| {
+                let snapshot = SnapshotBuilder::default()
+                    .with_snapshot_id(*snapshot_id)
+                    .with_sequence_number((idx + 1) as i64)
+                    .with_timestamp_ms(*timestamp)
+                    .with_manifest_list(format!("manifest-{snapshot_id}.avro"))
+                    .with_summary(Summary {
+                        operation: SnapshotOperation::Append,
+                        other: HashMap::new(),
+                    })
+                    .with_schema_id(0)
+                    .build()
+                    .unwrap();
+                (*snapshot_id, snapshot)
+            })
+            .collect::<HashMap<_, _>>();
+
+        let refs = refs
+            .iter()
+            .map(|(name, snapshot_id)| {
+                (
+                    (*name).to_string(),
+                    SnapshotReference {
+                        snapshot_id: *snapshot_id,
+                        retention: SnapshotRetention::default(),
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        TableMetadataBuilder::default()
+            .location("s3://tests/table".to_owned())
+            .current_schema_id(0)
+            .schemas(HashMap::from_iter(vec![(0, schema)]))
+            .snapshots(snapshots)
+            .current_snapshot_id(current_snapshot)
+            .last_sequence_number(snapshot_defs.len() as i64)
+            .refs(refs)
+            .build()
+            .unwrap()
+    }
+
+    fn execute_operation(
+        metadata: &TableMetadata,
+        older_than: Option<i64>,
+        retain_last: Option<usize>,
+        retain_refs: bool,
+        dry_run: bool,
+    ) -> Result<Vec<TableUpdate>, Error> {
+        let op = Operation::ExpireSnapshots {
+            older_than,
+            retain_last,
+            _clean_orphan_files: false,
+            retain_ref_snapshots: retain_refs,
+            dry_run,
+        };
+        let store = Arc::new(InMemory::new());
+        block_on(op.execute(metadata, store)).map(|(_, updates)| updates)
+    }
+
+    fn collect_snapshot_ids(updates: &[TableUpdate]) -> Vec<i64> {
+        updates
+            .iter()
+            .flat_map(|update| match update {
+                TableUpdate::RemoveSnapshots { snapshot_ids } => snapshot_ids.clone(),
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn snapshot_expiration_requires_policy() {
+        let metadata = sample_metadata(&[(1, 1_000)], Some(1), &[]);
+        let result = execute_operation(&metadata, None, None, true, false);
+        assert!(matches!(result, Err(Error::InvalidFormat(_))));
+    }
+
+    #[test]
+    fn snapshot_expiration_applies_time_and_count_filters() {
+        let metadata = sample_metadata(
+            &[(1, 1_000), (2, 2_000), (3, 3_000), (4, 4_000)],
+            Some(4),
+            &[],
+        );
+        let updates = execute_operation(&metadata, Some(2_500), Some(2), true, false).unwrap();
+        let mut expired = collect_snapshot_ids(&updates);
+        expired.sort();
+        assert_eq!(expired, vec![1, 2]);
+    }
+
+    #[test]
+    fn snapshot_expiration_preserves_current_and_refs() {
+        let metadata = sample_metadata(
+            &[(10, 1_000), (20, 2_000), (30, 3_000)],
+            Some(30),
+            &[("branch", 20)],
+        );
+        let updates = execute_operation(&metadata, Some(1_500), None, true, false).unwrap();
+        // Snapshot 10 is the only candidate because 20 is referenced and 30 is current.
+        assert_eq!(collect_snapshot_ids(&updates), vec![10]);
+    }
+
+    #[test]
+    fn snapshot_expiration_supports_dry_run() {
+        let metadata = sample_metadata(&[(1, 1_000), (2, 900)], Some(1), &[]);
+        let updates = execute_operation(&metadata, Some(950), None, true, true).unwrap();
+        assert!(updates.is_empty());
     }
 }
