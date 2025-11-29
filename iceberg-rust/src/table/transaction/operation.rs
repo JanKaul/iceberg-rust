@@ -100,21 +100,21 @@ pub enum Operation {
         files_to_overwrite: HashMap<String, Vec<String>>,
         additional_summary: Option<HashMap<String, String>>,
     }, // /// Remove or replace rows in existing data files
-       // NewRowDelta,
-       // /// Delete files in the table and commit
-       // NewDelete,
+    // NewRowDelta,
+    // /// Delete files in the table and commit
+    // NewDelete,
     /// Expire snapshots in the table
     ExpireSnapshots {
         older_than: Option<i64>,
         retain_last: Option<usize>,
-        clean_orphan_files: bool,
+        _clean_orphan_files: bool,
         retain_ref_snapshots: bool,
         dry_run: bool,
     },
-       // /// Manage snapshots in the table
-       // ManageSnapshots,
-       // /// Read and write table data and metadata files
-       // IO,
+    // /// Manage snapshots in the table
+    // ManageSnapshots,
+    // /// Read and write table data and metadata files
+    // IO,
 }
 
 impl Operation {
@@ -851,16 +851,17 @@ impl Operation {
             Operation::ExpireSnapshots {
                 older_than,
                 retain_last,
-                clean_orphan_files: _,
+                _clean_orphan_files: _,
                 retain_ref_snapshots,
                 dry_run,
             } => {
                 debug!("Executing ExpireSnapshots operation");
-                
+
                 // Validate parameters
                 if older_than.is_none() && retain_last.is_none() {
                     return Err(Error::InvalidFormat(
-                        "Must specify either older_than or retain_last for snapshot expiration".into()
+                        "Must specify either older_than or retain_last for snapshot expiration"
+                            .into(),
                     ));
                 }
 
@@ -890,11 +891,9 @@ impl Operation {
                     let mut should_retain = false;
 
                     // Never expire the current snapshot
-                    if Some(snapshot_id) == current_snapshot_id {
-                        should_retain = true;
-                    }
-                    // Never expire snapshots referenced by branches/tags
-                    else if ref_snapshot_ids.contains(&snapshot_id) {
+                    if Some(snapshot_id) == current_snapshot_id
+                        || ref_snapshot_ids.contains(&snapshot_id)
+                    {
                         should_retain = true;
                     }
                     // Keep the most recent N snapshots if retain_last is specified
@@ -920,7 +919,11 @@ impl Operation {
 
                 // If dry run, return without making changes
                 if dry_run {
-                    debug!("Dry run: would expire {} snapshots: {:?}", snapshots_to_expire.len(), snapshots_to_expire);
+                    debug!(
+                        "Dry run: would expire {} snapshots: {:?}",
+                        snapshots_to_expire.len(),
+                        snapshots_to_expire
+                    );
                     return Ok((None, vec![]));
                 }
 
@@ -930,12 +933,19 @@ impl Operation {
                     return Ok((None, vec![]));
                 }
 
-                debug!("Expiring {} snapshots: {:?}", snapshots_to_expire.len(), snapshots_to_expire);
+                debug!(
+                    "Expiring {} snapshots: {:?}",
+                    snapshots_to_expire.len(),
+                    snapshots_to_expire
+                );
 
                 // Return the RemoveSnapshots update
-                Ok((None, vec![TableUpdate::RemoveSnapshots {
-                    snapshot_ids: snapshots_to_expire,
-                }]))
+                Ok((
+                    None,
+                    vec![TableUpdate::RemoveSnapshots {
+                        snapshot_ids: snapshots_to_expire,
+                    }],
+                ))
             }
         }
     }
@@ -1022,7 +1032,7 @@ mod tests {
         let op = Operation::ExpireSnapshots {
             older_than,
             retain_last,
-            clean_orphan_files: false,
+            _clean_orphan_files: false,
             retain_ref_snapshots: retain_refs,
             dry_run,
         };
@@ -1065,7 +1075,7 @@ mod tests {
         let metadata = sample_metadata(
             &[(10, 1_000), (20, 2_000), (30, 3_000)],
             Some(30),
-            &[ ("branch", 20) ],
+            &[("branch", 20)],
         );
         let updates = execute_operation(&metadata, Some(1_500), None, true, false).unwrap();
         // Snapshot 10 is the only candidate because 20 is referenced and 30 is current.

@@ -437,7 +437,7 @@ impl<'table> TableTransaction<'table> {
         self.operations[EXPIRE_SNAPSHOTS_INDEX] = Some(Operation::ExpireSnapshots {
             older_than,
             retain_last,
-            clean_orphan_files,
+            _clean_orphan_files: clean_orphan_files,
             retain_ref_snapshots,
             dry_run,
         });
