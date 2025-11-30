@@ -68,7 +68,7 @@ impl Display for Bucket<'_> {
             } => {
                 write!(
                     f,
-                    "https://{account}.{endpoint_type}.core.windows.net/{container}"
+                    "abfss://{container}@{account}.{endpoint_type}.core.windows.net"
                 )
             }
             Bucket::Local => write!(f, ""),
