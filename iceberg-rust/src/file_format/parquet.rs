@@ -17,9 +17,7 @@ use iceberg_rust_spec::{
         values::{Struct, Value},
     },
 };
-use parquet::{
-    file::{metadata::ParquetMetaData, writer::TrackedWrite},
-};
+use parquet::file::{metadata::ParquetMetaData, writer::TrackedWrite};
 use thrift::protocol::{TCompactOutputProtocol, TSerializable};
 use tracing::instrument;
 
@@ -63,7 +61,6 @@ pub fn parquet_to_datafile(
     let mut upper_bounds: HashMap<i32, Value> = HashMap::new();
 
     for row_group in file_metadata.row_groups() {
-
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
             let id = schema
