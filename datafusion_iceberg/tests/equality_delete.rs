@@ -232,7 +232,7 @@ pub async fn test_equality_delete() {
         .unwrap()
         .query_arrow([table_dir])
         .unwrap()
-        .map(|batch| convert_duckdb_batch_to_datafusion(batch))
+        .map(convert_duckdb_batch_to_datafusion)
         .collect();
     assert_batches_eq!(expected, &duckdb_batches);
 
