@@ -14,22 +14,22 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-apache-avro = "0.18"
-arrow = "56"
-arrow-schema = "56"
+apache-avro = "0.21"
+arrow = "57"
+arrow-schema = "57"
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = [
     "serde",
     "clock",
 ] }
-datafusion = "50"
-datafusion-common = "50"
-datafusion-execution = "50"
-datafusion-expr = "50"
-datafusion-functions = { version = "50", features = ["crypto_expressions"] }
-datafusion-functions-aggregate = "50"
-datafusion-sql = "50"
+datafusion = "51"
+datafusion-common = "51"
+datafusion-execution = "51"
+datafusion-expr = "51"
+datafusion-functions = { version = "51", features = ["crypto_expressions"] }
+datafusion-functions-aggregate = "51"
+datafusion-sql = "51"
 derive-getters = "0.5.0"
 derive_builder = "0.20"
 futures = "0.3.31"
@@ -39,13 +39,13 @@ lazy_static = "1.5.0"
 lru = "0.16.0"
 object_store = { version = "0.12", features = ["aws", "gcp", "azure"] }
 murmur3 = { version = "0.5.2" }
-parquet = { version = "56", features = ["async", "object_store"] }
+parquet = { version = "57", features = ["async", "object_store"] }
 pin-project-lite = "0.2"
 regex = "1.11.1"
 serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"
-sqlparser = { version = "0.58", features = ["visitor"] }
+sqlparser = { version = "0.59", features = ["visitor"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-futures = "0.2"

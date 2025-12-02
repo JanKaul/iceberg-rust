@@ -54,8 +54,7 @@ use iceberg_rust_spec::{
 use parquet::{
     arrow::AsyncArrowWriter,
     basic::{Compression, ZstdLevel},
-    file::properties::WriterProperties,
-    format::FileMetaData,
+    file::{metadata::ParquetMetaData, properties::WriterProperties},
 };
 use uuid::Uuid;
 
@@ -294,8 +293,8 @@ async fn store_parquet_partitioned(
     }
 }
 
-type ArrowSender = Sender<(String, FileMetaData)>;
-type ArrowReciever = Receiver<(String, FileMetaData)>;
+type ArrowSender = Sender<(String, ParquetMetaData)>;
+type ArrowReciever = Receiver<(String, ParquetMetaData)>;
 
 #[instrument(skip(batches, object_store), fields(data_location, equality_ids = ?equality_ids))]
 /// Writes a stream of Arrow record batches to multiple Parquet files.
