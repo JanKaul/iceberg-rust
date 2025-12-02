@@ -364,8 +364,11 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         writer.extend(
             manifest_reader
                 .map(|entry| {
-                    let mut entry = entry
-                        .map_err(|err| apache_avro::Error::new(apache_avro::error::Details::DeserializeValue(err.to_string())))?;
+                    let mut entry = entry.map_err(|err| {
+                        apache_avro::Error::new(apache_avro::error::Details::DeserializeValue(
+                            err.to_string(),
+                        ))
+                    })?;
                     *entry.status_mut() = Status::Existing;
                     if entry.sequence_number().is_none() {
                         *entry.sequence_number_mut() = Some(manifest.sequence_number);
@@ -498,7 +501,11 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
 
         writer.extend(manifest_reader.filter_map(|entry| {
             let mut entry = entry
-                .map_err(|err| apache_avro::Error::new(apache_avro::error::Details::DeserializeValue(err.to_string())))
+                .map_err(|err| {
+                    apache_avro::Error::new(apache_avro::error::Details::DeserializeValue(
+                        err.to_string(),
+                    ))
+                })
                 .unwrap();
             if !filter.contains(entry.data_file().file_path()) {
                 *entry.status_mut() = Status::Existing;
