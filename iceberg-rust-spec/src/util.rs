@@ -35,5 +35,13 @@ mod tests {
         assert_eq!(strip_prefix("s3://bucket/a/b"), "/a/b");
         assert_eq!(strip_prefix("gs://bucket/a/b"), "/a/b");
         assert_eq!(strip_prefix("az://bucket/a/b"), "/a/b");
+        assert_eq!(
+            strip_prefix("abfss://container@account.dfs.core.windows.net/a/b"),
+            "/a/b"
+        );
+        assert_eq!(
+            strip_prefix("abfs://container@account.dfs.core.windows.net/a/b"),
+            "/a/b"
+        );
     }
 }
