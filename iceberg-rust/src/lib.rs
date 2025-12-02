@@ -13,6 +13,7 @@
 //! * Time travel and snapshot isolation
 //! * View and materialized view support
 //! * Multiple catalog implementations (REST, AWS Glue, File-based)
+//! * Table maintenance operations (snapshot expiration, orphan file cleanup)
 //!
 //! # Components
 //!
@@ -41,6 +42,19 @@
 //! // Start a transaction
 //! table.new_transaction(None)
 //!     .update_schema(new_schema)
+//!     .commit()
+//!     .await?;
+//!
+//! // Expire old snapshots for maintenance
+//! table
+//!     .new_transaction(None)
+//!     .expire_snapshots(
+//!         Some(chrono::Utc::now().timestamp_millis() - 30 * 24 * 60 * 60 * 1000),
+//!         Some(10),
+//!         true,
+//!         true,
+//!         false,
+//!     )
 //!     .commit()
 //!     .await?;
 //! # Ok(())

@@ -28,6 +28,13 @@ It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org
 | Equality deletes | :white_check_mark: |
 | Positional deletes | |
 
+### Table Maintenance
+
+| Feature | Status |
+| --- | --- |
+| Expire snapshots | :white_check_mark: |
+| Orphan file cleanup | :white_check_mark: |
+
 ### Iceberg Views
 
 | Feature | Status |
@@ -61,6 +68,8 @@ It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org
 ## Example
 
 Check out the [datafusion examples](datafusion_iceberg/examples).
+
+### Basic Table Operations
 
 ```rust
 use datafusion::{arrow::array::Int64Array, prelude::SessionContext};
