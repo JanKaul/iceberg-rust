@@ -358,6 +358,11 @@ impl Catalog for RestCatalog {
                         x.build(bucket)
                     })
             })?;
+        
+        self.cache
+            .write()
+            .unwrap()
+            .insert(identifier.clone(), object_store.clone());
 
         Table::new(identifier.clone(), self, object_store, response.metadata).await
     }
