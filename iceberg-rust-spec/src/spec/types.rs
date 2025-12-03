@@ -129,7 +129,8 @@ where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    let (precision, scale) = s
+    let binding = s.replace(" ", "");
+    let (precision, scale) = binding
         .trim_start_matches(r"decimal(")
         .trim_end_matches(')')
         .split_once(',')
@@ -137,7 +138,7 @@ where
 
     Ok(PrimitiveType::Decimal {
         precision: precision.parse().map_err(D::Error::custom)?,
-        scale: scale.trim().parse().map_err(D::Error::custom)?,
+        scale: scale.parse().map_err(D::Error::custom)?,
     })
 }
 

@@ -146,10 +146,10 @@ impl TryFrom<&DataType> for Type {
     fn try_from(value: &DataType) -> Result<Self, Self::Error> {
         match value {
             DataType::Boolean => Ok(Type::Primitive(PrimitiveType::Boolean)),
-            DataType::Int8 | DataType::Int16 | DataType::Int32 => {
+            DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::UInt32 => {
                 Ok(Type::Primitive(PrimitiveType::Int))
             }
-            DataType::Int64 => Ok(Type::Primitive(PrimitiveType::Long)),
+            DataType::Int64 | DataType::UInt64 => Ok(Type::Primitive(PrimitiveType::Long)),
             DataType::Float32 => Ok(Type::Primitive(PrimitiveType::Float)),
             DataType::Float64 => Ok(Type::Primitive(PrimitiveType::Double)),
             DataType::Decimal128(precision, scale) => Ok(Type::Primitive(PrimitiveType::Decimal {

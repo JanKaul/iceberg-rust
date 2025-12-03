@@ -209,7 +209,7 @@ pub enum TableRequirement {
         /// Name of ref
         r#ref: String,
         /// Snapshot id
-        snapshot_id: i64,
+        snapshot_id: Option<i64>,
     },
     /// The table's last assigned column id must match the requirement's `last-assigned-field-id`
     AssertLastAssignedFieldId {
@@ -348,11 +348,14 @@ pub fn check_table_requirements(
         // Assert create has to be check in another place
         TableRequirement::AssertCreate => true,
         TableRequirement::AssertTableUuid { uuid } => metadata.table_uuid == *uuid,
-        TableRequirement::AssertRefSnapshotId { r#ref, snapshot_id } => metadata
-            .refs
-            .get(r#ref)
-            .map(|id| id.snapshot_id == *snapshot_id)
-            .unwrap_or(false),
+        TableRequirement::AssertRefSnapshotId { r#ref, snapshot_id } => {
+            match (snapshot_id, metadata.snapshot_for_ref(r#ref)) {
+                (Some(snapshot_id), Some(snapshot_ref)) => {
+                    snapshot_ref.snapshot_id() == snapshot_id
+                }
+                _ => true,
+            }
+        }
         TableRequirement::AssertLastAssignedFieldId {
             last_assigned_field_id,
         } => metadata.last_column_id == *last_assigned_field_id,
@@ -497,6 +500,7 @@ pub fn apply_table_updates(
                     snapshot_id: *snapshot.snapshot_id(),
                     timestamp_ms: *snapshot.timestamp_ms(),
                 });
+                metadata.last_updated_ms = *snapshot.timestamp_ms();
                 metadata.last_sequence_number = *snapshot.sequence_number();
                 metadata.snapshots.insert(*snapshot.snapshot_id(), snapshot);
             }

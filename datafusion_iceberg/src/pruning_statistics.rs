@@ -45,13 +45,13 @@ use iceberg_rust::{
     table::ManifestPath,
 };
 
-pub(crate) struct PruneManifests<'table, 'manifests> {
+pub struct PruneManifests<'table, 'manifests> {
     partition_fields: &'table [BoundPartitionField<'table>],
     files: &'manifests [ManifestListEntry],
 }
 
 impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
-    pub(crate) fn new(
+    pub fn new(
         partition_fields: &'table [BoundPartitionField<'table>],
         files: &'manifests [ManifestListEntry],
     ) -> Self {
@@ -142,14 +142,14 @@ impl PruningStatistics for PruneManifests<'_, '_> {
     }
 }
 
-pub(crate) struct PruneDataFiles<'table, 'manifests> {
+pub struct PruneDataFiles<'table, 'manifests> {
     schema: &'table Schema,
     arrow_schema: &'table ArrowSchema,
     files: &'manifests [(ManifestPath, ManifestEntry)],
 }
 
 impl<'table, 'manifests> PruneDataFiles<'table, 'manifests> {
-    pub(crate) fn new(
+    pub fn new(
         schema: &'table Schema,
         arrow_schema: &'table ArrowSchema,
         files: &'manifests [(ManifestPath, ManifestEntry)],
@@ -283,7 +283,7 @@ fn any_iter_to_array(
     }
 }
 
-pub(crate) fn transform_predicate(
+pub fn transform_predicate(
     expr: Expr,
     partition_fields: &[BoundPartitionField],
 ) -> Result<Expr, DataFusionError> {

@@ -410,10 +410,12 @@ async fn plan_drop_namespace(
     let namespace = Namespace::try_new(&[namespace_name.to_owned()])
         .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
-    catalog
-        .drop_namespace(&namespace)
-        .await
-        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    if catalog.load_namespace(&namespace).await.is_ok() {
+        catalog
+            .drop_namespace(&namespace)
+            .await
+            .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    }
 
     iceberg_catalog.deregister_schema(&namespace_name, false)?;
 

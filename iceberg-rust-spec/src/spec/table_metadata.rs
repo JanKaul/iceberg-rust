@@ -193,6 +193,22 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("partition spec".to_string()))
     }
 
+    /// Lookup snapshot by id.
+    #[inline]
+    pub fn snapshot_by_id(&self, snapshot_id: i64) -> Option<&Snapshot> {
+        self.snapshots.get(&snapshot_id)
+    }
+
+    /// Get the snapshot for a reference
+    /// Returns an option if the `ref_name` is not found
+    #[inline]
+    pub fn snapshot_for_ref(&self, ref_name: &str) -> Option<&Snapshot> {
+        self.refs.get(ref_name).map(|r| {
+            self.snapshot_by_id(r.snapshot_id)
+                .unwrap_or_else(|| panic!("Snapshot id of ref {} doesn't exist", ref_name))
+        })
+    }
+
     /// Gets the current partition fields for a given branch, binding them to their source schema fields
     ///
     /// # Arguments
