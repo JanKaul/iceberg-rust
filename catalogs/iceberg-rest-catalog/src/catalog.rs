@@ -358,7 +358,7 @@ impl Catalog for RestCatalog {
                         x.build(bucket)
                     })
             })?;
-        
+
         self.cache
             .write()
             .unwrap()
