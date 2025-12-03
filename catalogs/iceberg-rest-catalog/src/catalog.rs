@@ -359,6 +359,11 @@ impl Catalog for RestCatalog {
                     })
             })?;
 
+        self.cache
+            .write()
+            .unwrap()
+            .insert(identifier.clone(), object_store.clone());
+
         Table::new(identifier.clone(), self, object_store, response.metadata).await
     }
     /// Update a table by atomically changing the pointer to the metadata file
