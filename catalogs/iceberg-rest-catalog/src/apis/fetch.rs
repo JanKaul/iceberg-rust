@@ -32,11 +32,11 @@ where
     let mut req_builder = client.request(method.clone(), &uri);
 
     if let Some(ref aws_v4_key) = configuration.aws_v4_key {
-        let new_headers = match aws_v4_key.sign(
-            &uri,
-            method.as_str(),
-            &serde_json::to_string(&request).expect("param should serialize to string"),
-        ) {
+        let body_str = match serde_json::to_value(&request) {
+            Ok(serde_json::Value::Null) => "",
+            _ => &serde_json::to_string(&request).expect("param should serialize to string"),
+        };
+        let new_headers = match aws_v4_key.sign(&uri, method.as_str(), body_str) {
             Ok(new_headers) => new_headers,
             Err(err) => return Err(Error::AWSV4SignatureError(err)),
         };
@@ -109,11 +109,11 @@ where
     let mut req_builder = client.request(method.clone(), &uri);
 
     if let Some(ref aws_v4_key) = configuration.aws_v4_key {
-        let new_headers = match aws_v4_key.sign(
-            &uri,
-            method.as_str(),
-            &serde_json::to_string(&request).expect("param should serialize to string"),
-        ) {
+        let body_str = match serde_json::to_value(&request) {
+            Ok(serde_json::Value::Null) => "",
+            _ => &serde_json::to_string(&request).expect("param should serialize to string"),
+        };
+        let new_headers = match aws_v4_key.sign(&uri, method.as_str(), body_str) {
             Ok(new_headers) => new_headers,
             Err(err) => return Err(Error::AWSV4SignatureError(err)),
         };
