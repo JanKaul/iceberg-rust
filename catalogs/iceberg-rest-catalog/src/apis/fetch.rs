@@ -41,12 +41,10 @@ where
             _ => &serde_json::to_string(&request).expect("param should serialize to string"),
         };
         let uri_for_signing = match req_builder.try_clone() {
-            Some(cloned_builder) => {
-                match cloned_builder.build() {
-                    Ok(tmp_req) => tmp_req.url().as_str().to_string(),
-                    Err(_) => uri.clone(),
-                }
-            }
+            Some(cloned_builder) => match cloned_builder.build() {
+                Ok(tmp_req) => tmp_req.url().as_str().to_string(),
+                Err(_) => uri.clone(),
+            },
             None => uri.clone(),
         };
         let new_headers = match aws_v4_key.sign(&uri_for_signing, method.as_str(), body_str) {
@@ -128,12 +126,10 @@ where
             _ => &serde_json::to_string(&request).expect("param should serialize to string"),
         };
         let uri_for_signing = match req_builder.try_clone() {
-            Some(cloned_builder) => {
-                match cloned_builder.build() {
-                    Ok(tmp_req) => tmp_req.url().as_str().to_string(),
-                    Err(_) => uri.clone(),
-                }
-            }
+            Some(cloned_builder) => match cloned_builder.build() {
+                Ok(tmp_req) => tmp_req.url().as_str().to_string(),
+                Err(_) => uri.clone(),
+            },
             None => uri.clone(),
         };
         let new_headers = match aws_v4_key.sign(&uri_for_signing, method.as_str(), body_str) {
