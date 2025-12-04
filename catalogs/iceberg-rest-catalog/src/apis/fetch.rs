@@ -31,12 +31,25 @@ where
     let uri = uri_base + uri_str;
     let mut req_builder = client.request(method.clone(), &uri);
 
+    for (key, value) in query_params.unwrap_or_default() {
+        req_builder = req_builder.query(&[(key, value)]);
+    }
+
     if let Some(ref aws_v4_key) = configuration.aws_v4_key {
         let body_str = match serde_json::to_value(&request) {
             Ok(serde_json::Value::Null) => "",
             _ => &serde_json::to_string(&request).expect("param should serialize to string"),
         };
-        let new_headers = match aws_v4_key.sign(&uri, method.as_str(), body_str) {
+        let uri_for_signing = match req_builder.try_clone() {
+            Some(cloned_builder) => {
+                match cloned_builder.build() {
+                    Ok(tmp_req) => tmp_req.url().as_str().to_string(),
+                    Err(_) => uri.clone(),
+                }
+            }
+            None => uri.clone(),
+        };
+        let new_headers = match aws_v4_key.sign(&uri_for_signing, method.as_str(), body_str) {
             Ok(new_headers) => new_headers,
             Err(err) => return Err(Error::AWSV4SignatureError(err)),
         };
@@ -55,9 +68,6 @@ where
     };
     for (key, value) in headers.unwrap_or_default() {
         req_builder = req_builder.header(key, value);
-    }
-    for (key, value) in query_params.unwrap_or_default() {
-        req_builder = req_builder.query(&[(key, value)]);
     }
     if let &reqwest::Method::POST | &reqwest::Method::PUT = &method {
         req_builder = req_builder.json(request);
@@ -108,12 +118,25 @@ where
     let uri = uri_base + uri_str;
     let mut req_builder = client.request(method.clone(), &uri);
 
+    for (key, value) in query_params.unwrap_or_default() {
+        req_builder = req_builder.query(&[(key, value)]);
+    }
+
     if let Some(ref aws_v4_key) = configuration.aws_v4_key {
         let body_str = match serde_json::to_value(&request) {
             Ok(serde_json::Value::Null) => "",
             _ => &serde_json::to_string(&request).expect("param should serialize to string"),
         };
-        let new_headers = match aws_v4_key.sign(&uri, method.as_str(), body_str) {
+        let uri_for_signing = match req_builder.try_clone() {
+            Some(cloned_builder) => {
+                match cloned_builder.build() {
+                    Ok(tmp_req) => tmp_req.url().as_str().to_string(),
+                    Err(_) => uri.clone(),
+                }
+            }
+            None => uri.clone(),
+        };
+        let new_headers = match aws_v4_key.sign(&uri_for_signing, method.as_str(), body_str) {
             Ok(new_headers) => new_headers,
             Err(err) => return Err(Error::AWSV4SignatureError(err)),
         };
@@ -132,9 +155,6 @@ where
     };
     for (key, value) in headers.unwrap_or_default() {
         req_builder = req_builder.header(key, value);
-    }
-    for (key, value) in query_params.unwrap_or_default() {
-        req_builder = req_builder.query(&[(key, value)]);
     }
     if let &reqwest::Method::POST | &reqwest::Method::PUT = &method {
         req_builder = req_builder.json(request);
