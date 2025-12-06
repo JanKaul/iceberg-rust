@@ -90,6 +90,30 @@ impl<R: Read> ManifestReader<'_, R> {
     /// * Format version is invalid
     /// * Schema or partition spec information cannot be parsed
     pub(crate) fn new(reader: R) -> Result<Self, Error> {
+        Self::new_with_fallback_schema(reader, None)
+    }
+
+    /// Creates a new ManifestReader with an optional fallback schema.
+    ///
+    /// This method is similar to `new()` but accepts a fallback schema to use when the manifest
+    /// contains an empty or invalid schema (zero fields). This handles cases where manifest files
+    /// are created by other implementations (e.g., Snowflake) that may write zero-field schemas.
+    ///
+    /// # Arguments
+    /// * `reader` - A type implementing the `Read` trait that provides access to the manifest file data
+    /// * `fallback_schema` - Optional schema to use if the manifest schema is empty or invalid
+    ///
+    /// # Returns
+    /// * `Result<Self, Error>` - A new ManifestReader instance or an error if initialization fails
+    ///
+    /// # Behavior
+    /// - If the manifest schema has zero fields and a fallback schema is provided, the fallback is used
+    /// - A warning is logged when falling back to the table schema
+    /// - If no fallback is provided and the schema is empty, an error is returned
+    pub(crate) fn new_with_fallback_schema(
+        reader: R,
+        fallback_schema: Option<Schema>,
+    ) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();
 
@@ -105,7 +129,7 @@ impl<R: Read> ManifestReader<'_, R> {
             _ => Err(Error::InvalidFormat("format version".to_string())),
         }?;
 
-        let schema: Schema = match format_version {
+        let mut schema: Schema = match format_version {
             FormatVersion::V1 => TryFrom::<SchemaV1>::try_from(serde_json::from_slice(
                 metadata
                     .get("schema")
@@ -117,6 +141,23 @@ impl<R: Read> ManifestReader<'_, R> {
                     .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
             )?)?,
         };
+
+        // Check if schema has zero fields and fallback if needed
+        if schema.fields().is_empty() {
+            if let Some(fallback) = fallback_schema {
+                tracing::warn!(
+                    "Manifest schema has zero fields, falling back to table schema. \
+                    This can happen with manifests created by some implementations (e.g., Snowflake). \
+                    Manifest will use table schema with {} fields.",
+                    fallback.fields().len()
+                );
+                schema = fallback;
+            } else {
+                return Err(Error::InvalidFormat(
+                    "Manifest schema has zero fields and no fallback schema provided".to_string(),
+                ));
+            }
+        }
 
         let partition_fields: Vec<PartitionField> = serde_json::from_slice(
             metadata

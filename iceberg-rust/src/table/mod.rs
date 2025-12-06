@@ -264,11 +264,15 @@ impl Table {
         sequence_number_range: (Option<i64>, Option<i64>),
     ) -> Result<impl Iterator<Item = Result<(ManifestPath, ManifestEntry), Error>> + 'a, Error>
     {
+        // Get the current table schema to use as fallback for manifests with empty schemas
+        let table_schema = self.metadata().current_schema(None)?.clone();
+
         datafiles(
             self.object_store(),
             manifests,
             filter,
             sequence_number_range,
+            Some(table_schema),
         )
         .await
     }
@@ -302,16 +306,18 @@ impl Table {
 /// Path of a Manifest file
 pub type ManifestPath = String;
 
-#[instrument(name = "iceberg_rust::table::datafiles", level = "debug", skip(object_store, manifests), fields(
+#[instrument(name = "iceberg_rust::table::datafiles", level = "debug", skip(object_store, manifests, fallback_schema), fields(
     manifest_count = manifests.len(),
     filter_provided = filter.is_some(),
-    sequence_range = ?sequence_number_range
+    sequence_range = ?sequence_number_range,
+    has_fallback_schema = fallback_schema.is_some()
 ))]
 async fn datafiles(
     object_store: Arc<dyn ObjectStore>,
     manifests: &'_ [ManifestListEntry],
     filter: Option<Vec<bool>>,
     sequence_number_range: (Option<i64>, Option<i64>),
+    fallback_schema: Option<Schema>,
 ) -> Result<impl Iterator<Item = Result<(ManifestPath, ManifestEntry), Error>> + '_, Error> {
     // filter manifest files according to filter vector
     let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
@@ -349,8 +355,21 @@ async fn datafiles(
     Ok(results.into_iter().flat_map(move |result| {
         let (bytes, path, sequence_number) = result;
 
-        let reader = ManifestReader::new(bytes).unwrap();
-        reader.filter_map(move |x| {
+        // Use new_with_fallback_schema to handle manifests with empty schemas
+        let reader = match ManifestReader::new_with_fallback_schema(bytes, fallback_schema.clone()) {
+            Ok(reader) => reader,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to read manifest {}: {}. Skipping this manifest.",
+                    path,
+                    e
+                );
+                // Return an empty iterator for this manifest so we can continue with others
+                return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = Result<(ManifestPath, ManifestEntry), Error>>>;
+            }
+        };
+
+        Box::new(reader.filter_map(move |x| {
             let mut x = match x {
                 Ok(entry) => entry,
                 Err(_) => return None,
@@ -374,7 +393,7 @@ async fn datafiles(
             } else {
                 None
             }
-        })
+        })) as Box<dyn Iterator<Item = Result<(ManifestPath, ManifestEntry), Error>>>
     }))
 }
 
@@ -390,7 +409,17 @@ pub(crate) async fn delete_all_table_files(
         .await?
         .collect::<Result<_, _>>()?;
 
-    let datafiles = datafiles(object_store.clone(), &manifests, None, (None, None)).await?;
+    // Get the current schema as fallback for manifests with empty schemas
+    let table_schema = metadata.current_schema(None)?.clone();
+
+    let datafiles = datafiles(
+        object_store.clone(),
+        &manifests,
+        None,
+        (None, None),
+        Some(table_schema),
+    )
+    .await?;
     let snapshots = &metadata.snapshots;
 
     // stream::iter(datafiles.into_iter())

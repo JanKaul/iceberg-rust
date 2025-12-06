@@ -251,7 +251,16 @@ pub async fn snapshot_column_bounds(
     let manifests = read_snapshot(snapshot, table_metadata, object_store.clone())
         .await?
         .collect::<Result<Vec<_>, _>>()?;
-    let datafiles = datafiles(object_store, &manifests, None, (None, None)).await?;
+
+    // Use the schema as fallback for manifests with empty schemas
+    let datafiles = datafiles(
+        object_store,
+        &manifests,
+        None,
+        (None, None),
+        Some(schema.clone()),
+    )
+    .await?;
 
     let primitive_field_ids = schema.primitive_field_ids().collect::<Vec<_>>();
     let n = primitive_field_ids.len();
