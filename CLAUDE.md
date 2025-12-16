@@ -49,7 +49,7 @@ Need to find trait impls? → get_implementations
 Searching for text/patterns? → Grep/text search
 ```
 
-### Deep vs Shallow Modules
+## Deep vs Shallow Modules
 
 **Deep Modules** = Powerful functionality + Simple interface
 - **Best modules** hide significant complexity behind clean APIs
@@ -72,6 +72,64 @@ pub trait Catalog: Send + Sync + Debug {
 - Many small methods that just wrap other calls
 - Interfaces that expose internal complexity
 - Documentation longer than implementation
+
+## Functional Programming Patterns
+
+### Prefer Iterators Over Loops
+
+**Pattern 1: Iterator Chains** (`iceberg-rust/src/table/transaction/operation.rs:188-196`):
+```rust
+let new_datafile_iter = data_files.into_iter().map(|data_file| {
+    ManifestEntry::builder()
+        .with_format_version(table_metadata.format_version)
+        .with_status(Status::Added)
+        .with_data_file(data_file)
+        .with_sequence_number(table_metadata.last_sequence_number + dsn_offset)
+        .build()
+        .map_err(Error::from)
+});
+```
+
+**Benefits:**
+- Lazy evaluation (only creates when consumed)
+- Clear transformation pipeline
+- Error handling inline with `map_err`
+- No intermediate allocations until `collect()`
+
+**Pattern 2: flat_map for Flattening** (`iceberg-rust/src/table/transaction/operation.rs:149-153`):
+```rust
+let all_files: Vec<DataFile> = sequence_groups
+    .iter()
+    .flat_map(|d| d.delete_files.iter().chain(d.data_files.iter()))
+    .cloned()
+    .collect();
+```
+
+**Pattern 3: Option/Result Combinators** (`iceberg-rust/src/catalog/create.rs:131-132`):
+```rust
+// Prefer this:
+self.location.ok_or(Error::NotFound(format!("Location for table {}", self.name)))?
+
+// Over this:
+let location = match self.location {
+    Some(loc) => loc,
+    None => return Err(Error::NotFound(...)),
+};
+```
+
+### Guidelines
+
+1. **Use Iterator Methods:** `map`, `filter`, `flat_map`, `fold` over `for` loops
+2. **Lazy When Possible:** Return `impl Iterator` for large transformations
+3. **Combinators:** `ok_or`, `and_then`, `unwrap_or_default` for `Option`/`Result`
+4. **Strategic collect():** Only use `.collect::<Vec<_>>()` when needed
+5. **Chain Iterators:** Use `.chain()` instead of extending vecs
+
+### When NOT to Use Iterators
+
+- Complex state machines (use explicit loops)
+- Performance-critical hot paths needing specific optimizations
+- When mutation in place is clearer
 
 ## Trait Design Patterns
 
@@ -226,98 +284,7 @@ Domain layer adds context
 Infrastructure errors wrapped transparently
 ```
 
-## Functional Programming Patterns
-
-### Prefer Iterators Over Loops
-
-**Pattern 1: Iterator Chains** (`iceberg-rust/src/table/transaction/operation.rs:188-196`):
-```rust
-let new_datafile_iter = data_files.into_iter().map(|data_file| {
-    ManifestEntry::builder()
-        .with_format_version(table_metadata.format_version)
-        .with_status(Status::Added)
-        .with_data_file(data_file)
-        .with_sequence_number(table_metadata.last_sequence_number + dsn_offset)
-        .build()
-        .map_err(Error::from)
-});
-```
-
-**Benefits:**
-- Lazy evaluation (only creates when consumed)
-- Clear transformation pipeline
-- Error handling inline with `map_err`
-- No intermediate allocations until `collect()`
-
-**Pattern 2: flat_map for Flattening** (`iceberg-rust/src/table/transaction/operation.rs:149-153`):
-```rust
-let all_files: Vec<DataFile> = sequence_groups
-    .iter()
-    .flat_map(|d| d.delete_files.iter().chain(d.data_files.iter()))
-    .cloned()
-    .collect();
-```
-
-**Pattern 3: Option/Result Combinators** (`iceberg-rust/src/catalog/create.rs:131-132`):
-```rust
-// Prefer this:
-self.location.ok_or(Error::NotFound(format!("Location for table {}", self.name)))?
-
-// Over this:
-let location = match self.location {
-    Some(loc) => loc,
-    None => return Err(Error::NotFound(...)),
-};
-```
-
-### Guidelines
-
-1. **Use Iterator Methods:** `map`, `filter`, `flat_map`, `fold` over `for` loops
-2. **Lazy When Possible:** Return `impl Iterator` for large transformations
-3. **Combinators:** `ok_or`, `and_then`, `unwrap_or_default` for `Option`/`Result`
-4. **Strategic collect():** Only use `.collect::<Vec<_>>()` when needed
-5. **Chain Iterators:** Use `.chain()` instead of extending vecs
-
-### When NOT to Use Iterators
-
-- Complex state machines (use explicit loops)
-- Performance-critical hot paths needing specific optimizations
-- When mutation in place is clearer
-
 ## Async Patterns
-
-### Pattern: async_trait for I/O
-
-All catalog and I/O operations are async (`iceberg-rust/src/catalog/mod.rs:56-57`):
-```rust
-#[async_trait::async_trait]
-pub trait Catalog: Send + Sync + Debug {
-    async fn create_table(self: Arc<Self>, ...) -> Result<Table, Error>;
-}
-```
-
-**Why `Arc<Self>`:**
-- Catalog is shared across connections
-- Methods need owned `self` for async execution
-- Prevents lifetime issues in async contexts
-
-### Pattern: Controlled Parallelism
-
-**Parallel Async Operations:**
-```rust
-let manifests = stream::iter(manifest_entries)
-    .map(|manifest| async move {
-        object_store.get(&path).await
-    })
-    .buffer_unordered(10)  // 10 concurrent fetches
-    .try_collect::<Vec<_>>()
-    .await?;
-```
-
-**Techniques:**
-- `stream::iter` for converting to async stream
-- `buffer_unordered(N)` for limiting parallelism
-- `try_collect` for error-aware aggregation
 
 ### Pattern: Instrumentation
 
@@ -338,7 +305,6 @@ pub async fn commit(self) -> Result<(), Error> { ... }
 2. **Send + Sync Bounds:** All async types crossing await points
 3. **Arc for Shared State:** Prefer `Arc` over lifetimes in async
 4. **Instrument Hot Paths:** Use `#[instrument]` on catalog/I/O operations
-5. **Limit Concurrency:** `buffer_unordered(N)` to prevent resource exhaustion
 6. **Tokio Runtime:** All integration tests use `#[tokio::main]`
 
 ## Module Organization
@@ -413,14 +379,7 @@ pub mod identifier {
 4. **Examples in Docs:** For builder patterns and complex APIs
 5. **Errors Are Contract:** Always document failure modes
 
-## Performance & Complexity Trade-offs
-
-### Known Optimizations
-
-1. **Manifest List Caching:** Prefetch with `buffer_unordered(10)`
-2. **Lazy Iteration:** Return iterators, not Vecs when possible
-3. **Arc Instead of Clone:** For metadata, catalogs, object stores
-4. **Controlled Concurrency:** Limit parallel I/O to prevent resource exhaustion
+## Complexity Trade-offs
 
 ### Complexity Management
 
