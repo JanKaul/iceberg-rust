@@ -15,6 +15,78 @@ iceberg-rust-spec (pure specification types)
 
 **Core Philosophy:** Deep modules with simple interfaces (John Ousterhout's "A Philosophy of Software Design")
 
+## LSP-Based Codebase Navigation
+
+**IMPORTANT:** When an LSP (Language Server Protocol) MCP server is available (such as `rust-analyzer`), **ALWAYS prefer LSP tools over text-based search** for code navigation and analysis.
+
+### When to Use LSP Tools
+
+Use LSP tools for:
+- **Finding definitions:** `get_symbol_definitions` instead of grepping for function/type names
+- **Finding references:** `get_symbol_references` instead of searching for usage
+- **Type information:** `get_hover` for accurate type and documentation
+- **Code structure:** `get_symbols` for understanding module organization
+- **Implementations:** `get_implementations` for finding trait implementations
+- **Call hierarchy:** `get_call_hierarchy` for understanding call relationships
+- **Diagnostics:** `get_diagnostics` for compiler errors and warnings
+- **Completions:** `get_completions` for valid code suggestions
+
+### Why LSP Over Text Search
+
+**LSP Advantages:**
+- **Semantic understanding:** Knows about scopes, types, and language semantics
+- **Accurate references:** Distinguishes between `Result` (std) vs `Result` (custom type)
+- **Cross-file navigation:** Follows imports and module boundaries correctly
+- **Type-aware:** Understands trait bounds, generic parameters, associated types
+- **Compiler-backed:** Uses the same analysis as the compiler
+
+**When Text Search is Appropriate:**
+- Finding string literals or comments
+- Pattern-based searches across multiple file types
+- Exploratory searches when you don't know exact symbols
+- Searching in non-code files (markdown, configs, etc.)
+
+### Common LSP Workflows
+
+**Understanding a function:**
+```
+1. get_symbol_definitions (find where it's defined)
+2. get_hover (see type signature and docs)
+3. get_symbol_references (see where it's used)
+```
+
+**Exploring a trait:**
+```
+1. get_symbol_definitions (find trait definition)
+2. get_implementations (find all implementations)
+3. get_type_hierarchy (understand inheritance)
+```
+
+**Fixing errors:**
+```
+1. get_diagnostics (get all errors/warnings)
+2. get_code_actions (get automated fixes)
+3. get_hover (understand type mismatches)
+```
+
+### Integration with Development
+
+Before modifying code:
+1. Use `get_symbol_definitions` to find the target
+2. Use `get_hover` to understand types and contracts
+3. Use `get_symbol_references` to assess impact
+4. Make changes with full context
+
+**Example Decision Tree:**
+```
+Need to understand code structure? → get_symbols
+Need to find where something is defined? → get_symbol_definitions
+Need to find all usages? → get_symbol_references
+Need to understand types? → get_hover
+Need to find trait impls? → get_implementations
+Searching for text/patterns? → Grep/text search
+```
+
 ### Deep vs Shallow Modules
 
 **Deep Modules** = Powerful functionality + Simple interface
