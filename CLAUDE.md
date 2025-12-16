@@ -31,44 +31,6 @@ Use LSP tools for:
 - **Diagnostics:** `get_diagnostics` for compiler errors and warnings
 - **Completions:** `get_completions` for valid code suggestions
 
-### Why LSP Over Text Search
-
-**LSP Advantages:**
-- **Semantic understanding:** Knows about scopes, types, and language semantics
-- **Accurate references:** Distinguishes between `Result` (std) vs `Result` (custom type)
-- **Cross-file navigation:** Follows imports and module boundaries correctly
-- **Type-aware:** Understands trait bounds, generic parameters, associated types
-- **Compiler-backed:** Uses the same analysis as the compiler
-
-**When Text Search is Appropriate:**
-- Finding string literals or comments
-- Pattern-based searches across multiple file types
-- Exploratory searches when you don't know exact symbols
-- Searching in non-code files (markdown, configs, etc.)
-
-### Common LSP Workflows
-
-**Understanding a function:**
-```
-1. get_symbol_definitions (find where it's defined)
-2. get_hover (see type signature and docs)
-3. get_symbol_references (see where it's used)
-```
-
-**Exploring a trait:**
-```
-1. get_symbol_definitions (find trait definition)
-2. get_implementations (find all implementations)
-3. get_type_hierarchy (understand inheritance)
-```
-
-**Fixing errors:**
-```
-1. get_diagnostics (get all errors/warnings)
-2. get_code_actions (get automated fixes)
-3. get_hover (understand type mismatches)
-```
-
 ### Integration with Development
 
 Before modifying code:
