@@ -35,6 +35,7 @@ uuid = { workspace = true }
 arrow-ipc = "56"
 duckdb = { version = "1.4", features = ["bundled"] }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
+iceberg-rust = { path = "../iceberg-rust", version = "0.9.0", features = ["test-utils"] }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
 pyo3 = { version = "0.25", features = ["auto-initialize"] }
 reqwest = "0.12"

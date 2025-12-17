@@ -843,31 +843,8 @@ pub mod tests {
             .with_config("allow_http", "true")
             .unwrap();
 
-        // Wait for bucket to be ready by verifying it's accessible
-        let mut retries = 0;
-        let max_retries = 50;
-        loop {
-            match object_store.build(iceberg_rust::object_store::Bucket::from_path("s3://warehouse").unwrap()) {
-                Ok(store) => {
-                    // Try to list the bucket to verify it's actually ready
-                    use futures::StreamExt;
-                    if store.list(None).next().await.is_some() || retries > 10 {
-                        break;
-                    }
-                }
-                Err(_) if retries < max_retries => {
-                    sleep(Duration::from_millis(100)).await;
-                    retries += 1;
-                    continue;
-                }
-                Err(e) => panic!("Bucket not ready after {} retries: {:?}", max_retries, e),
-            }
-            sleep(Duration::from_millis(100)).await;
-            retries += 1;
-            if retries >= max_retries {
-                break;
-            }
-        }
+        // Wait for bucket to be ready
+        iceberg_rust::test_utils::wait_for_s3_bucket(&object_store, "s3://warehouse", None).await;
 
         let iceberg_catalog = Arc::new(
             SqlCatalog::new(
