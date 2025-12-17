@@ -20,12 +20,13 @@ jobs:
         android: true
         dotnet: true
         haskell: true
-        large-packages: true
+        large-packages: false
         docker-images: false
         swap-storage: false
     - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v2
     - name: Build
-      run: cargo build --verbose
+      run: cargo build
     - name: Run iceberg-rust-spec tests
       run: make test-iceberg-rust-spec
     - name: Run iceberg-rust tests
@@ -43,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v2
     - name: Install Clippy
       run: rustup component add clippy
     - name: Run Clippy
