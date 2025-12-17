@@ -1077,6 +1077,32 @@ pub mod tests {
             .with_config("allow_http", "true")
             .unwrap();
 
+        // Wait for bucket to be ready by verifying it's accessible
+        let mut retries = 0;
+        let max_retries = 50;
+        loop {
+            match object_store.build(Bucket::from_path("s3://warehouse").unwrap()) {
+                Ok(store) => {
+                    // Try to list the bucket to verify it's actually ready
+                    use futures::StreamExt;
+                    if store.list(None).next().await.is_some() || retries > 10 {
+                        break;
+                    }
+                }
+                Err(_) if retries < max_retries => {
+                    sleep(Duration::from_millis(100)).await;
+                    retries += 1;
+                    continue;
+                }
+                Err(e) => panic!("Bucket not ready after {} retries: {:?}", max_retries, e),
+            }
+            sleep(Duration::from_millis(100)).await;
+            retries += 1;
+            if retries >= max_retries {
+                break;
+            }
+        }
+
         // let object_store = ObjectStoreBuilder::memory();
         let iceberg_catalog: Arc<dyn Catalog> =
             Arc::new(GlueCatalog::new(&config, "warehouse", object_store.clone()).unwrap());
