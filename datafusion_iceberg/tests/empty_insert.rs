@@ -58,6 +58,32 @@ pub async fn test_empty_insert() {
         .with_config("allow_http", "true")
         .unwrap();
 
+    // Wait for bucket to be ready by verifying it's accessible
+    let mut retries = 0;
+    let max_retries = 50;
+    loop {
+        match object_store.build(Bucket::from_path("s3://warehouse").unwrap()) {
+            Ok(store) => {
+                // Try to list the bucket to verify it's actually ready
+                use futures::StreamExt;
+                if store.list(None).next().await.is_some() || retries > 10 {
+                    break;
+                }
+            }
+            Err(_) if retries < max_retries => {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                retries += 1;
+                continue;
+            }
+            Err(e) => panic!("Bucket not ready after {} retries: {:?}", max_retries, e),
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        retries += 1;
+        if retries >= max_retries {
+            break;
+        }
+    }
+
     let iceberg_catalog_list = Arc::new(
         SqlCatalogList::new("sqlite://", object_store.clone())
             .await
