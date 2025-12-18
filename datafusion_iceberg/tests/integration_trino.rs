@@ -54,6 +54,7 @@ async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout
                     "iceberg",
                     "--execute",
                     "select count(*) from tpch.tiny.lineitem",
+                    "http://127.0.0.1:8080",
                 ])
                 .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
             )
@@ -95,6 +96,24 @@ async fn integration_trino_rest() {
 
     let localstack_host = localstack.get_host().await.unwrap();
     let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
+
+    let object_store = ObjectStoreBuilder::s3()
+        .with_config("aws_access_key_id", "user")
+        .unwrap()
+        .with_config("aws_secret_access_key", "password")
+        .unwrap()
+        .with_config(
+            "endpoint",
+            format!("http://{localstack_host}:{localstack_port}"),
+        )
+        .unwrap()
+        .with_config("region", "us-east-1")
+        .unwrap()
+        .with_config("allow_http", "true")
+        .unwrap();
+
+    // Wait for bucket to be ready
+    iceberg_rust::test_utils::wait_for_s3_bucket(&object_store, "s3://warehouse", None).await;
 
     let rest = GenericImage::new("apache/iceberg-rest-fixture", "latest")
         .with_wait_for(WaitFor::Log(LogWaitStrategy::stderr(
@@ -170,9 +189,7 @@ async fn integration_trino_rest() {
 
     wait_for_worker(&trino, Duration::from_secs(180)).await;
 
-    let trino_port = trino.get_host_port_ipv4(8080).await.unwrap();
-
-    trino
+    let result = trino
         .exec(
             ExecCommand::new(vec![
                 "trino",
@@ -180,30 +197,14 @@ async fn integration_trino_rest() {
                 "iceberg",
                 "--file",
                 "/tmp/trino.sql",
-                "http://localhost:8080",
+                "http://127.0.0.1:8080",
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )
         .await
         .unwrap();
 
-    let object_store = ObjectStoreBuilder::s3()
-        .with_config("aws_access_key_id", "user")
-        .unwrap()
-        .with_config("aws_secret_access_key", "password")
-        .unwrap()
-        .with_config(
-            "endpoint",
-            format!("http://{localstack_host}:{localstack_port}"),
-        )
-        .unwrap()
-        .with_config("region", "us-east-1")
-        .unwrap()
-        .with_config("allow_http", "true")
-        .unwrap();
-
-    // Wait for bucket to be ready
-    iceberg_rust::test_utils::wait_for_s3_bucket(&object_store, "s3://warehouse", None).await;
+    assert_eq!(result.exit_code().await.unwrap().unwrap(), 0);
 
     let catalog = Arc::new(RestCatalog::new(
         None,
@@ -305,7 +306,7 @@ async fn integration_trino_rest() {
                 "SELECT sum(amount) FROM iceberg.test.test_orders;",
                 "--output-format",
                 "NULL",
-                "http://localhost:8080",
+                "http://127.0.0.1:8080",
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )
