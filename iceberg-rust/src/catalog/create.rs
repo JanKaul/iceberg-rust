@@ -118,34 +118,29 @@ impl CreateTableBuilder {
         }
 
         // Validate partition spec references valid schema fields
-        if let Some(ref partition_spec) = self.partition_spec {
-            if let Some(spec) = partition_spec {
-                for field in spec.fields() {
-                    let source_id = field.source_id();
-                    if !schema.fields().iter().any(|f| f.id == *source_id) {
-                        return Err(Error::NotFound(format!(
+        if let Some(Some(spec)) = &self.partition_spec {
+            for field in spec.fields() {
+                let source_id = field.source_id();
+                if !schema.fields().iter().any(|f| f.id == *source_id) {
+                    return Err(Error::NotFound(format!(
                             "Partition field '{}' references non-existent schema field ID {} in table '{}'",
                             field.name(),
                             source_id,
                             name
                         )));
-                    }
                 }
             }
         }
 
         // Validate sort order references valid schema fields
-        if let Some(ref sort_order) = self.write_order {
-            if let Some(order) = sort_order {
-                for field in &order.fields {
-                    let source_id = field.source_id;
-                    if !schema.fields().iter().any(|f| f.id == source_id) {
-                        return Err(Error::NotFound(format!(
-                            "Sort order field references non-existent schema field ID {} in table '{}'",
-                            source_id,
-                            name
-                        )));
-                    }
+        if let Some(Some(order)) = &self.write_order {
+            for field in &order.fields {
+                let source_id = field.source_id;
+                if !schema.fields().iter().any(|f| f.id == source_id) {
+                    return Err(Error::NotFound(format!(
+                        "Sort order field references non-existent schema field ID {} in table '{}'",
+                        source_id, name
+                    )));
                 }
             }
         }
