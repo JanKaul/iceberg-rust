@@ -53,7 +53,10 @@ use super::{identifier::Identifier, Catalog};
 /// can be serialized/deserialized using serde.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Builder)]
 #[serde(rename_all = "kebab-case")]
-#[builder(build_fn(name = "create", error = "Error"), setter(prefix = "with"))]
+#[builder(
+    build_fn(name = "create", error = "Error", validate = "Self::validate"),
+    setter(prefix = "with")
+)]
 pub struct CreateTable {
     #[builder(setter(into))]
     /// Name of the table
@@ -83,6 +86,68 @@ pub struct CreateTable {
 }
 
 impl CreateTableBuilder {
+    /// Validates the table configuration
+    ///
+    /// Performs the following checks:
+    /// * Schema field IDs are unique
+    /// * Partition spec fields reference valid schema fields
+    /// * Sort order fields reference valid schema fields
+    ///
+    /// # Returns
+    /// * `Ok(())` - If all validations pass
+    /// * `Err(Error)` - If any validation fails with contextual error message
+    fn validate(&self) -> Result<(), Error> {
+        let name = self
+            .name
+            .as_ref()
+            .ok_or(Error::NotFound("Table name is required".to_string()))?;
+
+        let schema = self
+            .schema
+            .as_ref()
+            .ok_or(Error::NotFound("Table schema is required".to_string()))?;
+
+        // Validate schema field IDs are unique
+        let field_ids: Vec<i32> = schema.fields().iter().map(|f| f.id).collect();
+        let unique_ids: std::collections::HashSet<_> = field_ids.iter().collect();
+        if field_ids.len() != unique_ids.len() {
+            return Err(Error::InvalidFormat(format!(
+                "Schema for table '{}' contains duplicate field IDs",
+                name
+            )));
+        }
+
+        // Validate partition spec references valid schema fields
+        if let Some(Some(spec)) = &self.partition_spec {
+            for field in spec.fields() {
+                let source_id = field.source_id();
+                if !schema.fields().iter().any(|f| f.id == *source_id) {
+                    return Err(Error::NotFound(format!(
+                            "Partition field '{}' references non-existent schema field ID {} in table '{}'",
+                            field.name(),
+                            source_id,
+                            name
+                        )));
+                }
+            }
+        }
+
+        // Validate sort order references valid schema fields
+        if let Some(Some(order)) = &self.write_order {
+            for field in &order.fields {
+                let source_id = field.source_id;
+                if !schema.fields().iter().any(|f| f.id == source_id) {
+                    return Err(Error::NotFound(format!(
+                        "Sort order field references non-existent schema field ID {} in table '{}'",
+                        source_id, name
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Builds and registers a new table in the catalog
     ///
     /// # Arguments
@@ -402,5 +467,321 @@ impl From<CreateMaterializedView> for (CreateView<FullIdentifier>, CreateTable) 
                 properties: val.table_properties,
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iceberg_rust_spec::spec::{
+        partition::{PartitionField, PartitionSpecBuilder, Transform},
+        sort::{NullOrder, SortDirection, SortField, SortOrderBuilder},
+        types::{PrimitiveType, StructField, Type},
+    };
+
+    /// Helper function to create a simple valid schema for testing
+    fn create_test_schema() -> Schema {
+        Schema::builder()
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "name".to_string(),
+                required: false,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "timestamp".to_string(),
+                required: false,
+                field_type: Type::Primitive(PrimitiveType::Timestamp),
+                doc: None,
+            })
+            .build()
+            .unwrap()
+    }
+
+    /// Helper function to create a schema with duplicate field IDs (invalid)
+    fn create_duplicate_field_id_schema() -> Schema {
+        Schema::builder()
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 1, // Duplicate ID
+                name: "name".to_string(),
+                required: false,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+            })
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_create_table_builder_valid() {
+        let schema = create_test_schema();
+        let mut builder = CreateTableBuilder::default();
+        let result = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .with_schema(schema)
+            .create();
+
+        assert!(result.is_ok(), "Valid table creation should succeed");
+        let create_table = result.unwrap();
+        assert_eq!(create_table.name, "test_table");
+        assert_eq!(create_table.location, Some("/test/location".to_string()));
+    }
+
+    #[test]
+    fn test_create_table_builder_missing_name() {
+        let schema = create_test_schema();
+        let mut builder = CreateTableBuilder::default();
+        let result = builder
+            .with_location("/test/location")
+            .with_schema(schema)
+            .create();
+
+        assert!(result.is_err(), "Table creation without name should fail");
+    }
+
+    #[test]
+    fn test_create_table_builder_missing_schema() {
+        let mut builder = CreateTableBuilder::default();
+        let result = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .create();
+
+        assert!(result.is_err(), "Table creation without schema should fail");
+    }
+
+    #[test]
+    fn test_create_table_validation_duplicate_field_ids() {
+        let schema = create_duplicate_field_id_schema();
+        let mut builder = CreateTableBuilder::default();
+        let result = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .with_schema(schema)
+            .create();
+
+        assert!(
+            result.is_err(),
+            "Table creation with duplicate field IDs should fail"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidFormat(_)),
+            "Error should be InvalidFormat, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_create_table_validation_invalid_partition_spec() {
+        let schema = create_test_schema();
+
+        // Create partition spec that references non-existent field ID 999
+        let mut partition_spec_builder = PartitionSpecBuilder::default();
+        let invalid_partition_spec = partition_spec_builder
+            .with_spec_id(1)
+            .with_partition_field(PartitionField::new(
+                999, // Non-existent source field ID
+                1000,
+                "invalid_partition",
+                Transform::Identity,
+            ))
+            .build()
+            .unwrap();
+
+        let mut builder = CreateTableBuilder::default();
+        let result = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .with_schema(schema)
+            .with_partition_spec(invalid_partition_spec)
+            .create();
+
+        assert!(
+            result.is_err(),
+            "Table creation with invalid partition spec should fail"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, Error::NotFound(_)),
+            "Error should be NotFound for invalid partition field reference, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_create_table_validation_valid_partition_spec() {
+        let schema = create_test_schema();
+
+        // Create partition spec that references valid field ID 1
+        let mut partition_spec_builder = PartitionSpecBuilder::default();
+        let partition_spec = partition_spec_builder
+            .with_spec_id(1)
+            .with_partition_field(PartitionField::new(
+                1, // Valid source field ID from schema
+                1000,
+                "id_partition",
+                Transform::Identity,
+            ))
+            .build()
+            .unwrap();
+
+        let mut builder = CreateTableBuilder::default();
+        let result = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .with_schema(schema)
+            .with_partition_spec(partition_spec)
+            .create();
+
+        assert!(
+            result.is_ok(),
+            "Table creation with valid partition spec should succeed"
+        );
+    }
+
+    #[test]
+    fn test_create_table_validation_invalid_sort_order() {
+        let schema = create_test_schema();
+
+        // Create sort order that references non-existent field ID 999
+        let mut sort_order_builder = SortOrderBuilder::default();
+        let invalid_sort_order = sort_order_builder
+            .with_order_id(1)
+            .with_sort_field(SortField {
+                source_id: 999, // Non-existent source field ID
+                transform: Transform::Identity,
+                direction: SortDirection::Ascending,
+                null_order: NullOrder::First,
+            })
+            .build()
+            .unwrap();
+
+        let mut builder = CreateTableBuilder::default();
+        let result = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .with_schema(schema)
+            .with_sort_order(invalid_sort_order)
+            .create();
+
+        assert!(
+            result.is_err(),
+            "Table creation with invalid sort order should fail"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, Error::NotFound(_)),
+            "Error should be NotFound for invalid sort order field reference, got: {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_create_table_validation_valid_sort_order() {
+        let schema = create_test_schema();
+
+        // Create sort order that references valid field ID 1
+        let mut sort_order_builder = SortOrderBuilder::default();
+        let sort_order = sort_order_builder
+            .with_order_id(1)
+            .with_sort_field(SortField {
+                source_id: 1, // Valid source field ID from schema
+                transform: Transform::Identity,
+                direction: SortDirection::Ascending,
+                null_order: NullOrder::First,
+            })
+            .build()
+            .unwrap();
+
+        let mut builder = CreateTableBuilder::default();
+        let result = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .with_schema(schema)
+            .with_sort_order(sort_order)
+            .create();
+
+        assert!(
+            result.is_ok(),
+            "Table creation with valid sort order should succeed"
+        );
+    }
+
+    #[test]
+    fn test_create_table_try_into_metadata() {
+        let schema = create_test_schema();
+        let mut builder = CreateTableBuilder::default();
+        let create_table = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .with_schema(schema.clone())
+            .create()
+            .unwrap();
+
+        let metadata: Result<TableMetadata, Error> = create_table.try_into();
+        assert!(
+            metadata.is_ok(),
+            "Conversion to TableMetadata should succeed"
+        );
+
+        let metadata = metadata.unwrap();
+        assert_eq!(metadata.location, "/test/location");
+        assert_eq!(metadata.current_schema_id, DEFAULT_SCHEMA_ID);
+        assert_eq!(metadata.schemas.len(), 1);
+        assert_eq!(metadata.default_spec_id, DEFAULT_PARTITION_SPEC_ID);
+        assert_eq!(metadata.default_sort_order_id, DEFAULT_SORT_ORDER_ID);
+        assert_eq!(metadata.last_column_id, 3); // Max field ID from schema
+    }
+
+    #[test]
+    fn test_create_table_serialization_round_trip() {
+        let schema = create_test_schema();
+        let mut partition_spec_builder = PartitionSpecBuilder::default();
+        let partition_spec = partition_spec_builder
+            .with_spec_id(1)
+            .with_partition_field(PartitionField::new(
+                1,
+                1000,
+                "id_partition",
+                Transform::Identity,
+            ))
+            .build()
+            .unwrap();
+
+        let mut builder = CreateTableBuilder::default();
+        let create_table = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .with_schema(schema)
+            .with_partition_spec(partition_spec)
+            .create()
+            .unwrap();
+
+        // Serialize
+        let json = serde_json::to_string(&create_table).unwrap();
+
+        // Deserialize
+        let deserialized: CreateTable = serde_json::from_str(&json).unwrap();
+
+        // Verify equality
+        assert_eq!(create_table, deserialized);
     }
 }
