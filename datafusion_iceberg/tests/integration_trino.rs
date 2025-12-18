@@ -54,7 +54,7 @@ async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout
                     "iceberg",
                     "--execute",
                     "select count(*) from tpch.tiny.lineitem",
-                    "http://127.0.0.1:8080",
+                    "http://0.0.0.0:8080",
                 ])
                 .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
             )
@@ -177,6 +177,9 @@ async fn integration_trino_rest() {
         .with_access_mode(AccessMode::ReadOnly);
 
     let trino = GenericImage::new("trinodb/trino", "latest")
+        .with_wait_for(WaitFor::Log(LogWaitStrategy::stderr(
+            "======== SERVER STARTED ========",
+        )))
         .with_env_var("AWS_REGION", "us-east-1")
         .with_env_var("AWS_ACCESS_KEY_ID", "user")
         .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
@@ -189,7 +192,7 @@ async fn integration_trino_rest() {
 
     wait_for_worker(&trino, Duration::from_secs(180)).await;
 
-    let result = trino
+    let mut result = trino
         .exec(
             ExecCommand::new(vec![
                 "trino",
@@ -197,7 +200,7 @@ async fn integration_trino_rest() {
                 "iceberg",
                 "--file",
                 "/tmp/trino.sql",
-                "http://127.0.0.1:8080",
+                "http://0.0.0.0:8080",
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )
@@ -306,7 +309,7 @@ async fn integration_trino_rest() {
                 "SELECT sum(amount) FROM iceberg.test.test_orders;",
                 "--output-format",
                 "NULL",
-                "http://127.0.0.1:8080",
+                "http://0.0.0.0:8080",
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )
