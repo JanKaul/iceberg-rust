@@ -192,7 +192,7 @@ async fn integration_trino_rest() {
 
     wait_for_worker(&trino, Duration::from_secs(180)).await;
 
-    let mut result = trino
+    let result = trino
         .exec(
             ExecCommand::new(vec![
                 "trino",
