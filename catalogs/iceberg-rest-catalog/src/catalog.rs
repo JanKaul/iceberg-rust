@@ -734,7 +734,7 @@ pub mod tests {
     }
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        let docker_host = "172.17.0.1";
+        let container_host = iceberg_rust::test_utils::get_container_host();
 
         let localstack = LocalStack::default()
             .with_env_var("SERVICES", "s3")
@@ -773,8 +773,9 @@ pub mod tests {
             .with_env_var("CATALOG_IO__IMPL", "org.apache.iceberg.aws.s3.S3FileIO")
             .with_env_var(
                 "CATALOG_S3_ENDPOINT",
-                format!("http://{}:{}", &docker_host, &localstack_port),
+                format!("http://{}:{}", container_host, localstack_port),
             )
+            .with_env_var("CATALOG_S3_PATH__STYLE__ACCESS", "true")
             .start()
             .await
             .unwrap();

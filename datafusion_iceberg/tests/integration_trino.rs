@@ -68,7 +68,7 @@ async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout
 
 #[tokio::test]
 async fn integration_trino_rest() {
-    let docker_host = "172.17.0.1";
+    let container_host = iceberg_rust::test_utils::get_container_host();
 
     let localstack = LocalStack::default()
         .with_env_var("SERVICES", "s3")
@@ -107,8 +107,9 @@ async fn integration_trino_rest() {
         .with_env_var("CATALOG_IO__IMPL", "org.apache.iceberg.aws.s3.S3FileIO")
         .with_env_var(
             "CATALOG_S3_ENDPOINT",
-            format!("http://{}:{}", &docker_host, &localstack_port),
+            format!("http://{}:{}", container_host, localstack_port),
         )
+        .with_env_var("CATALOG_S3_PATH__STYLE__ACCESS", "true")
         .start()
         .await
         .unwrap();
@@ -130,7 +131,7 @@ async fn integration_trino_rest() {
     writeln!(tmp_file, "iceberg.catalog.type=rest").unwrap();
     writeln!(
         tmp_file,
-        "iceberg.rest-catalog.uri=http://{docker_host}:{rest_port}"
+        "iceberg.rest-catalog.uri=http://{}:{}", container_host, rest_port
     )
     .unwrap();
     writeln!(tmp_file, "iceberg.rest-catalog.warehouse=s3://warehouse/").unwrap();
@@ -138,7 +139,7 @@ async fn integration_trino_rest() {
     writeln!(tmp_file, "fs.native-s3.enabled=true").unwrap();
     writeln!(
         tmp_file,
-        "s3.endpoint=http://{docker_host}:{localstack_port}"
+        "s3.endpoint=http://{}:{}", container_host, localstack_port
     )
     .unwrap();
     writeln!(tmp_file, "s3.path-style-access=true").unwrap();
@@ -177,7 +178,7 @@ async fn integration_trino_rest() {
                 "iceberg",
                 "--file",
                 "/tmp/trino.sql",
-                &format!("http://{docker_host}:{trino_port}"),
+                "http://localhost:8080",
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )
@@ -302,7 +303,7 @@ async fn integration_trino_rest() {
                 "SELECT sum(amount) FROM iceberg.test.test_orders;",
                 "--output-format",
                 "NULL",
-                &format!("http://{docker_host}:{trino_port}"),
+                "http://localhost:8080",
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )
