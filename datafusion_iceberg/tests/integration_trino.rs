@@ -131,7 +131,8 @@ async fn integration_trino_rest() {
     writeln!(tmp_file, "iceberg.catalog.type=rest").unwrap();
     writeln!(
         tmp_file,
-        "iceberg.rest-catalog.uri=http://{}:{}", container_host, rest_port
+        "iceberg.rest-catalog.uri=http://{}:{}",
+        container_host, rest_port
     )
     .unwrap();
     writeln!(tmp_file, "iceberg.rest-catalog.warehouse=s3://warehouse/").unwrap();
@@ -139,7 +140,8 @@ async fn integration_trino_rest() {
     writeln!(tmp_file, "fs.native-s3.enabled=true").unwrap();
     writeln!(
         tmp_file,
-        "s3.endpoint=http://{}:{}", container_host, localstack_port
+        "s3.endpoint=http://{}:{}",
+        container_host, localstack_port
     )
     .unwrap();
     writeln!(tmp_file, "s3.path-style-access=true").unwrap();
