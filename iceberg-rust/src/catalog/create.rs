@@ -569,10 +569,7 @@ mod tests {
             .with_location("/test/location")
             .create();
 
-        assert!(
-            result.is_err(),
-            "Table creation without schema should fail"
-        );
+        assert!(result.is_err(), "Table creation without schema should fail");
     }
 
     #[test]
@@ -745,7 +742,10 @@ mod tests {
             .unwrap();
 
         let metadata: Result<TableMetadata, Error> = create_table.try_into();
-        assert!(metadata.is_ok(), "Conversion to TableMetadata should succeed");
+        assert!(
+            metadata.is_ok(),
+            "Conversion to TableMetadata should succeed"
+        );
 
         let metadata = metadata.unwrap();
         assert_eq!(metadata.location, "/test/location");
