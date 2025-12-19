@@ -311,8 +311,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     ) -> Result<Self, Error> {
         let mut writer = AvroWriter::new(schema, Vec::new());
 
-        reset_manifest_summary(&mut manifest, table_metadata);
-
         writer.add_user_metadata(
             "format-version".to_string(),
             match table_metadata.format_version {
@@ -380,6 +378,14 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 })
                 .filter_map(Result::ok),
         )?;
+
+        manifest.sequence_number = table_metadata.last_sequence_number + 1;
+
+        manifest.existing_files_count = Some(
+            manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
+        );
+
+        manifest.added_files_count = None;
 
         Ok(ManifestWriter {
             manifest,
