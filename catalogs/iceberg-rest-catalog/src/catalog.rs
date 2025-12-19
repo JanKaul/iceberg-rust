@@ -738,7 +738,7 @@ pub mod tests {
         let container_host = if is_podman() {
             "host.containers.internal"
         } else {
-            "host.docker.internal"
+            "172.17.0.1"
         };
 
         let localstack = LocalStack::default()
