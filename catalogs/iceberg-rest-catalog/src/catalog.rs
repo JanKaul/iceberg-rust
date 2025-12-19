@@ -719,6 +719,7 @@ pub mod tests {
             types::{PrimitiveType, StructField, StructType, Type},
         },
         table::Table,
+        test_utils::is_podman,
     };
     use object_store::{memory::InMemory, ObjectStore};
     use std::{convert::TryFrom, sync::Arc, time::Duration};
@@ -746,7 +747,11 @@ pub mod tests {
     }
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        let container_host = iceberg_rust::test_utils::get_container_host();
+        let container_host = if is_podman() {
+            "host.containers.internal"
+        } else {
+            "host.docker.internal"
+        };
 
         let localstack = LocalStack::default()
             .with_env_var("SERVICES", "s3")
