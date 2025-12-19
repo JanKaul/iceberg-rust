@@ -16,6 +16,7 @@ use iceberg_rust::spec::partition::{PartitionField, PartitionSpec, Transform};
 use iceberg_rust::spec::schema::Schema;
 use iceberg_rust::spec::types::{PrimitiveType, StructField, Type};
 use iceberg_rust::table::Table;
+use iceberg_rust::test_utils::is_podman;
 use tempfile::TempDir;
 use testcontainers::core::CmdWaitFor;
 use testcontainers::ContainerAsync;
@@ -44,6 +45,13 @@ fn configuration(host: &str, port: u16) -> Configuration {
 /// queries might fail with "No nodes available to run query" (see
 /// https://github.com/testcontainers/testcontainers-java/issues/6310)
 async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout: Duration) {
+    let trino_port = trino_container.get_host_port_ipv4(8080).await.unwrap();
+    let container_host = if is_podman() {
+        "host.containers.internal"
+    } else {
+        "host.docker.internal"
+    };
+
     let start = Instant::now();
     while start.elapsed() < timeout {
         let res = trino_container
@@ -54,7 +62,7 @@ async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout
                     "iceberg",
                     "--execute",
                     "select count(*) from tpch.tiny.lineitem",
-                    "http://0.0.0.0:8080",
+                    &format!("http://{}:{}", container_host, trino_port),
                 ])
                 .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
             )
@@ -69,7 +77,11 @@ async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout
 
 #[tokio::test]
 async fn integration_trino_rest() {
-    let container_host = iceberg_rust::test_utils::get_container_host();
+    let container_host = if is_podman() {
+        "host.containers.internal"
+    } else {
+        "host.docker.internal"
+    };
 
     let localstack = LocalStack::default()
         .with_env_var("SERVICES", "s3")
@@ -192,6 +204,8 @@ async fn integration_trino_rest() {
 
     wait_for_worker(&trino, Duration::from_secs(180)).await;
 
+    let trino_port = trino.get_host_port_ipv4(8080).await.unwrap();
+
     let result = trino
         .exec(
             ExecCommand::new(vec![
@@ -200,14 +214,16 @@ async fn integration_trino_rest() {
                 "iceberg",
                 "--file",
                 "/tmp/trino.sql",
-                "http://0.0.0.0:8080",
+                &format!("http://{}:{}", container_host, trino_port),
             ])
-            .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
+            .with_cmd_ready_condition(CmdWaitFor::Exit { code: None }),
         )
         .await
         .unwrap();
 
     assert_eq!(result.exit_code().await.unwrap().unwrap(), 0);
+
+    sleep(Duration::from_secs(10)).await;
 
     let catalog = Arc::new(RestCatalog::new(
         None,
@@ -309,7 +325,7 @@ async fn integration_trino_rest() {
                 "SELECT sum(amount) FROM iceberg.test.test_orders;",
                 "--output-format",
                 "NULL",
-                "http://0.0.0.0:8080",
+                &format!("http://{}:{}", container_host, trino_port),
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )

@@ -4,34 +4,8 @@ use crate::object_store::{Bucket, ObjectStoreBuilder};
 use futures::StreamExt;
 use std::time::Duration;
 
-/// Get the container host address for inter-container communication.
-///
-/// This function returns the appropriate host address depending on the container runtime:
-/// - Podman: `host.containers.internal` (special DNS name that resolves to host)
-/// - Docker: `host.docker.internal` (available on Docker Desktop and Linux with recent versions)
-/// - Can be overridden with `CONTAINER_HOST` environment variable
-///
-/// # Returns
-/// A string slice containing the host address for containers to access the host
-pub fn get_container_host() -> &'static str {
-    // Allow explicit override via environment variable
-    if let Ok(host) = std::env::var("CONTAINER_HOST") {
-        return Box::leak(host.into_boxed_str());
-    }
-
-    // For testcontainers with bridge networking:
-    // - Podman (with netavark/bridge): host.containers.internal
-    // - Docker (modern versions): host.docker.internal
-    // Both resolve to an IP that routes to the host
-    if is_podman() {
-        "host.containers.internal"
-    } else {
-        "host.docker.internal"
-    }
-}
-
 /// Detect if we're using Podman instead of Docker
-fn is_podman() -> bool {
+pub fn is_podman() -> bool {
     // Check if docker command is actually podman
     std::process::Command::new("docker")
         .arg("--help")
