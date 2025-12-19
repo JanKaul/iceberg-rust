@@ -206,7 +206,7 @@ async fn integration_trino_rest() {
 
     let trino_port = trino.get_host_port_ipv4(8080).await.unwrap();
 
-    let result = trino
+    let mut result = trino
         .exec(
             ExecCommand::new(vec![
                 "trino",
@@ -221,9 +221,13 @@ async fn integration_trino_rest() {
         .await
         .unwrap();
 
+    while result.exit_code().await.unwrap().is_none() {
+        sleep(Duration::from_millis(100)).await;
+    }
+
     assert_eq!(result.exit_code().await.unwrap().unwrap(), 0);
 
-    sleep(Duration::from_secs(10)).await;
+    result.stderr_to_vec().await.unwrap();
 
     let catalog = Arc::new(RestCatalog::new(
         None,
