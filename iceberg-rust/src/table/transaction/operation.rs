@@ -31,7 +31,7 @@ use smallvec::SmallVec;
 use tokio::task::JoinHandle;
 use tracing::{debug, instrument};
 
-use crate::table::manifest::ManifestWriter;
+use crate::table::manifest::{FilteredManifestStats, ManifestWriter};
 use crate::table::manifest_list::ManifestListWriter;
 use crate::table::transaction::append::append_summary;
 use crate::{
@@ -655,7 +655,7 @@ impl Operation {
                 }
 
                 // Compute summary before moving data_files
-                let summary_fields = update_snapshot_summary(
+                let mut summary_fields = update_snapshot_summary(
                     Some(old_snapshot.summary()),
                     data_files.iter(),
                     std::iter::empty::<&DataFile>(), // No separate delete files in this operation
@@ -680,7 +680,7 @@ impl Operation {
                         branch.as_deref(),
                     )?;
 
-                manifest_list_writer
+                let mut filtered_stats = manifest_list_writer
                     .append_and_filter(
                         manifests_to_overwrite,
                         &files_to_overwrite,
@@ -707,58 +707,55 @@ impl Operation {
                     .map(|x| x.manifest_path.clone())
                     .ok_or(Error::NotFound("Selected manifest".to_owned()))?;
 
-                let files_to_filter = files_to_overwrite.get(&selected_manifest_location);
-
-                let filter = if let Some(filter_files) = files_to_filter {
-                    let filter_files: HashSet<String> =
-                        filter_files.iter().map(ToOwned::to_owned).collect();
-                    Some(move |file: &Result<ManifestEntry, Error>| {
-                        let Ok(file) = file else { return true };
-
-                        !filter_files.contains(file.data_file().file_path())
-                    })
-                } else {
-                    None
-                };
+                let files_to_filter =
+                    files_to_overwrite
+                        .get(&selected_manifest_location)
+                        .map(|filter_files| {
+                            filter_files
+                                .iter()
+                                .map(ToOwned::to_owned)
+                                .collect::<HashSet<String>>()
+                        });
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
-                let new_manifest_list_location = if n_splits == 0 {
-                    manifest_list_writer
+                let selected_filter_stats = if n_splits == 0 {                    manifest_list_writer
                         .append_filtered(
                             new_datafile_iter,
                             snapshot_id,
-                            filter,
-                            object_store.clone(),
+                            files_to_filter.clone(),                            object_store.clone(),
                             ManifestListContent::Data,
                         )
-                        .await?;
-                    manifest_list_writer
-                        .finish(snapshot_id, object_store)
                         .await?
+
                 } else {
                     manifest_list_writer
                         .append_multiple_filtered(
                             new_datafile_iter,
                             snapshot_id,
                             n_splits,
-                            filter,
-                            object_store.clone(),
+                            files_to_filter.clone(),                            object_store.clone(),
                             ManifestListContent::Data,
                         )
-                        .await?;
-                    manifest_list_writer
-                        .finish(snapshot_id, object_store)
                         .await?
                 };
+                if let Some(selected_filter_stats) = selected_filter_stats {
+                    filtered_stats.append(selected_filter_stats);
+                }
+
+                let new_manifest_list_location = manifest_list_writer
+                    .finish(snapshot_id, object_store)
+                    .await?;
 
                 let snapshot_operation = SnapshotOperation::Overwrite;
 
                 // Merge with any additional summary fields
-                let mut summary_fields = summary_fields;
                 if let Some(additional) = additional_summary {
                     summary_fields.extend(additional);
                 }
+
+                // Apply filtration stats
+                update_snapshot_summary_by_filtered_stats(&mut summary_fields, filtered_stats);
 
                 let mut snapshot_builder = SnapshotBuilder::default();
                 snapshot_builder
@@ -994,6 +991,37 @@ pub fn update_snapshot_summary<'files>(
     );
 
     result
+}
+
+pub(crate) fn update_snapshot_summary_by_filtered_stats(
+    summary: &mut HashMap<String, String>,
+    stats: FilteredManifestStats,
+) {
+    let mut subtract_from_summary = |key: &str, delta: i64, add: bool| {
+        if delta == 0 {
+            return;
+        }
+        let current = summary
+            .get(key)
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(0);
+
+        let updated = if add {
+            current + delta
+        } else {
+            (current - delta).max(0)
+        };
+        summary.insert(key.to_string(), updated.to_string());
+    };
+    subtract_from_summary("total-records", stats.removed_records, false);
+    subtract_from_summary("deleted-data-files", stats.removed_data_files.into(), true);
+    subtract_from_summary("deleted-records", stats.removed_records, true);
+    subtract_from_summary("total-data-files", stats.removed_data_files.into(), false);
+    subtract_from_summary(
+        "total-file-size-bytes",
+        stats.removed_file_size_bytes,
+        false,
+    );
 }
 
 pub(crate) fn new_manifest_location(
