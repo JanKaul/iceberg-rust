@@ -310,9 +310,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         branch: Option<&str>,
     ) -> Result<Self, Error> {
         let mut writer = AvroWriter::new(schema, Vec::new());
-
-        reset_manifest_summary(&mut manifest, table_metadata);
-
         writer.add_user_metadata(
             "format-version".to_string(),
             match table_metadata.format_version {
@@ -381,6 +378,14 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 .filter_map(Result::ok),
         )?;
 
+        manifest.sequence_number = table_metadata.last_sequence_number + 1;
+
+        manifest.existing_files_count = Some(
+            manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
+        );
+
+        manifest.added_files_count = None;
+
         Ok(ManifestWriter {
             manifest,
             writer,
@@ -436,8 +441,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         let mut writer = AvroWriter::new(schema, Vec::new());
         let mut filtered_stats = FilteredManifestStats::default();
 
-        reset_manifest_summary(&mut manifest, table_metadata);
-
         writer.add_user_metadata(
             "format-version".to_string(),
             match table_metadata.format_version {
@@ -489,30 +492,36 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             },
         )?;
 
-        let mut entries = Vec::new();
-        for entry in manifest_reader {
-            let mut entry =
-                entry.map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))?;
-
-            if filter.contains(entry.data_file().file_path()) {
+        writer.extend(manifest_reader.filter_map(|entry| {
+            let mut entry = entry
+                .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))
+                .unwrap();
+            if !filter.contains(entry.data_file().file_path()) {
+                *entry.status_mut() = Status::Existing;
+                if entry.sequence_number().is_none() {
+                    *entry.sequence_number_mut() = Some(manifest.sequence_number);
+                }
+                if entry.snapshot_id().is_none() {
+                    *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
+                }
+                Some(to_value(entry).unwrap())
+            } else {
                 if *entry.data_file().content() == Content::Data {
                     filtered_stats.removed_records += entry.data_file().record_count();
                 }
                 filtered_stats.removed_file_size_bytes += entry.data_file().file_size_in_bytes();
                 filtered_stats.removed_data_files += 1;
-                continue;
+                None
             }
+        }))?;
 
-            *entry.status_mut() = Status::Existing;
-            if entry.sequence_number().is_none() {
-                *entry.sequence_number_mut() = Some(manifest.sequence_number);
-            }
-            if entry.snapshot_id().is_none() {
-                *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
-            }
-            entries.push(to_value(entry)?);
-        }
-        writer.extend(entries)?;
+        manifest.sequence_number = table_metadata.last_sequence_number + 1;
+
+        manifest.existing_files_count = Some(
+            manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
+        );
+
+        manifest.added_files_count = None;
 
         Ok((
             ManifestWriter {
@@ -717,19 +726,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             };
         }
     }
-}
-
-fn reset_manifest_summary(manifest: &mut ManifestListEntry, table_metadata: &TableMetadata) {
-    manifest.sequence_number = table_metadata.last_sequence_number + 1;
-    manifest.min_sequence_number = 0;
-    manifest.manifest_length = 0;
-    manifest.added_files_count = Some(0);
-    manifest.existing_files_count = Some(0);
-    manifest.deleted_files_count = Some(0);
-    manifest.added_rows_count = Some(0);
-    manifest.existing_rows_count = Some(0);
-    manifest.deleted_rows_count = Some(0);
-    manifest.partitions = None;
 }
 
 #[allow(clippy::type_complexity)]

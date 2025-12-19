@@ -828,8 +828,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
                 manifest.manifest_path = self.next_manifest_location();
 
-                let manifest_reader = ManifestReader::new(manifest_bytes.as_ref())?;
-
                 if let Some(filter) = filter {
                     let (manifest_writer, filtered_stats) =
                         ManifestWriter::from_existing_with_filter(
@@ -842,6 +840,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                         )?;
                     (manifest_writer, Some(filtered_stats))
                 } else {
+                    let manifest_reader = ManifestReader::new(manifest_bytes.as_ref())?;
                     let manifest_writer = ManifestWriter::from_existing(
                         manifest_reader,
                         manifest,
