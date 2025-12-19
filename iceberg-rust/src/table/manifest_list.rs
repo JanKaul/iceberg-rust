@@ -820,7 +820,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             &self.table_metadata.format_version,
         )?;
 
-
         let (mut manifest_writer, filtered_stats) =
             if let (Some(mut manifest), Some(manifest_bytes)) =
                 (selected_manifest, selected_manifest_bytes_opt)

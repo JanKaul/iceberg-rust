@@ -719,22 +719,24 @@ impl Operation {
 
                 // Write manifest files
                 // Split manifest file if limit is exceeded
-                let selected_filter_stats = if n_splits == 0 {                    manifest_list_writer
+                let selected_filter_stats = if n_splits == 0 {
+                    manifest_list_writer
                         .append_filtered(
                             new_datafile_iter,
                             snapshot_id,
-                            files_to_filter.clone(),                            object_store.clone(),
+                            files_to_filter.clone(),
+                            object_store.clone(),
                             ManifestListContent::Data,
                         )
                         .await?
-
                 } else {
                     manifest_list_writer
                         .append_multiple_filtered(
                             new_datafile_iter,
                             snapshot_id,
                             n_splits,
-                            files_to_filter.clone(),                            object_store.clone(),
+                            files_to_filter.clone(),
+                            object_store.clone(),
                             ManifestListContent::Data,
                         )
                         .await?
