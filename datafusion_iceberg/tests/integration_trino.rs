@@ -49,7 +49,7 @@ async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout
     let container_host = if is_podman() {
         "host.containers.internal"
     } else {
-        "host.docker.internal"
+        "172.17.0.1"
     };
 
     let start = Instant::now();
@@ -80,7 +80,7 @@ async fn integration_trino_rest() {
     let container_host = if is_podman() {
         "host.containers.internal"
     } else {
-        "host.docker.internal"
+        "172.17.0.1"
     };
 
     let localstack = LocalStack::default()
