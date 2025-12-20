@@ -58,6 +58,9 @@ pub async fn test_empty_insert() {
         .with_config("allow_http", "true")
         .unwrap();
 
+    // Wait for bucket to be ready
+    iceberg_rust::test_utils::wait_for_s3_bucket(&object_store, "s3://warehouse", None).await;
+
     let iceberg_catalog_list = Arc::new(
         SqlCatalogList::new("sqlite://", object_store.clone())
             .await
