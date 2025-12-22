@@ -444,8 +444,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
 
         let mut writer = AvroWriter::new(schema, Vec::new());
         let mut filtered_stats = FilteredManifestStats::default();
-        let mut existing_files = 0i32;
-        let mut existing_rows = 0i64;
 
         writer.add_user_metadata(
             "format-version".to_string(),
@@ -510,8 +508,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 if entry.snapshot_id().is_none() {
                     *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
                 }
-                existing_files += 1;
-                existing_rows += entry.data_file().record_count();
                 Some(to_value(entry).unwrap())
             } else {
                 if *entry.data_file().content() == Content::Data {
@@ -525,8 +521,14 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
 
         manifest.sequence_number = table_metadata.last_sequence_number + 1;
 
-        manifest.existing_files_count = Some(existing_files);
-        manifest.existing_rows_count = Some(existing_rows);
+        manifest.existing_files_count = Some(
+            manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0)
+                - filtered_stats.removed_data_files,
+        );
+        manifest.existing_rows_count = Some(
+            manifest.existing_rows_count.unwrap_or(0) + manifest.added_rows_count.unwrap_or(0)
+                - filtered_stats.removed_records,
+        );
 
         manifest.added_files_count = None;
         manifest.added_rows_count = None;
