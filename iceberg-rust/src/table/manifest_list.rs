@@ -1130,7 +1130,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             split_datafiles(data_files, bounds, &partition_column_names, n_splits)?
         };
 
-        let (manifests, manifest_futures) = splits
+        let (mut manifests, mut manifest_futures) = splits
             .into_iter()
             .map(|entries| {
                 let manifest_location = self.next_manifest_location();
@@ -1151,6 +1151,25 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 manifest_writer.finish_concurrently(object_store.clone())
             })
             .collect::<Result<(Vec<_>, Vec<_>), _>>()?;
+
+        if let Some(removed_stats) = removed_stats.as_ref() {
+            if removed_stats.removed_data_files > 0 {
+                let manifest_location = self.next_manifest_location();
+                let mut manifest_writer = ManifestWriter::new(
+                    &manifest_location,
+                    snapshot_id,
+                    &manifest_schema,
+                    self.table_metadata,
+                    content,
+                    self.branch.as_deref(),
+                )?;
+                manifest_writer.apply_filtered_stats(removed_stats);
+                let (manifest, future) =
+                    manifest_writer.finish_concurrently(object_store.clone())?;
+                manifests.push(manifest);
+                manifest_futures.push(future);
+            }
+        }
 
         for manifest in manifests {
             self.writer.append_ser(manifest)?;
