@@ -386,7 +386,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 .filter_map(Result::ok),
         )?;
 
-        manifest.sequence_number = table_metadata.last_sequence_number + 1;
+        manifest.sequence_number = sequence_number;
         manifest.min_sequence_number = min_sequence_number;
 
         manifest.existing_files_count = Some(
