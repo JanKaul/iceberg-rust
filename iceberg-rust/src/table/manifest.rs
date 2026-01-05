@@ -160,11 +160,12 @@ pub(crate) struct ManifestWriter<'schema, 'metadata> {
     writer: AvroWriter<'schema, Vec<u8>>,
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone)]
 pub(crate) struct FilteredManifestStats {
     pub removed_data_files: i32,
     pub removed_records: i64,
     pub removed_file_size_bytes: i64,
+    pub filtered_entries: Vec<ManifestEntry>,
 }
 
 impl FilteredManifestStats {
@@ -172,6 +173,7 @@ impl FilteredManifestStats {
         self.removed_file_size_bytes += stats.removed_file_size_bytes;
         self.removed_records += stats.removed_records;
         self.removed_data_files += stats.removed_data_files;
+        self.filtered_entries.extend(stats.filtered_entries);
     }
 }
 
@@ -361,6 +363,9 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             },
         )?;
 
+        let sequence_number = table_metadata.last_sequence_number + 1;
+        let mut min_sequence_number = sequence_number;
+
         writer.extend(
             manifest_reader
                 .map(|entry| {
@@ -368,7 +373,10 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                         .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))?;
                     *entry.status_mut() = Status::Existing;
                     if entry.sequence_number().is_none() {
-                        *entry.sequence_number_mut() = Some(manifest.sequence_number);
+                        *entry.sequence_number_mut() = Some(sequence_number);
+                    }
+                    if let Some(seq) = entry.sequence_number() {
+                        min_sequence_number = min_sequence_number.min(*seq);
                     }
                     if entry.snapshot_id().is_none() {
                         *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
@@ -379,6 +387,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         )?;
 
         manifest.sequence_number = table_metadata.last_sequence_number + 1;
+        manifest.min_sequence_number = min_sequence_number;
 
         manifest.existing_files_count = Some(
             manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
@@ -496,30 +505,41 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             },
         )?;
 
+        let sequence_number = table_metadata.last_sequence_number + 1;
+        let mut min_sequence_number = sequence_number;
+
         writer.extend(manifest_reader.filter_map(|entry| {
             let mut entry = entry
                 .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))
                 .unwrap();
-            if !filter.contains(entry.data_file().file_path()) {
-                *entry.status_mut() = Status::Existing;
-                if entry.sequence_number().is_none() {
-                    *entry.sequence_number_mut() = Some(manifest.sequence_number);
-                }
-                if entry.snapshot_id().is_none() {
-                    *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
-                }
-                Some(to_value(entry).unwrap())
-            } else {
+
+            if entry.sequence_number().is_none() {
+                *entry.sequence_number_mut() = Some(sequence_number);
+            }
+            if entry.snapshot_id().is_none() {
+                *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
+            }
+
+            if filter.contains(entry.data_file().file_path()) {
                 if *entry.data_file().content() == Content::Data {
                     filtered_stats.removed_records += entry.data_file().record_count();
                 }
                 filtered_stats.removed_file_size_bytes += entry.data_file().file_size_in_bytes();
                 filtered_stats.removed_data_files += 1;
+                *entry.status_mut() = Status::Deleted;
+                filtered_stats.filtered_entries.push(entry);
                 None
+            } else {
+                *entry.status_mut() = Status::Existing;
+                if let Some(seq) = entry.sequence_number() {
+                    min_sequence_number = min_sequence_number.min(*seq);
+                }
+                Some(to_value(entry).unwrap())
             }
         }))?;
 
-        manifest.sequence_number = table_metadata.last_sequence_number + 1;
+        manifest.sequence_number = sequence_number;
+        manifest.min_sequence_number = min_sequence_number;
 
         manifest.existing_files_count = Some(
             manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0)
@@ -565,6 +585,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     pub(crate) fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
         let mut added_rows_count = 0;
         let mut deleted_rows_count = 0;
+        let mut existing_rows_count = 0;
 
         if self.manifest.partitions.is_none() {
             self.manifest.partitions = Some(
@@ -582,16 +603,24 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             );
         }
 
+        let status = *manifest_entry.status();
         match manifest_entry.data_file().content() {
-            Content::Data => {
-                added_rows_count += manifest_entry.data_file().record_count();
-            }
+            Content::Data => match status {
+                Status::Added => {
+                    added_rows_count += manifest_entry.data_file().record_count();
+                }
+                Status::Existing => {
+                    existing_rows_count += manifest_entry.data_file().record_count();
+                }
+                Status::Deleted => {
+                    deleted_rows_count += manifest_entry.data_file().record_count();
+                }
+            },
             Content::EqualityDeletes => {
                 deleted_rows_count += manifest_entry.data_file().record_count();
             }
             _ => (),
         }
-        let status = *manifest_entry.status();
 
         update_partitions(
             self.manifest.partitions.as_mut().unwrap(),
@@ -718,23 +747,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 .await
         };
         Ok((self.manifest, future))
-    }
-
-    pub(crate) fn apply_filtered_stats(&mut self, filtered_stats: &FilteredManifestStats) {
-        let removed_files = filtered_stats.removed_data_files;
-        if removed_files > 0 {
-            self.manifest.deleted_files_count = match self.manifest.deleted_files_count {
-                Some(count) => Some(count + removed_files),
-                None => Some(removed_files),
-            };
-        }
-
-        if filtered_stats.removed_records > 0 {
-            self.manifest.deleted_rows_count = match self.manifest.deleted_rows_count {
-                Some(count) => Some(count + filtered_stats.removed_records),
-                None => Some(filtered_stats.removed_records),
-            };
-        }
     }
 }
 
