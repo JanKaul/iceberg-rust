@@ -363,22 +363,23 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             },
         )?;
 
-        writer.extend(
-            manifest_reader
-                .map(|entry| {
-                    let mut entry = entry
-                        .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))?;
-                    *entry.status_mut() = Status::Existing;
-                    if entry.sequence_number().is_none() {
-                        *entry.sequence_number_mut() = Some(manifest.sequence_number);
-                    }
-                    if entry.snapshot_id().is_none() {
-                        *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
-                    }
-                    to_value(entry)
-                })
-                .filter_map(Result::ok),
-        )?;
+        writer.extend(manifest_reader.filter_map(|entry| {
+            let mut entry = entry
+                .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))
+                .ok()?;
+
+            if *entry.status() == Status::Deleted {
+                return None;
+            }
+            *entry.status_mut() = Status::Existing;
+            if entry.sequence_number().is_none() {
+                *entry.sequence_number_mut() = Some(manifest.sequence_number);
+            }
+            if entry.snapshot_id().is_none() {
+                *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
+            }
+            to_value(entry).ok()
+        }))?;
 
         manifest.sequence_number = table_metadata.last_sequence_number + 1;
 
@@ -391,6 +392,8 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
 
         manifest.added_files_count = None;
         manifest.added_rows_count = None;
+        manifest.deleted_rows_count = None;
+        manifest.deleted_files_count = None;
 
         Ok(ManifestWriter {
             manifest,
@@ -503,6 +506,11 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))
                 .unwrap();
 
+            // Skip deleted data files
+            if *entry.status() == Status::Deleted {
+                return None;
+            }
+
             if entry.sequence_number().is_none() {
                 *entry.sequence_number_mut() = Some(manifest.sequence_number);
             }
@@ -538,6 +546,8 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
 
         manifest.added_files_count = None;
         manifest.added_rows_count = None;
+        manifest.deleted_rows_count = None;
+        manifest.deleted_files_count = None;
 
         Ok((
             ManifestWriter {
