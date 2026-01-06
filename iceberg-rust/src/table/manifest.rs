@@ -363,9 +363,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             },
         )?;
 
-        let sequence_number = table_metadata.last_sequence_number + 1;
-        let mut min_sequence_number = sequence_number;
-
         writer.extend(
             manifest_reader
                 .map(|entry| {
@@ -373,10 +370,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                         .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))?;
                     *entry.status_mut() = Status::Existing;
                     if entry.sequence_number().is_none() {
-                        *entry.sequence_number_mut() = Some(sequence_number);
-                    }
-                    if let Some(seq) = entry.sequence_number() {
-                        min_sequence_number = min_sequence_number.min(*seq);
+                        *entry.sequence_number_mut() = Some(manifest.sequence_number);
                     }
                     if entry.snapshot_id().is_none() {
                         *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
@@ -386,8 +380,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 .filter_map(Result::ok),
         )?;
 
-        manifest.sequence_number = sequence_number;
-        manifest.min_sequence_number = min_sequence_number;
+        manifest.sequence_number = table_metadata.last_sequence_number + 1;
 
         manifest.existing_files_count = Some(
             manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
@@ -505,16 +498,13 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             },
         )?;
 
-        let sequence_number = table_metadata.last_sequence_number + 1;
-        let mut min_sequence_number = sequence_number;
-
         writer.extend(manifest_reader.filter_map(|entry| {
             let mut entry = entry
                 .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))
                 .unwrap();
 
             if entry.sequence_number().is_none() {
-                *entry.sequence_number_mut() = Some(sequence_number);
+                *entry.sequence_number_mut() = Some(manifest.sequence_number);
             }
             if entry.snapshot_id().is_none() {
                 *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
@@ -531,15 +521,11 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 None
             } else {
                 *entry.status_mut() = Status::Existing;
-                if let Some(seq) = entry.sequence_number() {
-                    min_sequence_number = min_sequence_number.min(*seq);
-                }
                 Some(to_value(entry).unwrap())
             }
         }))?;
 
-        manifest.sequence_number = sequence_number;
-        manifest.min_sequence_number = min_sequence_number;
+        manifest.sequence_number = table_metadata.last_sequence_number + 1;
 
         manifest.existing_files_count = Some(
             manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0)

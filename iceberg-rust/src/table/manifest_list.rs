@@ -827,6 +827,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 let manifest_bytes = manifest_bytes.await??;
 
                 manifest.manifest_path = self.next_manifest_location();
+                manifest.added_snapshot_id = snapshot_id;
 
                 if let Some(filter) = filter {
                     let (manifest_writer, filtered_stats) =
@@ -1259,6 +1260,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         manifests_to_overwrite: Vec<ManifestListEntry>,
         data_files_to_filter: &HashMap<String, Vec<String>>,
         object_store: Arc<dyn ObjectStore>,
+        snapshot_id: i64,
     ) -> Result<FilteredManifestStats, Error> {
         let partition_fields = self
             .table_metadata
@@ -1291,16 +1293,16 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                     .await?;
 
                 manifest.manifest_path = manifest_location;
+                manifest.added_snapshot_id = snapshot_id;
 
-                let (manifest_writer, filtered_stats) =
-                    ManifestWriter::from_existing_with_filter(
-                        &bytes,
-                        manifest,
-                        &data_files_to_filter,
-                        &manifest_schema,
-                        table_metadata,
-                        branch.as_deref(),
-                    )?;
+                let (manifest_writer, filtered_stats) = ManifestWriter::from_existing_with_filter(
+                    &bytes,
+                    manifest,
+                    &data_files_to_filter,
+                    &manifest_schema,
+                    table_metadata,
+                    branch.as_deref(),
+                )?;
 
                 let new_manifest = manifest_writer.finish(object_store.clone()).await?;
 
@@ -1313,7 +1315,9 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             removed_stats.removed_data_files += filtered_stats.removed_data_files;
             removed_stats.removed_records += filtered_stats.removed_records;
             removed_stats.removed_file_size_bytes += filtered_stats.removed_file_size_bytes;
-            removed_stats.filtered_entries.extend(filtered_stats.filtered_entries);
+            removed_stats
+                .filtered_entries
+                .extend(filtered_stats.filtered_entries);
             self.writer.append_ser(manifest)?;
         }
         Ok(removed_stats)

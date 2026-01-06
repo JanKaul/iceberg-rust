@@ -680,11 +680,14 @@ impl Operation {
                         branch.as_deref(),
                     )?;
 
+                let snapshot_id = generate_snapshot_id();
+
                 let mut filtered_stats = manifest_list_writer
                     .append_and_filter(
                         manifests_to_overwrite,
                         &files_to_overwrite,
                         object_store.clone(),
+                        snapshot_id,
                     )
                     .await?;
 
@@ -699,8 +702,6 @@ impl Operation {
                         .build()
                         .map_err(Error::from)
                 });
-
-                let snapshot_id = generate_snapshot_id();
 
                 let selected_manifest_location = manifest_list_writer
                     .selected_data_manifest()
@@ -747,27 +748,30 @@ impl Operation {
 
                 // Store separate manifest with filtered data files for compatability
                 if !filtered_stats.filtered_entries.is_empty() {
+                    let n_filtered_files = filtered_stats.filtered_entries.len();
                     let filtered_iter = filtered_stats.filtered_entries.clone().into_iter().map(Ok);
-                    if n_splits == 0 {
+                    let n_filtered_splits =
+                        manifest_list_writer.n_splits(n_filtered_files, ManifestListContent::Data);
+
+                    if n_filtered_splits == 0 {
                         manifest_list_writer
-                            .append_filtered(
+                            .append(
                                 filtered_iter,
                                 snapshot_id,
-                                None::<HashSet<String>>,
                                 object_store.clone(),
                                 ManifestListContent::Data,
                             )
                             .await?;
                     } else {
                         manifest_list_writer
-                            .append_multiple_filtered(
+                            .append_multiple_concurrently(
                                 filtered_iter,
                                 snapshot_id,
-                                n_splits,
-                                None::<HashSet<String>>,
+                                n_filtered_splits,
                                 object_store.clone(),
                                 ManifestListContent::Data,
                             )
+                            .await?
                             .await?;
                     };
                 }
