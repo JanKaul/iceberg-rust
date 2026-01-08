@@ -32,6 +32,7 @@
 //! # }
 //! ```
 
+use derive_builder::Builder;
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
     SinkExt, StreamExt, TryStreamExt,
@@ -67,6 +68,24 @@ use super::partition::partition_record_batch;
 const MAX_PARQUET_SIZE: usize = 512_000_000;
 const COMPRESSION_FACTOR: usize = 200;
 
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Builder)]
+#[builder(default)]
+/// WriteOptions : options to configure Parquet writer
+pub struct WriteOptions {
+    max_parquet_size: usize,
+    compression_factor: usize,
+}
+
+impl Default for WriteOptions {
+    fn default() -> Self {
+        WriteOptions {
+            max_parquet_size: MAX_PARQUET_SIZE,
+            compression_factor: COMPRESSION_FACTOR,
+        }
+    }
+}
+
 #[instrument(skip(table, batches), fields(table_name = %table.identifier().name()))]
 /// Writes Arrow record batches as partitioned Parquet files.
 ///
@@ -93,7 +112,38 @@ pub async fn write_parquet_partitioned(
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, ArrowError> {
-    store_parquet_partitioned(table, batches, branch, None).await
+    store_parquet_partitioned(table, batches, branch, None, WriteOptions::default()).await
+}
+
+#[instrument(skip(table, batches), fields(table_name = %table.identifier().name()))]
+/// Writes Arrow record batches as partitioned Parquet files.
+///
+/// This function writes Arrow record batches to Parquet files, partitioning them according
+/// to the table's partition spec.
+///
+/// # Arguments
+/// * `table` - The Iceberg table to write data for
+/// * `batches` - Stream of Arrow record batches to write
+/// * `branch` - Optional branch name to write to
+/// * `opts` - Parquet writer options
+///
+/// # Returns
+/// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written data files
+///
+/// # Errors
+/// Returns an error if:
+/// * The table metadata cannot be accessed
+/// * The schema projection fails
+/// * The object store operations fail
+/// * The Parquet writing fails
+/// * The partition path generation fails
+pub async fn write_parquet_partitioned_opts(
+    table: &Table,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
+    branch: Option<&str>,
+    opts: WriteOptions,
+) -> Result<Vec<DataFile>, ArrowError> {
+    store_parquet_partitioned(table, batches, branch, None, opts).await
 }
 
 #[instrument(skip(table, batches), fields(table_name = %table.identifier().name(), equality_ids = ?equality_ids))]
@@ -124,7 +174,14 @@ pub async fn write_equality_deletes_parquet_partitioned(
     branch: Option<&str>,
     equality_ids: &[i32],
 ) -> Result<Vec<DataFile>, ArrowError> {
-    store_parquet_partitioned(table, batches, branch, Some(equality_ids)).await
+    store_parquet_partitioned(
+        table,
+        batches,
+        branch,
+        Some(equality_ids),
+        WriteOptions::default(),
+    )
+    .await
 }
 
 #[instrument(skip(table, batches), fields(table_name = %table.identifier().name(), equality_ids = ?equality_ids))]
@@ -138,6 +195,7 @@ pub async fn write_equality_deletes_parquet_partitioned(
 /// * `batches` - Stream of Arrow record batches to write
 /// * `branch` - Optional branch name to write to
 /// * `equality_ids` - Optional list of field IDs for equality deletes
+/// * `opts` - Parquet writer options
 ///
 /// # Returns
 /// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written data files
@@ -154,6 +212,7 @@ async fn store_parquet_partitioned(
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
     branch: Option<&str>,
     equality_ids: Option<&[i32]>,
+    opts: WriteOptions,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let metadata = table.metadata();
     let object_store = table.object_store();
@@ -209,6 +268,7 @@ async fn store_parquet_partitioned(
             batches,
             object_store.clone(),
             equality_ids,
+            opts,
         )
         .await?;
         Ok(files)
@@ -257,6 +317,7 @@ async fn store_parquet_partitioned(
                                 &partition_values,
                             )?)
                         };
+                        let opts = opts.clone();
                         async move {
                             let partition_fields =
                                 table_metadata::partition_fields(&partition_spec, &schema)
@@ -270,6 +331,7 @@ async fn store_parquet_partitioned(
                                 reciever,
                                 object_store.clone(),
                                 equality_ids.as_deref(),
+                                opts,
                             )
                             .await?;
                             Ok::<_, Error>(files)
@@ -311,6 +373,7 @@ type ArrowReciever = Receiver<(String, ParquetMetaData)>;
 /// * `batches` - Stream of record batches to write
 /// * `object_store` - Object store to write files to
 /// * `equality_ids` - Optional list of field IDs for equality deletes
+/// * `opts` - Parquet writer options
 ///
 /// # Returns
 /// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written files
@@ -331,6 +394,7 @@ async fn write_parquet_files(
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
     equality_ids: Option<&[i32]>,
+    opts: WriteOptions,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let bucket = Bucket::from_path(data_location)?;
     let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(0);
@@ -367,7 +431,7 @@ async fn write_parquet_files(
                     let batch_size = record_batch_size(&batch);
                     let new_size = state.bytes_written + batch_size;
 
-                    if new_size > COMPRESSION_FACTOR * MAX_PARQUET_SIZE {
+                    if new_size > opts.compression_factor * opts.max_parquet_size {
                         // Send current writer to channel
                         let finished_writer = state.writer;
                         let file = finished_writer.1.close().await?;
