@@ -372,10 +372,9 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 })
                 .ok()?;
 
-            if *entry.status() == Status::Deleted {
-                return None;
+            if *entry.status() != Status::Deleted {
+                *entry.status_mut() = Status::Existing;
             }
-            *entry.status_mut() = Status::Existing;
             if entry.sequence_number().is_none() {
                 *entry.sequence_number_mut() = Some(manifest.sequence_number);
             }
@@ -515,10 +514,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 .unwrap();
 
             // Skip deleted data files
-            if *entry.status() == Status::Deleted {
-                return None;
-            }
-
             if entry.sequence_number().is_none() {
                 *entry.sequence_number_mut() = Some(manifest.sequence_number);
             }
@@ -536,7 +531,10 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 filtered_stats.filtered_entries.push(entry);
                 None
             } else {
-                *entry.status_mut() = Status::Existing;
+                if *entry.status() != Status::Deleted {
+                    *entry.status_mut() = Status::Existing;
+                }
+
                 Some(to_value(entry).unwrap())
             }
         }))?;
