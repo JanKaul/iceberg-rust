@@ -513,6 +513,10 @@ pub fn apply_table_updates(
                 for id in snapshot_ids {
                     metadata.snapshots.remove(&id);
                 }
+
+                metadata
+                    .snapshot_log
+                    .retain(|e| metadata.snapshots.contains_key(&e.snapshot_id));
             }
             TableUpdate::RemoveSnapshotRef { ref_name } => {
                 metadata.refs.remove(&ref_name);
