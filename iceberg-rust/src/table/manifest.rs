@@ -372,7 +372,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 })
                 .ok()?;
 
-            if *entry.status() != Status::Deleted {
+            if *entry.status() == Status::Deleted {
                 return None;
             }
             *entry.status_mut() = Status::Existing;
@@ -514,7 +514,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 })
                 .unwrap();
 
-            // Skip deleted data files
             if *entry.status() == Status::Deleted {
                 return None;
             }
