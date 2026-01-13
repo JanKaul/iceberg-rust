@@ -368,7 +368,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))
                 .ok()?;
 
-            if *entry.status() != Status::Deleted {
+            if *entry.status() == Status::Deleted {
                 return None;
             }
             *entry.status_mut() = Status::Existing;
@@ -506,7 +506,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 .map_err(|err| apache_avro::Error::DeserializeValue(err.to_string()))
                 .unwrap();
 
-            // Skip deleted data files
             if *entry.status() == Status::Deleted {
                 return None;
             }
