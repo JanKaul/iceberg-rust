@@ -47,7 +47,7 @@ use url::Url;
 pub struct RestCatalog {
     name: Option<String>,
     configuration: Configuration,
-    configuration_rewriter: Option<Arc<dyn ConfigurationRewriter + Sync + Send>>,
+    configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
     default_object_store_builder: Option<ObjectStoreBuilder>,
     ignore_storage_credentials: bool,
     cache: Arc<RwLock<HashMap<Identifier, Arc<dyn ObjectStore>>>>,
@@ -57,7 +57,7 @@ impl RestCatalog {
     pub fn new(
         name: Option<&str>,
         configuration: Configuration,
-        configuration_rewriter: Option<Arc<dyn ConfigurationRewriter + Sync + Send>>,
+        configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
         default_object_store_builder: Option<ObjectStoreBuilder>,
         ignore_storage_credentials: bool,
     ) -> Self {
@@ -93,7 +93,7 @@ impl RestCatalog {
                 });
         }
 
-        object_store_from_response(&response)?
+        object_store_from_response(response)?
             .ok_or(Error::NotFound("Object store credentials".to_string()))
             .or_else(|_| {
                 self.default_object_store_builder
@@ -583,7 +583,7 @@ impl Catalog for RestCatalog {
 #[derive(Debug, Clone)]
 pub struct RestCatalogList {
     configuration: Configuration,
-    configuration_rewriter: Option<Arc<dyn ConfigurationRewriter + Sync + Send>>,
+    configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
     object_store_builder: Option<ObjectStoreBuilder>,
     ignore_storage_credentials: bool,
 }
@@ -591,7 +591,7 @@ pub struct RestCatalogList {
 impl RestCatalogList {
     pub fn new(
         configuration: Configuration,
-        configuration_rewriter: Option<Arc<dyn ConfigurationRewriter + Sync + Send>>,
+        configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
         object_store_builder: Option<ObjectStoreBuilder>,
         ignore_storage_credentials: bool,
     ) -> Self {
@@ -624,7 +624,7 @@ impl CatalogList for RestCatalogList {
 pub struct RestNoPrefixCatalogList {
     name: String,
     configuration: Configuration,
-    configuration_rewriter: Option<Arc<dyn ConfigurationRewriter + Sync + Send>>,
+    configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
     object_store_builder: Option<ObjectStoreBuilder>,
     ignore_storage_credentials: bool,
 }
@@ -633,7 +633,7 @@ impl RestNoPrefixCatalogList {
     pub fn new(
         name: &str,
         configuration: Configuration,
-        configuration_rewriter: Option<Arc<dyn ConfigurationRewriter + Sync + Send>>,
+        configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
         object_store_builder: Option<ObjectStoreBuilder>,
         ignore_storage_credentials: bool,
     ) -> Self {

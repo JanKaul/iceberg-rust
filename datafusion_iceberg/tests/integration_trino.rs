@@ -202,7 +202,9 @@ async fn integration_trino_rest() {
     let catalog = Arc::new(RestCatalog::new(
         None,
         configuration(&rest_host.to_string(), rest_port),
+        None,
         Some(object_store),
+        false,
     ));
 
     let tables = catalog
