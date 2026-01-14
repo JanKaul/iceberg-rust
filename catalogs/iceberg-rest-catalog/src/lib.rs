@@ -12,6 +12,8 @@ extern crate url;
 #[allow(clippy::all)]
 pub mod apis;
 pub mod catalog;
+pub mod configuration_rewriter;
 pub mod error;
 #[allow(clippy::all)]
 pub mod models;
+pub mod oauth2_client_credentials;
