@@ -123,6 +123,22 @@ async fn test_table_transaction_overwrite() {
         .expect("Failed to create files_to_overwrite mapping");
 
     // 8. Use TableTransaction::overwrite to replace the us-east partition files
+    let mut files_to_overwrite_missing_manifest = files_to_overwrite.clone();
+    files_to_overwrite_missing_manifest.insert(
+        "missing_manifest.avro".to_owned(),
+        vec!["missing_data_file_01.parquet".to_owned()],
+    );
+
+    assert!(table
+        .new_transaction(None)
+        .overwrite(
+            overwrite_data_files.clone(),
+            files_to_overwrite_missing_manifest,
+        )
+        .commit()
+        .await
+        .is_err());
+
     table
         .new_transaction(None)
         .overwrite(overwrite_data_files, files_to_overwrite)
