@@ -11,8 +11,17 @@ repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
 async-trait.workspace = true
-aws-config = "1.5.16"
-aws-sdk-glue = "1.82.0"
+aws-config = { version = "1.5.16", default-features = false, features = [
+    "rt-tokio",
+    "default-https-client",
+    "behavior-version-latest",
+    "sso",
+] }
+aws-sdk-glue = { version = "1.82.0", default-features = false, features = [
+    "default-https-client",
+    "rt-tokio",
+    "behavior-version-latest",
+] }
 futures.workspace = true
 iceberg-rust = { path = "../../iceberg-rust", version = "0.9.0" }
 object_store.workspace = true
