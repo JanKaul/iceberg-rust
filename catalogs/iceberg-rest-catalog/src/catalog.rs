@@ -707,6 +707,7 @@ pub mod tests {
             types::{PrimitiveType, StructField, StructType, Type},
         },
         table::Table,
+        test_utils::is_podman,
     };
     use object_store::{memory::InMemory, ObjectStore};
     use std::{convert::TryFrom, sync::Arc, time::Duration};
@@ -734,7 +735,11 @@ pub mod tests {
     }
     #[tokio::test]
     async fn test_create_update_drop_table() {
-        let docker_host = "172.17.0.1";
+        let container_host = if is_podman() {
+            "host.containers.internal"
+        } else {
+            "172.17.0.1"
+        };
 
         let localstack = LocalStack::default()
             .with_env_var("SERVICES", "s3")
@@ -773,8 +778,9 @@ pub mod tests {
             .with_env_var("CATALOG_IO__IMPL", "org.apache.iceberg.aws.s3.S3FileIO")
             .with_env_var(
                 "CATALOG_S3_ENDPOINT",
-                format!("http://{}:{}", &docker_host, &localstack_port),
+                format!("http://{}:{}", container_host, localstack_port),
             )
+            .with_env_var("CATALOG_S3_PATH__STYLE__ACCESS", "true")
             .start()
             .await
             .unwrap();
@@ -796,6 +802,9 @@ pub mod tests {
             .unwrap()
             .with_config("allow_http", "true")
             .unwrap();
+
+        // Wait for bucket to be ready
+        iceberg_rust::test_utils::wait_for_s3_bucket(&object_store, "s3://warehouse", None).await;
 
         let iceberg_catalog = Arc::new(RestCatalog::new(
             None,
