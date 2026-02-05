@@ -7,8 +7,8 @@ use std::time::Duration;
 /// Detect if we're using Podman instead of Docker
 pub fn is_podman() -> bool {
     // Check if docker command is actually podman
-    std::process::Command::new("docker")
-        .arg("--help")
+    std::process::Command::new("podman")
+        .arg("--version")
         .output()
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())
