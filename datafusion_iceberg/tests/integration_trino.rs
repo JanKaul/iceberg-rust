@@ -202,7 +202,7 @@ async fn integration_trino_rest() {
         .await
         .unwrap();
 
-    wait_for_worker(&trino, Duration::from_secs(180)).await;
+    wait_for_worker(&trino, Duration::from_secs(300)).await;
 
     let trino_port = trino.get_host_port_ipv4(8080).await.unwrap();
 
