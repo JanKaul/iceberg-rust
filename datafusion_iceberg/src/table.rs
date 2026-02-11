@@ -768,15 +768,13 @@ async fn table_scan(
                                 .create_physical_plan(session, delete_file_scan_config)
                                 .await?;
 
-                            let file_scan_config = FileScanConfigBuilder::new(
-                                object_store_url,
-                                file_source.clone(),
-                            )
-                            .with_file_group(FileGroup::new(data_files))
-                            .with_statistics(statistics)
-                            .with_projection_indices(Some(equality_projection))?
-                            .with_limit(limit)
-                            .build();
+                            let file_scan_config =
+                                FileScanConfigBuilder::new(object_store_url, file_source.clone())
+                                    .with_file_group(FileGroup::new(data_files))
+                                    .with_statistics(statistics)
+                                    .with_projection_indices(Some(equality_projection))?
+                                    .with_limit(limit)
+                                    .build();
 
                             let data_files_scan = ParquetFormat::default()
                                 .create_physical_plan(session, file_scan_config)
@@ -846,15 +844,13 @@ async fn table_scan(
                     .collect::<Result<Vec<_>, _>>()?;
 
                 if !additional_data_files.is_empty() {
-                    let file_scan_config = FileScanConfigBuilder::new(
-                        object_store_url,
-                        file_source,
-                    )
-                    .with_file_group(FileGroup::new(additional_data_files))
-                    .with_statistics(statistics)
-                    .with_projection_indices(Some(equality_projection))?
-                    .with_limit(limit)
-                    .build();
+                    let file_scan_config =
+                        FileScanConfigBuilder::new(object_store_url, file_source)
+                            .with_file_group(FileGroup::new(additional_data_files))
+                            .with_statistics(statistics)
+                            .with_projection_indices(Some(equality_projection))?
+                            .with_limit(limit)
+                            .build();
 
                     let data_files_scan = ParquetFormat::default()
                         .create_physical_plan(session, file_scan_config)
@@ -896,13 +892,12 @@ async fn table_scan(
         .collect();
 
     if !file_groups.is_empty() {
-        let file_scan_config =
-            FileScanConfigBuilder::new(object_store_url, file_source)
-                .with_file_groups(file_groups)
-                .with_statistics(statistics)
-                .with_projection_indices(Some(projection.clone()))?
-                .with_limit(limit)
-                .build();
+        let file_scan_config = FileScanConfigBuilder::new(object_store_url, file_source)
+            .with_file_groups(file_groups)
+            .with_statistics(statistics)
+            .with_projection_indices(Some(projection.clone()))?
+            .with_limit(limit)
+            .build();
 
         let other_plan = ParquetFormat::default()
             .create_physical_plan(session, file_scan_config)
