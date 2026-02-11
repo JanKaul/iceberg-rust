@@ -1,6 +1,6 @@
 # Rust implementation of [Apache Iceberg](https://iceberg.apache.org)
 
-Apache Iceberg is Open Table Format that brings ACID quarantees to large analytic datasets. 
+Apache Iceberg is an Open Table Format that brings ACID quarantees to large analytic datasets.
 This repository contains a Rust implementation of Apache Iceberg that focuses on the interoperability with the Arrow ecosystem.
 It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org/datafusion/) query engine.
 
@@ -19,34 +19,34 @@ It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org
 
 ### Iceberg tables
 
-| Feature | Status |
-| --- | --- |
-| Read | :white_check_mark: |
-| Read partitioned | :white_check_mark: |
-| Insert | :white_check_mark: |
+| Feature            | Status             |
+| ------------------ | ------------------ |
+| Read               | :white_check_mark: |
+| Read partitioned   | :white_check_mark: |
+| Insert             | :white_check_mark: |
 | Insert partitioned | :white_check_mark: |
-| Equality deletes | :white_check_mark: |
-| Positional deletes | |
+| Equality deletes   | :white_check_mark: |
+| Positional deletes |                    |
 
 ### Table Maintenance
 
-| Feature | Status |
-| --- | --- |
-| Expire snapshots | :white_check_mark: |
+| Feature             | Status             |
+| ------------------- | ------------------ |
+| Expire snapshots    | :white_check_mark: |
 | Orphan file cleanup | :white_check_mark: |
 
 ### Iceberg Views
 
-| Feature | Status |
-| --- | --- |
-| Read | :white_check_mark: |
+| Feature | Status             |
+| ------- | ------------------ |
+| Read    | :white_check_mark: |
 
 ### Iceberg Materialized Views
 
-| Feature | Status |
-| --- | --- |
-| Read | :white_check_mark: |
-| Full refresh | :white_check_mark: |
+| Feature             | Status             |
+| ------------------- | ------------------ |
+| Read                | :white_check_mark: |
+| Full refresh        | :white_check_mark: |
 | Incremental refresh | :white_check_mark: |
 
 ### Catalogs
@@ -64,6 +64,44 @@ It provides an Iceberg integration for the [Datafusion](https://arrow.apache.org
 ### Integrations
 
 - [Datafusion](https://arrow.apache.org/datafusion/)
+
+## Development
+
+### Running Tests
+
+The full test suite requires [DuckDB](https://duckdb.org/) to be installed on your system. DuckDB is used for cross-engine validation tests to ensure DataFusion-written Iceberg tables can be correctly read by other engines.
+
+**Install DuckDB:**
+
+- **macOS:** `brew install duckdb`
+- **Linux (Ubuntu/Debian):**
+
+  ```bash
+  wget https://github.com/duckdb/duckdb/releases/download/v1.4.4/libduckdb-linux-amd64.zip
+  unzip libduckdb-linux-amd64.zip -d libduckdb
+  sudo cp libduckdb/libduckdb.so /usr/local/lib/
+  sudo cp libduckdb/duckdb.h /usr/local/include/
+  sudo cp libduckdb/duckdb.hpp /usr/local/include/
+  sudo ldconfig
+  ```
+
+- **Linux (via package manager):** Check your distribution's package manager for `duckdb` or `libduckdb-dev`
+- **Windows:** Download from [DuckDB releases](https://github.com/duckdb/duckdb/releases)
+
+**Note:** The project includes a `.cargo/config.toml` with OS-specific linker paths for common DuckDB installation locations. If you installed DuckDB in a non-standard location, you may need to adjust the paths in that file.
+
+**Run tests:**
+
+```bash
+cargo test
+```
+
+**Code quality checks:**
+
+```bash
+make fmt      # Format code
+make clippy   # Run linter
+```
 
 ## Example
 
@@ -164,7 +202,7 @@ pub(crate) async fn main() {
     ctx.register_table("orders", table).unwrap();
 
     ctx.sql(
-        "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES 
+        "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES
         (1, 1, 1, '2020-01-01', 1),
         (2, 2, 1, '2020-01-01', 1),
         (3, 3, 1, '2020-01-01', 3),
@@ -215,7 +253,7 @@ pub(crate) async fn main() {
     }
 
     ctx.sql(
-        "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES 
+        "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES
         (7, 1, 3, '2020-01-03', 1),
         (8, 2, 1, '2020-01-03', 2),
         (9, 2, 2, '2020-01-03', 1);",

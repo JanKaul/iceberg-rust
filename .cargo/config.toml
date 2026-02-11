@@ -1,0 +1,17 @@
+# Cargo configuration for DuckDB linking
+# This ensures the linker can find libduckdb when running tests
+
+# macOS with Homebrew
+[target.aarch64-apple-darwin]
+rustflags = ["-L", "/opt/homebrew/opt/duckdb/lib"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-L", "/usr/local/opt/duckdb/lib"]
+
+# Linux - common library paths
+# Users may need to adjust based on their installation
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-L", "/usr/local/lib", "-L", "/usr/lib"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-L", "/usr/local/lib", "-L", "/usr/lib"]

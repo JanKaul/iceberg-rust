@@ -1,8 +1,4 @@
-use datafusion::{
-    arrow::{error::ArrowError, record_batch::RecordBatch},
-    assert_batches_eq,
-    prelude::SessionContext,
-};
+use datafusion::{arrow::error::ArrowError, assert_batches_eq, prelude::SessionContext};
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
 use duckdb::Connection;
 use futures::stream;
@@ -24,25 +20,6 @@ use iceberg_sql_catalog::SqlCatalog;
 use object_store::local::LocalFileSystem;
 use std::sync::Arc;
 use tempfile::TempDir;
-
-/// Convert DuckDB's Arrow RecordBatch to DataFusion's Arrow RecordBatch
-/// using Arrow IPC format as an interchange format.
-/// This allows compatibility between different Arrow versions.
-fn convert_duckdb_batch_to_datafusion(
-    duckdb_batch: duckdb::arrow::record_batch::RecordBatch,
-) -> RecordBatch {
-    use arrow_ipc::writer::StreamWriter as DuckDBWriter;
-    use datafusion::arrow::ipc::reader::StreamReader as DataFusionReader;
-
-    let mut buffer = Vec::new();
-    let mut writer = DuckDBWriter::try_new(&mut buffer, &duckdb_batch.schema()).unwrap();
-    writer.write(&duckdb_batch).unwrap();
-    writer.finish().unwrap();
-    drop(writer);
-
-    let mut reader = DataFusionReader::try_new(std::io::Cursor::new(buffer), None).unwrap();
-    reader.next().unwrap().unwrap()
-}
 
 #[tokio::test]
 pub async fn test_equality_delete() {
@@ -223,16 +200,17 @@ pub async fn test_equality_delete() {
     ];
     assert_batches_eq!(expected, &batches);
 
+    // Cross-engine validation: ensure DuckDB can read the Iceberg table with equality deletes
     let conn = Connection::open_in_memory().unwrap();
     conn.execute("install iceberg", []).unwrap();
     conn.execute("load iceberg", []).unwrap();
 
-    let duckdb_batches: Vec<RecordBatch> = conn
+    // Both DuckDB and DataFusion use Arrow 57, so no conversion needed
+    let duckdb_batches: Vec<_> = conn
         .prepare("select * from iceberg_scan(?) order by id")
         .unwrap()
         .query_arrow([table_dir])
         .unwrap()
-        .map(convert_duckdb_batch_to_datafusion)
         .collect();
     assert_batches_eq!(expected, &duckdb_batches);
 

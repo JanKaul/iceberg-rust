@@ -31,9 +31,11 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-# The version should match the Arrow version used by duckdb
-arrow-ipc = "56"
-duckdb = { version = "1.4", features = ["bundled"] }
+arrow-ipc = { workspace = true }
+# TODO: Switch to released version when Arrow v57 support is released (current stable v1.4.4 uses Arrow v56)
+# Note: Requires libduckdb v1.4.4 to be installed on the system (pre-compiled version)
+# Git revision 60fcab76 adds Arrow v57 compatibility (committed Feb 2, 2026)
+duckdb = { git = "https://github.com/duckdb/duckdb-rs", rev = "60fcab76" }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
 pyo3 = { version = "0.25", features = ["auto-initialize"] }
