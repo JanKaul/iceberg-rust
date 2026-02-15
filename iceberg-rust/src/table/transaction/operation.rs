@@ -32,7 +32,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, instrument};
 
 use crate::table::manifest::{FilteredManifestStats, ManifestWriter};
-use crate::table::manifest_list::ManifestListWriter;
+use crate::table::manifest_list::{ManifestListReader, ManifestListWriter};
 use crate::table::transaction::append::append_summary;
 use crate::{
     catalog::commit::{TableRequirement, TableUpdate},
@@ -675,6 +675,27 @@ impl Operation {
                 let bytes = prefetch_manifest_list(Some(old_snapshot), &object_store)
                     .unwrap()
                     .await??;
+
+                // Validate that all manifests specified in files_to_overwrite actually exist in the current snapshot
+                let current_manifest_paths: HashSet<String> = {
+                    let manifest_list_reader = ManifestListReader::new(&bytes[..], table_metadata)?;
+                    manifest_list_reader
+                        .map(|entry| entry.map(|e| e.manifest_path.clone()))
+                        .collect::<Result<HashSet<_>, _>>()?
+                };
+
+                // Find any manifests that were requested to be overwritten but don't exist in the current snapshot
+                let non_existent_manifests: Vec<String> = manifests_to_overwrite
+                    .difference(&current_manifest_paths)
+                    .cloned()
+                    .collect();
+
+                if !non_existent_manifests.is_empty() {
+                    return Err(Error::NotFound(format!(
+                        "Manifests to overwrite do not exist in current snapshot: {:?}",
+                        non_existent_manifests
+                    )));
+                }
 
                 let (mut manifest_list_writer, manifests_to_overwrite) =
                     ManifestListWriter::from_existing_without_overwrites(
