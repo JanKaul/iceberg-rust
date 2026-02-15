@@ -669,7 +669,7 @@ impl Operation {
 
                 let data_files_iter = data_files.iter();
 
-                let manifests_to_overwrite_set: HashSet<String> =
+                let manifests_to_overwrite: HashSet<String> =
                     files_to_overwrite.keys().map(ToOwned::to_owned).collect();
 
                 let bytes = prefetch_manifest_list(Some(old_snapshot), &object_store)
@@ -680,27 +680,11 @@ impl Operation {
                     ManifestListWriter::from_existing_without_overwrites(
                         &bytes,
                         data_files_iter,
-                        &manifests_to_overwrite_set,
+                        &manifests_to_overwrite,
                         manifest_list_schema,
                         table_metadata,
                         branch.as_deref(),
                     )?;
-
-                let mut actual_manifests_to_overwrite_set: HashSet<String> = manifests_to_overwrite
-                    .iter()
-                    .map(|x| x.manifest_path.to_owned())
-                    .collect();
-
-                manifest_list_writer
-                    .selected_data_manifest()
-                    .iter()
-                    .for_each(|m| {
-                        actual_manifests_to_overwrite_set.insert(m.manifest_path.to_owned());
-                    });
-
-                if manifests_to_overwrite_set != actual_manifests_to_overwrite_set {
-                    return Err(Error::NotFound("Manifests to overwrite".to_owned()));
-                }
 
                 let mut filtered_stats = manifest_list_writer
                     .append_and_filter(
