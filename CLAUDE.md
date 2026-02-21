@@ -15,6 +15,20 @@ iceberg-rust-spec (pure specification types)
 
 **Core Philosophy:** Deep modules with simple interfaces (John Ousterhout's "A Philosophy of Software Design")
 
+## Pre-Commit Checks
+
+Before committing any changes, **always** run these commands to ensure code quality:
+
+```bash
+make fmt      # Format code with rustfmt
+make clippy   # Run Clippy linter (all warnings treated as errors)
+```
+
+**CI Requirements:**
+- All code must pass `cargo fmt --all -- --check`
+- All code must pass `cargo clippy --all-targets --all-features -- -D warnings`
+- Failing these checks will block PR merges
+
 ## Deep vs Shallow Modules
 
 **Deep Modules** = Powerful functionality + Simple interface

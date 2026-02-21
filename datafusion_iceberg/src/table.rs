@@ -39,7 +39,7 @@ use crate::{
     pruning_statistics::{transform_predicate, PruneDataFiles, PruneManifests},
     statistics::manifest_statistics,
 };
-use datafusion::common::{NullEquality, Statistics};
+use datafusion::common::{ColumnStatistics, NullEquality, Statistics};
 use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
@@ -59,6 +59,7 @@ use datafusion::{
             FileSinkConfig,
         },
         sink::{DataSink, DataSinkExec},
+        table_schema::TableSchema,
         TableProvider, ViewTable,
     },
     execution::{context::SessionState, TaskContext},
@@ -561,6 +562,16 @@ async fn table_scan(
         (itertools::Either::Right(iter), statistics)
     };
 
+    // DataFusion 52 requires statistics.column_statistics to cover all columns
+    // (file columns + partition columns). Append Absent stats for each partition
+    // column so that project_statistics doesn't panic on out-of-bounds access.
+    let mut statistics = statistics;
+    for _ in &table_partition_cols {
+        statistics
+            .column_statistics
+            .push(ColumnStatistics::new_unknown());
+    }
+
     if partition_fields.is_empty() {
         let (data_files, equality_delete_files): (Vec<_>, Vec<_>) = content_file_iter
             .filter(|manifest| *manifest.1.status() != Status::Deleted)
@@ -611,16 +622,21 @@ async fn table_scan(
         });
     }
 
+    let table_partition_col_refs: Vec<Arc<Field>> =
+        table_partition_cols.iter().cloned().map(Arc::new).collect();
+    let table_schema = TableSchema::new(file_schema.clone(), table_partition_col_refs);
+
     let file_source = {
         let physical_predicate = physical_predicate.clone();
+        let table_schema = table_schema.clone();
         async move {
             Arc::new(
                 if let Some(physical_predicate) = physical_predicate.clone() {
-                    ParquetSource::default()
+                    ParquetSource::new(table_schema)
                         .with_predicate(physical_predicate)
                         .with_pushdown_filters(true)
                 } else {
-                    ParquetSource::default()
+                    ParquetSource::new(table_schema)
                 },
             )
         }
@@ -632,11 +648,9 @@ async fn table_scan(
     let mut plans = stream::iter(equality_delete_file_groups.into_iter())
         .then(|(partition_value, mut delete_files)| {
             let object_store_url = object_store_url.clone();
-            let table_partition_cols = table_partition_cols.clone();
             let statistics = statistics.clone();
             let physical_predicate = physical_predicate.clone();
             let schema = &schema;
-            let file_schema = file_schema.clone();
             let file_source = file_source.clone();
             let projection_expr = projection_expr.clone();
             let projection = &projection;
@@ -688,11 +702,9 @@ async fn table_scan(
                     .map(Ok::<_, DataFusionError>)
                     .try_fold(None, |acc, delete_manifest| {
                         let object_store_url = object_store_url.clone();
-                        let table_partition_cols = table_partition_cols.clone();
                         let statistics = statistics.clone();
                         let physical_predicate = physical_predicate.clone();
                         let schema = &schema;
-                        let file_schema: Arc<ArrowSchema> = file_schema.clone();
                         let file_source = file_source.clone();
                         let mut data_files = Vec::new();
                         let equality_projection = equality_projection.clone();
@@ -745,40 +757,34 @@ async fn table_scan(
 
                             let delete_file_source = Arc::new(
                                 if let Some(physical_predicate) = physical_predicate.clone() {
-                                    ParquetSource::default()
+                                    ParquetSource::new(delete_file_schema)
                                         .with_predicate(physical_predicate)
                                         .with_pushdown_filters(true)
                                 } else {
-                                    ParquetSource::default()
+                                    ParquetSource::new(delete_file_schema)
                                 },
                             );
 
                             let delete_file_scan_config = FileScanConfigBuilder::new(
                                 object_store_url.clone(),
-                                delete_file_schema,
                                 delete_file_source,
                             )
                             .with_file_group(FileGroup::new(vec![delete_file]))
                             .with_statistics(statistics.clone())
                             .with_limit(limit)
-                            .with_table_partition_cols(table_partition_cols.clone())
                             .build();
 
                             let left = ParquetFormat::default()
                                 .create_physical_plan(session, delete_file_scan_config)
                                 .await?;
 
-                            let file_scan_config = FileScanConfigBuilder::new(
-                                object_store_url,
-                                file_schema.clone(),
-                                file_source.clone(),
-                            )
-                            .with_file_group(FileGroup::new(data_files))
-                            .with_statistics(statistics)
-                            .with_projection_indices(Some(equality_projection))
-                            .with_limit(limit)
-                            .with_table_partition_cols(table_partition_cols)
-                            .build();
+                            let file_scan_config =
+                                FileScanConfigBuilder::new(object_store_url, file_source.clone())
+                                    .with_file_group(FileGroup::new(data_files))
+                                    .with_statistics(statistics)
+                                    .with_projection_indices(Some(equality_projection))?
+                                    .with_limit(limit)
+                                    .build();
 
                             let data_files_scan = ParquetFormat::default()
                                 .create_physical_plan(session, file_scan_config)
@@ -848,17 +854,13 @@ async fn table_scan(
                     .collect::<Result<Vec<_>, _>>()?;
 
                 if !additional_data_files.is_empty() {
-                    let file_scan_config = FileScanConfigBuilder::new(
-                        object_store_url,
-                        file_schema.clone(),
-                        file_source,
-                    )
-                    .with_file_group(FileGroup::new(additional_data_files))
-                    .with_statistics(statistics)
-                    .with_projection_indices(Some(equality_projection))
-                    .with_limit(limit)
-                    .with_table_partition_cols(table_partition_cols)
-                    .build();
+                    let file_scan_config =
+                        FileScanConfigBuilder::new(object_store_url, file_source)
+                            .with_file_group(FileGroup::new(additional_data_files))
+                            .with_statistics(statistics)
+                            .with_projection_indices(Some(equality_projection))?
+                            .with_limit(limit)
+                            .build();
 
                     let data_files_scan = ParquetFormat::default()
                         .create_physical_plan(session, file_scan_config)
@@ -900,14 +902,12 @@ async fn table_scan(
         .collect();
 
     if !file_groups.is_empty() {
-        let file_scan_config =
-            FileScanConfigBuilder::new(object_store_url, file_schema, file_source)
-                .with_file_groups(file_groups)
-                .with_statistics(statistics)
-                .with_projection_indices(Some(projection.clone()))
-                .with_limit(limit)
-                .with_table_partition_cols(table_partition_cols)
-                .build();
+        let file_scan_config = FileScanConfigBuilder::new(object_store_url, file_source)
+            .with_file_groups(file_groups)
+            .with_statistics(statistics)
+            .with_projection_indices(Some(projection.clone()))?
+            .with_limit(limit)
+            .build();
 
         let other_plan = ParquetFormat::default()
             .create_physical_plan(session, file_scan_config)

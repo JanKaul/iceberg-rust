@@ -223,6 +223,7 @@ pub async fn test_equality_delete() {
     ];
     assert_batches_eq!(expected, &batches);
 
+    // Cross-engine validation: ensure DuckDB can read the Iceberg table with equality deletes
     let conn = Connection::open_in_memory().unwrap();
     conn.execute("install iceberg", []).unwrap();
     conn.execute("load iceberg", []).unwrap();
