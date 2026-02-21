@@ -39,7 +39,7 @@ use crate::{
     pruning_statistics::{transform_predicate, PruneDataFiles, PruneManifests},
     statistics::manifest_statistics,
 };
-use datafusion::common::{NullEquality, Statistics};
+use datafusion::common::{ColumnStatistics, NullEquality, Statistics};
 use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema as ArrowSchema, SchemaBuilder, SchemaRef},
@@ -561,6 +561,16 @@ async fn table_scan(
         let iter = data_files.into_iter();
         (itertools::Either::Right(iter), statistics)
     };
+
+    // DataFusion 52 requires statistics.column_statistics to cover all columns
+    // (file columns + partition columns). Append Absent stats for each partition
+    // column so that project_statistics doesn't panic on out-of-bounds access.
+    let mut statistics = statistics;
+    for _ in &table_partition_cols {
+        statistics
+            .column_statistics
+            .push(ColumnStatistics::new_unknown());
+    }
 
     if partition_fields.is_empty() {
         let (data_files, equality_delete_files): (Vec<_>, Vec<_>) = content_file_iter
