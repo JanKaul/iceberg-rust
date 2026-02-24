@@ -33,6 +33,7 @@ pub(crate) fn statistics_from_datafiles(
                         min_value: x.min_value,
                         distinct_count: x.distinct_count,
                         sum_value: x.sum_value,
+                        byte_size: x.byte_size,
                     })
                     .collect(),
             }
@@ -53,6 +54,7 @@ pub(crate) fn statistics_from_datafiles(
                         min_value: acc.min_value.min(&x.min_value),
                         distinct_count: new_distinct_count,
                         sum_value: acc.sum_value.add(&x.sum_value),
+                        byte_size: acc.byte_size.add(&x.byte_size),
                     }
                 })
                 .collect(),
@@ -95,6 +97,7 @@ fn column_statistics<'a>(
                 .unwrap_or(Precision::Absent),
             distinct_count: Precision::Absent,
             sum_value: Precision::Absent,
+            byte_size: Precision::Absent,
         }
     })
 }
