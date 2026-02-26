@@ -35,12 +35,13 @@ uuid = { workspace = true }
 arrow-ipc = "56"
 duckdb = { version = "1.4", features = ["bundled"] }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
+iceberg-rust = { path = "../iceberg-rust", version = "0.9.0", features = ["test-utils"] }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
 pyo3 = { version = "0.25", features = ["auto-initialize"] }
 reqwest = "0.12"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 tempfile = "3.17.1"
-testcontainers = "0.23"
-testcontainers-modules = { version = "0.11", features = ["localstack", "postgres"] }
+testcontainers = "0.26"
+testcontainers-modules = { version = "0.14", features = ["localstack", "postgres"] }
 tokio = "1"
 tokio-stream = { version = "0.1.17", features = ["io-util"] }

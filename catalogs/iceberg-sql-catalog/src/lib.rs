@@ -843,6 +843,9 @@ pub mod tests {
             .with_config("allow_http", "true")
             .unwrap();
 
+        // Wait for bucket to be ready
+        iceberg_rust::test_utils::wait_for_s3_bucket(&object_store, "s3://warehouse", None).await;
+
         let iceberg_catalog = Arc::new(
             SqlCatalog::new(
                 &format!("postgres://postgres:postgres@{postgres_host}:{postgres_port}/postgres"),

@@ -72,3 +72,7 @@ pub mod sql;
 pub mod table;
 pub(crate) mod util;
 pub mod view;
+
+#[cfg(any(test, feature = "test-utils"))]
+#[doc(inline)]
+pub use util::test_utils;

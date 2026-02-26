@@ -16,6 +16,7 @@ use iceberg_rust::spec::partition::{PartitionField, PartitionSpec, Transform};
 use iceberg_rust::spec::schema::Schema;
 use iceberg_rust::spec::types::{PrimitiveType, StructField, Type};
 use iceberg_rust::table::Table;
+use iceberg_rust::test_utils::is_podman;
 use tempfile::TempDir;
 use testcontainers::core::CmdWaitFor;
 use testcontainers::ContainerAsync;
@@ -44,6 +45,13 @@ fn configuration(host: &str, port: u16) -> Configuration {
 /// queries might fail with "No nodes available to run query" (see
 /// https://github.com/testcontainers/testcontainers-java/issues/6310)
 async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout: Duration) {
+    let trino_port = trino_container.get_host_port_ipv4(8080).await.unwrap();
+    let container_host = if is_podman() {
+        "host.containers.internal"
+    } else {
+        "172.17.0.1"
+    };
+
     let start = Instant::now();
     while start.elapsed() < timeout {
         let res = trino_container
@@ -54,6 +62,7 @@ async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout
                     "iceberg",
                     "--execute",
                     "select count(*) from tpch.tiny.lineitem",
+                    &format!("http://{}:{}", container_host, trino_port),
                 ])
                 .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
             )
@@ -68,7 +77,11 @@ async fn wait_for_worker(trino_container: &ContainerAsync<GenericImage>, timeout
 
 #[tokio::test]
 async fn integration_trino_rest() {
-    let docker_host = "172.17.0.1";
+    let container_host = if is_podman() {
+        "host.containers.internal"
+    } else {
+        "172.17.0.1"
+    };
 
     let localstack = LocalStack::default()
         .with_env_var("SERVICES", "s3")
@@ -96,6 +109,24 @@ async fn integration_trino_rest() {
     let localstack_host = localstack.get_host().await.unwrap();
     let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
 
+    let object_store = ObjectStoreBuilder::s3()
+        .with_config("aws_access_key_id", "user")
+        .unwrap()
+        .with_config("aws_secret_access_key", "password")
+        .unwrap()
+        .with_config(
+            "endpoint",
+            format!("http://{localstack_host}:{localstack_port}"),
+        )
+        .unwrap()
+        .with_config("region", "us-east-1")
+        .unwrap()
+        .with_config("allow_http", "true")
+        .unwrap();
+
+    // Wait for bucket to be ready
+    iceberg_rust::test_utils::wait_for_s3_bucket(&object_store, "s3://warehouse", None).await;
+
     let rest = GenericImage::new("apache/iceberg-rest-fixture", "latest")
         .with_wait_for(WaitFor::Log(LogWaitStrategy::stderr(
             "INFO org.eclipse.jetty.server.Server - Started ",
@@ -107,8 +138,9 @@ async fn integration_trino_rest() {
         .with_env_var("CATALOG_IO__IMPL", "org.apache.iceberg.aws.s3.S3FileIO")
         .with_env_var(
             "CATALOG_S3_ENDPOINT",
-            format!("http://{}:{}", &docker_host, &localstack_port),
+            format!("http://{}:{}", container_host, localstack_port),
         )
+        .with_env_var("CATALOG_S3_PATH__STYLE__ACCESS", "true")
         .start()
         .await
         .unwrap();
@@ -130,7 +162,8 @@ async fn integration_trino_rest() {
     writeln!(tmp_file, "iceberg.catalog.type=rest").unwrap();
     writeln!(
         tmp_file,
-        "iceberg.rest-catalog.uri=http://{docker_host}:{rest_port}"
+        "iceberg.rest-catalog.uri=http://{}:{}",
+        container_host, rest_port
     )
     .unwrap();
     writeln!(tmp_file, "iceberg.rest-catalog.warehouse=s3://warehouse/").unwrap();
@@ -138,7 +171,8 @@ async fn integration_trino_rest() {
     writeln!(tmp_file, "fs.native-s3.enabled=true").unwrap();
     writeln!(
         tmp_file,
-        "s3.endpoint=http://{docker_host}:{localstack_port}"
+        "s3.endpoint=http://{}:{}",
+        container_host, localstack_port
     )
     .unwrap();
     writeln!(tmp_file, "s3.path-style-access=true").unwrap();
@@ -155,6 +189,9 @@ async fn integration_trino_rest() {
         .with_access_mode(AccessMode::ReadOnly);
 
     let trino = GenericImage::new("trinodb/trino", "latest")
+        .with_wait_for(WaitFor::Log(LogWaitStrategy::stderr(
+            "======== SERVER STARTED ========",
+        )))
         .with_env_var("AWS_REGION", "us-east-1")
         .with_env_var("AWS_ACCESS_KEY_ID", "user")
         .with_env_var("AWS_SECRET_ACCESS_KEY", "password")
@@ -165,11 +202,11 @@ async fn integration_trino_rest() {
         .await
         .unwrap();
 
-    wait_for_worker(&trino, Duration::from_secs(180)).await;
+    wait_for_worker(&trino, Duration::from_secs(300)).await;
 
     let trino_port = trino.get_host_port_ipv4(8080).await.unwrap();
 
-    trino
+    let mut result = trino
         .exec(
             ExecCommand::new(vec![
                 "trino",
@@ -177,27 +214,20 @@ async fn integration_trino_rest() {
                 "iceberg",
                 "--file",
                 "/tmp/trino.sql",
-                &format!("http://{docker_host}:{trino_port}"),
+                &format!("http://{}:{}", container_host, trino_port),
             ])
-            .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
+            .with_cmd_ready_condition(CmdWaitFor::Exit { code: None }),
         )
         .await
         .unwrap();
 
-    let object_store = ObjectStoreBuilder::s3()
-        .with_config("aws_access_key_id", "user")
-        .unwrap()
-        .with_config("aws_secret_access_key", "password")
-        .unwrap()
-        .with_config(
-            "endpoint",
-            format!("http://{localstack_host}:{localstack_port}"),
-        )
-        .unwrap()
-        .with_config("region", "us-east-1")
-        .unwrap()
-        .with_config("allow_http", "true")
-        .unwrap();
+    while result.exit_code().await.unwrap().is_none() {
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    assert_eq!(result.exit_code().await.unwrap().unwrap(), 0);
+
+    result.stderr_to_vec().await.unwrap();
 
     let catalog = Arc::new(RestCatalog::new(
         None,
@@ -299,7 +329,7 @@ async fn integration_trino_rest() {
                 "SELECT sum(amount) FROM iceberg.test.test_orders;",
                 "--output-format",
                 "NULL",
-                &format!("http://{docker_host}:{trino_port}"),
+                &format!("http://{}:{}", container_host, trino_port),
             ])
             .with_cmd_ready_condition(CmdWaitFor::exit_code(0)),
         )

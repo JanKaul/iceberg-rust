@@ -45,3 +45,6 @@ uuid = { workspace = true }
 rstest = "0.23.0"
 chrono = { workspace = true }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
+
+[features]
+test-utils = []

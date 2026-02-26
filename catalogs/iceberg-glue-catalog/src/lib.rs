@@ -1077,6 +1077,9 @@ pub mod tests {
             .with_config("allow_http", "true")
             .unwrap();
 
+        // Wait for bucket to be ready
+        iceberg_rust::test_utils::wait_for_s3_bucket(&object_store, "s3://warehouse", None).await;
+
         // let object_store = ObjectStoreBuilder::memory();
         let iceberg_catalog: Arc<dyn Catalog> =
             Arc::new(GlueCatalog::new(&config, "warehouse", object_store.clone()).unwrap());
@@ -1237,9 +1240,10 @@ pub mod tests {
             .await
             .unwrap();
 
-        assert!(std::str::from_utf8(&version_hint)
-            .unwrap()
-            .ends_with(".metadata.json"));
+        let version_hint_str = std::str::from_utf8(&version_hint).unwrap();
+        // Glue catalog uses UUID-based metadata locations like "00001-uuid.metadata.json"
+        // so the version hint is "00001-uuid" not just "1"
+        assert!(version_hint_str.starts_with("00001-"));
 
         moto.rm().await.unwrap();
         localstack.rm().await.unwrap();
