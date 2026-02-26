@@ -463,14 +463,6 @@ async fn table_scan(
         table_partition_cols.push(Field::new(MANIFEST_FILE_PATH_COLUMN, DataType::Utf8, false));
     }
 
-    // Store partition column count before moving table_partition_cols
-    let num_partition_cols = table_partition_cols.len();
-
-    // Convert Vec<Field> to Vec<Arc<Field>> for TableSchema::new
-    // Include all partition columns including metadata columns
-    let table_partition_cols_arc: Vec<Arc<Field>> =
-        table_partition_cols.into_iter().map(Arc::new).collect();
-
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
     let mut data_file_groups: HashMap<Struct, Vec<(ManifestPath, ManifestEntry)>> = HashMap::new();
@@ -481,7 +473,7 @@ async fn table_scan(
     let (content_file_iter, statistics) = if let Some(physical_predicate) =
         physical_predicate.clone()
     {
-        let partition_schema = Arc::new(ArrowSchema::new(table_partition_cols_arc.clone()));
+        let partition_schema = Arc::new(ArrowSchema::new(table_partition_cols.clone()));
         let partition_column_names = partition_fields
             .iter()
             .map(|field| Ok(field.source_name().to_owned()))
@@ -549,7 +541,7 @@ async fn table_scan(
         let mut statistics = statistics_from_datafiles(&schema, &data_files);
         // Add placeholder statistics for partition/metadata columns
         // This prevents index out of bounds when projecting statistics
-        for _ in 0..num_partition_cols {
+        for _ in &table_partition_cols {
             statistics
                 .column_statistics
                 .push(ColumnStatistics::new_unknown());
@@ -575,7 +567,7 @@ async fn table_scan(
         let mut statistics = statistics_from_datafiles(&schema, &data_files);
         // Add placeholder statistics for partition/metadata columns
         // This prevents index out of bounds when projecting statistics
-        for _ in 0..num_partition_cols {
+        for _ in &table_partition_cols {
             statistics
                 .column_statistics
                 .push(ColumnStatistics::new_unknown());
@@ -637,12 +629,14 @@ async fn table_scan(
 
     let file_source = {
         let physical_predicate = physical_predicate.clone();
-        let file_schema = file_schema.clone();
-        let table_schema = TableSchema::new(file_schema, table_partition_cols_arc.clone());
+        let table_schema = TableSchema::new(
+            file_schema.clone(),
+            table_partition_cols.iter().cloned().map(Arc::new).collect(),
+        );
         async move {
             Arc::new(
                 if let Some(physical_predicate) = physical_predicate.clone() {
-                    ParquetSource::new(table_schema.clone())
+                    ParquetSource::new(table_schema)
                         .with_predicate(physical_predicate)
                         .with_pushdown_filters(true)
                 } else {
@@ -658,7 +652,6 @@ async fn table_scan(
     let mut plans = stream::iter(equality_delete_file_groups.into_iter())
         .then(|(partition_value, mut delete_files)| {
             let object_store_url = object_store_url.clone();
-            let table_partition_cols_arc = table_partition_cols_arc.clone();
             let statistics = statistics.clone();
             let physical_predicate = physical_predicate.clone();
             let schema = &schema;
@@ -669,7 +662,6 @@ async fn table_scan(
                 .remove(&partition_value)
                 .unwrap_or_default();
 
-            let table_partition_cols_arc = table_partition_cols_arc.clone();
             async move {
                 // Sort data & delete files by sequence_number
                 delete_files.sort_by(|x, y| {
@@ -714,7 +706,6 @@ async fn table_scan(
                     .map(Ok::<_, DataFusionError>)
                     .try_fold(None, |acc, delete_manifest| {
                         let object_store_url = object_store_url.clone();
-                        let table_partition_cols_arc = table_partition_cols_arc.clone();
                         let statistics = statistics.clone();
                         let physical_predicate = physical_predicate.clone();
                         let schema = &schema;
@@ -742,7 +733,6 @@ async fn table_scan(
                             .unwrap();
                             data_files.push(data_file);
                         }
-                        let table_partition_cols_arc = table_partition_cols_arc.clone();
                         async move {
                             let delete_schema = schema.project(
                                 delete_manifest
@@ -754,8 +744,6 @@ async fn table_scan(
                             );
                             let delete_file_schema: SchemaRef =
                                 Arc::new((delete_schema.fields()).try_into().unwrap());
-                            let delete_table_schema =
-                                TableSchema::new(delete_file_schema, table_partition_cols_arc);
 
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let manifest_path = if enable_manifest_file_path_column {
@@ -773,11 +761,11 @@ async fn table_scan(
 
                             let delete_file_source = Arc::new(
                                 if let Some(physical_predicate) = physical_predicate.clone() {
-                                    ParquetSource::new(delete_table_schema.clone())
+                                    ParquetSource::new(delete_file_schema)
                                         .with_predicate(physical_predicate)
                                         .with_pushdown_filters(true)
                                 } else {
-                                    ParquetSource::new(delete_table_schema.clone())
+                                    ParquetSource::new(delete_file_schema)
                                 },
                             );
 
@@ -798,8 +786,8 @@ async fn table_scan(
                                 FileScanConfigBuilder::new(object_store_url, file_source.clone())
                                     .with_file_group(FileGroup::new(data_files))
                                     .with_statistics(statistics)
-                                    .with_limit(limit)
                                     .with_projection_indices(Some(equality_projection))?
+                                    .with_limit(limit)
                                     .build();
 
                             let data_files_scan = ParquetFormat::default()
@@ -874,8 +862,8 @@ async fn table_scan(
                         FileScanConfigBuilder::new(object_store_url, file_source)
                             .with_file_group(FileGroup::new(additional_data_files))
                             .with_statistics(statistics)
-                            .with_limit(limit)
                             .with_projection_indices(Some(equality_projection))?
+                            .with_limit(limit)
                             .build();
 
                     let data_files_scan = ParquetFormat::default()
@@ -921,8 +909,8 @@ async fn table_scan(
         let file_scan_config = FileScanConfigBuilder::new(object_store_url, file_source)
             .with_file_groups(file_groups)
             .with_statistics(statistics)
-            .with_limit(limit)
             .with_projection_indices(Some(projection.clone()))?
+            .with_limit(limit)
             .build();
 
         let other_plan = ParquetFormat::default()
