@@ -1316,7 +1316,12 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             removed_stats.removed_data_files += filtered_stats.removed_data_files;
             removed_stats.removed_records += filtered_stats.removed_records;
             removed_stats.removed_file_size_bytes += filtered_stats.removed_file_size_bytes;
-            self.writer.append_ser(manifest)?;
+
+            if manifest.added_files_count.unwrap_or(0) > 0
+                || manifest.existing_files_count.unwrap_or(0) > 0
+            {
+                self.writer.append_ser(manifest)?;
+            }
         }
         Ok(removed_stats)
     }
