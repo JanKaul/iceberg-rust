@@ -8,6 +8,7 @@ use iceberg_rust::file_format::parquet::estimate_distinct_count;
 use iceberg_rust::spec::{
     manifest::{ManifestEntry, Status},
     schema::Schema,
+    types::{PrimitiveType, Type},
     values::Value,
 };
 
@@ -66,7 +67,8 @@ fn column_statistics<'a>(
     schema: &'a Schema,
     manifest: &'a ManifestEntry,
 ) -> impl Iterator<Item = ColumnStatistics> + 'a {
-    schema.fields().iter().map(|x| x.id).map(|id| {
+    schema.fields().iter().map(|field| {
+        let id = field.id;
         let data_file = &manifest.data_file();
         ColumnStatistics {
             null_count: data_file
@@ -81,7 +83,7 @@ fn column_statistics<'a>(
                 .and_then(|x| x.get(&id))
                 .and_then(|x| {
                     Some(Precision::Exact(
-                        convert_value_to_scalar_value(x.clone()).ok()?,
+                        convert_value_to_scalar_value(x.clone(), &field.field_type).ok()?,
                     ))
                 })
                 .unwrap_or(Precision::Absent),
@@ -91,7 +93,7 @@ fn column_statistics<'a>(
                 .and_then(|x| x.get(&id))
                 .and_then(|x| {
                     Some(Precision::Exact(
-                        convert_value_to_scalar_value(x.clone()).ok()?,
+                        convert_value_to_scalar_value(x.clone(), &field.field_type).ok()?,
                     ))
                 })
                 .unwrap_or(Precision::Absent),
@@ -110,7 +112,7 @@ pub(crate) fn manifest_statistics(schema: &Schema, manifest: &ManifestEntry) -> 
     }
 }
 
-fn convert_value_to_scalar_value(value: Value) -> Result<ScalarValue, Error> {
+fn convert_value_to_scalar_value(value: Value, field_type: &Type) -> Result<ScalarValue, Error> {
     match value {
         Value::Boolean(b) => Ok(ScalarValue::Boolean(Some(b))),
         Value::Int(i) => Ok(ScalarValue::Int32(Some(i))),
@@ -128,11 +130,24 @@ fn convert_value_to_scalar_value(value: Value) -> Result<ScalarValue, Error> {
         )),
         Value::Fixed(size, data) => Ok(ScalarValue::FixedSizeBinary(size as i32, Some(data))),
         Value::Binary(data) => Ok(ScalarValue::Binary(Some(data))),
-        Value::Decimal(decimal) => Ok(ScalarValue::Decimal128(
-            Some(decimal.try_into().unwrap()),
-            0,
-            0,
-        )),
+        Value::Decimal(decimal) => {
+            // Extract precision and scale from the field type
+            let (precision, scale) = match field_type {
+                Type::Primitive(PrimitiveType::Decimal { precision, scale }) => {
+                    (*precision as u8, *scale as i8)
+                }
+                _ => {
+                    // Fallback: use the decimal's own scale and assume max precision
+                    // This matches the behavior in Value::datatype()
+                    (38, decimal.scale() as i8)
+                }
+            };
+            Ok(ScalarValue::Decimal128(
+                Some(decimal.mantissa()),
+                precision,
+                scale,
+            ))
+        }
         x => Err(Error::Conversion(
             "Iceberg value".to_string(),
             format!("{x:?}"),
