@@ -36,12 +36,12 @@ sqlparser = { workspace = true }
 thiserror = { workspace = true }
 thrift = { version = "0.17.0", default-features = false }
 tracing = { workspace = true }
-tokio = { version = "1.43", features = ["sync"] }
+tokio = { version = "1.50", features = ["sync"] }
 url = { workspace = true }
 uuid = { workspace = true }
 
 
 [dev-dependencies]
-rstest = "0.23.0"
+rstest = "0.26.1"
 chrono = { workspace = true }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
