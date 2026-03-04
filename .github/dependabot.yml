@@ -8,6 +8,28 @@ updates:
       rust-dependencies:
         patterns:
           - "*"
+    ignore:
+      # These crates are versioned together with datafusion and must be updated manually for major bumps
+      - dependency-name: "datafusion"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "datafusion-common"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "datafusion-execution"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "datafusion-expr"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "datafusion-functions"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "datafusion-functions-aggregate"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "datafusion-sql"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "arrow"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "arrow-schema"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "parquet"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
