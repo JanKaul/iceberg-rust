@@ -30,7 +30,7 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "parquet"
         update-types: ["version-update:semver-major"]
-      - dependency-name: "object-store"
+      - dependency-name: "object_store"
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
