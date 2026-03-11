@@ -520,24 +520,21 @@ mod date_transform_tests {
 
     #[test]
     fn year_on_date32() {
-        let result =
-            invoke_date_transform("year", ScalarValue::Date32(Some(19797))).unwrap();
+        let result = invoke_date_transform("year", ScalarValue::Date32(Some(19797))).unwrap();
         // 2024 - 1970 = 54
         assert_eq!(unwrap_int32(result), 54);
     }
 
     #[test]
     fn month_on_date32() {
-        let result =
-            invoke_date_transform("month", ScalarValue::Date32(Some(19797))).unwrap();
+        let result = invoke_date_transform("month", ScalarValue::Date32(Some(19797))).unwrap();
         // (2024 - 1970) * 12 + 3 = 651 (month is 1-based)
         assert_eq!(unwrap_int32(result), 651);
     }
 
     #[test]
     fn day_on_date32() {
-        let result =
-            invoke_date_transform("day", ScalarValue::Date32(Some(19797))).unwrap();
+        let result = invoke_date_transform("day", ScalarValue::Date32(Some(19797))).unwrap();
         assert_eq!(unwrap_int32(result), 19797);
     }
 
@@ -545,7 +542,10 @@ mod date_transform_tests {
     fn hour_on_date32_is_rejected() {
         // Date32 has no time component — hour transform is not supported
         let result = invoke_date_transform("hour", ScalarValue::Date32(Some(19797)));
-        assert!(result.is_err(), "hour transform should not be supported for Date32");
+        assert!(
+            result.is_err(),
+            "hour transform should not be supported for Date32"
+        );
     }
 
     // -- invoke DateTransform directly with Timestamp (no TZ) --
@@ -648,11 +648,9 @@ mod date_transform_tests {
             ("hour", 0),  // hour 0 since epoch
         ];
         for (name, expected) in cases {
-            let result = invoke_date_transform(
-                name,
-                ScalarValue::TimestampMicrosecond(Some(0), None),
-            )
-            .unwrap();
+            let result =
+                invoke_date_transform(name, ScalarValue::TimestampMicrosecond(Some(0), None))
+                    .unwrap();
             assert_eq!(
                 unwrap_int32(result),
                 expected,
@@ -705,10 +703,7 @@ mod date_transform_tests {
 
     #[test]
     fn transform_literal_identity_passes_through() {
-        let input = Expr::Literal(
-            ScalarValue::TimestampMicrosecond(Some(42), None),
-            None,
-        );
+        let input = Expr::Literal(ScalarValue::TimestampMicrosecond(Some(42), None), None);
         let result = transform_literal(input.clone(), &Transform::Identity)
             .expect("identity should pass through");
         assert_eq!(result, input);
