@@ -21,26 +21,26 @@ iceberg-rust = { path = "../iceberg-rust", version = "0.9.0" }
 itertools = { workspace = true }
 lru = { workspace = true }
 object_store = { workspace = true }
-pin-project-lite = "0.2.16"
+pin-project-lite = "0.2.17"
 regex = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { version = "1.43", features = ["rt-multi-thread"] }
+tokio = { version = "1.50", features = ["rt-multi-thread"] }
 tracing = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
 # The version should match the Arrow version used by duckdb
-arrow-ipc = "56"
+arrow-ipc = "57"
 duckdb = { version = "1.4", features = ["bundled"] }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
-pyo3 = { version = "0.25", features = ["auto-initialize"] }
+pyo3 = { version = "0.28", features = ["auto-initialize"] }
 reqwest = "0.12"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
-tempfile = "3.17.1"
-testcontainers = "0.23"
-testcontainers-modules = { version = "0.11", features = ["localstack", "postgres"] }
+tempfile = "3.27.0"
+testcontainers = "0.24"
+testcontainers-modules = { version = "0.12", features = ["localstack", "postgres"] }
 tokio = "1"
 tokio-stream = { version = "0.1.17", features = ["io-util"] }
