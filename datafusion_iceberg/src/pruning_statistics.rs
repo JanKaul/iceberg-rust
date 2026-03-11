@@ -18,7 +18,7 @@ use crate::error::Error as DatafusionIcebergError;
 use datafusion::{
     arrow::{
         array::ArrayRef,
-        datatypes::{DataType, Schema as ArrowSchema},
+        datatypes::{DataType, Schema as ArrowSchema, TimeUnit},
     },
     common::{
         tree_node::{Transformed, TreeNode},
@@ -362,7 +362,15 @@ impl DateTransform {
                 TypeSignature::Exact(vec![DataType::Utf8, DataType::Date32]),
                 TypeSignature::Exact(vec![
                     DataType::Utf8,
-                    DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None),
+                    DataType::Timestamp(TimeUnit::Microsecond, None),
+                ]),
+                // Iceberg `timestamptz` is always UTC microseconds, mapped to
+                // Timestamp(Microsecond, Some("UTC")) in iceberg-rust-spec/src/arrow/schema.rs.
+                // Arrow allows arbitrary tz strings [1] but we only accept "UTC".
+                // [1] https://github.com/apache/arrow/blob/apache-arrow-23.0.1/format/Schema.fbs#L385
+                TypeSignature::Exact(vec![
+                    DataType::Utf8,
+                    DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
                 ]),
             ]),
             volatility: Volatility::Immutable,
@@ -465,5 +473,239 @@ fn value_to_scalarvalue(value: Value) -> Result<ScalarValue, Error> {
         x => Err(Error::NotSupported(format!(
             "Transforming {x} to iceberg value"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod date_transform_tests {
+    use super::*;
+    use datafusion::arrow::datatypes::Field;
+    use datafusion::common::config::ConfigOptions;
+    use std::sync::Arc;
+
+    /// Helper: invoke `DateTransform` directly with a transform name and scalar value.
+    fn invoke_date_transform(
+        transform_name: &str,
+        scalar: ScalarValue,
+    ) -> datafusion::error::Result<ColumnarValue> {
+        let dt = DateTransform::new();
+        let value_type = scalar.data_type();
+        dt.invoke_with_args(ScalarFunctionArgs {
+            args: vec![
+                ColumnarValue::Scalar(ScalarValue::new_utf8(transform_name)),
+                ColumnarValue::Scalar(scalar),
+            ],
+            arg_fields: vec![
+                Arc::new(Field::new("transform", DataType::Utf8, false)),
+                Arc::new(Field::new("value", value_type, true)),
+            ],
+            number_rows: 1,
+            return_field: Arc::new(Field::new("result", DataType::Int32, true)),
+            config_options: Arc::new(ConfigOptions::default()),
+        })
+    }
+
+    /// Extract Int32 from a ColumnarValue, panicking with a clear message on mismatch.
+    fn unwrap_int32(result: ColumnarValue) -> i32 {
+        match result {
+            ColumnarValue::Scalar(ScalarValue::Int32(Some(v))) => v,
+            other => panic!("expected ScalarValue::Int32, got {other:?}"),
+        }
+    }
+
+    // 2024-03-15T10:30:00Z in microseconds since epoch
+    const TS_MICROS: i64 = 1_710_498_600_000_000;
+
+    // -- invoke DateTransform with Date32 (19797 days since epoch = 2024-03-15) --
+
+    #[test]
+    fn year_on_date32() {
+        let result = invoke_date_transform("year", ScalarValue::Date32(Some(19797))).unwrap();
+        // 2024 - 1970 = 54
+        assert_eq!(unwrap_int32(result), 54);
+    }
+
+    #[test]
+    fn month_on_date32() {
+        let result = invoke_date_transform("month", ScalarValue::Date32(Some(19797))).unwrap();
+        // (2024 - 1970) * 12 + 3 = 651 (month is 1-based)
+        assert_eq!(unwrap_int32(result), 651);
+    }
+
+    #[test]
+    fn day_on_date32() {
+        let result = invoke_date_transform("day", ScalarValue::Date32(Some(19797))).unwrap();
+        assert_eq!(unwrap_int32(result), 19797);
+    }
+
+    #[test]
+    fn hour_on_date32_is_rejected() {
+        // Date32 has no time component — hour transform is not supported
+        let result = invoke_date_transform("hour", ScalarValue::Date32(Some(19797)));
+        assert!(
+            result.is_err(),
+            "hour transform should not be supported for Date32"
+        );
+    }
+
+    // -- invoke DateTransform directly with Timestamp (no TZ) --
+
+    #[test]
+    fn year_on_timestamp() {
+        let result = invoke_date_transform(
+            "year",
+            ScalarValue::TimestampMicrosecond(Some(TS_MICROS), None),
+        )
+        .unwrap();
+        // 2024 - 1970 = 54
+        assert_eq!(unwrap_int32(result), 54);
+    }
+
+    #[test]
+    fn month_on_timestamp() {
+        let result = invoke_date_transform(
+            "month",
+            ScalarValue::TimestampMicrosecond(Some(TS_MICROS), None),
+        )
+        .unwrap();
+        // (2024 - 1970) * 12 + 3 = 651 (month is 1-based)
+        assert_eq!(unwrap_int32(result), 651);
+    }
+
+    #[test]
+    fn day_on_timestamp() {
+        let result = invoke_date_transform(
+            "day",
+            ScalarValue::TimestampMicrosecond(Some(TS_MICROS), None),
+        )
+        .unwrap();
+        // 2024-03-15 is day 19797 since epoch
+        assert_eq!(unwrap_int32(result), 19797);
+    }
+
+    #[test]
+    fn hour_on_timestamp() {
+        let result = invoke_date_transform(
+            "hour",
+            ScalarValue::TimestampMicrosecond(Some(TS_MICROS), None),
+        )
+        .unwrap();
+        // 19797 * 24 + 10 = 475138
+        assert_eq!(unwrap_int32(result), 475138);
+    }
+
+    // -- invoke DateTransform with Timestamp(UTC) --
+
+    #[test]
+    fn year_on_timestamp_with_utc() {
+        let result = invoke_date_transform(
+            "year",
+            ScalarValue::TimestampMicrosecond(Some(TS_MICROS), Some("UTC".into())),
+        )
+        .unwrap();
+        assert_eq!(unwrap_int32(result), 54);
+    }
+
+    #[test]
+    fn month_on_timestamp_with_utc() {
+        let result = invoke_date_transform(
+            "month",
+            ScalarValue::TimestampMicrosecond(Some(TS_MICROS), Some("UTC".into())),
+        )
+        .unwrap();
+        assert_eq!(unwrap_int32(result), 651);
+    }
+
+    #[test]
+    fn day_on_timestamp_with_utc() {
+        let result = invoke_date_transform(
+            "day",
+            ScalarValue::TimestampMicrosecond(Some(TS_MICROS), Some("UTC".into())),
+        )
+        .unwrap();
+        assert_eq!(unwrap_int32(result), 19797);
+    }
+
+    #[test]
+    fn hour_on_timestamp_with_utc() {
+        let result = invoke_date_transform(
+            "hour",
+            ScalarValue::TimestampMicrosecond(Some(TS_MICROS), Some("UTC".into())),
+        )
+        .unwrap();
+        assert_eq!(unwrap_int32(result), 475138);
+    }
+
+    // -- edge cases --
+
+    #[test]
+    fn epoch_zero_transforms() {
+        // 1970-01-01T00:00:00Z
+        let cases = vec![
+            ("year", 0),  // 1970 - 1970 = 0
+            ("month", 1), // 0 * 12 + 1 = 1 (month is 1-based)
+            ("day", 0),   // day 0 since epoch
+            ("hour", 0),  // hour 0 since epoch
+        ];
+        for (name, expected) in cases {
+            let result =
+                invoke_date_transform(name, ScalarValue::TimestampMicrosecond(Some(0), None))
+                    .unwrap();
+            assert_eq!(
+                unwrap_int32(result),
+                expected,
+                "epoch zero: {name} transform"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_transform_name_is_rejected() {
+        let result = invoke_date_transform(
+            "century",
+            ScalarValue::TimestampMicrosecond(Some(TS_MICROS), None),
+        );
+        assert!(result.is_err(), "unknown transform name should be rejected");
+    }
+
+    #[test]
+    fn signature_rejects_non_utc_timezone() {
+        // Iceberg only maps timestamptz to Timestamp(Microsecond, Some("UTC"))
+        // per iceberg-rust-spec/src/arrow/schema.rs. The DateTransform signature
+        // enforces this — non-UTC tz strings are not accepted.
+        let udf = ScalarUDF::new_from_impl(DateTransform::new());
+        let sig = &udf.signature().type_signature;
+        let non_utc = vec![
+            Some("+00:00".into()),
+            Some("Etc/UTC".into()),
+            Some("America/New_York".into()),
+        ];
+        for tz in non_utc {
+            let args = vec![
+                DataType::Utf8,
+                DataType::Timestamp(TimeUnit::Microsecond, tz.clone()),
+            ];
+            let accepts = match sig {
+                TypeSignature::OneOf(variants) => variants.iter().any(|v| match v {
+                    TypeSignature::Exact(expected) => expected == &args,
+                    _ => false,
+                }),
+                _ => false,
+            };
+            assert!(
+                !accepts,
+                "signature should reject Timestamp(Microsecond, {tz:?})"
+            );
+        }
+    }
+
+    // -- transform_literal wiring --
+
+    #[test]
+    fn transform_literal_identity_passes_through() {
+        let input = Expr::Literal(ScalarValue::TimestampMicrosecond(Some(42), None), None);
+        let result = transform_literal(input.clone(), &Transform::Identity)
+            .expect("identity should pass through");
+        assert_eq!(result, input);
     }
 }
