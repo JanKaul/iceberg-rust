@@ -207,7 +207,7 @@ async fn test_pyiceberg_integration() {
     assert!(found_63700, "Product 63700 not found in results");
 
     // Now use PyIceberg to read the same table
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         // Configure venv if available
         configure_python_venv(py).expect("Failed to configure Python venv");
 
