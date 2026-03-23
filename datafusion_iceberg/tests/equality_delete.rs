@@ -1,3 +1,4 @@
+use datafusion::common::test_util::batches_to_string;
 use datafusion::{
     arrow::{error::ArrowError, record_batch::RecordBatch},
     assert_batches_eq,
@@ -24,6 +25,15 @@ use iceberg_sql_catalog::SqlCatalog;
 use object_store::local::LocalFileSystem;
 use std::sync::Arc;
 use tempfile::TempDir;
+
+async fn run_query(query: &str, ctx: &SessionContext) -> Vec<RecordBatch> {
+    ctx.sql(query)
+        .await
+        .expect("Failed to create plan for query")
+        .collect()
+        .await
+        .expect("Failed to execute query")
+}
 
 /// Convert DuckDB's Arrow RecordBatch to DataFusion's Arrow RecordBatch
 /// using Arrow IPC format as an interchange format.
@@ -120,28 +130,19 @@ pub async fn test_equality_delete() {
 
     ctx.register_catalog("warehouse", datafusion_catalog);
 
-    ctx.sql(
-        "INSERT INTO warehouse.test.orders (id, customer_id, product_id, date, amount) VALUES 
+    run_query(
+        "INSERT INTO warehouse.test.orders (id, customer_id, product_id, date, amount) VALUES
                 (1, 1, 1, '2020-01-01', 1),
                 (2, 2, 1, '2020-01-01', 1),
                 (3, 3, 1, '2020-01-01', 3),
                 (4, 1, 2, '2020-02-02', 1),
                 (5, 1, 1, '2020-02-02', 2),
                 (6, 3, 3, '2020-02-02', 3);",
+        &ctx,
     )
-    .await
-    .expect("Failed to create query plan for insert")
-    .collect()
-    .await
-    .expect("Failed to insert values into table");
+    .await;
 
-    let batches = ctx
-        .sql("select * from warehouse.test.orders order by id")
-        .await
-        .expect("Failed to create plan for select")
-        .collect()
-        .await
-        .expect("Failed to execute select query");
+    let batches = run_query("select * from warehouse.test.orders order by id", &ctx).await;
 
     let expected = [
         "+----+-------------+------------+------------+--------+",
@@ -157,15 +158,7 @@ pub async fn test_equality_delete() {
     ];
     assert_batches_eq!(expected, &batches);
 
-    let batches = ctx
-        .sql(
-            "SELECT id, customer_id, product_id, date FROM warehouse.test.orders WHERE customer_id = 1 order by id",
-        )
-        .await
-        .expect("Failed to create query plan for insert")
-        .collect()
-        .await
-        .expect("Failed to insert values into table");
+    let batches = run_query("SELECT id, customer_id, product_id, date FROM warehouse.test.orders WHERE customer_id = 1 order by id", &ctx).await;
 
     let expected = [
         "+----+-------------+------------+------------+",
@@ -204,13 +197,7 @@ pub async fn test_equality_delete() {
         .await
         .unwrap();
 
-    let batches = ctx
-        .sql("select * from warehouse.test.orders order by id")
-        .await
-        .expect("Failed to create plan for select")
-        .collect()
-        .await
-        .expect("Failed to execute select query");
+    let batches = run_query("select * from warehouse.test.orders order by id", &ctx).await;
 
     let expected = [
         "+----+-------------+------------+------------+--------+",
@@ -237,25 +224,16 @@ pub async fn test_equality_delete() {
     assert_batches_eq!(expected, &duckdb_batches);
 
     // Test that projecting a column that is not included in equality deletes works
-    ctx.sql(
+    run_query(
         "INSERT INTO warehouse.test.orders (id, customer_id, product_id, date, amount) VALUES
                 (7, 3, 2, '2020-01-01', 2),
                 (8, 2, 1, '2020-02-02', 3),
                 (9, 1, 3, '2020-01-01', 1);",
+        &ctx,
     )
-    .await
-    .expect("Failed to create query plan for insert")
-    .collect()
-    .await
-    .expect("Failed to insert values into table");
+    .await;
 
-    let batches = ctx
-        .sql("select sum(amount) from warehouse.test.orders")
-        .await
-        .expect("Failed to create plan for select")
-        .collect()
-        .await
-        .expect("Failed to execute select query");
+    let batches = run_query("select sum(amount) from warehouse.test.orders", &ctx).await;
 
     let expected = [
         "+-----------------------------------+",
@@ -265,4 +243,20 @@ pub async fn test_equality_delete() {
         "+-----------------------------------+",
     ];
     assert_batches_eq!(expected, &batches);
+
+    // Test that using a filter on a column that is not included in equality deletes works
+    let query = "select count(*) from warehouse.test.orders where product_id = 1 and (amount = 1 or customer_id = 3)";
+    let batches = run_query(query, &ctx).await;
+    let expected = [
+        "+----------+",
+        "| count(*) |",
+        "+----------+",
+        "| 2        |",
+        "+----------+",
+    ];
+    assert_batches_eq!(expected, &batches);
+
+    // Ensure we only pushed down predicates that have matching columns with delete file schemas (i.e. amount was not pushed down).
+    let batches = run_query(&format!("explain {query}"), &ctx).await;
+    assert!(batches_to_string(&batches).contains("projection=[id, customer_id, product_id, date], file_type=parquet, predicate=product_id@2 = 1,"));
 }

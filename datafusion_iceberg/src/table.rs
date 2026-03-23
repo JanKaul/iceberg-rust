@@ -424,15 +424,15 @@ async fn table_scan(
         .unwrap();
 
     // If there is a filter expression the manifests to read are pruned based on the pruning statistics available in the manifest_list file.
-    let physical_predicate = if let Some(predicate) = conjunction(filters.iter().cloned()) {
-        Some(create_physical_expr(
-            &predicate,
-            &arrow_schema.as_ref().clone().try_into()?,
-            session.execution_props(),
-        )?)
-    } else {
-        None
-    };
+    let physical_predicate = conjunction(filters.iter().cloned())
+        .map(|predicate| {
+            create_physical_expr(
+                &predicate,
+                &arrow_schema.as_ref().clone().try_into()?,
+                session.execution_props(),
+            )
+        })
+        .transpose()?;
 
     let mut table_partition_cols = datafusion_partition_columns(partition_fields)?;
 
@@ -628,24 +628,17 @@ async fn table_scan(
     }
 
     let file_source = {
-        let physical_predicate = physical_predicate.clone();
         let table_schema = TableSchema::new(
             file_schema.clone(),
             table_partition_cols.iter().cloned().map(Arc::new).collect(),
         );
-        async move {
-            Arc::new(
-                if let Some(physical_predicate) = physical_predicate.clone() {
-                    ParquetSource::new(table_schema)
-                        .with_predicate(physical_predicate)
-                        .with_pushdown_filters(true)
-                } else {
-                    ParquetSource::new(table_schema)
-                },
-            )
+        let mut source = ParquetSource::new(table_schema);
+        if let Some(ref predicate) = physical_predicate {
+            source = source
+                .with_predicate(predicate.clone())
+                .with_pushdown_filters(true);
         }
-        .instrument(tracing::debug_span!("datafusion_iceberg::file_source"))
-        .await
+        Arc::new(source)
     };
 
     // Create plan for every partition with delete files
@@ -653,7 +646,6 @@ async fn table_scan(
         .then(|(partition_value, mut delete_files)| {
             let object_store_url = object_store_url.clone();
             let statistics = statistics.clone();
-            let physical_predicate = physical_predicate.clone();
             let schema = &schema;
             let file_source = file_source.clone();
             let projection_expr = projection_expr.clone();
@@ -707,7 +699,6 @@ async fn table_scan(
                     .try_fold(None, |acc, delete_manifest| {
                         let object_store_url = object_store_url.clone();
                         let statistics = statistics.clone();
-                        let physical_predicate = physical_predicate.clone();
                         let schema = &schema;
                         let file_source = file_source.clone();
                         let mut data_files = Vec::new();
@@ -733,6 +724,7 @@ async fn table_scan(
                             .unwrap();
                             data_files.push(data_file);
                         }
+
                         async move {
                             let delete_schema = schema.project(
                                 delete_manifest
@@ -744,6 +736,27 @@ async fn table_scan(
                             );
                             let delete_file_schema: SchemaRef =
                                 Arc::new((delete_schema.fields()).try_into().unwrap());
+
+                            // Scope down the filter expressions used in the query to only those
+                            // which are completely contained in the delete file schema.
+                            let delete_physical_predicate = conjunction(
+                                filters
+                                    .iter()
+                                    .filter(|expr| {
+                                        expr.column_refs().iter().all(|col| {
+                                            delete_file_schema.field_with_name(col.name()).is_ok()
+                                        })
+                                    })
+                                    .cloned(),
+                            )
+                            .map(|predicate| {
+                                create_physical_expr(
+                                    &predicate,
+                                    &delete_file_schema.as_ref().clone().try_into()?,
+                                    session.execution_props(),
+                                )
+                            })
+                            .transpose()?;
 
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let manifest_path = if enable_manifest_file_path_column {
@@ -759,15 +772,13 @@ async fn table_scan(
                                 manifest_path,
                             )?;
 
-                            let delete_file_source = Arc::new(
-                                if let Some(physical_predicate) = physical_predicate.clone() {
-                                    ParquetSource::new(delete_file_schema)
-                                        .with_predicate(physical_predicate)
-                                        .with_pushdown_filters(true)
-                                } else {
-                                    ParquetSource::new(delete_file_schema)
-                                },
-                            );
+                            let mut delete_source = ParquetSource::new(delete_file_schema);
+                            if let Some(pred) = delete_physical_predicate {
+                                delete_source = delete_source
+                                    .with_predicate(pred)
+                                    .with_pushdown_filters(true);
+                            }
+                            let delete_file_source = Arc::new(delete_source);
 
                             let delete_file_scan_config = FileScanConfigBuilder::new(
                                 object_store_url.clone(),
