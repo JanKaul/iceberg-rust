@@ -15,7 +15,7 @@ pub enum Error<T> {
     Serde(serde_json::Error),
     Io(std::io::Error),
     ResponseError(ResponseContent<T>),
-    AWSV4SignatureError(aws_sigv4::http_request::Error),
+    AWSV4SignatureError(aws_sigv4::http_request::SigningError),
 }
 
 impl<T> fmt::Display for Error<T> {
@@ -38,7 +38,7 @@ impl<T: fmt::Debug> error::Error for Error<T> {
             Error::Serde(e) => e,
             Error::Io(e) => e,
             Error::ResponseError(_) => return None,
-            Error::AWSV4SignatureError(_) => return None,
+            Error::AWSV4SignatureError(e) => e,
         })
     }
 }

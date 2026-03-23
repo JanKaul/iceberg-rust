@@ -21,7 +21,7 @@ impl<T> From<apis::Error<T>> for Error {
                 "Response status: {}, Response content: {}",
                 err.status, err.content
             )),
-            apis::Error::AWSV4SignatureError(err) => Error::External(err),
+            apis::Error::AWSV4SignatureError(err) => Error::External(Box::new(err)),
         }
     }
 }
