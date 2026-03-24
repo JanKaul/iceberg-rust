@@ -165,7 +165,7 @@ impl MaterializedView {
     /// * `Result<StorageTable, Error>` - The storage table or an error if it cannot be loaded
     pub async fn storage_table(&self) -> Result<StorageTable, Error> {
         let identifier = self.metadata().current_version(None)?.storage_table();
-        if let Tabular::Table(table) = self.catalog().load_tabular(&identifier.into()).await? {
+        if let Tabular::Table(table) = self.catalog().load_tabular(identifier).await? {
             Ok(StorageTable::new(table))
         } else {
             Err(Error::InvalidFormat("storage table".to_string()))

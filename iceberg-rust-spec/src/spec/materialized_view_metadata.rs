@@ -6,15 +6,17 @@
 //! The main types are:
 //! - [`MaterializedViewMetadata`]: The top-level metadata for a materialized view
 //! - [`RefreshState`]: Information about the last refresh operation
-//! - [`SourceTables`]: Collection of source table states
-//! - [`SourceViews`]: Collection of source view states
+//! - [`SourceStates`]: Collection of source states
 
 use std::{collections::HashMap, ops::Deref};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::identifier::FullIdentifier;
+use crate::{
+    identifier::{FullIdentifier, Identifier},
+    namespace::Namespace,
+};
 
 use super::{
     tabular::TabularMetadataRef,
@@ -24,9 +26,9 @@ use super::{
 pub static REFRESH_STATE: &str = "refresh-state";
 
 /// Fields for the version 1 of the view metadata.
-pub type MaterializedViewMetadata = GeneralViewMetadata<FullIdentifier>;
+pub type MaterializedViewMetadata = GeneralViewMetadata<Identifier>;
 /// Builder for materialized view metadata
-pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<FullIdentifier>;
+pub type MaterializedViewMetadataBuilder = GeneralViewMetadataBuilder<Identifier>;
 
 impl MaterializedViewMetadata {
     pub fn as_ref(&self) -> TabularMetadataRef<'_> {
@@ -41,26 +43,25 @@ pub struct RefreshState {
     /// The version-id of the materialized view when the refresh operation was performed.
     pub refresh_version_id: i64,
     /// A map from sequence-id (as defined in the view lineage) to the source tables’ snapshot-id of when the last refresh operation was performed.
-    pub source_table_states: SourceTables,
-    /// A map from sequence-id (as defined in the view lineage) to the source views’ version-id of when the last refresh operation was performed.
-    pub source_view_states: SourceViews,
+    pub source_states: SourceStates,
+    // A timestamp of when the refresh operation was started
+    pub refresh_start_timestamp_ms: i64,
 }
-
-/// Represents a collection of source table states in a materialized view refresh
-///
-/// # Fields
-/// * `0` - A HashMap mapping (table UUID, optional reference) pairs to snapshot IDs
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-#[serde(from = "Vec<SourceTable>", into = "Vec<SourceTable>")]
-pub struct SourceTables(pub HashMap<(Uuid, Option<String>), i64>);
 
 /// Represents a collection of source view states in a materialized view refresh
 ///
 /// # Fields
 /// * `0` - A HashMap mapping (table UUID, optional reference) pairs to version IDs
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-#[serde(from = "Vec<SourceView>", into = "Vec<SourceView>")]
-pub struct SourceViews(pub HashMap<(Uuid, Option<String>), i64>);
+#[serde(from = "Vec<SourceState>", into = "Vec<SourceState>")]
+pub struct SourceStates(pub HashMap<FullIdentifier, SourceState>);
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[serde(rename_all = "kebab-case", tag = "type")]
+pub enum SourceState {
+    Table(SourceTable),
+    View(SourceView),
+}
 
 /// Represents a source table state in a materialized view refresh
 ///
@@ -71,8 +72,13 @@ pub struct SourceViews(pub HashMap<(Uuid, Option<String>), i64>);
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct SourceTable {
+    name: String,
+    namespace: Namespace,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog: Option<String>,
     uuid: Uuid,
     snapshot_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     r#ref: Option<String>,
 }
 
@@ -84,65 +90,77 @@ pub struct SourceTable {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct SourceView {
+    name: String,
+    namespace: Namespace,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    catalog: Option<String>,
     uuid: Uuid,
     version_id: i64,
 }
 
-impl From<Vec<SourceTable>> for SourceTables {
-    fn from(value: Vec<SourceTable>) -> Self {
-        SourceTables(
+impl SourceTable {
+    /// Create a new SourceTable
+    pub fn new(
+        catalog: Option<&str>,
+        namespace: &[String],
+        name: &str,
+        uuid: Uuid,
+        snapshot_id: i64,
+        r#ref: Option<String>,
+    ) -> Self {
+        Self {
+            catalog: catalog.map(ToString::to_string),
+            namespace: Namespace(namespace.to_owned()),
+            name: name.to_owned(),
+            uuid,
+            snapshot_id,
+            r#ref,
+        }
+    }
+}
+
+impl SourceState {
+    /// Returns the snapshot_id for Table states, None for View states
+    pub fn snapshot_id(&self) -> Option<i64> {
+        match self {
+            SourceState::Table(t) => Some(t.snapshot_id),
+            SourceState::View(_) => None,
+        }
+    }
+}
+
+impl From<Vec<SourceState>> for SourceStates {
+    fn from(value: Vec<SourceState>) -> Self {
+        SourceStates(
             value
                 .into_iter()
-                .map(|x| ((x.uuid, x.r#ref), x.snapshot_id))
+                .map(|x| match &x {
+                    SourceState::Table(table) => (
+                        FullIdentifier::new(
+                            table.catalog.as_deref(),
+                            &table.namespace,
+                            &table.name,
+                        ),
+                        x,
+                    ),
+                    SourceState::View(view) => (
+                        FullIdentifier::new(view.catalog.as_deref(), &view.namespace, &view.name),
+                        x,
+                    ),
+                })
                 .collect(),
         )
     }
 }
 
-impl From<SourceTables> for Vec<SourceTable> {
-    fn from(value: SourceTables) -> Self {
-        value
-            .0
-            .into_iter()
-            .map(|((uuid, r#ref), snapshot_id)| SourceTable {
-                uuid,
-                snapshot_id,
-                r#ref,
-            })
-            .collect()
+impl From<SourceStates> for Vec<SourceState> {
+    fn from(value: SourceStates) -> Self {
+        value.0.into_values().collect()
     }
 }
 
-impl From<Vec<SourceView>> for SourceViews {
-    fn from(value: Vec<SourceView>) -> Self {
-        SourceViews(
-            value
-                .into_iter()
-                .map(|x| ((x.uuid, None), x.version_id))
-                .collect(),
-        )
-    }
-}
-
-impl From<SourceViews> for Vec<SourceView> {
-    fn from(value: SourceViews) -> Self {
-        value
-            .0
-            .into_iter()
-            .map(|((uuid, _), version_id)| SourceView { uuid, version_id })
-            .collect()
-    }
-}
-
-impl Deref for SourceTables {
-    type Target = HashMap<(Uuid, Option<String>), i64>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Deref for SourceViews {
-    type Target = HashMap<(Uuid, Option<String>), i64>;
+impl Deref for SourceStates {
+    type Target = HashMap<FullIdentifier, SourceState>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -181,7 +199,6 @@ mod tests {
             "dialect" : "spark"
             } ],
             "storage-table": {
-                "catalog": "prod",
                 "namespace": ["default"],
                 "name": "event_agg_storage"
             }

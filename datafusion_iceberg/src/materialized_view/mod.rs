@@ -14,7 +14,10 @@ use iceberg_rust::{
     arrow::write::{write_equality_deletes_parquet_partitioned, write_parquet_partitioned},
     catalog::{identifier::Identifier, tabular::Tabular, CatalogList},
     materialized_view::MaterializedView,
-    spec::materialized_view_metadata::{SourceTables, SourceViews},
+    spec::{
+        identifier::FullIdentifier,
+        materialized_view_metadata::{SourceState, SourceStates, SourceTable},
+    },
 };
 use iceberg_rust::{
     error::Error,
@@ -85,10 +88,15 @@ pub async fn refresh_materialized_view(
 
     let refresh_version_id = matview.metadata().current_version_id;
 
+    let refresh_start_timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
     let refresh_state = RefreshState {
         refresh_version_id,
-        source_table_states: SourceTables(source_table_states),
-        source_view_states: SourceViews(HashMap::new()),
+        source_states: SourceStates(source_table_states),
+        refresh_start_timestamp_ms,
     };
 
     let storage_table_provider = Arc::new(DataFusionTable::new(
@@ -219,7 +227,7 @@ async fn get_source_tables(
     branch: &Option<String>,
     old_refresh_state: Arc<Option<RefreshState>>,
     version: &iceberg_rust::spec::view_metadata::Version<
-        iceberg_rust::spec::identifier::FullIdentifier,
+        iceberg_rust::spec::identifier::Identifier,
     >,
 ) -> Result<
     (
@@ -230,7 +238,7 @@ async fn get_source_tables(
                 Option<Arc<dyn TableProvider>>,
             ),
         >,
-        HashMap<(uuid::Uuid, Option<String>), i64>,
+        HashMap<FullIdentifier, SourceState>,
     ),
     Error,
 > {
@@ -246,10 +254,8 @@ async fn get_source_tables(
                     &version.default_namespace()[0],
                 );
                 let catalog_name = resolved_reference.catalog.to_string();
-                let identifier = Identifier::new(
-                    &[resolved_reference.schema.to_string()],
-                    &resolved_reference.table,
-                );
+                let namespace = [resolved_reference.schema.to_string()];
+                let identifier = Identifier::new(&namespace, &resolved_reference.table);
                 let catalog = catalog_list
                     .catalog(&catalog_name)
                     .ok_or(Error::NotFound(format!("Catalog {catalog_name}")))?;
@@ -288,13 +294,19 @@ async fn get_source_tables(
                     _ => Err(Error::InvalidFormat("storage table".to_string())),
                 }?;
 
+                let full_identifier =
+                    FullIdentifier::new(Some(&catalog_name), &namespace, &resolved_reference.table);
+
                 #[allow(clippy::type_complexity)]
                 let source_table_provider: (
                     Option<Arc<dyn TableProvider>>,
                     Option<Arc<dyn TableProvider>>,
                 ) = if let Some(old_refresh_state) = old_refresh_state.as_ref() {
-                    let revision_id = old_refresh_state.source_table_states.get(&(uuid, None));
-                    if Some(&current_snapshot_id) == revision_id {
+                    let revision_snapshot_id = old_refresh_state
+                        .source_states
+                        .get(&full_identifier)
+                        .and_then(|s| s.snapshot_id());
+                    if Some(current_snapshot_id) == revision_snapshot_id {
                         // Fresh
                         (
                             Some(Arc::new(DataFusionTable::new(
@@ -305,7 +317,7 @@ async fn get_source_tables(
                             ))),
                             None,
                         )
-                    } else if Some(&-1) == revision_id {
+                    } else if Some(-1) == revision_snapshot_id {
                         // Invalid
                         (
                             None,
@@ -316,18 +328,18 @@ async fn get_source_tables(
                                 branch.as_deref(),
                             ))),
                         )
-                    } else if let Some(revision_id) = revision_id {
+                    } else if let Some(revision_id) = revision_snapshot_id {
                         // Outdated
                         (
                             Some(Arc::new(DataFusionTable::new(
                                 tabular.clone(),
                                 None,
-                                Some(*revision_id),
+                                Some(revision_id),
                                 branch.as_deref(),
                             ))),
                             Some(Arc::new(DataFusionTable::new(
                                 tabular,
-                                Some(*revision_id),
+                                Some(revision_id),
                                 None,
                                 branch.as_deref(),
                             ))),
@@ -357,9 +369,18 @@ async fn get_source_tables(
                     )
                 };
 
+                let source_state = SourceState::Table(SourceTable::new(
+                    Some(&catalog_name),
+                    &namespace,
+                    &resolved_reference.table,
+                    uuid,
+                    current_snapshot_id,
+                    branch.clone(),
+                ));
+
                 Ok((
                     (reference, source_table_provider),
-                    ((uuid, None), current_snapshot_id),
+                    (full_identifier, source_state),
                 ))
             }
         })
