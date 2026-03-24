@@ -219,7 +219,7 @@ async fn get_source_tables(
     branch: &Option<String>,
     old_refresh_state: Arc<Option<RefreshState>>,
     version: &iceberg_rust::spec::view_metadata::Version<
-        iceberg_rust::spec::identifier::FullIdentifier,
+        iceberg_rust::spec::identifier::Identifier,
     >,
 ) -> Result<
     (

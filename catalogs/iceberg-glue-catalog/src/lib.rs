@@ -27,7 +27,6 @@ use iceberg_rust::{
     object_store::{store::IcebergStore, Bucket, ObjectStoreBuilder},
     spec::{
         self,
-        identifier::FullIdentifier,
         materialized_view_metadata::MaterializedViewMetadata,
         table_metadata::{new_metadata_location, TableMetadata},
         tabular::TabularMetadata,
@@ -769,7 +768,7 @@ impl Catalog for GlueCatalog {
     }
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView<FullIdentifier>,
+        commit: CommitView<Identifier>,
     ) -> Result<MaterializedView, IcebergError> {
         let identifier = commit.identifier;
         let Some(entry) = self.cache.read().unwrap().get(&identifier).cloned() else {

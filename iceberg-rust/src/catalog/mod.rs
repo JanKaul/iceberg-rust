@@ -26,7 +26,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use iceberg_rust_spec::identifier::FullIdentifier;
 use identifier::Identifier;
 
 use crate::error::Error;
@@ -359,7 +358,7 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The underlying storage cannot be updated
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView<FullIdentifier>,
+        commit: CommitView<Identifier>,
     ) -> Result<MaterializedView, Error>;
     /// Registers an existing table in the catalog using its metadata location.
     ///

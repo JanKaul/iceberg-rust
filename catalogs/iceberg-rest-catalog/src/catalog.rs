@@ -526,7 +526,7 @@ impl Catalog for RestCatalog {
     }
     async fn update_materialized_view(
         self: Arc<Self>,
-        commit: CommitView<FullIdentifier>,
+        commit: CommitView<Identifier>,
     ) -> Result<MaterializedView, Error> {
         let configuration = self.get_configuration().await?;
         let identifier = commit.identifier.clone();

@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use uuid::Uuid;
 
-use crate::{error::Error, identifier::FullIdentifier};
+use crate::{error::Error, identifier::Identifier};
 
 use super::{
     schema::{Schema, DEFAULT_SCHEMA_ID},
@@ -354,7 +354,7 @@ impl Materialization for Option<()> {
     }
 }
 
-impl Materialization for FullIdentifier {
+impl Materialization for Identifier {
     fn is_none(&self) -> bool {
         false
     }
