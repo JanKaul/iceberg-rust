@@ -771,12 +771,12 @@ pub mod tests {
         catalog::catalog::IcebergCatalog,
         planner::{iceberg_transform, IcebergQueryPlanner},
     };
-    use object_store::ObjectStoreExt;
     use iceberg_rust::{
         catalog::{namespace::Namespace, Catalog},
         object_store::ObjectStoreBuilder,
         spec::util::strip_prefix,
     };
+    use object_store::ObjectStoreExt;
     use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
     use testcontainers_modules::{localstack::LocalStack, postgres::Postgres};
     use tokio::time::sleep;

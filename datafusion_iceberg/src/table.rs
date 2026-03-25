@@ -58,8 +58,8 @@ use datafusion::{
         listing::PartitionedFile,
         object_store::ObjectStoreUrl,
         physical_plan::{
-            parquet::source::ParquetSource, FileGroup, FileScanConfigBuilder, FileSink,
-            FileOutputMode, FileSinkConfig,
+            parquet::source::ParquetSource, FileGroup, FileOutputMode, FileScanConfigBuilder,
+            FileSink, FileSinkConfig,
         },
         sink::{DataSink, DataSinkExec},
         TableProvider, ViewTable,
@@ -254,7 +254,9 @@ impl TableProvider for DataFusionTable {
                 let sql = match &version.representations[0] {
                     ViewRepresentation::Sql { sql, .. } => sql,
                 };
-                let statement = DFParserBuilder::new(sql.as_str()).build()?.parse_statement()?;
+                let statement = DFParserBuilder::new(sql.as_str())
+                    .build()?
+                    .parse_statement()?;
                 let logical_plan = session_state.statement_to_plan(statement).await?;
                 ViewTable::new(logical_plan, Some(sql.clone()))
                     .scan(session, projection, filters, limit)

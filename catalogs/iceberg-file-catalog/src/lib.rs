@@ -669,12 +669,12 @@ pub mod tests {
         planner::{iceberg_transform, IcebergQueryPlanner},
     };
     use futures::StreamExt;
-    use object_store::ObjectStoreExt;
     use iceberg_rust::{
         catalog::{namespace::Namespace, Catalog},
         object_store::{Bucket, ObjectStoreBuilder},
         spec::util::strip_prefix,
     };
+    use object_store::ObjectStoreExt;
     use std::{sync::Arc, time::Duration};
     use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
     use testcontainers_modules::localstack::LocalStack;
