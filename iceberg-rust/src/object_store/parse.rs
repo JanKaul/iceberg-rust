@@ -134,7 +134,8 @@ mod tests {
         assert!(store_repr.contains("key_id: \"test-key\""));
         assert!(store_repr.contains("secret_key: \"******\""));
         assert!(store_repr.contains("token: Some(\"******\")"));
-        assert!(store_repr.contains("bucket_endpoint: \"https://s3.us-east-1.amazonaws.com/test-bucket\""));
+        assert!(store_repr
+            .contains("bucket_endpoint: \"https://s3.us-east-1.amazonaws.com/test-bucket\""));
         assert!(store_repr.contains("allow_http: Parsed(false)"));
         assert!(store_repr.contains("skip_signature: false"));
     }
