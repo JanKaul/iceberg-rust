@@ -22,6 +22,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use object_store::path::Path;
 use object_store::ObjectMeta;
+use object_store::ObjectStoreExt;
 use std::collections::BTreeMap;
 use std::thread::available_parallelism;
 use std::{
@@ -58,7 +59,7 @@ use datafusion::{
         object_store::ObjectStoreUrl,
         physical_plan::{
             parquet::source::ParquetSource, FileGroup, FileScanConfigBuilder, FileSink,
-            FileSinkConfig,
+            FileOutputMode, FileSinkConfig,
         },
         sink::{DataSink, DataSinkExec},
         TableProvider, ViewTable,
@@ -253,7 +254,7 @@ impl TableProvider for DataFusionTable {
                 let sql = match &version.representations[0] {
                     ViewRepresentation::Sql { sql, .. } => sql,
                 };
-                let statement = DFParserBuilder::new(sql).build()?.parse_statement()?;
+                let statement = DFParserBuilder::new(sql.as_str()).build()?.parse_statement()?;
                 let logical_plan = session_state.statement_to_plan(statement).await?;
                 ViewTable::new(logical_plan, Some(sql.clone()))
                     .scan(session, projection, filters, limit)
@@ -840,6 +841,7 @@ async fn table_scan(
                                 None,
                                 PartitionMode::CollectLeft,
                                 NullEquality::NullEqualsNothing,
+                                false,
                             )?)
                                 as Arc<dyn ExecutionPlan>))
                         }
@@ -1089,6 +1091,7 @@ fn generate_partitioned_file(
         statistics: Some(Arc::new(manifest_statistics)),
         extensions: None,
         metadata_size_hint: None,
+        ordering: None,
     };
     Ok(file)
 }
@@ -1232,6 +1235,7 @@ async fn write_parquet_files(
         insert_op: InsertOp::Append,
         keep_partition_by_columns: false,
         file_extension: "parquet".to_string(),
+        file_output_mode: FileOutputMode::Directory,
     };
 
     let global = context.session_config().options().execution.parquet.clone();

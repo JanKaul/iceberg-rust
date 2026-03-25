@@ -143,7 +143,7 @@ impl From<ForkNode> for LogicalPlan {
 #[allow(clippy::type_complexity)]
 pub(crate) struct PhysicalForkNode {
     input: Arc<dyn ExecutionPlan>,
-    properties: PlanProperties,
+    properties: Arc<PlanProperties>,
     sender: Vec<Arc<Mutex<Option<Sender<Result<RecordBatch, DataFusionError>>>>>>,
     receiver: Vec<Arc<Mutex<Option<Receiver<Result<RecordBatch, DataFusionError>>>>>>,
     executed: Vec<Arc<AtomicBool>>,
@@ -175,7 +175,7 @@ impl ExecutionPlan for PhysicalForkNode {
         self
     }
 
-    fn properties(&self) -> &datafusion::physical_plan::PlanProperties {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.properties
     }
 
@@ -188,10 +188,8 @@ impl ExecutionPlan for PhysicalForkNode {
         mut children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
         assert_eq!(children.len(), 1);
-        let properties = children[0]
-            .properties()
-            .clone()
-            .with_partitioning(Partitioning::UnknownPartitioning(self.executed.len()));
+        let properties = Arc::new((**children[0].properties()).clone()
+            .with_partitioning(Partitioning::UnknownPartitioning(self.executed.len())));
         Ok(Arc::new(PhysicalForkNode {
             input: children.pop().unwrap(),
             properties,
@@ -306,10 +304,8 @@ impl ExtensionPlanner for ForkNodePlanner {
             assert_eq!(logical_inputs.len(), 1);
 
             let len = fork_node.sender.len();
-            let properties = physical_inputs[0]
-                .properties()
-                .clone()
-                .with_partitioning(Partitioning::UnknownPartitioning(len));
+            let properties = Arc::new((**physical_inputs[0].properties()).clone()
+                .with_partitioning(Partitioning::UnknownPartitioning(len)));
             Ok(Some(Arc::new(PhysicalForkNode {
                 input: physical_inputs[0].clone(),
                 properties,
