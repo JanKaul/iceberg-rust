@@ -771,6 +771,7 @@ pub mod tests {
         catalog::catalog::IcebergCatalog,
         planner::{iceberg_transform, IcebergQueryPlanner},
     };
+    use object_store::ObjectStoreExt;
     use iceberg_rust::{
         catalog::{namespace::Namespace, Catalog},
         object_store::ObjectStoreBuilder,
