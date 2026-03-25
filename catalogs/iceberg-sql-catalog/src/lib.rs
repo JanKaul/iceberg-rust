@@ -29,7 +29,7 @@ use iceberg_rust::{
     table::Table,
     view::View,
 };
-use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use sqlx::{
     any::{install_default_drivers, AnyPoolOptions, AnyRow},
     pool::PoolOptions,

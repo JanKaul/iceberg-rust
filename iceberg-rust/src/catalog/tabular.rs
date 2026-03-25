@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use iceberg_rust_spec::spec::tabular::TabularMetadata;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 
 use crate::error::Error;
 use crate::materialized_view::MaterializedView;

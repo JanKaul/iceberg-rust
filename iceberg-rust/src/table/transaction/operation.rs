@@ -26,7 +26,7 @@ use iceberg_rust_spec::spec::{
 use iceberg_rust_spec::table_metadata::FormatVersion;
 use iceberg_rust_spec::util::strip_prefix;
 use itertools::Either;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 use smallvec::SmallVec;
 use tokio::task::JoinHandle;
 use tracing::{debug, instrument};

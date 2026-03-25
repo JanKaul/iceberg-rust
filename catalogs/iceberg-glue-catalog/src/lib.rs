@@ -36,7 +36,7 @@ use iceberg_rust::{
     table::Table,
     view::View,
 };
-use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use schema::schema_to_glue;
 
 use crate::error::Error;

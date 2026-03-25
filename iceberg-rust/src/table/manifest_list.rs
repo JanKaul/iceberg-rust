@@ -24,7 +24,7 @@ use iceberg_rust_spec::{
     table_metadata::{FormatVersion, TableMetadata},
     util::strip_prefix,
 };
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 use smallvec::SmallVec;
 
 use crate::{
