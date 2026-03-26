@@ -18,14 +18,7 @@ where
     T: for<'a> serde::Deserialize<'a>,
     E: for<'a> serde::Deserialize<'a>,
 {
-    let uri_base = match prefix {
-        Some(prefix) => format!(
-            "{}/v1/{prefix}/",
-            configuration.base_path,
-            prefix = crate::apis::urlencode(prefix)
-        ),
-        None => format!("{}/v1/", configuration.base_path,),
-    };
+    let uri_base = build_uri_base(configuration, prefix);
     let client = &configuration.client;
 
     let uri = uri_base + uri_str;
@@ -103,14 +96,7 @@ where
     R: serde::Serialize + ?Sized,
     E: for<'a> serde::Deserialize<'a>,
 {
-    let uri_base = match prefix {
-        Some(prefix) => format!(
-            "{}/v1/{prefix}/",
-            configuration.base_path,
-            prefix = crate::apis::urlencode(prefix)
-        ),
-        None => format!("{}/v1/", configuration.base_path,),
-    };
+    let uri_base = build_uri_base(configuration, prefix);
     let client = &configuration.client;
 
     let uri = uri_base + uri_str;
@@ -172,5 +158,26 @@ where
             entity,
         };
         Err(Error::ResponseError(error))
+    }
+}
+
+/// Build the base URI for REST API calls with proper prefix encoding
+fn build_uri_base(configuration: &configuration::Configuration, prefix: Option<&str>) -> String {
+    match prefix {
+        Some(prefix) => {
+            // Split prefix by '/' and URL-encode each segment individually
+            // This allows paths like "catalogs/warehouse_name" while still protecting
+            // against path traversal attacks (e.g., "../../../etc")
+            let encoded_segments: Vec<String> = prefix
+                .split('/')
+                .map(|segment| crate::apis::urlencode(segment))
+                .collect();
+            format!(
+                "{}/v1/{}/",
+                configuration.base_path,
+                encoded_segments.join("/")
+            )
+        }
+        None => format!("{}/v1/", configuration.base_path),
     }
 }
