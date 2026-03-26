@@ -748,7 +748,8 @@ async fn table_scan(
                                 manifest_path,
                             )?;
 
-                            let delete_file_source = Arc::new(ParquetSource::new(delete_file_schema));
+                            let delete_file_source =
+                                Arc::new(ParquetSource::new(delete_file_schema));
 
                             let delete_file_scan_config = FileScanConfigBuilder::new(
                                 object_store_url.clone(),
@@ -1204,7 +1205,7 @@ async fn write_parquet_files(
         insert_op: InsertOp::Append,
         keep_partition_by_columns: false,
         file_extension: "parquet".to_string(),
-        file_output_mode: FileOutputMode::Directory,
+        file_output_mode: FileOutputMode::SingleFile,
     };
 
     let global = context.session_config().options().execution.parquet.clone();
