@@ -635,13 +635,7 @@ async fn table_scan(
             file_schema.clone(),
             table_partition_cols.iter().cloned().map(Arc::new).collect(),
         );
-        let mut source = ParquetSource::new(table_schema);
-        if let Some(ref predicate) = physical_predicate {
-            source = source
-                .with_predicate(predicate.clone())
-                .with_pushdown_filters(true);
-        }
-        Arc::new(source)
+        Arc::new(ParquetSource::new(table_schema))
     };
 
     // Create plan for every partition with delete files
@@ -740,27 +734,6 @@ async fn table_scan(
                             let delete_file_schema: SchemaRef =
                                 Arc::new((delete_schema.fields()).try_into().unwrap());
 
-                            // Scope down the filter expressions used in the query to only those
-                            // which are completely contained in the delete file schema.
-                            let delete_physical_predicate = conjunction(
-                                filters
-                                    .iter()
-                                    .filter(|expr| {
-                                        expr.column_refs().iter().all(|col| {
-                                            delete_file_schema.field_with_name(col.name()).is_ok()
-                                        })
-                                    })
-                                    .cloned(),
-                            )
-                            .map(|predicate| {
-                                create_physical_expr(
-                                    &predicate,
-                                    &delete_file_schema.as_ref().clone().try_into()?,
-                                    session.execution_props(),
-                                )
-                            })
-                            .transpose()?;
-
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let manifest_path = if enable_manifest_file_path_column {
                                 Some(delete_manifest.0.clone())
@@ -775,13 +748,7 @@ async fn table_scan(
                                 manifest_path,
                             )?;
 
-                            let mut delete_source = ParquetSource::new(delete_file_schema);
-                            if let Some(pred) = delete_physical_predicate {
-                                delete_source = delete_source
-                                    .with_predicate(pred)
-                                    .with_pushdown_filters(true);
-                            }
-                            let delete_file_source = Arc::new(delete_source);
+                            let delete_file_source = Arc::new(ParquetSource::new(delete_file_schema));
 
                             let delete_file_scan_config = FileScanConfigBuilder::new(
                                 object_store_url.clone(),
