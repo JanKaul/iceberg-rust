@@ -15,21 +15,21 @@ resolver = "2"
 
 [workspace.dependencies]
 apache-avro = "0.21"
-arrow = "57"
-arrow-schema = "57"
+arrow = "58"
+arrow-schema = "58"
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = [
     "serde",
     "clock",
 ] }
-datafusion = "52"
-datafusion-common = "52"
-datafusion-execution = "52"
-datafusion-expr = "52"
-datafusion-functions = { version = "52", features = ["crypto_expressions"] }
-datafusion-functions-aggregate = "52"
-datafusion-sql = "52"
+datafusion = "53"
+datafusion-common = "53"
+datafusion-execution = "53"
+datafusion-expr = "53"
+datafusion-functions = { version = "53", features = ["crypto_expressions"] }
+datafusion-functions-aggregate = "53"
+datafusion-sql = "53"
 derive-getters = "0.5.0"
 derive_builder = "0.20"
 futures = "0.3.31"
@@ -37,9 +37,9 @@ getrandom = { version = "0.4.1", features = ["std"] }
 itertools = "0.14.0"
 lazy_static = "1.5.0"
 lru = "0.16.0"
-object_store = { version = "0.12", features = ["aws", "gcp", "azure"] }
+object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
 murmur3 = { version = "0.5.2" }
-parquet = { version = "57", features = ["async", "object_store"] }
+parquet = { version = "58", features = ["async", "object_store"] }
 pin-project-lite = "0.2"
 regex = "1.11.1"
 serde = "^1.0"

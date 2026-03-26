@@ -37,7 +37,7 @@ use futures::{
     SinkExt, StreamExt, TryStreamExt,
 };
 use lru::LruCache;
-use object_store::{buffered::BufWriter, ObjectStore};
+use object_store::{buffered::BufWriter, ObjectStore, ObjectStoreExt};
 use std::sync::Arc;
 use std::{fmt::Write, thread::available_parallelism};
 use tokio::task::JoinSet;

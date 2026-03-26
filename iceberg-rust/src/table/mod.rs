@@ -16,6 +16,7 @@ use futures::future::try_join_all;
 use itertools::Itertools;
 use manifest::ManifestReader;
 use manifest_list::read_snapshot;
+use object_store::ObjectStoreExt;
 use object_store::{path::Path, ObjectStore};
 
 use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};

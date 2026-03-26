@@ -5,7 +5,7 @@ use iceberg_rust_spec::{
     tabular::{TabularMetadata, TabularMetadataRef},
     util::strip_prefix,
 };
-use object_store::{Attributes, ObjectStore, PutOptions, TagSet};
+use object_store::{Attributes, ObjectStore, ObjectStoreExt, PutOptions, TagSet};
 
 use crate::error::Error;
 use flate2::read::GzDecoder;

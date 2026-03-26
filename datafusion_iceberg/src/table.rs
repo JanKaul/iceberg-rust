@@ -22,6 +22,7 @@ use itertools::Itertools;
 use lru::LruCache;
 use object_store::path::Path;
 use object_store::ObjectMeta;
+use object_store::ObjectStoreExt;
 use std::collections::BTreeMap;
 use std::thread::available_parallelism;
 use std::{
@@ -57,8 +58,8 @@ use datafusion::{
         listing::PartitionedFile,
         object_store::ObjectStoreUrl,
         physical_plan::{
-            parquet::source::ParquetSource, FileGroup, FileScanConfigBuilder, FileSink,
-            FileSinkConfig,
+            parquet::source::ParquetSource, FileGroup, FileOutputMode, FileScanConfigBuilder,
+            FileSink, FileSinkConfig,
         },
         sink::{DataSink, DataSinkExec},
         TableProvider, ViewTable,
@@ -253,7 +254,9 @@ impl TableProvider for DataFusionTable {
                 let sql = match &version.representations[0] {
                     ViewRepresentation::Sql { sql, .. } => sql,
                 };
-                let statement = DFParserBuilder::new(sql).build()?.parse_statement()?;
+                let statement = DFParserBuilder::new(sql.as_str())
+                    .build()?
+                    .parse_statement()?;
                 let logical_plan = session_state.statement_to_plan(statement).await?;
                 ViewTable::new(logical_plan, Some(sql.clone()))
                     .scan(session, projection, filters, limit)
@@ -632,13 +635,7 @@ async fn table_scan(
             file_schema.clone(),
             table_partition_cols.iter().cloned().map(Arc::new).collect(),
         );
-        let mut source = ParquetSource::new(table_schema);
-        if let Some(ref predicate) = physical_predicate {
-            source = source
-                .with_predicate(predicate.clone())
-                .with_pushdown_filters(true);
-        }
-        Arc::new(source)
+        Arc::new(ParquetSource::new(table_schema))
     };
 
     // Create plan for every partition with delete files
@@ -737,27 +734,6 @@ async fn table_scan(
                             let delete_file_schema: SchemaRef =
                                 Arc::new((delete_schema.fields()).try_into().unwrap());
 
-                            // Scope down the filter expressions used in the query to only those
-                            // which are completely contained in the delete file schema.
-                            let delete_physical_predicate = conjunction(
-                                filters
-                                    .iter()
-                                    .filter(|expr| {
-                                        expr.column_refs().iter().all(|col| {
-                                            delete_file_schema.field_with_name(col.name()).is_ok()
-                                        })
-                                    })
-                                    .cloned(),
-                            )
-                            .map(|predicate| {
-                                create_physical_expr(
-                                    &predicate,
-                                    &delete_file_schema.as_ref().clone().try_into()?,
-                                    session.execution_props(),
-                                )
-                            })
-                            .transpose()?;
-
                             let last_updated_ms = table.metadata().last_updated_ms;
                             let manifest_path = if enable_manifest_file_path_column {
                                 Some(delete_manifest.0.clone())
@@ -772,13 +748,8 @@ async fn table_scan(
                                 manifest_path,
                             )?;
 
-                            let mut delete_source = ParquetSource::new(delete_file_schema);
-                            if let Some(pred) = delete_physical_predicate {
-                                delete_source = delete_source
-                                    .with_predicate(pred)
-                                    .with_pushdown_filters(true);
-                            }
-                            let delete_file_source = Arc::new(delete_source);
+                            let delete_file_source =
+                                Arc::new(ParquetSource::new(delete_file_schema));
 
                             let delete_file_scan_config = FileScanConfigBuilder::new(
                                 object_store_url.clone(),
@@ -840,6 +811,7 @@ async fn table_scan(
                                 None,
                                 PartitionMode::CollectLeft,
                                 NullEquality::NullEqualsNothing,
+                                false,
                             )?)
                                 as Arc<dyn ExecutionPlan>))
                         }
@@ -1089,6 +1061,7 @@ fn generate_partitioned_file(
         statistics: Some(Arc::new(manifest_statistics)),
         extensions: None,
         metadata_size_hint: None,
+        ordering: None,
     };
     Ok(file)
 }
@@ -1232,6 +1205,7 @@ async fn write_parquet_files(
         insert_op: InsertOp::Append,
         keep_partition_by_columns: false,
         file_extension: "parquet".to_string(),
+        file_output_mode: FileOutputMode::SingleFile,
     };
 
     let global = context.session_config().options().execution.parquet.clone();

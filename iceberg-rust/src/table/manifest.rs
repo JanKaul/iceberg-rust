@@ -37,7 +37,7 @@ use iceberg_rust_spec::{
     util::strip_prefix,
     values::{Struct, Value},
 };
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 
 use crate::error::Error;
 

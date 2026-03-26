@@ -29,7 +29,7 @@ use iceberg_rust::{
     table::Table,
     view::View,
 };
-use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use sqlx::{
     any::{install_default_drivers, AnyPoolOptions, AnyRow},
     pool::PoolOptions,
@@ -776,6 +776,7 @@ pub mod tests {
         object_store::ObjectStoreBuilder,
         spec::util::strip_prefix,
     };
+    use object_store::ObjectStoreExt;
     use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
     use testcontainers_modules::{localstack::LocalStack, postgres::Postgres};
     use tokio::time::sleep;

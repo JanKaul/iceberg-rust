@@ -36,7 +36,7 @@ use iceberg_rust::{
     table::Table,
     view::View,
 };
-use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use schema::schema_to_glue;
 
 use crate::error::Error;
@@ -1000,6 +1000,7 @@ pub mod tests {
         object_store::{Bucket, ObjectStoreBuilder},
         spec::util::strip_prefix,
     };
+    use object_store::ObjectStoreExt;
     use testcontainers_modules::localstack::LocalStack;
     use tokio::time::sleep;
 

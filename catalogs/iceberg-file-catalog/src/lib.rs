@@ -31,7 +31,7 @@ use iceberg_rust::{
     table::Table,
     view::View,
 };
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 
 use crate::error::Error;
 
@@ -674,6 +674,7 @@ pub mod tests {
         object_store::{Bucket, ObjectStoreBuilder},
         spec::util::strip_prefix,
     };
+    use object_store::ObjectStoreExt;
     use std::{sync::Arc, time::Duration};
     use testcontainers::{core::ExecCommand, runners::AsyncRunner, ImageExt};
     use testcontainers_modules::localstack::LocalStack;
