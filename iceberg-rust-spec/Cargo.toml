@@ -17,7 +17,7 @@ derive_builder = { workspace = true }
 getrandom = { workspace = true }
 itertools = { workspace = true }
 murmur3 = { workspace = true }
-ordered-float = { version = "5.0.0", features = ["serde"] }
+ordered-float = { version = "5.2.0", features = ["serde"] }
 rust_decimal = "1.36.0"
 serde = { workspace = true }
 serde_bytes = "0.11.15"

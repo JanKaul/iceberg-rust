@@ -33,7 +33,7 @@ datafusion-sql = "53"
 derive-getters = "0.5.0"
 derive_builder = "0.20"
 futures = "0.3.31"
-getrandom = { version = "0.4.1", features = ["std"] }
+getrandom = { version = "0.4.2", features = ["std"] }
 itertools = "0.14.0"
 lazy_static = "1.5.0"
 lru = "0.16.0"
