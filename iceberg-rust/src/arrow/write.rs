@@ -560,7 +560,13 @@ pub fn generate_file_path(data_location: &str, partition_path: Option<String>) -
             + "/"
     });
 
-    strip_prefix(data_location) + &path + &Uuid::now_v1(&rand).to_string() + ".parquet"
+    let base = strip_prefix(data_location);
+    let separator = if base.ends_with('/') || path.starts_with('/') {
+        ""
+    } else {
+        "/"
+    };
+    base + separator + &path + &Uuid::now_v1(&rand).to_string() + ".parquet"
 }
 
 /// Calculates the approximate size in bytes of an Arrow record batch.

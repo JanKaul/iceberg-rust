@@ -215,7 +215,10 @@ impl Catalog for RestCatalog {
         .await
         .map_err(Into::<Error>::into)?;
         let tables = tables.identifiers.unwrap_or(Vec::new()).into_iter();
-        let views = catalog_api_api::list_views(
+
+        // Try to list views, but handle 404 gracefully (some catalogs like Databricks Unity Catalog
+        // don't implement the views endpoint yet)
+        let views = match catalog_api_api::list_views(
             &self.configuration,
             self.name.as_deref(),
             &namespace.to_string(),
@@ -223,13 +226,22 @@ impl Catalog for RestCatalog {
             None,
         )
         .await
-        .map_err(Into::<Error>::into)?;
-        Ok(views
-            .identifiers
-            .unwrap_or(Vec::new())
-            .into_iter()
-            .chain(tables)
-            .collect())
+        {
+            Ok(views) => views.identifiers.unwrap_or(Vec::new()),
+            Err(err) => {
+                if let apis::Error::ResponseError(ref response_err) = err {
+                    if response_err.status.as_u16() == 404 {
+                        Vec::new()
+                    } else {
+                        return Err(err.into());
+                    }
+                } else {
+                    return Err(err.into());
+                }
+            }
+        };
+
+        Ok(views.into_iter().chain(tables).collect())
     }
     /// Lists all namespaces in the catalog.
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error> {
@@ -671,7 +683,7 @@ fn object_store_from_response(
     response: &models::LoadTableResult,
 ) -> Result<Option<Arc<dyn ObjectStore>>, Error> {
     let config = match (&response.storage_credentials, &response.config) {
-        (Some(credentials), Some(config)) => {
+        (Some(credentials), Some(config)) if !credentials.is_empty() => {
             // Enrich credentials with other options that might only be found in the config (e.g.
             // a custom endpoint)
             let mut options = credentials[0].config.clone();
@@ -679,7 +691,7 @@ fn object_store_from_response(
             options
         }
         (Some(credentials), None) => credentials[0].config.clone(),
-        (None, Some(config)) => config.clone(),
+        (_, Some(config)) => config.clone(),
         (None, None) => return Ok(None),
     };
 
