@@ -36,7 +36,7 @@ sqlparser = { workspace = true }
 thiserror = { workspace = true }
 thrift = { version = "0.17.0", default-features = false }
 tracing = { workspace = true }
-tokio = { version = "1.50", features = ["sync"] }
+tokio = { version = "1.51", features = ["sync"] }
 url = { workspace = true }
 uuid = { workspace = true }
 

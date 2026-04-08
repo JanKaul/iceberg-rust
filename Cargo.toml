@@ -50,4 +50,4 @@ thiserror = "2"
 tracing = "0.1"
 tracing-futures = "0.2"
 url = "^2.5"
-uuid = { version = "1.22.0", features = ["serde", "v4"] }
+uuid = { version = "1.23.0", features = ["serde", "v4"] }
