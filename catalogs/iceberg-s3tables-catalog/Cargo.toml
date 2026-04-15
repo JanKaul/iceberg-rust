@@ -17,7 +17,7 @@ aws-config = { version = "1.8.15", default-features = false, features = [
     "behavior-version-latest",
     "sso",
 ] }
-aws-sdk-s3tables = { version = "1.53.0", default-features = false, features = [
+aws-sdk-s3tables = { version = "1.54.0", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
     "behavior-version-latest",
@@ -28,7 +28,7 @@ object_store.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 url.workspace = true
-uuid = { version = "1.22.0", features = ["v4"] }
+uuid = { version = "1.23.0", features = ["v4"] }
 
 [dev-dependencies]
 datafusion.workspace = true

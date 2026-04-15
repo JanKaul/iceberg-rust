@@ -17,8 +17,8 @@ derive_builder = { workspace = true }
 getrandom = { workspace = true }
 itertools = { workspace = true }
 murmur3 = { workspace = true }
-ordered-float = { version = "5.2.0", features = ["serde"] }
-rust_decimal = "1.36.0"
+ordered-float = { version = "5.3.0", features = ["serde"] }
+rust_decimal = "1.41.0"
 serde = { workspace = true }
 serde_bytes = "0.11.15"
 serde_derive = { workspace = true }
@@ -26,4 +26,4 @@ serde_json = { workspace = true }
 serde_repr = "0.1.19"
 thiserror = { workspace = true }
 url = { workspace = true }
-uuid = { version = "1.22.0", features = ["serde", "v4", "v1"] }
+uuid = { version = "1.23.0", features = ["serde", "v4", "v1"] }
