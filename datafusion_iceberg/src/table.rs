@@ -433,6 +433,7 @@ async fn table_scan(
     };
 
     let mut table_partition_cols = datafusion_partition_columns(partition_fields)?;
+    dbg!(&partition_fields, &table_partition_cols);
 
     let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
 
@@ -2022,6 +2023,200 @@ mod tests {
 
         let batches = ctx
             .sql("select product_id, sum(amount) from orders where customer_id = 123 group by product_id;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (product_ids, amounts) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (product_id, amount) in product_ids.iter().zip(amounts) {
+                    match product_id.unwrap() {
+                        1 => assert_eq!(amount.unwrap(), 11),
+                        2 => assert_eq!(amount.unwrap(), 7),
+                        3 => assert_eq!(amount.unwrap(), 2),
+                        _ => panic!("Unexpected order id"),
+                    }
+                }
+            }
+        }
+
+        let table = if let Tabular::Table(table) = table.tabular.read().unwrap().clone() {
+            table
+        } else {
+            panic!();
+        };
+        assert_eq!(table.manifests(None, None).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    pub async fn test_datafusion_table_insert_identity_partitioned() {
+        let object_store = ObjectStoreBuilder::memory();
+
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "test", object_store)
+                .await
+                .unwrap(),
+        );
+
+        let schema = Schema::builder()
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "customer_id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "product_id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 4,
+                name: "date".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Date),
+                doc: None,
+            })
+            .with_struct_field(StructField {
+                id: 5,
+                name: "amount".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Int),
+                doc: None,
+            })
+            .build()
+            .unwrap();
+
+        let partition_spec = PartitionSpec::builder()
+            .with_partition_field(PartitionField::new(
+                2,
+                1000,
+                "customer_id",
+                Transform::Identity,
+            ))
+            .build()
+            .expect("Failed to create partition spec");
+
+        let table = Table::builder()
+            .with_name("orders")
+            .with_location("/test/orders")
+            .with_schema(schema)
+            .with_partition_spec(partition_spec)
+            .build(&["test".to_owned()], catalog)
+            .await
+            .expect("Failed to create table");
+
+        let table = Arc::new(DataFusionTable::from(table));
+
+        let ctx = SessionContext::new();
+
+        ctx.register_table("orders", table.clone()).unwrap();
+
+        ctx.sql(
+            "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES
+                (1, 1, 1, '2020-01-01', 1),
+                (2, 2, 1, '2020-01-01', 1),
+                (3, 3, 1, '2020-01-01', 3),
+                (4, 1, 2, '2020-02-02', 1),
+                (5, 1, 1, '2020-02-02', 2),
+                (6, 3, 3, '2020-02-02', 3);",
+        )
+        .await
+        .expect("Failed to create query plan for insert")
+        .collect()
+        .await
+        .expect("Failed to insert values into table");
+
+        let batches = ctx
+            .sql("select product_id, sum(amount) from orders where customer_id = 1 group by product_id;")
+            .await
+            .expect("Failed to create plan for select")
+            .collect()
+            .await
+            .expect("Failed to execute select query");
+
+        for batch in batches {
+            if batch.num_rows() != 0 {
+                let (product_ids, amounts) = (
+                    batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                    batch
+                        .column(1)
+                        .as_any()
+                        .downcast_ref::<Int64Array>()
+                        .unwrap(),
+                );
+                for (product_id, amount) in product_ids.iter().zip(amounts) {
+                    if product_id.unwrap() == 1 {
+                        assert_eq!(amount.unwrap(), 3)
+                    } else if product_id.unwrap() == 2 {
+                        assert_eq!(amount.unwrap(), 1)
+                    } else if product_id.unwrap() == 3 {
+                        assert_eq!(amount.unwrap(), 0)
+                    } else {
+                        panic!("Unexpected order id")
+                    }
+                }
+            }
+        }
+
+        ctx.sql(
+            "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES
+                (7, 1, 3, '2020-01-03', 1),
+                (8, 2, 1, '2020-01-03', 2),
+                (9, 2, 2, '2020-01-03', 1),
+                (10, 1, 2, '2020-01-04', 3),
+                (11, 3, 1, '2020-01-04', 2),
+                (12, 2, 3, '2020-01-04', 1),
+                (13, 1, 1, '2020-01-05', 4),
+                (14, 3, 2, '2020-01-05', 2),
+                (15, 2, 3, '2020-01-05', 3),
+                (16, 2, 3, '2020-01-05', 3),
+                (17, 1, 3, '2020-01-06', 1),
+                (18, 2, 1, '2020-01-06', 2),
+                (19, 2, 2, '2020-01-06', 1),
+                (20, 1, 2, '2020-01-07', 3),
+                (21, 3, 1, '2020-01-07', 2),
+                (22, 2, 3, '2020-01-07', 1),
+                (23, 1, 1, '2020-01-08', 4),
+                (24, 3, 2, '2020-01-08', 2),
+                (25, 2, 3, '2020-01-08', 3);",
+        )
+        .await
+        .expect("Failed to create query plan for insert")
+        .collect()
+        .await
+        .expect("Failed to insert values into table");
+
+        let batches = ctx
+            .sql("select product_id, sum(amount) from orders where customer_id = 1 group by product_id;")
             .await
             .expect("Failed to create plan for select")
             .collect()
