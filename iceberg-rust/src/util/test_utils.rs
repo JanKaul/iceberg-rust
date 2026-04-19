@@ -6,13 +6,21 @@ use std::time::Duration;
 
 /// Detect if we're using Podman instead of Docker
 pub fn is_podman() -> bool {
-    // Check if docker command is actually podman
-    std::process::Command::new("podman")
-        .arg("--version")
+    // Check if DOCKER_HOST points to a Podman socket (most reliable indicator)
+    if std::env::var("DOCKER_HOST")
+        .map(|h| h.to_lowercase().contains("podman"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    // Check if the docker CLI is talking to a Podman daemon
+    std::process::Command::new("docker")
+        .arg("info")
         .output()
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|s| s.contains("podman"))
+        .map(|s| s.to_lowercase().contains("podman"))
         .unwrap_or(false)
 }
 
