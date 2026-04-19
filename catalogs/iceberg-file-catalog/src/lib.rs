@@ -726,6 +726,9 @@ pub mod tests {
             .unwrap()
             .with_config("allow_http", "true")
             .unwrap();
+
+        // Wait for bucket to be ready
+        iceberg_rust::test_utils::wait_for_s3_bucket(&object_store, "s3://warehouse", None).await;
         // let object_store = ObjectStoreBuilder::memory();
 
         let iceberg_catalog: Arc<dyn Catalog> = Arc::new(

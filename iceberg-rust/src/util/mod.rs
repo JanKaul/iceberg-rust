@@ -8,6 +8,9 @@ use smallvec::SmallVec;
 
 use crate::error::Error;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
+
 pub(crate) type Vec4<T> = SmallVec<[T; 4]>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
