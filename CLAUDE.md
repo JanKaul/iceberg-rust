@@ -2,6 +2,21 @@
 
 Actionable guidelines for the iceberg-rust project, optimized for AI coding assistants.
 
+## Table of Contents
+
+1. [Project Architecture](#project-architecture)
+2. [Deep vs Shallow Modules](#deep-vs-shallow-modules)
+3. [LSP-Based Codebase Navigation](#lsp-based-codebase-navigation)
+4. [Functional Programming Patterns](#functional-programming-patterns)
+5. [Trait Design Patterns](#trait-design-patterns)
+6. [Builder Pattern & Configuration](#builder-pattern--configuration)
+7. [Error Handling](#error-handling)
+8. [Module Organization](#module-organization)
+9. [Complexity Management](#complexity-management)
+10. [Quick Reference: Decision Trees](#quick-reference-decision-trees)
+11. [Critical Metrics](#critical-metrics)
+12. [Key Takeaways](#key-takeaways)
+
 ## Project Architecture
 
 **Layered Design:**
@@ -166,17 +181,6 @@ Ask these questions:
 
 ## Quick Reference: Decision Trees
 
-### Adding a New Trait?
-```
-Is it used by 3+ types? → YES → Consider trait
-         ↓ NO
-Does it hide significant complexity? → YES → Consider trait
-         ↓ NO
-Would From/Into/standard trait work? → YES → Use standard trait
-         ↓ NO
-         → Use generic functions or enum
-```
-
 ### Choosing Error Handling?
 ```
 External library error? → #[error(transparent)] + #[from]
@@ -223,9 +227,4 @@ These metrics indicate deep modules (desirable):
 8. **Document Everything:** Public APIs need comprehensive docs
 9. **Pull Complexity Down:** Make user's life easy, hide complexity in implementation
 
-## Design Philosophy Summary
-
-When adding features, ask: **"Am I making the interface simpler or more complex?"**
-
-The best additions hide complexity from users while maintaining clear, well-documented interfaces.
 
