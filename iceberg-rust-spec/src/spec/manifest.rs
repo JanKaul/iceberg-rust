@@ -482,28 +482,17 @@ impl AvroMap<ByteBuf> {
     /// * `schema` - The struct type schema used to determine the correct type for each value
     ///
     /// # Returns
-    /// * `Result<HashMap<i32, Value>, Error>` - A map of field IDs to their typed values, or an error if conversion fails
+    /// * `Result<HashMap<i32, Value>, Error>` - A map of field IDs to their typed values, or an error if conversion fails.
+    ///   Field IDs not found in the top-level schema (e.g. nested struct fields) are skipped,
+    ///   since bounds are optional pruning statistics that are safe to discard.
     fn into_value_map(self, schema: &StructType) -> Result<HashMap<i32, Value>, Error> {
-        Ok(HashMap::from_iter(
-            self.0
-                .into_iter()
-                .map(|(k, v)| {
-                    Ok((
-                        k,
-                        Value::try_from_bytes(
-                            &v,
-                            &schema
-                                .get(k as usize)
-                                .ok_or(Error::ColumnNotInSchema(
-                                    k.to_string(),
-                                    format!("{schema:?}"),
-                                ))?
-                                .field_type,
-                        )?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, Error>>()?,
-        ))
+        self.0
+            .into_iter()
+            .filter_map(|(k, v)| {
+                let field = schema.get(k as usize)?;
+                Some(Value::try_from_bytes(&v, &field.field_type).map(|val| (k, val)))
+            })
+            .collect()
     }
 }
 

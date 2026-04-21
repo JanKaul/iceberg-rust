@@ -13,9 +13,6 @@ pub enum Error {
     /// Type error
     #[error("Value {0} doesn't have the {1} type.")]
     Type(String, String),
-    /// Schema error
-    #[error("Column {0} not in schema {1}.")]
-    ColumnNotInSchema(String, String),
     /// Conversion error
     #[error("Failed to convert {0} to {1}.")]
     Conversion(String, String),

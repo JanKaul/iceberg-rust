@@ -354,7 +354,7 @@ async fn datafiles(
         reader.filter_map(move |x| {
             let mut x = match x {
                 Ok(entry) => entry,
-                Err(_) => return None,
+                Err(err) => return Some(Err(err)),
             };
 
             let sequence_number = if let Some(sequence_number) = x.sequence_number() {
