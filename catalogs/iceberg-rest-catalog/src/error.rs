@@ -22,6 +22,7 @@ impl<T> From<apis::Error<T>> for Error {
                 err.status, err.content
             )),
             apis::Error::AWSV4SignatureError(err) => Error::External(Box::new(err)),
+            apis::Error::OAuthToken(err) => err,
         }
     }
 }
