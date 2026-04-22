@@ -36,7 +36,7 @@ futures = "0.3.31"
 getrandom = { version = "0.4.2", features = ["std"] }
 itertools = "0.14.0"
 lazy_static = "1.5.0"
-lru = "0.16.0"
+lru = "0.17.0"
 object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
 murmur3 = { version = "0.5.2" }
 parquet = { version = "58", features = ["async", "object_store"] }
@@ -50,4 +50,4 @@ thiserror = "2"
 tracing = "0.1"
 tracing-futures = "0.2"
 url = "^2.5"
-uuid = { version = "1.22.0", features = ["serde", "v4"] }
+uuid = { version = "1.23.1", features = ["serde", "v4"] }
