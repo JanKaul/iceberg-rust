@@ -33,7 +33,7 @@ uuid = { workspace = true }
 [dev-dependencies]
 # The version should match the Arrow version used by duckdb
 arrow-ipc = "58"
-duckdb = { version = "1.10501", features = ["bundled"] }
+duckdb = { version = "1.10502", features = ["bundled"] }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
 iceberg-rust = { path = "../iceberg-rust", version = "0.10.0", features = ["test-utils"] }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }

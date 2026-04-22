@@ -23,7 +23,7 @@ serde_json.workspace = true
 sqlx = { version = "0.8", features = ["tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 thiserror.workspace = true
 url.workspace = true
-uuid = { version = "1.22.0", features = ["v4"] }
+uuid = { version = "1.23.1", features = ["v4"] }
 
 [dev-dependencies]
 datafusion.workspace = true
