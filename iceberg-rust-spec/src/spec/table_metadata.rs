@@ -666,8 +666,7 @@ pub mod _serde {
                             .map(|(i, schema)| {
                                 Ok((schema.schema_id.unwrap_or(i as i32), schema.try_into()?))
                             })
-                            .collect::<Result<Vec<_>, Error>>()?
-                            .into_iter(),
+                            .collect::<Result<Vec<_>, Error>>()?,
                     ))
                 })
                 .or_else(|| {

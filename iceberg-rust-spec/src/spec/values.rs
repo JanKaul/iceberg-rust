@@ -617,7 +617,7 @@ impl Value {
                     {
                         Ok(Some(Value::Map(BTreeMap::from_iter(
                             keys.into_iter()
-                                .zip(values.into_iter())
+                                .zip(values)
                                 .map(|(key, value)| {
                                     Ok((
                                         Value::try_from_json(key, &map.key).and_then(|value| {

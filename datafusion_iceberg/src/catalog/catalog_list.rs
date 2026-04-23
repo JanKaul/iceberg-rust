@@ -19,7 +19,7 @@ impl IcebergCatalogList {
     pub async fn new(catalog_list: Arc<dyn CatalogList>) -> Result<Self, Error> {
         let catalogs = catalog_list.list_catalogs().await;
 
-        let map = stream::iter(catalogs.into_iter())
+        let map = stream::iter(catalogs)
             .then(|x| {
                 let catalog_list = catalog_list.clone();
                 async move {
