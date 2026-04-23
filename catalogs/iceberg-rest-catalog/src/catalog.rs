@@ -4,7 +4,6 @@ use crate::{
         catalog_api_api::{self, NamespaceExistsError},
         configuration::{self, Configuration},
     },
-    configuration_rewriter::ConfigurationRewriter,
     models::{self, StorageCredential},
 };
 use async_trait::async_trait;
@@ -47,7 +46,6 @@ use url::Url;
 pub struct RestCatalog {
     name: Option<String>,
     configuration: Configuration,
-    configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
     default_object_store_builder: Option<ObjectStoreBuilder>,
     ignore_storage_credentials: bool,
     cache: Arc<RwLock<HashMap<Identifier, Arc<dyn ObjectStore>>>>,
@@ -57,7 +55,6 @@ impl RestCatalog {
     pub fn new(
         name: Option<&str>,
         configuration: Configuration,
-        configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
         default_object_store_builder: Option<ObjectStoreBuilder>,
         ignore_storage_credentials: bool,
     ) -> Self {
@@ -66,15 +63,7 @@ impl RestCatalog {
             configuration,
             default_object_store_builder,
             ignore_storage_credentials,
-            configuration_rewriter,
             cache: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-
-    async fn get_configuration(&self) -> Result<Configuration, Error> {
-        match &self.configuration_rewriter {
-            None => Ok(self.configuration.clone()),
-            Some(rw) => rw.rewrite_configuration(self.configuration.clone()).await,
         }
     }
 
@@ -119,7 +108,7 @@ impl Catalog for RestCatalog {
         namespace: &Namespace,
         properties: Option<HashMap<String, String>>,
     ) -> Result<HashMap<String, String>, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let response = catalog_api_api::create_namespace(
             &configuration,
             self.name.as_deref(),
@@ -134,7 +123,7 @@ impl Catalog for RestCatalog {
     }
     /// Drop a namespace in the catalog
     async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         catalog_api_api::drop_namespace(
             &configuration,
             self.name.as_deref(),
@@ -149,7 +138,7 @@ impl Catalog for RestCatalog {
         &self,
         namespace: &Namespace,
     ) -> Result<HashMap<String, String>, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let response = catalog_api_api::load_namespace_metadata(
             &configuration,
             self.name.as_deref(),
@@ -166,7 +155,7 @@ impl Catalog for RestCatalog {
         updates: Option<HashMap<String, String>>,
         removals: Option<Vec<String>>,
     ) -> Result<(), Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         catalog_api_api::update_properties(
             &configuration,
             self.name.as_deref(),
@@ -179,7 +168,7 @@ impl Catalog for RestCatalog {
     }
     /// Check if a namespace exists
     async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
 
         match catalog_api_api::namespace_exists(
             &configuration,
@@ -204,7 +193,7 @@ impl Catalog for RestCatalog {
     }
     /// Lists all tables in the given namespace.
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let tables = catalog_api_api::list_tables(
             &configuration,
             self.name.as_deref(),
@@ -245,7 +234,7 @@ impl Catalog for RestCatalog {
     }
     /// Lists all namespaces in the catalog.
     async fn list_namespaces(&self, parent: Option<&str>) -> Result<Vec<Namespace>, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let namespaces = catalog_api_api::list_namespaces(
             &configuration,
             self.name.as_deref(),
@@ -268,7 +257,7 @@ impl Catalog for RestCatalog {
     }
     /// Check if a table exists
     async fn tabular_exists(&self, identifier: &Identifier) -> Result<bool, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
 
         match catalog_api_api::view_exists(
             &configuration,
@@ -298,7 +287,7 @@ impl Catalog for RestCatalog {
     }
     /// Drop a table and delete all data and metadata files.
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         catalog_api_api::drop_table(
             &configuration,
             self.name.as_deref(),
@@ -311,7 +300,7 @@ impl Catalog for RestCatalog {
     }
     /// Drop a table and delete all data and metadata files.
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         catalog_api_api::drop_view(
             &configuration,
             self.name.as_deref(),
@@ -323,7 +312,7 @@ impl Catalog for RestCatalog {
     }
     /// Drop a table and delete all data and metadata files.
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         catalog_api_api::drop_view(
             &configuration,
             self.name.as_deref(),
@@ -335,7 +324,7 @@ impl Catalog for RestCatalog {
     }
     /// Load a table.
     async fn load_tabular(self: Arc<Self>, identifier: &Identifier) -> Result<Tabular, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         // Load View/Matview metadata, is loaded as tabular to enable both possibilities. Must not be table metadata
         let tabular_metadata = catalog_api_api::load_view(
             &configuration,
@@ -398,7 +387,7 @@ impl Catalog for RestCatalog {
         identifier: Identifier,
         create_table: CreateTable,
     ) -> Result<Table, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let response = catalog_api_api::create_table(
             &configuration,
             self.name.as_deref(),
@@ -423,7 +412,7 @@ impl Catalog for RestCatalog {
         self: Arc<Self>,
         commit: iceberg_rust::catalog::commit::CommitTable,
     ) -> Result<Table, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let identifier = commit.identifier.clone();
         let response = catalog_api_api::update_table(
             &configuration,
@@ -449,7 +438,7 @@ impl Catalog for RestCatalog {
         identifier: Identifier,
         create_view: CreateView<Option<()>>,
     ) -> Result<View, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         catalog_api_api::create_view(
             &configuration,
             self.name.as_deref(),
@@ -472,7 +461,7 @@ impl Catalog for RestCatalog {
         .await
     }
     async fn update_view(self: Arc<Self>, commit: CommitView<Option<()>>) -> Result<View, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let identifier = commit.identifier.clone();
         catalog_api_api::replace_view(
             &configuration,
@@ -502,7 +491,7 @@ impl Catalog for RestCatalog {
         identifier: Identifier,
         create_view: CreateMaterializedView,
     ) -> Result<MaterializedView, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let (create_view, mut create_table) = create_view.into();
         create_table.name.clone_from(&create_view.name);
         catalog_api_api::create_table(
@@ -540,7 +529,7 @@ impl Catalog for RestCatalog {
         self: Arc<Self>,
         commit: CommitView<Identifier>,
     ) -> Result<MaterializedView, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let identifier = commit.identifier.clone();
         catalog_api_api::replace_view(
             &configuration,
@@ -572,7 +561,7 @@ impl Catalog for RestCatalog {
         identifier: Identifier,
         metadata_location: &str,
     ) -> Result<Table, Error> {
-        let configuration = self.get_configuration().await?;
+        let configuration = self.configuration.clone();
         let request = models::RegisterTableRequest::new(
             identifier.name().to_owned(),
             metadata_location.to_owned(),
@@ -595,7 +584,6 @@ impl Catalog for RestCatalog {
 #[derive(Debug, Clone)]
 pub struct RestCatalogList {
     configuration: Configuration,
-    configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
     object_store_builder: Option<ObjectStoreBuilder>,
     ignore_storage_credentials: bool,
 }
@@ -603,13 +591,11 @@ pub struct RestCatalogList {
 impl RestCatalogList {
     pub fn new(
         configuration: Configuration,
-        configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
         object_store_builder: Option<ObjectStoreBuilder>,
         ignore_storage_credentials: bool,
     ) -> Self {
         Self {
             configuration,
-            configuration_rewriter,
             object_store_builder,
             ignore_storage_credentials,
         }
@@ -622,7 +608,6 @@ impl CatalogList for RestCatalogList {
         Some(Arc::new(RestCatalog::new(
             Some(name),
             self.configuration.clone(),
-            self.configuration_rewriter.clone(),
             self.object_store_builder.clone(),
             self.ignore_storage_credentials,
         )))
@@ -636,7 +621,6 @@ impl CatalogList for RestCatalogList {
 pub struct RestNoPrefixCatalogList {
     name: String,
     configuration: Configuration,
-    configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
     object_store_builder: Option<ObjectStoreBuilder>,
     ignore_storage_credentials: bool,
 }
@@ -645,14 +629,12 @@ impl RestNoPrefixCatalogList {
     pub fn new(
         name: &str,
         configuration: Configuration,
-        configuration_rewriter: Option<Arc<dyn ConfigurationRewriter>>,
         object_store_builder: Option<ObjectStoreBuilder>,
         ignore_storage_credentials: bool,
     ) -> Self {
         Self {
             name: name.to_owned(),
             configuration,
-            configuration_rewriter,
             object_store_builder,
             ignore_storage_credentials,
         }
@@ -666,7 +648,6 @@ impl CatalogList for RestNoPrefixCatalogList {
             Some(Arc::new(RestCatalog::new(
                 None,
                 self.configuration.clone(),
-                self.configuration_rewriter.clone(),
                 self.object_store_builder.clone(),
                 self.ignore_storage_credentials,
             )))
@@ -821,7 +802,6 @@ pub mod tests {
         let iceberg_catalog = Arc::new(RestCatalog::new(
             None,
             configuration(&format!("http://{rest_host}:{rest_port}")),
-            None,
             Some(object_store),
             false,
         ));

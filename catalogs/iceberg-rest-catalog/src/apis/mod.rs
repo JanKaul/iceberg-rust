@@ -1,4 +1,5 @@
 use aws_sigv4;
+use iceberg_rust::error::Error as IcebergError;
 use std::error;
 use std::fmt;
 
@@ -16,6 +17,7 @@ pub enum Error<T> {
     Io(std::io::Error),
     ResponseError(ResponseContent<T>),
     AWSV4SignatureError(aws_sigv4::http_request::SigningError),
+    OAuthToken(IcebergError),
 }
 
 impl<T> fmt::Display for Error<T> {
@@ -26,6 +28,7 @@ impl<T> fmt::Display for Error<T> {
             Error::Io(e) => ("IO", e.to_string()),
             Error::ResponseError(e) => ("response", format!("status code {}", e.status)),
             Error::AWSV4SignatureError(e) => ("aws v4 signature", e.to_string()),
+            Error::OAuthToken(e) => ("oauth token", e.to_string()),
         };
         write!(f, "error in {}: {}", module, e)
     }
@@ -39,6 +42,7 @@ impl<T: fmt::Debug> error::Error for Error<T> {
             Error::Io(e) => e,
             Error::ResponseError(_) => return None,
             Error::AWSV4SignatureError(e) => e,
+            Error::OAuthToken(e) => e,
         })
     }
 }

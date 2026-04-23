@@ -12,10 +12,19 @@ use aws_credential_types::Credentials;
 use aws_sigv4::http_request::{sign, SignableBody, SignableRequest, SigningError, SigningSettings};
 use aws_sigv4::sign::v4;
 use derive_builder::Builder;
+use iceberg_rust::error::Error as IcebergError;
 use secrecy::{ExposeSecret, SecretString};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 use std::time::SystemTime;
 
-#[derive(Debug, Clone, Builder)]
+/// A closure that provides an OAuth access token asynchronously.
+pub type OAuthAccessTokenProvider = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<String, IcebergError>> + Send>> + Send + Sync,
+>;
+
+#[derive(Clone, Builder)]
 pub struct Configuration {
     pub base_path: String,
     #[builder(setter(into, strip_option), default)]
@@ -24,14 +33,31 @@ pub struct Configuration {
     pub client: reqwest::Client,
     #[builder(setter(into, strip_option), default)]
     pub basic_auth: Option<BasicAuth>,
-    #[builder(setter(into, strip_option), default)]
-    pub oauth_access_token: Option<String>,
+    #[builder(setter(strip_option), default)]
+    pub oauth_access_token: Option<OAuthAccessTokenProvider>,
     #[builder(setter(into, strip_option), default)]
     pub bearer_access_token: Option<String>,
     #[builder(setter(into, strip_option), default)]
     pub api_key: Option<ApiKey>,
     #[builder(setter(into, strip_option), default)]
     pub aws_v4_key: Option<AWSv4Key>,
+}
+
+impl std::fmt::Debug for Configuration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Configuration")
+            .field("base_path", &self.base_path)
+            .field("user_agent", &self.user_agent)
+            .field("basic_auth", &self.basic_auth)
+            .field(
+                "oauth_access_token",
+                &self.oauth_access_token.as_ref().map(|_| "..."),
+            )
+            .field("bearer_access_token", &self.bearer_access_token)
+            .field("api_key", &self.api_key)
+            .field("aws_v4_key", &self.aws_v4_key)
+            .finish()
+    }
 }
 
 pub type BasicAuth = (String, Option<String>);
@@ -94,12 +120,6 @@ impl AWSv4Key {
     }
 }
 
-impl Configuration {
-    pub fn new() -> Configuration {
-        Configuration::default()
-    }
-}
-
 impl Default for Configuration {
     fn default() -> Self {
         Configuration {
@@ -111,6 +131,16 @@ impl Default for Configuration {
             bearer_access_token: None,
             api_key: None,
             aws_v4_key: None,
+        }
+    }
+}
+
+impl Configuration {
+    /// Resolve the OAuth access token by calling the provider closure, if set.
+    pub async fn resolve_oauth_token(&self) -> Result<Option<String>, IcebergError> {
+        match &self.oauth_access_token {
+            Some(provider) => provider().await.map(Some),
+            None => Ok(None),
         }
     }
 }
