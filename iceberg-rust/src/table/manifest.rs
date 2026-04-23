@@ -785,38 +785,24 @@ fn update_partitions(
                 summary.lower_bound = Some(value.clone());
             } else if let Some(lower_bound) = &mut summary.lower_bound {
                 match (value, lower_bound) {
-                    (Value::Int(val), Value::Int(current))
-                        if *current > *val => {
-                            *current = *val
-                        }
-                    (Value::LongInt(val), Value::LongInt(current))
-                        if *current > *val => {
-                            *current = *val
-                        }
-                    (Value::Float(val), Value::Float(current))
-                        if *current > *val => {
-                            *current = *val
-                        }
-                    (Value::Double(val), Value::Double(current))
-                        if *current > *val => {
-                            *current = *val
-                        }
-                    (Value::Date(val), Value::Date(current))
-                        if *current > *val => {
-                            *current = *val
-                        }
-                    (Value::Time(val), Value::Time(current))
-                        if *current > *val => {
-                            *current = *val
-                        }
-                    (Value::Timestamp(val), Value::Timestamp(current))
-                        if *current > *val => {
-                            *current = *val
-                        }
-                    (Value::TimestampTZ(val), Value::TimestampTZ(current))
-                        if *current > *val => {
-                            *current = *val
-                        }
+                    (Value::Int(val), Value::Int(current)) if *current > *val => *current = *val,
+                    (Value::LongInt(val), Value::LongInt(current)) if *current > *val => {
+                        *current = *val
+                    }
+                    (Value::Float(val), Value::Float(current)) if *current > *val => {
+                        *current = *val
+                    }
+                    (Value::Double(val), Value::Double(current)) if *current > *val => {
+                        *current = *val
+                    }
+                    (Value::Date(val), Value::Date(current)) if *current > *val => *current = *val,
+                    (Value::Time(val), Value::Time(current)) if *current > *val => *current = *val,
+                    (Value::Timestamp(val), Value::Timestamp(current)) if *current > *val => {
+                        *current = *val
+                    }
+                    (Value::TimestampTZ(val), Value::TimestampTZ(current)) if *current > *val => {
+                        *current = *val
+                    }
                     _ => {}
                 }
             }
@@ -824,38 +810,24 @@ fn update_partitions(
                 summary.upper_bound = Some(value.clone());
             } else if let Some(upper_bound) = &mut summary.upper_bound {
                 match (value, upper_bound) {
-                    (Value::Int(val), Value::Int(current))
-                        if *current < *val => {
-                            *current = *val
-                        }
-                    (Value::LongInt(val), Value::LongInt(current))
-                        if *current < *val => {
-                            *current = *val
-                        }
-                    (Value::Float(val), Value::Float(current))
-                        if *current < *val => {
-                            *current = *val
-                        }
-                    (Value::Double(val), Value::Double(current))
-                        if *current < *val => {
-                            *current = *val
-                        }
-                    (Value::Date(val), Value::Date(current))
-                        if *current < *val => {
-                            *current = *val
-                        }
-                    (Value::Time(val), Value::Time(current))
-                        if *current < *val => {
-                            *current = *val
-                        }
-                    (Value::Timestamp(val), Value::Timestamp(current))
-                        if *current < *val => {
-                            *current = *val
-                        }
-                    (Value::TimestampTZ(val), Value::TimestampTZ(current))
-                        if *current < *val => {
-                            *current = *val
-                        }
+                    (Value::Int(val), Value::Int(current)) if *current < *val => *current = *val,
+                    (Value::LongInt(val), Value::LongInt(current)) if *current < *val => {
+                        *current = *val
+                    }
+                    (Value::Float(val), Value::Float(current)) if *current < *val => {
+                        *current = *val
+                    }
+                    (Value::Double(val), Value::Double(current)) if *current < *val => {
+                        *current = *val
+                    }
+                    (Value::Date(val), Value::Date(current)) if *current < *val => *current = *val,
+                    (Value::Time(val), Value::Time(current)) if *current < *val => *current = *val,
+                    (Value::Timestamp(val), Value::Timestamp(current)) if *current < *val => {
+                        *current = *val
+                    }
+                    (Value::TimestampTZ(val), Value::TimestampTZ(current)) if *current < *val => {
+                        *current = *val
+                    }
                     _ => {}
                 }
             }

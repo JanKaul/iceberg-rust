@@ -151,37 +151,45 @@ pub fn parquet_to_datafile(
                                 let entry = entry.get_mut();
                                 match (&entry, &new) {
                                     (Value::Int(current), Value::Int(new_val))
-                                        if *current > *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current > *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::LongInt(current), Value::LongInt(new_val))
-                                        if *current > *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current > *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Float(current), Value::Float(new_val))
-                                        if *current > *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current > *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Double(current), Value::Double(new_val))
-                                        if *current > *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current > *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Date(current), Value::Date(new_val))
-                                        if *current > *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current > *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Time(current), Value::Time(new_val))
-                                        if *current > *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current > *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Timestamp(current), Value::Timestamp(new_val))
-                                        if *current > *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current > *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::TimestampTZ(current), Value::TimestampTZ(new_val))
-                                        if *current > *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current > *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     _ => (),
                                 }
                             }
@@ -199,37 +207,45 @@ pub fn parquet_to_datafile(
                                 let entry = entry.get_mut();
                                 match (&entry, &new) {
                                     (Value::Int(current), Value::Int(new_val))
-                                        if *current < *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current < *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::LongInt(current), Value::LongInt(new_val))
-                                        if *current < *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current < *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Float(current), Value::Float(new_val))
-                                        if *current < *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current < *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Double(current), Value::Double(new_val))
-                                        if *current < *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current < *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Date(current), Value::Date(new_val))
-                                        if *current < *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current < *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Time(current), Value::Time(new_val))
-                                        if *current < *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current < *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::Timestamp(current), Value::Timestamp(new_val))
-                                        if *current < *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current < *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     (Value::TimestampTZ(current), Value::TimestampTZ(new_val))
-                                        if *current < *new_val => {
-                                            *entry = new
-                                        }
+                                        if *current < *new_val =>
+                                    {
+                                        *entry = new
+                                    }
                                     _ => (),
                                 }
                             }
