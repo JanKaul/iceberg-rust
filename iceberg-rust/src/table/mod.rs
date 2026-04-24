@@ -407,7 +407,7 @@ pub(crate) async fn delete_all_table_files(
         })
         .await?;
 
-    stream::iter(manifests.into_iter())
+    stream::iter(manifests)
         .map(Ok::<_, Error>)
         .try_for_each_concurrent(None, |manifest| {
             let object_store = object_store.clone();
