@@ -43,4 +43,21 @@ impl SchemaProvider for IcebergSchema {
                 .unwrap(),
         )
     }
+    fn register_table(
+        &self,
+        name: String,
+        _table: Arc<dyn TableProvider>,
+    ) -> Result<Option<Arc<dyn TableProvider>>> {
+        let identifier = Identifier::try_new(&[self.schema.deref(), &[name]].concat(), None)
+            .map_err(Error::from)?;
+        self.catalog.register_table(identifier)?;
+        Ok(None)
+    }
+    fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
+        let identifier =
+            Identifier::try_new(&[self.schema.deref(), &[name.to_string()]].concat(), None)
+                .map_err(Error::from)?;
+        self.catalog.deregister_table(identifier)?;
+        Ok(None)
+    }
 }

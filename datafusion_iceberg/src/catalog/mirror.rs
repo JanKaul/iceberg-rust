@@ -224,4 +224,60 @@ impl Mirror {
             ))),
         }
     }
+
+    pub fn register_table(
+        &self,
+        identifier: Identifier,
+    ) -> Result<Option<Identifier>, DataFusionError> {
+        let namespace_key = Namespace::try_new(identifier.namespace())
+            .map_err(|err| DataFusionError::External(Box::new(err)))?
+            .to_string();
+        let id_key = identifier.to_string();
+
+        if let Some(mut entry) = self.storage.get_mut(&namespace_key) {
+            if let Node::Namespace(set) = entry.value_mut() {
+                set.insert(id_key.clone());
+            }
+        }
+
+        let previous = self
+            .storage
+            .insert(id_key, Node::Relation(identifier))
+            .and_then(|node| match node {
+                Node::Relation(ident) => Some(ident),
+                Node::Namespace(_) => None,
+            });
+
+        Ok(previous)
+    }
+
+    pub fn deregister_table(
+        &self,
+        identifier: Identifier,
+    ) -> Result<Option<Identifier>, DataFusionError> {
+        let namespace_key = Namespace::try_new(identifier.namespace())
+            .map_err(|err| DataFusionError::External(Box::new(err)))?
+            .to_string();
+        let id_key = identifier.to_string();
+
+        let removed = match self.storage.remove(&id_key) {
+            Some((_, Node::Relation(ident))) => Some(ident),
+            Some((_, Node::Namespace(_))) => {
+                return Err(DataFusionError::from(Error::from(
+                    IcebergError::InvalidFormat("Table to drop".to_owned()),
+                )));
+            }
+            None => None,
+        };
+
+        if removed.is_some() {
+            if let Some(mut entry) = self.storage.get_mut(&namespace_key) {
+                if let Node::Namespace(set) = entry.value_mut() {
+                    set.remove(&id_key);
+                }
+            }
+        }
+
+        Ok(removed)
+    }
 }
