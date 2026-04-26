@@ -177,28 +177,104 @@ impl Catalog for SqlCatalog {
         Ok(properties)
     }
     /// Drop a namespace in the catalog
-    async fn drop_namespace(&self, _namespace: &Namespace) -> Result<(), IcebergError> {
-        todo!()
+    async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), IcebergError> {
+        let catalog_name = self.name.clone();
+        let namespace_str = namespace.to_string();
+
+        sqlx::query(&format!(
+            "delete from iceberg_namespace_properties where catalog_name = '{catalog_name}' and namespace = '{namespace_str}';"
+        ))
+        .execute(&self.pool)
+        .await
+        .map_err(Error::from)?;
+
+        Ok(())
     }
     /// Load the namespace properties from the catalog
     async fn load_namespace(
         &self,
-        _namespace: &Namespace,
+        namespace: &Namespace,
     ) -> Result<HashMap<String, String>, IcebergError> {
-        todo!()
+        let catalog_name = self.name.clone();
+        let namespace_str = namespace.to_string();
+
+        let rows = sqlx::query(&format!(
+            "select property_key, property_value from iceberg_namespace_properties where catalog_name = '{catalog_name}' and namespace = '{namespace_str}';"
+        ))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::from)?;
+
+        let mut properties = HashMap::new();
+        for row in &rows {
+            let key: String = row.try_get(0).map_err(Error::from)?;
+            // Skip the synthetic "exists" marker that create_namespace inserts when
+            // no real properties were provided.
+            if key == "exists" {
+                continue;
+            }
+            let value: String = row.try_get(1).map_err(Error::from)?;
+            properties.insert(key, value);
+        }
+
+        Ok(properties)
     }
     /// Update the namespace properties in the catalog
     async fn update_namespace(
         &self,
-        _namespace: &Namespace,
-        _updates: Option<HashMap<String, String>>,
-        _removals: Option<Vec<String>>,
+        namespace: &Namespace,
+        updates: Option<HashMap<String, String>>,
+        removals: Option<Vec<String>>,
     ) -> Result<(), IcebergError> {
-        todo!()
+        let catalog_name = self.name.clone();
+        let namespace_str = namespace.to_string();
+
+        if let Some(removals) = removals {
+            for key in removals {
+                sqlx::query(&format!(
+                    "delete from iceberg_namespace_properties where catalog_name = '{catalog_name}' and namespace = '{namespace_str}' and property_key = '{key}';"
+                ))
+                .execute(&self.pool)
+                .await
+                .map_err(Error::from)?;
+            }
+        }
+
+        if let Some(updates) = updates {
+            for (key, value) in updates {
+                // Delete-then-insert keeps this portable across sqlite/postgres/mysql
+                // (sqlx::any doesn't expose dialect-specific upsert syntax uniformly).
+                sqlx::query(&format!(
+                    "delete from iceberg_namespace_properties where catalog_name = '{catalog_name}' and namespace = '{namespace_str}' and property_key = '{key}';"
+                ))
+                .execute(&self.pool)
+                .await
+                .map_err(Error::from)?;
+
+                sqlx::query(&format!(
+                    "insert into iceberg_namespace_properties (catalog_name, namespace, property_key, property_value) values ('{catalog_name}', '{namespace_str}', '{key}', '{value}');"
+                ))
+                .execute(&self.pool)
+                .await
+                .map_err(Error::from)?;
+            }
+        }
+
+        Ok(())
     }
     /// Check if a namespace exists
-    async fn namespace_exists(&self, _namespace: &Namespace) -> Result<bool, IcebergError> {
-        todo!()
+    async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, IcebergError> {
+        let catalog_name = self.name.clone();
+        let namespace_str = namespace.to_string();
+
+        let rows = sqlx::query(&format!(
+            "select 1 from iceberg_namespace_properties where catalog_name = '{catalog_name}' and namespace = '{namespace_str}' limit 1;"
+        ))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Error::from)?;
+
+        Ok(!rows.is_empty())
     }
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, IcebergError> {
         let name = self.name.clone();
