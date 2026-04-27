@@ -19,6 +19,7 @@ pub mod manifest_list;
 pub mod materialized_view_metadata;
 pub mod namespace;
 pub mod partition;
+pub mod puffin;
 pub mod schema;
 pub mod snapshot;
 pub mod sort;
