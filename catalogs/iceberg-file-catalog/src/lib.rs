@@ -76,28 +76,64 @@ impl Catalog for FileCatalog {
         Ok(HashMap::new())
     }
     /// Drop a namespace in the catalog
-    async fn drop_namespace(&self, _namespace: &Namespace) -> Result<(), IcebergError> {
-        todo!()
+    async fn drop_namespace(&self, namespace: &Namespace) -> Result<(), IcebergError> {
+        let bucket = Bucket::from_path(&self.path)?;
+        let object_store = self.object_store.build(bucket)?;
+
+        let prefix = strip_prefix(&self.namespace_path(&namespace[0]));
+        let paths: Vec<_> = object_store
+            .list(Some(&prefix.as_str().into()))
+            .map_ok(|x| x.location)
+            .try_collect()
+            .await
+            .map_err(IcebergError::from)?;
+
+        for path in paths {
+            object_store
+                .delete(&path)
+                .await
+                .map_err(IcebergError::from)?;
+        }
+
+        let target = namespace[0].clone();
+        self.cache
+            .write()
+            .unwrap()
+            .retain(|id, _| id.namespace().first() != Some(&target));
+
+        Ok(())
     }
     /// Load the namespace properties from the catalog
     async fn load_namespace(
         &self,
-        _namespace: &Namespace,
+        namespace: &Namespace,
     ) -> Result<HashMap<String, String>, IcebergError> {
-        todo!()
+        if self.namespace_exists(namespace).await? {
+            Ok(HashMap::new())
+        } else {
+            Err(IcebergError::CatalogNotFound)
+        }
     }
-    /// Update the namespace properties in the catalog
+    /// Update the namespace properties in the catalog. The filesystem catalog
+    /// has no place to persist namespace properties, so this is a no-op.
     async fn update_namespace(
         &self,
         _namespace: &Namespace,
         _updates: Option<HashMap<String, String>>,
         _removals: Option<Vec<String>>,
     ) -> Result<(), IcebergError> {
-        todo!()
+        Ok(())
     }
-    /// Check if a namespace exists
-    async fn namespace_exists(&self, _namespace: &Namespace) -> Result<bool, IcebergError> {
-        todo!()
+    /// Check if a namespace exists. Namespaces are implicit on the filesystem
+    /// — a namespace exists iff `list_namespaces` would report it (i.e., it
+    /// has at least one tabular underneath).
+    async fn namespace_exists(&self, namespace: &Namespace) -> Result<bool, IcebergError> {
+        let target = &namespace[0];
+        Ok(self
+            .list_namespaces(None)
+            .await?
+            .iter()
+            .any(|n| n.first() == Some(target)))
     }
     async fn list_tabulars(&self, namespace: &Namespace) -> Result<Vec<Identifier>, IcebergError> {
         let bucket = Bucket::from_path(&self.path)?;
@@ -136,14 +172,23 @@ impl Catalog for FileCatalog {
             .map(|_| true)
             .or(Ok(false))
     }
-    async fn drop_table(&self, _identifierr: &Identifier) -> Result<(), IcebergError> {
-        todo!()
+    async fn drop_table(&self, identifier: &Identifier) -> Result<(), IcebergError> {
+        self.drop_tabular(identifier).await
     }
-    async fn drop_view(&self, _identifier: &Identifier) -> Result<(), IcebergError> {
-        todo!()
+    async fn drop_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
+        self.drop_tabular(identifier).await
     }
-    async fn drop_materialized_view(&self, _identifier: &Identifier) -> Result<(), IcebergError> {
-        todo!()
+    async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
+        let storage_table = match self.cache.read().unwrap().get(identifier).cloned() {
+            Some((_, TabularMetadata::MaterializedView(metadata))) => {
+                Some(metadata.current_version(None)?.storage_table().clone())
+            }
+            _ => None,
+        };
+        if let Some(storage_table) = storage_table {
+            self.drop_tabular(&storage_table).await?;
+        }
+        self.drop_tabular(identifier).await
     }
     async fn load_tabular(
         self: Arc<Self>,
@@ -519,6 +564,30 @@ impl FileCatalog {
 
     fn tabular_path(&self, namespace: &str, name: &str) -> String {
         self.path.as_str().trim_end_matches('/').to_owned() + "/" + namespace + "/" + name
+    }
+
+    async fn drop_tabular(&self, identifier: &Identifier) -> Result<(), IcebergError> {
+        let bucket = Bucket::from_path(&self.path)?;
+        let object_store = self.object_store.build(bucket)?;
+
+        let prefix =
+            strip_prefix(&self.tabular_path(&identifier.namespace()[0], identifier.name()));
+        let paths: Vec<_> = object_store
+            .list(Some(&prefix.as_str().into()))
+            .map_ok(|x| x.location)
+            .try_collect()
+            .await
+            .map_err(IcebergError::from)?;
+
+        for path in paths {
+            object_store
+                .delete(&path)
+                .await
+                .map_err(IcebergError::from)?;
+        }
+
+        self.cache.write().unwrap().remove(identifier);
+        Ok(())
     }
 
     async fn metadata_location(&self, identifier: &Identifier) -> Result<String, IcebergError> {
