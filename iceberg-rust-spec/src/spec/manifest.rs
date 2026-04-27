@@ -88,6 +88,20 @@ impl ManifestEntry {
 }
 
 impl ManifestEntry {
+    pub fn try_from_v3(
+        value: ManifestEntryV3,
+        schema: &Schema,
+        partition_spec: &PartitionSpec,
+    ) -> Result<Self, Error> {
+        Ok(ManifestEntry {
+            format_version: FormatVersion::V3,
+            status: value.status,
+            snapshot_id: value.snapshot_id,
+            sequence_number: value.sequence_number,
+            data_file: DataFile::try_from_v3(value.data_file, schema, partition_spec)?,
+        })
+    }
+
     pub fn try_from_v2(
         value: ManifestEntryV2,
         schema: &Schema,
@@ -121,10 +135,26 @@ impl ManifestEntry {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 #[serde(untagged)]
 pub enum ManifestEntryEnum {
+    /// Manifest entry version 3
+    V3(ManifestEntryV3),
     /// Manifest entry version 2
     V2(ManifestEntryV2),
     /// Manifest entry version 1
     V1(ManifestEntryV1),
+}
+
+/// Entry in manifest with the iceberg spec version 3.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct ManifestEntryV3 {
+    /// Used to track additions and deletions
+    pub status: Status,
+    /// Snapshot id where the file was added, or deleted if status is 2.
+    /// Inherited when null.
+    pub snapshot_id: Option<i64>,
+    /// Sequence number when the file was added. Inherited when null.
+    pub sequence_number: Option<i64>,
+    /// File path, partition tuple, metrics, …
+    pub data_file: DataFileV3,
 }
 
 /// Entry in manifest with the iceberg spec version 2.
@@ -156,8 +186,20 @@ pub struct ManifestEntryV1 {
 impl From<ManifestEntry> for ManifestEntryEnum {
     fn from(value: ManifestEntry) -> Self {
         match value.format_version {
+            FormatVersion::V3 => ManifestEntryEnum::V3(value.into()),
             FormatVersion::V2 => ManifestEntryEnum::V2(value.into()),
             FormatVersion::V1 => ManifestEntryEnum::V1(value.into()),
+        }
+    }
+}
+
+impl From<ManifestEntry> for ManifestEntryV3 {
+    fn from(value: ManifestEntry) -> Self {
+        ManifestEntryV3 {
+            status: value.status,
+            snapshot_id: value.snapshot_id,
+            sequence_number: value.sequence_number,
+            data_file: value.data_file.into(),
         }
     }
 }
@@ -230,6 +272,46 @@ impl ManifestEntry {
             }
             FormatVersion::V2 => {
                 let datafile_schema = DataFileV2::schema(partition_schema);
+                r#"{
+            "type": "record",
+            "name": "manifest_entry",
+            "fields": [
+                {
+                    "name": "status",
+                    "type": "int",
+                    "field-id": 0
+                },
+                {
+                    "name": "snapshot_id",
+                    "type": [
+                        "null",
+                        "long"
+                    ],
+                    "default": null,
+                    "field-id": 1
+                },
+                {
+                    "name": "sequence_number",
+                    "type": [
+                        "null",
+                        "long"
+                    ],
+                    "default": null,
+                    "field-id": 3
+                },
+                {
+                    "name": "data_file",
+                    "type": "#
+                    .to_owned()
+                    + &datafile_schema
+                    + r#",
+                    "field-id": 2
+                }
+            ]
+        }"#
+            }
+            FormatVersion::V3 => {
+                let datafile_schema = DataFileV3::schema(partition_schema);
                 r#"{
             "type": "record",
             "name": "manifest_entry",
@@ -555,6 +637,39 @@ impl DataFile {
 }
 
 impl DataFile {
+    pub(crate) fn try_from_v3(
+        value: DataFileV3,
+        schema: &Schema,
+        partition_spec: &PartitionSpec,
+    ) -> Result<Self, Error> {
+        Ok(DataFile {
+            content: value.content,
+            file_path: value.file_path,
+            file_format: value.file_format,
+            partition: value
+                .partition
+                .cast(schema.fields(), partition_spec.fields())?,
+            record_count: value.record_count,
+            file_size_in_bytes: value.file_size_in_bytes,
+            column_sizes: value.column_sizes,
+            value_counts: value.value_counts,
+            null_value_counts: value.null_value_counts,
+            nan_value_counts: value.nan_value_counts,
+            lower_bounds: value
+                .lower_bounds
+                .map(|map| map.into_value_map(schema.fields()))
+                .transpose()?,
+            upper_bounds: value
+                .upper_bounds
+                .map(|map| map.into_value_map(schema.fields()))
+                .transpose()?,
+            key_metadata: value.key_metadata,
+            split_offsets: value.split_offsets,
+            equality_ids: value.equality_ids,
+            sort_order_id: value.sort_order_id,
+        })
+    }
+
     pub(crate) fn try_from_v2(
         value: DataFileV2,
         schema: &Schema,
@@ -622,6 +737,43 @@ impl DataFile {
             sort_order_id: value.sort_order_id,
         })
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+/// DataFile found in Manifest with the iceberg spec version 3.
+pub struct DataFileV3 {
+    ///Type of content in data file.
+    pub content: Content,
+    /// Full URI for the file with a FS scheme.
+    pub file_path: String,
+    /// String file format name, avro, orc or parquet
+    pub file_format: FileFormat,
+    /// Partition data tuple, schema based on the partition spec output using partition field ids for the struct field ids
+    pub partition: Struct,
+    /// Number of records in this file
+    pub record_count: i64,
+    /// Total file size in bytes
+    pub file_size_in_bytes: i64,
+    /// Map from column id to total size on disk
+    pub column_sizes: Option<AvroMap<i64>>,
+    /// Map from column id to number of values in the column (including null and NaN values)
+    pub value_counts: Option<AvroMap<i64>>,
+    /// Map from column id to number of null values
+    pub null_value_counts: Option<AvroMap<i64>>,
+    /// Map from column id to number of NaN values
+    pub nan_value_counts: Option<AvroMap<i64>>,
+    /// Map from column id to lower bound in the column
+    pub lower_bounds: Option<AvroMap<ByteBuf>>,
+    /// Map from column id to upper bound in the column
+    pub upper_bounds: Option<AvroMap<ByteBuf>>,
+    /// Implementation specific key metadata for encryption
+    pub key_metadata: Option<ByteBuf>,
+    /// Split offsets for the data file.
+    pub split_offsets: Option<Vec<i64>>,
+    /// Field ids used to determine row equality in equality delete files.
+    pub equality_ids: Option<Vec<i32>>,
+    /// ID representing sort order for this file
+    pub sort_order_id: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -702,6 +854,29 @@ pub struct DataFileV1 {
     pub split_offsets: Option<Vec<i64>>,
     /// ID representing sort order for this file
     pub sort_order_id: Option<i32>,
+}
+
+impl From<DataFile> for DataFileV3 {
+    fn from(value: DataFile) -> Self {
+        DataFileV3 {
+            content: value.content,
+            file_path: value.file_path,
+            file_format: value.file_format,
+            partition: value.partition,
+            record_count: value.record_count,
+            file_size_in_bytes: value.file_size_in_bytes,
+            column_sizes: value.column_sizes,
+            value_counts: value.value_counts,
+            null_value_counts: value.null_value_counts,
+            nan_value_counts: value.nan_value_counts,
+            lower_bounds: value.lower_bounds.map(Into::into),
+            upper_bounds: value.upper_bounds.map(Into::into),
+            key_metadata: value.key_metadata,
+            split_offsets: value.split_offsets,
+            equality_ids: value.equality_ids,
+            sort_order_id: value.sort_order_id,
+        }
+    }
 }
 
 impl From<DataFile> for DataFileV2 {
@@ -1068,6 +1243,13 @@ impl DataFileV1 {
                 }
             ]
         }"#
+    }
+}
+
+impl DataFileV3 {
+    /// Get schema for the V3 data file Avro encoding.
+    pub fn schema(partition_schema: &str) -> String {
+        DataFileV2::schema(partition_schema)
     }
 }
 
@@ -1480,6 +1662,125 @@ mod tests {
             assert_eq!(
                 manifest_entry,
                 ManifestEntry::try_from_v2(
+                    entry,
+                    table_metadata.current_schema(None).unwrap(),
+                    table_metadata.default_partition_spec().unwrap()
+                )
+                .unwrap()
+            )
+        }
+    }
+
+    #[test]
+    fn manifest_entry_v3() {
+        let table_metadata = TableMetadataBuilder::default()
+            .format_version(FormatVersion::V3)
+            .location("/")
+            .current_schema_id(0)
+            .schemas(HashMap::from_iter(vec![(
+                0,
+                Schema::builder()
+                    .with_struct_field(StructField {
+                        id: 0,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )]))
+            .default_spec_id(0)
+            .partition_specs(HashMap::from_iter(vec![(
+                0,
+                PartitionSpec::builder()
+                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
+                    .build()
+                    .unwrap(),
+            )]))
+            .build()
+            .unwrap();
+
+        let manifest_entry = ManifestEntry {
+            format_version: FormatVersion::V3,
+            status: Status::Added,
+            snapshot_id: Some(638933773299822130),
+            sequence_number: Some(1),
+            data_file: DataFile {
+                content: Content::Data,
+                file_path: "/".to_string(),
+                file_format: FileFormat::Parquet,
+                partition: Struct::from_iter(vec![("day".to_owned(), Some(Value::Int(1)))]),
+                record_count: 4,
+                file_size_in_bytes: 1200,
+                column_sizes: None,
+                value_counts: None,
+                null_value_counts: None,
+                nan_value_counts: None,
+                lower_bounds: Some(HashMap::from_iter(vec![(0, Value::Date(0))])),
+                upper_bounds: None,
+                key_metadata: None,
+                split_offsets: None,
+                equality_ids: None,
+                sort_order_id: None,
+            },
+        };
+
+        let partition_schema =
+            partition_value_schema(&table_metadata.current_partition_fields(None).unwrap())
+                .unwrap();
+
+        let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V3).unwrap();
+
+        let partition_spec = r#"[{
+            "source-id": 4,
+            "field-id": 1000,
+            "name": "date",
+            "transform": "day"
+          }]"#;
+        let partition_spec_id = "0";
+        let table_schema = r#"{"schema": "0"}"#;
+        let table_schema_id = "1";
+        let format_version = FormatVersion::V3;
+        let content = "DATA";
+
+        let meta: std::collections::HashMap<String, apache_avro::types::Value> =
+            std::collections::HashMap::from_iter(vec![
+                ("schema".to_string(), AvroValue::Bytes(table_schema.into())),
+                (
+                    "schema-id".to_string(),
+                    AvroValue::Bytes(table_schema_id.into()),
+                ),
+                (
+                    "partition-spec".to_string(),
+                    AvroValue::Bytes(partition_spec.into()),
+                ),
+                (
+                    "partition-spec-id".to_string(),
+                    AvroValue::Bytes(partition_spec_id.into()),
+                ),
+                (
+                    "format-version".to_string(),
+                    AvroValue::Bytes(vec![u8::from(format_version)]),
+                ),
+                ("content".to_string(), AvroValue::Bytes(content.into())),
+            ]);
+        let mut writer = apache_avro::Writer::builder()
+            .schema(&schema)
+            .writer(vec![])
+            .user_metadata(meta)
+            .build();
+        writer.append_ser(manifest_entry.clone()).unwrap();
+
+        let encoded = writer.into_inner().unwrap();
+
+        let reader = apache_avro::Reader::new(&encoded[..]).unwrap();
+
+        for value in reader {
+            let entry = apache_avro::from_value::<ManifestEntryV3>(&value.unwrap()).unwrap();
+            assert_eq!(
+                manifest_entry,
+                ManifestEntry::try_from_v3(
                     entry,
                     table_metadata.current_schema(None).unwrap(),
                     table_metadata.default_partition_spec().unwrap()

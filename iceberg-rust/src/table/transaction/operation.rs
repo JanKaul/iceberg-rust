@@ -10,8 +10,8 @@ use std::{collections::HashMap, sync::Arc};
 use bytes::Bytes;
 use futures::future;
 use iceberg_rust_spec::manifest_list::{
-    manifest_list_schema_v1, manifest_list_schema_v2, Content as ManifestListContent,
-    ManifestListEntry,
+    manifest_list_schema_v1, manifest_list_schema_v2, manifest_list_schema_v3,
+    Content as ManifestListContent, ManifestListEntry,
 };
 use iceberg_rust_spec::snapshot::{Operation as SnapshotOperation, Snapshot};
 use iceberg_rust_spec::spec::manifest::Content;
@@ -138,6 +138,7 @@ impl Operation {
                 let manifest_list_schema = match table_metadata.format_version {
                     FormatVersion::V1 => manifest_list_schema_v1(),
                     FormatVersion::V2 => manifest_list_schema_v2(),
+                    FormatVersion::V3 => manifest_list_schema_v3(),
                 };
 
                 let n_data_files = sequence_groups.iter().map(|d| d.data_files.len()).sum();
@@ -303,6 +304,7 @@ impl Operation {
                 let manifest_list_schema = match table_metadata.format_version {
                     FormatVersion::V1 => manifest_list_schema_v1(),
                     FormatVersion::V2 => manifest_list_schema_v2(),
+                    FormatVersion::V3 => manifest_list_schema_v3(),
                 };
 
                 let n_data_files = data_files.len();
@@ -488,6 +490,7 @@ impl Operation {
                 let manifest_list_schema = match table_metadata.format_version {
                     FormatVersion::V1 => manifest_list_schema_v1(),
                     FormatVersion::V2 => manifest_list_schema_v2(),
+                    FormatVersion::V3 => manifest_list_schema_v3(),
                 };
 
                 let mut manifest_list_writer =
@@ -652,6 +655,7 @@ impl Operation {
                 let manifest_list_schema = match table_metadata.format_version {
                     FormatVersion::V1 => manifest_list_schema_v1(),
                     FormatVersion::V2 => manifest_list_schema_v2(),
+                    FormatVersion::V3 => manifest_list_schema_v3(),
                 };
 
                 let n_data_files = data_files.len();
