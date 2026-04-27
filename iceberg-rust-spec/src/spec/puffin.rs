@@ -9,14 +9,16 @@
 //! - JSON serde for `FileMetadata` and `BlobMetadata` matching the Java
 //!   `FileMetadataParser` field names (kebab-case).
 //! - Parsing of a Puffin file's trailing footer (uncompressed payload only).
+//! - Reading individual blob payloads via `BlobMetadata::read_from`, with
+//!   zstd decompression support.
 //!
-//! Writing Puffin files and reading individual blob bodies (with zstd / lz4
-//! decompression) are not yet implemented.
+//! LZ4-compressed footer payloads, LZ4 blob compression, and writing Puffin
+//! files are not yet implemented.
 //!
 //! Standard blob types are defined as constants — see [`STANDARD_BLOB_TYPE_*`].
 //! [Reference](https://iceberg.apache.org/puffin-spec/).
 
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +77,44 @@ pub struct BlobMetadata {
     /// Arbitrary writer-defined metadata for this blob.
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub properties: HashMap<String, String>,
+}
+
+impl BlobMetadata {
+    /// Read this blob's payload from the full Puffin file bytes, decompressing
+    /// it if a [`PuffinCompressionCodec`] is set.
+    ///
+    /// Returns a borrow when the blob is uncompressed; returns an owned vector
+    /// when decompression was required.
+    ///
+    /// # Errors
+    /// - `offset` / `length` are out of range for the supplied slice.
+    /// - The blob is LZ4-compressed (not yet supported).
+    /// - Zstd decompression fails.
+    pub fn read_from<'a>(&self, file: &'a [u8]) -> Result<Cow<'a, [u8]>, Error> {
+        let offset = usize::try_from(self.offset).map_err(|_| {
+            Error::InvalidFormat(format!("blob offset {} is negative", self.offset))
+        })?;
+        let length = usize::try_from(self.length).map_err(|_| {
+            Error::InvalidFormat(format!("blob length {} is negative", self.length))
+        })?;
+        let end = offset
+            .checked_add(length)
+            .ok_or_else(|| Error::InvalidFormat("blob offset + length overflows".to_string()))?;
+        if end > file.len() {
+            return Err(Error::InvalidFormat(format!(
+                "blob extends past end of Puffin file ({end} > {})",
+                file.len()
+            )));
+        }
+        let slice = &file[offset..end];
+        match self.compression_codec {
+            None => Ok(Cow::Borrowed(slice)),
+            Some(PuffinCompressionCodec::Zstd) => Ok(Cow::Owned(zstd::stream::decode_all(slice)?)),
+            Some(PuffinCompressionCodec::Lz4) => Err(Error::NotSupported(
+                "LZ4-compressed Puffin blob".to_string(),
+            )),
+        }
+    }
 }
 
 /// Top-level metadata for a Puffin file. Mirrors Java's `FileMetadata`.
@@ -231,6 +271,64 @@ mod tests {
         bytes.extend_from_slice(&PUFFIN_MAGIC); // end magic
         let err = FileMetadata::read_footer(&bytes).unwrap_err();
         assert!(matches!(err, Error::NotSupported(_)));
+    }
+
+    #[test]
+    fn read_uncompressed_blob_payloads() {
+        let bytes = read_fixture("sample-metric-data-uncompressed.bin");
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+        let first = meta.blobs[0].read_from(&bytes).unwrap();
+        assert_eq!(first.as_ref(), b"abcdefghi");
+        let second = meta.blobs[1].read_from(&bytes).unwrap();
+        assert!(second.starts_with(b"some blob"));
+        // 83-byte blob from spec; matches BlobMetadata.length.
+        assert_eq!(second.len() as i64, meta.blobs[1].length);
+    }
+
+    #[test]
+    fn read_zstd_blob_payloads_match_uncompressed() {
+        // The two fixtures store identical logical blobs; only blob compression
+        // differs. Verify decompression yields exactly the uncompressed bytes.
+        let plain = read_fixture("sample-metric-data-uncompressed.bin");
+        let compressed = read_fixture("sample-metric-data-compressed-zstd.bin");
+
+        let plain_meta = FileMetadata::read_footer(&plain).unwrap();
+        let zstd_meta = FileMetadata::read_footer(&compressed).unwrap();
+
+        assert_eq!(plain_meta.blobs.len(), zstd_meta.blobs.len());
+        for (p, z) in plain_meta.blobs.iter().zip(zstd_meta.blobs.iter()) {
+            let plain_payload = p.read_from(&plain).unwrap();
+            let zstd_payload = z.read_from(&compressed).unwrap();
+            assert_eq!(z.compression_codec, Some(PuffinCompressionCodec::Zstd));
+            assert_eq!(plain_payload.as_ref(), zstd_payload.as_ref());
+        }
+    }
+
+    #[test]
+    fn rejects_lz4_blob_compression() {
+        let bytes = read_fixture("sample-metric-data-uncompressed.bin");
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+        let mut blob = meta.blobs[0].clone();
+        blob.compression_codec = Some(PuffinCompressionCodec::Lz4);
+        let err = blob.read_from(&bytes).unwrap_err();
+        assert!(matches!(err, Error::NotSupported(_)));
+    }
+
+    #[test]
+    fn rejects_blob_out_of_range() {
+        let bytes = read_fixture("empty-puffin-uncompressed.bin");
+        let blob = BlobMetadata {
+            blob_type: "x".to_string(),
+            fields: vec![],
+            snapshot_id: 0,
+            sequence_number: 0,
+            offset: 4,
+            length: 1024,
+            compression_codec: None,
+            properties: HashMap::new(),
+        };
+        let err = blob.read_from(&bytes).unwrap_err();
+        assert!(matches!(err, Error::InvalidFormat(_)));
     }
 
     #[test]
