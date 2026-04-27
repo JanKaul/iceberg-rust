@@ -144,6 +144,10 @@ pub struct TableMetadata {
     /// even if the refs map is null.
     #[builder(default)]
     pub refs: HashMap<String, SnapshotReference>,
+    /// Highest assigned row id across the table. Required at v3 and above. For v1/v2 this
+    /// is held at the default of 0.
+    #[builder(default)]
+    pub next_row_id: i64,
 }
 
 impl TableMetadata {
@@ -512,6 +516,8 @@ pub mod _serde {
         pub table_uuid: Uuid,
         /// Location tables base location
         pub location: String,
+        /// Highest assigned row id across the table. Required from v3.
+        pub next_row_id: i64,
         /// The tables highest sequence number
         pub last_sequence_number: i64,
         /// Timestamp in milliseconds from the unix epoch when the table was last updated.
@@ -674,7 +680,9 @@ pub mod _serde {
 
     impl TryFrom<TableMetadataV3> for TableMetadata {
         type Error = Error;
+        #[allow(clippy::field_reassign_with_default)]
         fn try_from(value: TableMetadataV3) -> Result<Self, Error> {
+            let next_row_id = value.next_row_id;
             let current_snapshot_id = if let &Some(-1) = &value.current_snapshot_id {
                 None
             } else {
@@ -728,6 +736,7 @@ pub mod _serde {
                 ),
                 default_sort_order_id: value.default_sort_order_id,
                 refs,
+                next_row_id,
             })
         }
     }
@@ -788,6 +797,7 @@ pub mod _serde {
                 ),
                 default_sort_order_id: value.default_sort_order_id,
                 refs,
+                next_row_id: 0,
             })
         }
     }
@@ -890,6 +900,7 @@ pub mod _serde {
                         },
                     },
                 )]),
+                next_row_id: 0,
             })
         }
     }
@@ -900,6 +911,7 @@ pub mod _serde {
                 format_version: VersionNumber::<3>,
                 table_uuid: v.table_uuid,
                 location: v.location,
+                next_row_id: v.next_row_id,
                 last_sequence_number: v.last_sequence_number,
                 last_updated_ms: v.last_updated_ms,
                 last_column_id: v.last_column_id,
@@ -1323,6 +1335,7 @@ mod tests {
                 "last-sequence-number" : 1,
                 "last-updated-ms": 1515100955770,
                 "last-column-id": 1,
+                "next-row-id": 7,
                 "schemas": [
                     {
                         "schema-id" : 1,
@@ -1369,6 +1382,7 @@ mod tests {
         let metadata =
             serde_json::from_str::<TableMetadata>(data).expect("Failed to deserialize json");
         assert_eq!(metadata.format_version, FormatVersion::V3);
+        assert_eq!(metadata.next_row_id, 7);
         let metadata_two: TableMetadata = serde_json::from_str(
             &serde_json::to_string(&metadata).expect("Failed to serialize metadata"),
         )
@@ -1391,6 +1405,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .build()
             .unwrap();
@@ -1403,6 +1419,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 2,
@@ -1410,6 +1428,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: Some("comment".to_owned()),
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 3,
@@ -1417,6 +1437,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_identifier_field_ids(vec![1, 2])
             .build()
@@ -1512,6 +1534,7 @@ mod tests {
                     },
                 },
             )]),
+            next_row_id: 0,
         };
 
         check_table_metadata_serde(&metadata, expected);
@@ -1530,6 +1553,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .build()
             .unwrap();
@@ -1542,6 +1567,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 2,
@@ -1549,6 +1576,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: Some("comment".to_owned()),
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 3,
@@ -1556,6 +1585,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_identifier_field_ids(vec![1, 2])
             .build()
@@ -1651,6 +1682,7 @@ mod tests {
                     },
                 },
             )]),
+            next_row_id: 42,
         };
 
         check_table_metadata_serde(&metadata, expected);
@@ -1669,6 +1701,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: Some(serde_json::json!(1)),
+                write_default: Some(serde_json::json!(1)),
             })
             .with_struct_field(StructField {
                 id: 2,
@@ -1676,6 +1710,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: Some("comment".to_owned()),
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 3,
@@ -1683,6 +1719,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .build()
             .unwrap();
@@ -1729,6 +1767,7 @@ mod tests {
             snapshot_log: vec![],
             metadata_log: Vec::new(),
             refs: HashMap::new(),
+            next_row_id: 0,
         };
 
         check_table_metadata_serde(&metadata, expected);
@@ -1747,6 +1786,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 2,
@@ -1754,6 +1795,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: Some("comment".to_owned()),
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 3,
@@ -1761,6 +1804,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .build()
             .unwrap();
@@ -1807,6 +1852,7 @@ mod tests {
             snapshot_log: vec![],
             metadata_log: Vec::new(),
             refs: HashMap::new(),
+            next_row_id: 0,
         };
 
         check_table_metadata_serde(&metadata, expected);
@@ -1825,6 +1871,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 2,
@@ -1832,6 +1880,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: Some("comment".to_owned()),
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 3,
@@ -1839,6 +1889,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .build()
             .unwrap();
@@ -1878,6 +1930,7 @@ mod tests {
                     },
                 },
             )]),
+            next_row_id: 0,
         };
 
         check_table_metadata_serde(&metadata, expected);

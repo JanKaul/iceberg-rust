@@ -832,6 +832,8 @@ mod tests {
                         required: true,
                         field_type: Type::Primitive(PrimitiveType::Date),
                         doc: None,
+                        initial_default: None,
+                        write_default: None,
                     })
                     .build()
                     .unwrap(),
@@ -907,6 +909,8 @@ mod tests {
                         required: true,
                         field_type: Type::Primitive(PrimitiveType::Date),
                         doc: None,
+                        initial_default: None,
+                        write_default: None,
                     })
                     .build()
                     .unwrap(),
@@ -982,6 +986,8 @@ mod tests {
                         required: true,
                         field_type: Type::Primitive(PrimitiveType::Date),
                         doc: None,
+                        initial_default: None,
+                        write_default: None,
                     })
                     .build()
                     .unwrap(),

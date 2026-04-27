@@ -67,6 +67,8 @@ impl TryFrom<&Fields> for StructType {
                     required: !field.is_nullable(),
                     field_type: field.data_type().try_into()?,
                     doc: None,
+                    initial_default: None,
+                    write_default: None,
                 })
             })
             .collect::<Result<_, Error>>()?;
@@ -95,10 +97,19 @@ impl TryFrom<&Type> for DataType {
                     TimeUnit::Microsecond,
                     Some(Arc::from("UTC")),
                 )),
+                PrimitiveType::TimestampNs => Ok(DataType::Timestamp(TimeUnit::Nanosecond, None)),
+                PrimitiveType::TimestamptzNs => Ok(DataType::Timestamp(
+                    TimeUnit::Nanosecond,
+                    Some(Arc::from("UTC")),
+                )),
                 PrimitiveType::String => Ok(DataType::Utf8),
                 PrimitiveType::Uuid => Ok(DataType::Utf8),
                 PrimitiveType::Fixed(len) => Ok(DataType::FixedSizeBinary(*len as i32)),
                 PrimitiveType::Binary => Ok(DataType::Binary),
+                PrimitiveType::Variant
+                | PrimitiveType::Geometry(_)
+                | PrimitiveType::Geography(_, _) => Ok(DataType::Binary),
+                PrimitiveType::Unknown => Ok(DataType::Null),
             },
             Type::List(list) => Ok(DataType::List(Arc::new(
                 Field::new(

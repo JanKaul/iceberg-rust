@@ -1564,6 +1564,8 @@ mod tests {
                         required: true,
                         field_type: Type::Primitive(PrimitiveType::Date),
                         doc: None,
+                        initial_default: None,
+                        write_default: None,
                     })
                     .build()
                     .unwrap(),
@@ -1686,6 +1688,8 @@ mod tests {
                         required: true,
                         field_type: Type::Primitive(PrimitiveType::Date),
                         doc: None,
+                        initial_default: None,
+                        write_default: None,
                     })
                     .build()
                     .unwrap(),
@@ -1804,6 +1808,8 @@ mod tests {
                         required: true,
                         field_type: Type::Primitive(PrimitiveType::Date),
                         doc: None,
+                        initial_default: None,
+                        write_default: None,
                     })
                     .build()
                     .unwrap(),
@@ -1921,6 +1927,8 @@ mod tests {
             required: false,
             field_type: Type::Primitive(PrimitiveType::Int),
             doc: None,
+            initial_default: None,
+            write_default: None,
         };
         let partition_fields = vec![BoundPartitionField::new(&part_field, &field)];
 

@@ -45,6 +45,8 @@ async fn test_table_transaction_overwrite() {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 2,
@@ -52,6 +54,8 @@ async fn test_table_transaction_overwrite() {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::String),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 3,
@@ -59,6 +63,8 @@ async fn test_table_transaction_overwrite() {
                 required: false,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .build()
             .unwrap()

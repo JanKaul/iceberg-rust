@@ -39,6 +39,8 @@ pub(crate) async fn main() {
                         iceberg_rust::spec::types::PrimitiveType::Int,
                     ),
                     doc: None,
+                    initial_default: None,
+                    write_default: None,
                 })
                 .with_struct_field(StructField {
                     id: 1,
@@ -48,6 +50,8 @@ pub(crate) async fn main() {
                         iceberg_rust::spec::types::PrimitiveType::Int,
                     ),
                     doc: None,
+                    initial_default: None,
+                    write_default: None,
                 })
                 .build()
                 .unwrap(),

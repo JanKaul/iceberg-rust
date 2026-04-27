@@ -220,6 +220,7 @@ impl TryInto<TableMetadata> for CreateTable {
             )]),
             default_sort_order_id: DEFAULT_SORT_ORDER_ID,
             refs: HashMap::new(),
+            next_row_id: 0,
         })
     }
 }
@@ -487,6 +488,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 2,
@@ -494,6 +497,8 @@ mod tests {
                 required: false,
                 field_type: Type::Primitive(PrimitiveType::String),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 3,
@@ -501,6 +506,8 @@ mod tests {
                 required: false,
                 field_type: Type::Primitive(PrimitiveType::Timestamp),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .build()
             .unwrap()
@@ -515,6 +522,8 @@ mod tests {
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .with_struct_field(StructField {
                 id: 1, // Duplicate ID
@@ -522,6 +531,8 @@ mod tests {
                 required: false,
                 field_type: Type::Primitive(PrimitiveType::String),
                 doc: None,
+                initial_default: None,
+                write_default: None,
             })
             .build()
             .unwrap()
