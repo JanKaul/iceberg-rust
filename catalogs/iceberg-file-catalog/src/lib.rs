@@ -89,7 +89,10 @@ impl Catalog for FileCatalog {
             .map_err(IcebergError::from)?;
 
         for path in paths {
-            object_store.delete(&path).await.map_err(IcebergError::from)?;
+            object_store
+                .delete(&path)
+                .await
+                .map_err(IcebergError::from)?;
         }
 
         let target = namespace[0].clone();
@@ -177,12 +180,9 @@ impl Catalog for FileCatalog {
     }
     async fn drop_materialized_view(&self, identifier: &Identifier) -> Result<(), IcebergError> {
         let storage_table = match self.cache.read().unwrap().get(identifier).cloned() {
-            Some((_, TabularMetadata::MaterializedView(metadata))) => Some(
-                metadata
-                    .current_version(None)?
-                    .storage_table()
-                    .clone(),
-            ),
+            Some((_, TabularMetadata::MaterializedView(metadata))) => {
+                Some(metadata.current_version(None)?.storage_table().clone())
+            }
             _ => None,
         };
         if let Some(storage_table) = storage_table {
@@ -570,7 +570,8 @@ impl FileCatalog {
         let bucket = Bucket::from_path(&self.path)?;
         let object_store = self.object_store.build(bucket)?;
 
-        let prefix = strip_prefix(&self.tabular_path(&identifier.namespace()[0], identifier.name()));
+        let prefix =
+            strip_prefix(&self.tabular_path(&identifier.namespace()[0], identifier.name()));
         let paths: Vec<_> = object_store
             .list(Some(&prefix.as_str().into()))
             .map_ok(|x| x.location)
@@ -579,7 +580,10 @@ impl FileCatalog {
             .map_err(IcebergError::from)?;
 
         for path in paths {
-            object_store.delete(&path).await.map_err(IcebergError::from)?;
+            object_store
+                .delete(&path)
+                .await
+                .map_err(IcebergError::from)?;
         }
 
         self.cache.write().unwrap().remove(identifier);
