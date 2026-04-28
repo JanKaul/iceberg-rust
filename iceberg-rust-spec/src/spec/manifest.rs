@@ -628,6 +628,15 @@ pub struct DataFile {
     /// ID representing sort order for this file
     #[builder(default)]
     sort_order_id: Option<i32>,
+    /// V3 deletion-vector pointer: location of the data file the DV applies to.
+    #[builder(default)]
+    referenced_data_file: Option<String>,
+    /// V3 deletion-vector pointer: byte offset of the DV blob inside the Puffin file.
+    #[builder(default)]
+    content_offset: Option<i64>,
+    /// V3 deletion-vector pointer: length of the DV blob (compressed if applicable).
+    #[builder(default)]
+    content_size_in_bytes: Option<i64>,
 }
 
 impl DataFile {
@@ -667,6 +676,9 @@ impl DataFile {
             split_offsets: value.split_offsets,
             equality_ids: value.equality_ids,
             sort_order_id: value.sort_order_id,
+            referenced_data_file: value.referenced_data_file,
+            content_offset: value.content_offset,
+            content_size_in_bytes: value.content_size_in_bytes,
         })
     }
 
@@ -701,6 +713,9 @@ impl DataFile {
             split_offsets: value.split_offsets,
             equality_ids: value.equality_ids,
             sort_order_id: value.sort_order_id,
+            referenced_data_file: None,
+            content_offset: None,
+            content_size_in_bytes: None,
         })
     }
 
@@ -735,6 +750,9 @@ impl DataFile {
             split_offsets: value.split_offsets,
             equality_ids: None,
             sort_order_id: value.sort_order_id,
+            referenced_data_file: None,
+            content_offset: None,
+            content_size_in_bytes: None,
         })
     }
 }
@@ -774,6 +792,12 @@ pub struct DataFileV3 {
     pub equality_ids: Option<Vec<i32>>,
     /// ID representing sort order for this file
     pub sort_order_id: Option<i32>,
+    /// Location of the data file the deletion vector applies to.
+    pub referenced_data_file: Option<String>,
+    /// Byte offset of the deletion-vector blob inside the Puffin file.
+    pub content_offset: Option<i64>,
+    /// Length of the deletion-vector blob (compressed if applicable).
+    pub content_size_in_bytes: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -875,6 +899,9 @@ impl From<DataFile> for DataFileV3 {
             split_offsets: value.split_offsets,
             equality_ids: value.equality_ids,
             sort_order_id: value.sort_order_id,
+            referenced_data_file: value.referenced_data_file,
+            content_offset: value.content_offset,
+            content_size_in_bytes: value.content_size_in_bytes,
         }
     }
 }
@@ -1248,8 +1275,39 @@ impl DataFileV1 {
 
 impl DataFileV3 {
     /// Get schema for the V3 data file Avro encoding.
+    ///
+    /// V3 extends the V2 schema with three optional fields used for deletion
+    /// vectors stored in Puffin files: `referenced_data_file` (143),
+    /// `content_offset` (144), `content_size_in_bytes` (145). The fields are
+    /// appended to V2's `fields` array via JSON manipulation rather than
+    /// duplicating the entire 250-line schema literal.
     pub fn schema(partition_schema: &str) -> String {
-        DataFileV2::schema(partition_schema)
+        let mut value: serde_json::Value =
+            serde_json::from_str(&DataFileV2::schema(partition_schema))
+                .expect("DataFileV2::schema produces valid JSON");
+        let fields = value
+            .get_mut("fields")
+            .and_then(|v| v.as_array_mut())
+            .expect("DataFileV2 schema has a `fields` array");
+        fields.push(serde_json::json!({
+            "name": "referenced_data_file",
+            "type": ["null", "string"],
+            "default": null,
+            "field-id": 143,
+        }));
+        fields.push(serde_json::json!({
+            "name": "content_offset",
+            "type": ["null", "long"],
+            "default": null,
+            "field-id": 144,
+        }));
+        fields.push(serde_json::json!({
+            "name": "content_size_in_bytes",
+            "type": ["null", "long"],
+            "default": null,
+            "field-id": 145,
+        }));
+        serde_json::to_string(&value).expect("serialize V3 DataFile schema")
     }
 }
 
@@ -1604,6 +1662,9 @@ mod tests {
                 split_offsets: None,
                 equality_ids: None,
                 sort_order_id: None,
+                referenced_data_file: None,
+                content_offset: None,
+                content_size_in_bytes: None,
             },
         };
 
@@ -1727,6 +1788,9 @@ mod tests {
                 split_offsets: None,
                 equality_ids: None,
                 sort_order_id: None,
+                referenced_data_file: None,
+                content_offset: None,
+                content_size_in_bytes: None,
             },
         };
 
@@ -1795,6 +1859,97 @@ mod tests {
     }
 
     #[test]
+    fn manifest_entry_v3_with_deletion_vector_pointer() {
+        let table_metadata = TableMetadataBuilder::default()
+            .format_version(FormatVersion::V3)
+            .location("/")
+            .current_schema_id(0)
+            .schemas(HashMap::from_iter(vec![(
+                0,
+                Schema::builder()
+                    .with_struct_field(StructField {
+                        id: 0,
+                        name: "date".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Date),
+                        doc: None,
+                        initial_default: None,
+                        write_default: None,
+                    })
+                    .build()
+                    .unwrap(),
+            )]))
+            .default_spec_id(0)
+            .partition_specs(HashMap::from_iter(vec![(
+                0,
+                PartitionSpec::builder()
+                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
+                    .build()
+                    .unwrap(),
+            )]))
+            .build()
+            .unwrap();
+
+        let manifest_entry = ManifestEntry {
+            format_version: FormatVersion::V3,
+            status: Status::Added,
+            snapshot_id: Some(638933773299822130),
+            sequence_number: Some(1),
+            data_file: DataFile {
+                content: Content::PositionDeletes,
+                file_path: "s3://bucket/dv/uuid.puffin".to_string(),
+                file_format: FileFormat::Parquet,
+                partition: Struct::from_iter(vec![("day".to_owned(), Some(Value::Int(1)))]),
+                record_count: 4,
+                file_size_in_bytes: 1200,
+                column_sizes: None,
+                value_counts: None,
+                null_value_counts: None,
+                nan_value_counts: None,
+                lower_bounds: None,
+                upper_bounds: None,
+                key_metadata: None,
+                split_offsets: None,
+                equality_ids: None,
+                sort_order_id: None,
+                referenced_data_file: Some("s3://bucket/data/file-0001.parquet".to_string()),
+                content_offset: Some(64),
+                content_size_in_bytes: Some(512),
+            },
+        };
+
+        let partition_schema =
+            partition_value_schema(&table_metadata.current_partition_fields(None).unwrap())
+                .unwrap();
+        let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V3).unwrap();
+
+        let mut writer = apache_avro::Writer::new(&schema, vec![]);
+        writer.append_ser(manifest_entry.clone()).unwrap();
+        let encoded = writer.into_inner().unwrap();
+
+        let reader = apache_avro::Reader::new(&encoded[..]).unwrap();
+        let mut entries = 0;
+        for value in reader {
+            let entry = apache_avro::from_value::<ManifestEntryV3>(&value.unwrap()).unwrap();
+            let parsed = ManifestEntry::try_from_v3(
+                entry,
+                table_metadata.current_schema(None).unwrap(),
+                table_metadata.default_partition_spec().unwrap(),
+            )
+            .unwrap();
+            assert_eq!(parsed, manifest_entry);
+            assert_eq!(
+                parsed.data_file().referenced_data_file().as_deref(),
+                Some("s3://bucket/data/file-0001.parquet")
+            );
+            assert_eq!(*parsed.data_file().content_offset(), Some(64));
+            assert_eq!(*parsed.data_file().content_size_in_bytes(), Some(512));
+            entries += 1;
+        }
+        assert_eq!(entries, 1);
+    }
+
+    #[test]
     fn test_read_manifest_entry() {
         let table_metadata = TableMetadataBuilder::default()
             .location("/")
@@ -1848,6 +2003,9 @@ mod tests {
                 split_offsets: None,
                 equality_ids: None,
                 sort_order_id: None,
+                referenced_data_file: None,
+                content_offset: None,
+                content_size_in_bytes: None,
             },
         };
 
