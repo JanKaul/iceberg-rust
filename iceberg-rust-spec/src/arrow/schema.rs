@@ -874,7 +874,7 @@ mod tests {
             Type::Primitive(PrimitiveType::Timestamptz)
         );
 
-        // Timestamp with non-UTC timezone -> Timestamptz
+        // Timestamp with non-UTC timezone -> NotSupported (Iceberg only supports UTC instants)
         let arrow_schema = ArrowSchema::new(vec![Field::new(
             "tstz",
             DataType::Timestamp(TimeUnit::Microsecond, Some(Arc::from("+05:30"))),
@@ -884,11 +884,8 @@ mod tests {
             PARQUET_FIELD_ID_META_KEY.to_string(),
             "1".to_string(),
         )]))]);
-        let struct_type: StructType = (&arrow_schema).try_into().unwrap();
-        assert_eq!(
-            struct_type[0].field_type,
-            Type::Primitive(PrimitiveType::Timestamptz)
-        );
+        let result: Result<StructType, Error> = (&arrow_schema).try_into();
+        assert!(matches!(result.unwrap_err(), Error::NotSupported(_)));
     }
 
     #[test]
