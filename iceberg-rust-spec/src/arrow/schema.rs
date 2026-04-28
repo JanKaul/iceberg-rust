@@ -159,9 +159,7 @@ impl TryFrom<&DataType> for Type {
             DataType::Date32 => Ok(Type::Primitive(PrimitiveType::Date)),
             DataType::Time64(_) => Ok(Type::Primitive(PrimitiveType::Time)),
             DataType::Timestamp(_, None) => Ok(Type::Primitive(PrimitiveType::Timestamp)),
-            DataType::Timestamp(_, Some(tz))
-                if tz.as_ref() == "UTC" || tz.as_ref() == "+00:00" =>
-            {
+            DataType::Timestamp(_, Some(tz)) if tz.as_ref() == "UTC" || tz.as_ref() == "+00:00" => {
                 Ok(Type::Primitive(PrimitiveType::Timestamptz))
             }
             DataType::Timestamp(_, Some(tz)) => Err(Error::NotSupported(format!(
