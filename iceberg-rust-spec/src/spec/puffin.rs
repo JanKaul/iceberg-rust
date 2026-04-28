@@ -11,9 +11,11 @@
 //! - Parsing of a Puffin file's trailing footer (uncompressed payload only).
 //! - Reading individual blob payloads via `BlobMetadata::read_from`, with
 //!   zstd decompression support.
+//! - Writing Puffin files via [`PuffinWriter`], with optional zstd blob
+//!   compression. Footer payload is emitted uncompressed.
 //!
-//! LZ4-compressed footer payloads, LZ4 blob compression, and writing Puffin
-//! files are not yet implemented.
+//! LZ4-compressed footer payloads and LZ4 blob compression are not yet
+//! implemented.
 //!
 //! Standard blob types are defined as constants — see [`STANDARD_BLOB_TYPE_*`].
 //! [Reference](https://iceberg.apache.org/puffin-spec/).
@@ -186,6 +188,115 @@ impl FileMetadata {
     }
 }
 
+/// Input to [`PuffinWriter::write_blob`]. Borrows the payload to avoid copying
+/// before compression.
+pub struct Blob<'a> {
+    /// Blob type identifier (e.g. [`STANDARD_BLOB_TYPE_DELETION_VECTOR_V1`]).
+    pub blob_type: String,
+    /// Field IDs the blob was computed for.
+    pub fields: Vec<i32>,
+    /// Source snapshot ID. Use `-1` for blobs whose snapshot is not yet known
+    /// (the spec mandates this for v3 deletion vectors).
+    pub snapshot_id: i64,
+    /// Source sequence number. Use `-1` when not yet known.
+    pub sequence_number: i64,
+    /// Compression to apply to the payload. `None` writes the bytes unchanged.
+    pub compression_codec: Option<PuffinCompressionCodec>,
+    /// Blob-level metadata.
+    pub properties: HashMap<String, String>,
+    /// Raw, uncompressed blob bytes. The writer applies compression.
+    pub payload: &'a [u8],
+}
+
+/// Builder that produces a complete Puffin file as a `Vec<u8>`.
+///
+/// Writes the start magic, then each blob's (optionally compressed) payload,
+/// then the footer. The footer is emitted with an uncompressed JSON payload.
+pub struct PuffinWriter {
+    bytes: Vec<u8>,
+    blobs: Vec<BlobMetadata>,
+    file_properties: HashMap<String, String>,
+}
+
+impl Default for PuffinWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PuffinWriter {
+    /// Create an empty Puffin writer with the start magic already emitted.
+    pub fn new() -> Self {
+        Self {
+            bytes: PUFFIN_MAGIC.to_vec(),
+            blobs: Vec::new(),
+            file_properties: HashMap::new(),
+        }
+    }
+
+    /// Set a file-level property (e.g. `created-by`).
+    pub fn set_property(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        self.file_properties.insert(key.into(), value.into());
+    }
+
+    /// Write a single blob, applying the requested compression and computing
+    /// its `offset` and `length`.
+    ///
+    /// # Errors
+    /// - The blob requests LZ4 compression (not yet supported).
+    /// - Zstd compression fails.
+    pub fn write_blob(&mut self, blob: Blob<'_>) -> Result<(), Error> {
+        let written: Cow<'_, [u8]> = match blob.compression_codec {
+            None => Cow::Borrowed(blob.payload),
+            Some(PuffinCompressionCodec::Zstd) => {
+                Cow::Owned(zstd::stream::encode_all(blob.payload, 0)?)
+            }
+            Some(PuffinCompressionCodec::Lz4) => {
+                return Err(Error::NotSupported(
+                    "LZ4-compressed Puffin blob".to_string(),
+                ));
+            }
+        };
+        let offset = i64::try_from(self.bytes.len())
+            .map_err(|_| Error::InvalidFormat("Puffin file offset overflows i64".to_string()))?;
+        let length = i64::try_from(written.len())
+            .map_err(|_| Error::InvalidFormat("Puffin blob length overflows i64".to_string()))?;
+        self.bytes.extend_from_slice(&written);
+        self.blobs.push(BlobMetadata {
+            blob_type: blob.blob_type,
+            fields: blob.fields,
+            snapshot_id: blob.snapshot_id,
+            sequence_number: blob.sequence_number,
+            offset,
+            length,
+            compression_codec: blob.compression_codec,
+            properties: blob.properties,
+        });
+        Ok(())
+    }
+
+    /// Append the footer and return the complete Puffin file bytes.
+    pub fn finish(mut self) -> Result<Vec<u8>, Error> {
+        let metadata = FileMetadata {
+            blobs: self.blobs,
+            properties: self.file_properties,
+        };
+        let payload = serde_json::to_vec(&metadata)?;
+        let payload_size = i32::try_from(payload.len()).map_err(|_| {
+            Error::InvalidFormat(format!(
+                "Puffin footer payload too large: {} bytes",
+                payload.len()
+            ))
+        })?;
+        self.bytes.extend_from_slice(&PUFFIN_MAGIC);
+        self.bytes.extend_from_slice(&payload);
+        self.bytes.extend_from_slice(&payload_size.to_le_bytes());
+        self.bytes.extend_from_slice(&[0u8; 4]);
+        self.bytes.extend_from_slice(&PUFFIN_MAGIC);
+        Ok(self.bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -329,6 +440,114 @@ mod tests {
         };
         let err = blob.read_from(&bytes).unwrap_err();
         assert!(matches!(err, Error::InvalidFormat(_)));
+    }
+
+    #[test]
+    fn writer_empty_matches_apache_fixture_byte_for_byte() {
+        // The empty puffin fixture is fully deterministic: no properties, no
+        // blobs, no compression. Our writer should produce the identical 32 bytes.
+        let written = PuffinWriter::new().finish().unwrap();
+        let fixture = read_fixture("empty-puffin-uncompressed.bin");
+        assert_eq!(written, fixture);
+    }
+
+    #[test]
+    fn writer_round_trips_uncompressed_blobs() {
+        let mut writer = PuffinWriter::new();
+        writer.set_property("created-by", "iceberg-rust test");
+        writer
+            .write_blob(Blob {
+                blob_type: STANDARD_BLOB_TYPE_THETA_V1.to_string(),
+                fields: vec![1],
+                snapshot_id: 7,
+                sequence_number: 3,
+                compression_codec: None,
+                properties: HashMap::from_iter([("ndv".to_string(), "42".to_string())]),
+                payload: b"sketch-bytes",
+            })
+            .unwrap();
+        writer
+            .write_blob(Blob {
+                blob_type: STANDARD_BLOB_TYPE_DELETION_VECTOR_V1.to_string(),
+                fields: vec![],
+                snapshot_id: -1,
+                sequence_number: -1,
+                compression_codec: None,
+                properties: HashMap::from_iter([(
+                    "referenced-data-file".to_string(),
+                    "s3://bucket/data.parquet".to_string(),
+                )]),
+                payload: b"dv-bytes",
+            })
+            .unwrap();
+
+        let bytes = writer.finish().unwrap();
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+        assert_eq!(meta.blobs.len(), 2);
+        assert_eq!(
+            meta.properties.get("created-by").map(String::as_str),
+            Some("iceberg-rust test")
+        );
+
+        assert_eq!(meta.blobs[0].blob_type, STANDARD_BLOB_TYPE_THETA_V1);
+        assert_eq!(
+            meta.blobs[0].read_from(&bytes).unwrap().as_ref(),
+            b"sketch-bytes"
+        );
+
+        assert_eq!(
+            meta.blobs[1].blob_type,
+            STANDARD_BLOB_TYPE_DELETION_VECTOR_V1
+        );
+        assert_eq!(meta.blobs[1].snapshot_id, -1);
+        assert_eq!(
+            meta.blobs[1].read_from(&bytes).unwrap().as_ref(),
+            b"dv-bytes"
+        );
+    }
+
+    #[test]
+    fn writer_round_trips_zstd_compressed_blob() {
+        let payload = b"some payload bytes that compress okay zstd zstd zstd zstd zstd";
+        let mut writer = PuffinWriter::new();
+        writer
+            .write_blob(Blob {
+                blob_type: "x-test".to_string(),
+                fields: vec![1],
+                snapshot_id: 0,
+                sequence_number: 0,
+                compression_codec: Some(PuffinCompressionCodec::Zstd),
+                properties: HashMap::new(),
+                payload,
+            })
+            .unwrap();
+        let bytes = writer.finish().unwrap();
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+        assert_eq!(
+            meta.blobs[0].compression_codec,
+            Some(PuffinCompressionCodec::Zstd)
+        );
+        // Stored length is the compressed length, distinct from the original.
+        assert!(meta.blobs[0].length < payload.len() as i64);
+        let decoded = meta.blobs[0].read_from(&bytes).unwrap();
+        assert_eq!(decoded.as_ref(), payload);
+    }
+
+    #[test]
+    fn writer_rejects_lz4_compression() {
+        let mut writer = PuffinWriter::new();
+        let err = writer
+            .write_blob(Blob {
+                blob_type: "x".to_string(),
+                fields: vec![],
+                snapshot_id: 0,
+                sequence_number: 0,
+                compression_codec: Some(PuffinCompressionCodec::Lz4),
+                properties: HashMap::new(),
+                payload: b"data",
+            })
+            .unwrap_err();
+        assert!(matches!(err, Error::NotSupported(_)));
     }
 
     #[test]
