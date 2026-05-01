@@ -629,29 +629,37 @@ impl FileCatalog {
     }
 
     fn identifier(&self, path: &str) -> Identifier {
-        let parts: Vec<&str> = trim_start_path(path)
-            .trim_start_matches(trim_start_path(&self.path))
-            .trim_start_matches('/')
-            .split('/')
-            .take(2)
-            .collect();
+        let relative = self.relative_to_root(path);
+        let parts: Vec<&str> = relative.split('/').take(2).collect();
         Identifier::new(&[parts[0].to_owned()], parts[1])
     }
 
     fn namespace(&self, path: &str) -> Result<Namespace, IcebergError> {
-        let parts = trim_start_path(path)
-            .trim_start_matches(trim_start_path(&self.path))
-            .trim_start_matches('/')
+        let relative = self.relative_to_root(path);
+        let parts = relative
             .split('/')
             .next()
             .ok_or(IcebergError::InvalidFormat("Namespace in path".to_owned()))?
             .to_owned();
         Namespace::try_new(&[parts]).map_err(IcebergError::from)
     }
-}
 
-fn trim_start_path(path: &str) -> &str {
-    path.trim_start_matches('/').trim_start_matches("s3://")
+    // Project `path` (a value coming back from `ObjectStore::list*`, which has
+    // the scheme + authority + leading slash already stripped) into the catalog
+    // root, returning the suffix as a `<namespace>/<name>/...` slice. Both
+    // `path` and `self.path` are routed through `strip_prefix` so a `file://`,
+    // `s3://`, `abfs://` etc. catalog root reduces to the same shape as the
+    // raw object_store path before the prefix subtraction.
+    fn relative_to_root(&self, path: &str) -> String {
+        let path = strip_prefix(path);
+        let path = path.trim_start_matches('/');
+        let root = strip_prefix(&self.path);
+        let root = root.trim_start_matches('/');
+        path.strip_prefix(root)
+            .unwrap_or(path)
+            .trim_start_matches('/')
+            .to_owned()
+    }
 }
 
 fn parse_version(path: &str) -> Result<u64, IcebergError> {
@@ -690,7 +698,12 @@ impl FileCatalogList {
     }
 
     fn parse_catalog(&self, path: &str) -> Result<String, IcebergError> {
-        trim_start_path(path.trim_start_matches(trim_start_path(&self.path)))
+        let path = strip_prefix(path);
+        let path = path.trim_start_matches('/');
+        let root = strip_prefix(&self.path);
+        let root = root.trim_start_matches('/');
+        path.strip_prefix(root)
+            .unwrap_or(path)
             .trim_start_matches('/')
             .split('/')
             .next()
@@ -713,7 +726,7 @@ impl CatalogList for FileCatalogList {
         let object_store = self.object_store.build(bucket).unwrap();
 
         object_store
-            .list_with_delimiter(Some(&strip_prefix(trim_start_path(&self.path)).into()))
+            .list_with_delimiter(Some(&strip_prefix(&self.path).into()))
             .await
             .map_err(IcebergError::from)
             .unwrap()
@@ -1032,5 +1045,54 @@ pub mod tests {
 
         let result = test_struct.namespace("/base/path/test_namespace").unwrap();
         assert_eq!(result.as_ref(), &["test_namespace".to_string()]);
+    }
+
+    // The path that comes in from object_store::ObjectStore::list_with_delimiter
+    // has the LocalFileSystem root stripped (no leading "/" and no "file://"
+    // scheme). Reproduce the rustice flow where the catalog is rooted at a
+    // deep file:// URL and we try to recover the namespace name from a listed
+    // common-prefix.
+    #[tokio::test]
+    async fn test_namespace_file_url_deep_prefix() {
+        let test_struct = FileCatalog::new(
+            "file:///tmp/rustice_test_catalog/embucket",
+            ObjectStoreBuilder::memory(),
+        )
+        .await
+        .unwrap();
+
+        // What LocalFileSystem actually hands back for a child of
+        // file:///tmp/rustice_test_catalog/embucket/demo (object_store::Path
+        // strips the leading slash and the URL scheme).
+        let result = test_struct
+            .namespace("tmp/rustice_test_catalog/embucket/demo")
+            .unwrap();
+        assert_eq!(result.as_ref(), &["demo".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_identifier_file_url_deep_prefix() {
+        let test_struct = FileCatalog::new(
+            "file:///tmp/rustice_test_catalog/embucket",
+            ObjectStoreBuilder::memory(),
+        )
+        .await
+        .unwrap();
+
+        let result = test_struct
+            .identifier("tmp/rustice_test_catalog/embucket/demo/t1/metadata/v0.metadata.json");
+        assert_eq!(result.namespace()[0], "demo");
+        assert_eq!(result.name(), "t1");
+    }
+
+    #[tokio::test]
+    async fn test_namespace_s3_url_deep_prefix() {
+        let test_struct = FileCatalog::new("s3://bucket/wh/embucket", ObjectStoreBuilder::memory())
+            .await
+            .unwrap();
+
+        // S3 list yields keys without the bucket; the leading slash is stripped.
+        let result = test_struct.namespace("wh/embucket/demo").unwrap();
+        assert_eq!(result.as_ref(), &["demo".to_string()]);
     }
 }
