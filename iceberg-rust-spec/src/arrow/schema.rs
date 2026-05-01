@@ -158,7 +158,13 @@ impl TryFrom<&DataType> for Type {
             })),
             DataType::Date32 => Ok(Type::Primitive(PrimitiveType::Date)),
             DataType::Time64(_) => Ok(Type::Primitive(PrimitiveType::Time)),
-            DataType::Timestamp(_, _) => Ok(Type::Primitive(PrimitiveType::Timestamp)),
+            DataType::Timestamp(_, None) => Ok(Type::Primitive(PrimitiveType::Timestamp)),
+            DataType::Timestamp(_, Some(tz)) if tz.as_ref() == "UTC" || tz.as_ref() == "+00:00" => {
+                Ok(Type::Primitive(PrimitiveType::Timestamptz))
+            }
+            DataType::Timestamp(_, Some(tz)) => Err(Error::NotSupported(format!(
+                "Arrow timestamp with non-UTC timezone '{tz}' is not supported."
+            ))),
             DataType::Utf8 => Ok(Type::Primitive(PrimitiveType::String)),
             DataType::Utf8View => Ok(Type::Primitive(PrimitiveType::String)),
             DataType::FixedSizeBinary(len) => {
@@ -833,6 +839,54 @@ mod tests {
     //         _ => panic!("Expected map type"),
     //     }
     // }
+
+    #[test]
+    fn test_arrow_timestamp_to_iceberg_type() {
+        // Timestamp without timezone -> Timestamp
+        let arrow_schema = ArrowSchema::new(vec![Field::new(
+            "ts",
+            DataType::Timestamp(TimeUnit::Microsecond, None),
+            true,
+        )
+        .with_metadata(HashMap::from([(
+            PARQUET_FIELD_ID_META_KEY.to_string(),
+            "1".to_string(),
+        )]))]);
+        let struct_type: StructType = (&arrow_schema).try_into().unwrap();
+        assert_eq!(
+            struct_type[0].field_type,
+            Type::Primitive(PrimitiveType::Timestamp)
+        );
+
+        // Timestamp with UTC timezone -> Timestamptz
+        let arrow_schema = ArrowSchema::new(vec![Field::new(
+            "tstz",
+            DataType::Timestamp(TimeUnit::Microsecond, Some(Arc::from("UTC"))),
+            true,
+        )
+        .with_metadata(HashMap::from([(
+            PARQUET_FIELD_ID_META_KEY.to_string(),
+            "1".to_string(),
+        )]))]);
+        let struct_type: StructType = (&arrow_schema).try_into().unwrap();
+        assert_eq!(
+            struct_type[0].field_type,
+            Type::Primitive(PrimitiveType::Timestamptz)
+        );
+
+        // Timestamp with non-UTC timezone -> NotSupported (Iceberg only supports UTC instants)
+        let arrow_schema = ArrowSchema::new(vec![Field::new(
+            "tstz",
+            DataType::Timestamp(TimeUnit::Microsecond, Some(Arc::from("+05:30"))),
+            true,
+        )
+        .with_metadata(HashMap::from([(
+            PARQUET_FIELD_ID_META_KEY.to_string(),
+            "1".to_string(),
+        )]))]);
+        let result: Result<StructType, Error> = (&arrow_schema).try_into();
+        assert!(matches!(result.unwrap_err(), Error::NotSupported(_)));
+    }
 
     #[test]
     fn test_arrow_schema_to_struct_type_missing_field_id() {

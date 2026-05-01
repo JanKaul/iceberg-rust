@@ -72,19 +72,19 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
             )?),
             datepart_to_years,
         ))),
-        (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Hour) => {
+        (DataType::Timestamp(TimeUnit::Microsecond, _), Transform::Hour) => {
             Ok(Arc::new(unary::<_, _, Int32Type>(
                 as_primitive_array::<Int64Type>(&cast(&array, &DataType::Int64)?),
                 micros_to_hours,
             )) as Arc<dyn Array>)
         }
-        (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Day) => {
+        (DataType::Timestamp(TimeUnit::Microsecond, _), Transform::Day) => {
             Ok(Arc::new(unary::<_, _, Int32Type>(
                 as_primitive_array::<Int64Type>(&cast(&array, &DataType::Int64)?),
                 micros_to_days,
             )) as Arc<dyn Array>)
         }
-        (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Month) => {
+        (DataType::Timestamp(TimeUnit::Microsecond, _), Transform::Month) => {
             let year = date_part(
                 as_primitive_array::<TimestampMicrosecondType>(&array),
                 DatePart::Year,
@@ -99,7 +99,7 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
                 datepart_to_months,
             )?))
         }
-        (DataType::Timestamp(TimeUnit::Microsecond, None), Transform::Year) => {
+        (DataType::Timestamp(TimeUnit::Microsecond, _), Transform::Year) => {
             Ok(Arc::new(unary::<_, _, Int32Type>(
                 as_primitive_array::<Int32Type>(&date_part(
                     as_primitive_array::<TimestampMicrosecondType>(&array),
@@ -233,6 +233,18 @@ mod tests {
         ])) as ArrayRef
     }
 
+    fn create_timestamptz_micro_array() -> ArrayRef {
+        Arc::new(
+            TimestampMicrosecondArray::from(vec![
+                Some(1682937000000000),
+                Some(1686840330000000),
+                Some(1704067200000000),
+                None,
+            ])
+            .with_timezone_utc(),
+        ) as ArrayRef
+    }
+
     #[test]
     fn test_identity_transform() {
         let array = create_date32_array();
@@ -321,6 +333,58 @@ mod tests {
     #[test]
     fn test_timestamp_micro_year_transform() {
         let array = create_timestamp_micro_array();
+        let result = transform_arrow(array, &Transform::Year).unwrap();
+        let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(53),
+            Some(53),
+            Some(54),
+            None,
+        ])) as ArrayRef;
+        assert_eq!(&expected, &result);
+    }
+
+    #[test]
+    fn test_timestamptz_micro_hour_transform() {
+        let array = create_timestamptz_micro_array();
+        let result = transform_arrow(array, &Transform::Hour).unwrap();
+        let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(467482),
+            Some(468566),
+            Some(473352),
+            None,
+        ])) as ArrayRef;
+        assert_eq!(&expected, &result);
+    }
+
+    #[test]
+    fn test_timestamptz_micro_day_transform() {
+        let array = create_timestamptz_micro_array();
+        let result = transform_arrow(array, &Transform::Day).unwrap();
+        let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(19478),
+            Some(19523),
+            Some(19723),
+            None,
+        ])) as ArrayRef;
+        assert_eq!(&expected, &result);
+    }
+
+    #[test]
+    fn test_timestamptz_micro_month_transform() {
+        let array = create_timestamptz_micro_array();
+        let result = transform_arrow(array, &Transform::Month).unwrap();
+        let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(641),
+            Some(642),
+            Some(649),
+            None,
+        ])) as ArrayRef;
+        assert_eq!(&expected, &result);
+    }
+
+    #[test]
+    fn test_timestamptz_micro_year_transform() {
+        let array = create_timestamptz_micro_array();
         let result = transform_arrow(array, &Transform::Year).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
             Some(53),
