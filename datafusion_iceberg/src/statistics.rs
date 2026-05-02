@@ -97,7 +97,12 @@ fn column_statistics<'a>(
                     ))
                 })
                 .unwrap_or(Precision::Absent),
-            distinct_count: Precision::Absent,
+            distinct_count: data_file
+                .distinct_counts()
+                .as_ref()
+                .and_then(|x| x.get(&id))
+                .map(|x| Precision::Exact(*x as usize))
+                .unwrap_or(Precision::Absent),
             sum_value: Precision::Absent,
             byte_size: Precision::Absent,
         }
