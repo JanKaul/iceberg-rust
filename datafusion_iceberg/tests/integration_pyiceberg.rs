@@ -36,7 +36,6 @@ fn configure_python_venv(py: Python) -> PyResult<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_pyiceberg_integration() {
     let temp_dir = TempDir::new().unwrap();
     let warehouse_path = temp_dir.path().join("warehouse");
