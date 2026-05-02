@@ -16,6 +16,7 @@ use iceberg_rust_spec::{
         types::Type,
         values::{Struct, Value},
     },
+    table_metadata::WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED,
 };
 use parquet::file::{metadata::ParquetMetaData, writer::TrackedWrite};
 use thrift::protocol::{TCompactOutputProtocol, TSerializable};
@@ -24,7 +25,7 @@ use tracing::instrument;
 use crate::error::Error;
 
 /// Read datafile statistics from parquetfile
-#[instrument(name = "iceberg_rust::file_format::parquet::parquet_to_datafile", level = "debug", skip(file_metadata, schema, partition_fields), fields(
+#[instrument(name = "iceberg_rust::file_format::parquet::parquet_to_datafile", level = "debug", skip(file_metadata, schema, partition_fields, table_properties), fields(
     location = location,
     file_size = file_size,
     partition_field_count = partition_fields.len(),
@@ -37,7 +38,11 @@ pub fn parquet_to_datafile(
     schema: &Schema,
     partition_fields: &[BoundPartitionField<'_>],
     equality_ids: Option<&[i32]>,
+    table_properties: &HashMap<String, String>,
 ) -> Result<DataFile, Error> {
+    let write_distinct_counts = table_properties
+        .get(WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED)
+        .is_some_and(|x| x == "true");
     let mut partition = partition_fields
         .iter()
         .map(|field| Ok((field.name().to_owned(), None)))
@@ -56,7 +61,7 @@ pub fn parquet_to_datafile(
     let mut column_sizes = AvroMap(HashMap::new());
     let mut value_counts = AvroMap(HashMap::new());
     let mut null_value_counts = AvroMap(HashMap::new());
-    let mut distinct_counts = AvroMap(HashMap::new());
+    let mut distinct_counts = write_distinct_counts.then(|| AvroMap(HashMap::new()));
     let mut lower_bounds: HashMap<i32, Value> = HashMap::new();
     let mut upper_bounds: HashMap<i32, Value> = HashMap::new();
 
@@ -90,56 +95,58 @@ pub fn parquet_to_datafile(
                     .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
                     .field_type;
 
-                if let (Some(distinct_count), Some(min_bytes), Some(max_bytes)) = (
-                    statistics.distinct_count_opt(),
-                    statistics.min_bytes_opt(),
-                    statistics.max_bytes_opt(),
-                ) {
-                    let min = Value::try_from_bytes(min_bytes, data_type)?;
-                    let max = Value::try_from_bytes(max_bytes, data_type)?;
-                    let current_min = lower_bounds.get(&id);
-                    let current_max = upper_bounds.get(&id);
-                    match (min, max, current_min, current_max) {
-                        (
-                            Value::Int(min),
-                            Value::Int(max),
-                            Some(Value::Int(current_min)),
-                            Some(Value::Int(current_max)),
-                        ) => {
-                            distinct_counts
-                                .entry(id)
-                                .and_modify(|x| {
-                                    *x += estimate_distinct_count(
-                                        &[current_min, current_max],
-                                        &[&min, &max],
-                                        *x,
-                                        distinct_count as i64,
-                                    );
-                                })
-                                .or_insert(distinct_count as i64);
+                if let Some(distinct_counts) = distinct_counts.as_mut() {
+                    if let (Some(distinct_count), Some(min_bytes), Some(max_bytes)) = (
+                        statistics.distinct_count_opt(),
+                        statistics.min_bytes_opt(),
+                        statistics.max_bytes_opt(),
+                    ) {
+                        let min = Value::try_from_bytes(min_bytes, data_type)?;
+                        let max = Value::try_from_bytes(max_bytes, data_type)?;
+                        let current_min = lower_bounds.get(&id);
+                        let current_max = upper_bounds.get(&id);
+                        match (min, max, current_min, current_max) {
+                            (
+                                Value::Int(min),
+                                Value::Int(max),
+                                Some(Value::Int(current_min)),
+                                Some(Value::Int(current_max)),
+                            ) => {
+                                distinct_counts
+                                    .entry(id)
+                                    .and_modify(|x| {
+                                        *x += estimate_distinct_count(
+                                            &[current_min, current_max],
+                                            &[&min, &max],
+                                            *x,
+                                            distinct_count as i64,
+                                        );
+                                    })
+                                    .or_insert(distinct_count as i64);
+                            }
+                            (
+                                Value::LongInt(min),
+                                Value::LongInt(max),
+                                Some(Value::LongInt(current_min)),
+                                Some(Value::LongInt(current_max)),
+                            ) => {
+                                distinct_counts
+                                    .entry(id)
+                                    .and_modify(|x| {
+                                        *x += estimate_distinct_count(
+                                            &[current_min, current_max],
+                                            &[&min, &max],
+                                            *x,
+                                            distinct_count as i64,
+                                        );
+                                    })
+                                    .or_insert(distinct_count as i64);
+                            }
+                            (_, _, None, None) => {
+                                distinct_counts.entry(id).or_insert(distinct_count as i64);
+                            }
+                            _ => (),
                         }
-                        (
-                            Value::LongInt(min),
-                            Value::LongInt(max),
-                            Some(Value::LongInt(current_min)),
-                            Some(Value::LongInt(current_max)),
-                        ) => {
-                            distinct_counts
-                                .entry(id)
-                                .and_modify(|x| {
-                                    *x += estimate_distinct_count(
-                                        &[current_min, current_max],
-                                        &[&min, &max],
-                                        *x,
-                                        distinct_count as i64,
-                                    );
-                                })
-                                .or_insert(distinct_count as i64);
-                        }
-                        (_, _, None, None) => {
-                            distinct_counts.entry(id).or_insert(distinct_count as i64);
-                        }
-                        _ => (),
                     }
                 }
 
@@ -299,6 +306,7 @@ pub fn parquet_to_datafile(
         .with_value_counts(Some(value_counts))
         .with_null_value_counts(Some(null_value_counts))
         .with_nan_value_counts(None)
+        .with_distinct_counts(distinct_counts)
         .with_lower_bounds(Some(lower_bounds))
         .with_upper_bounds(Some(upper_bounds));
 
