@@ -1241,6 +1241,7 @@ async fn write_parquet_files(
                 schema,
                 &partition_fields,
                 equality_ids,
+                &metadata.properties,
             )
             .map_err(DataFusionIcebergError::from)?,
         );

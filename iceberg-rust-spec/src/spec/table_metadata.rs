@@ -47,6 +47,8 @@ pub const WRITE_PARQUET_COMPRESSION_CODEC: &str = "write.parquet.compression-cod
 pub const WRITE_PARQUET_COMPRESSION_LEVEL: &str = "write.parquet.compression-level";
 pub const WRITE_OBJECT_STORAGE_ENABLED: &str = "write.object-storage.enabled";
 pub const WRITE_DATA_PATH: &str = "write.data.path";
+pub const WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED: &str =
+    "write.metadata.metrics.distinct-counts.enabled";
 
 pub use _serde::{TableMetadataV1, TableMetadataV2};
 

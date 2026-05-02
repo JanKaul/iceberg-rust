@@ -38,6 +38,7 @@ use futures::{
 };
 use lru::LruCache;
 use object_store::{buffered::BufWriter, ObjectStore, ObjectStoreExt};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::{fmt::Write, thread::available_parallelism};
 use tokio::task::JoinSet;
@@ -209,10 +210,12 @@ async fn store_parquet_partitioned(
             batches,
             object_store.clone(),
             equality_ids,
+            &metadata.properties,
         )
         .await?;
         Ok(files)
     } else {
+        let table_properties = Arc::new(metadata.properties.clone());
         let mut senders: LruCache<Vec<Value>, Sender<Result<RecordBatch, ArrowError>>> =
             LruCache::unbounded();
 
@@ -245,6 +248,7 @@ async fn store_parquet_partitioned(
                         let schema = schema.clone();
                         let partition_spec = partition_spec.clone();
                         let equality_ids = equality_ids.map(Vec::from);
+                        let table_properties = table_properties.clone();
                         let partition_path = if metadata
                             .properties
                             .get(WRITE_OBJECT_STORAGE_ENABLED)
@@ -270,6 +274,7 @@ async fn store_parquet_partitioned(
                                 reciever,
                                 object_store.clone(),
                                 equality_ids.as_deref(),
+                                &table_properties,
                             )
                             .await?;
                             Ok::<_, Error>(files)
@@ -331,6 +336,7 @@ async fn write_parquet_files(
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send,
     object_store: Arc<dyn ObjectStore>,
     equality_ids: Option<&[i32]>,
+    table_properties: &HashMap<String, String>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let bucket = Bucket::from_path(data_location)?;
     let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(0);
@@ -426,6 +432,7 @@ async fn write_parquet_files(
                     schema,
                     partition_fields,
                     equality_ids,
+                    table_properties,
                 )?)
             }
         })
