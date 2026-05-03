@@ -49,18 +49,27 @@ use futures::Stream;
 use iceberg_rust_spec::{
     partition::BoundPartitionField,
     spec::{manifest::DataFile, schema::Schema, values::Value},
-    table_metadata::{self, WRITE_DATA_PATH, WRITE_OBJECT_STORAGE_ENABLED},
+    table_metadata::{
+        self, WRITE_DATA_PATH, WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED,
+        WRITE_OBJECT_STORAGE_ENABLED,
+    },
     util::strip_prefix,
 };
 use parquet::{
     arrow::AsyncArrowWriter,
     basic::{Compression, ZstdLevel},
-    file::{metadata::ParquetMetaData, properties::WriterProperties},
+    file::{
+        metadata::{KeyValue, ParquetMetaData},
+        properties::WriterProperties,
+    },
 };
 use uuid::Uuid;
 
 use crate::{
-    error::Error, file_format::parquet::parquet_to_datafile, object_store::Bucket, table::Table,
+    error::Error,
+    file_format::parquet::{parquet_to_datafile, ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY},
+    object_store::Bucket,
+    table::Table,
 };
 
 use super::partition::partition_record_batch;
@@ -340,6 +349,7 @@ async fn write_parquet_files(
 ) -> Result<Vec<DataFile>, ArrowError> {
     let bucket = Bucket::from_path(data_location)?;
     let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(0);
+    let table_properties_owned = Arc::new(table_properties.clone());
 
     // Create initial writer
     let initial_writer = create_arrow_writer(
@@ -347,6 +357,7 @@ async fn write_parquet_files(
         partition_path.clone(),
         arrow_schema,
         object_store.clone(),
+        table_properties,
     )
     .await?;
 
@@ -368,6 +379,7 @@ async fn write_parquet_files(
                 let partition_path = partition_path.clone();
                 let arrow_schema = arrow_schema.clone();
                 let mut writer_sender = writer_sender.clone();
+                let table_properties = table_properties_owned.clone();
 
                 async move {
                     let batch_size = record_batch_size(&batch);
@@ -387,6 +399,7 @@ async fn write_parquet_files(
                             partition_path,
                             &arrow_schema,
                             object_store,
+                            &table_properties,
                         )
                         .await?;
 
@@ -496,22 +509,28 @@ async fn create_arrow_writer(
     partition_path: Option<String>,
     schema: &arrow::datatypes::Schema,
     object_store: Arc<dyn ObjectStore>,
+    table_properties: &HashMap<String, String>,
 ) -> Result<(String, AsyncArrowWriter<BufWriter>), ArrowError> {
     let parquet_path = generate_file_path(data_location, partition_path);
 
     let writer = BufWriter::new(object_store.clone(), parquet_path.clone().into());
 
+    let estimate_distinct_count = table_properties
+        .get(WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED)
+        .is_some_and(|x| x == "true");
+
+    let mut props_builder =
+        WriterProperties::builder().set_compression(Compression::ZSTD(ZstdLevel::try_new(1)?));
+    if estimate_distinct_count {
+        props_builder = props_builder.set_key_value_metadata(Some(vec![KeyValue::new(
+            ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY.to_owned(),
+            "true".to_owned(),
+        )]));
+    }
+
     Ok((
         parquet_path,
-        AsyncArrowWriter::try_new(
-            writer,
-            Arc::new(schema.clone()),
-            Some(
-                WriterProperties::builder()
-                    .set_compression(Compression::ZSTD(ZstdLevel::try_new(1)?))
-                    .build(),
-            ),
-        )?,
+        AsyncArrowWriter::try_new(writer, Arc::new(schema.clone()), Some(props_builder.build()))?,
     ))
 }
 

@@ -14,10 +14,15 @@ use futures::stream;
 use futures::{StreamExt, TryStreamExt};
 use iceberg_rust::arrow::partition::partition_record_batch;
 use iceberg_rust::arrow::write::{generate_file_path, generate_partition_path};
-use iceberg_rust::file_format::parquet::parquet_to_datafile;
+use iceberg_rust::file_format::parquet::{
+    parquet_to_datafile, ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY,
+};
 use iceberg_rust::object_store::Bucket;
 use iceberg_rust::spec::partition::BoundPartitionField;
-use iceberg_rust::spec::table_metadata::{self, TableMetadata, WRITE_OBJECT_STORAGE_ENABLED};
+use iceberg_rust::spec::table_metadata::{
+    self, TableMetadata, WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED,
+    WRITE_OBJECT_STORAGE_ENABLED,
+};
 use itertools::Itertools;
 use lru::LruCache;
 use object_store::path::Path;
@@ -1215,6 +1220,16 @@ async fn write_parquet_files(
         ..Default::default()
     };
     table_parquet_options.set("compression", "zstd(3)")?;
+    if metadata
+        .properties
+        .get(WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED)
+        .is_some_and(|x| x == "true")
+    {
+        table_parquet_options.set(
+            &format!("metadata::{ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY}"),
+            "true",
+        )?;
+    }
 
     let sink = ParquetSink::new(config, table_parquet_options);
 
