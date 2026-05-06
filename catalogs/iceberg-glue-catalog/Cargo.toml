@@ -17,7 +17,7 @@ aws-config = { version = "1.8.16", default-features = false, features = [
     "behavior-version-latest",
     "sso",
 ] }
-aws-sdk-glue = { version = "1.143.0", default-features = false, features = [
+aws-sdk-glue = { version = "1.144.0", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
     "behavior-version-latest",
