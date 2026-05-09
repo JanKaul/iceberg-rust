@@ -530,7 +530,11 @@ async fn create_arrow_writer(
 
     Ok((
         parquet_path,
-        AsyncArrowWriter::try_new(writer, Arc::new(schema.clone()), Some(props_builder.build()))?,
+        AsyncArrowWriter::try_new(
+            writer,
+            Arc::new(schema.clone()),
+            Some(props_builder.build()),
+        )?,
     ))
 }
 
