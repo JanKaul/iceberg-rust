@@ -24,6 +24,15 @@ use tracing::instrument;
 
 use crate::error::Error;
 
+/// Parquet file-level KV metadata key that opts in to HLL-based `distinct_count`
+/// estimation for `Int64` columns. A patched arrow-rs writer reads this entry
+/// via `WriterProperties::key_value_metadata()` and, when the value is `"true"`,
+/// runs an HLL sketch over each `Int64` column chunk and stores the estimate in
+/// the chunk's `distinct_count` statistic. Setting it has no effect against
+/// upstream parquet — the key is ignored.
+pub const ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY: &str =
+    "iceberg.estimate-int64-distinct-count";
+
 /// Read datafile statistics from parquetfile
 #[instrument(name = "iceberg_rust::file_format::parquet::parquet_to_datafile", level = "debug", skip(file_metadata, schema, partition_fields, table_properties), fields(
     location = location,
