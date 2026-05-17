@@ -37,6 +37,7 @@ use iceberg_rust::{
         namespace::Namespace,
         partition::{PartitionField, PartitionSpec, Transform},
         schema::{Schema, DEFAULT_SCHEMA_ID},
+        table_metadata::WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED,
         types::StructType,
         view_metadata::{Version, ViewRepresentation},
     },
@@ -209,9 +210,13 @@ async fn plan_create_table(
     Table::builder()
         .with_name(table_name)
         .with_location(&node.0.location)
-        .with_schema(Schema::from_struct_type(schema, DEFAULT_SCHEMA_ID, None))
         .with_partition_spec(partition_spec)
+        .with_schema(Schema::from_struct_type(schema, DEFAULT_SCHEMA_ID, None))
         .with_properties(node.0.options.clone())
+        .with_property((
+            WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED.to_string(),
+            "true".to_string(),
+        ))
         .build(&[namespace_name.as_ref().to_owned()], catalog)
         .await
         .map_err(|err| DataFusionError::External(Box::new(err)))?;
