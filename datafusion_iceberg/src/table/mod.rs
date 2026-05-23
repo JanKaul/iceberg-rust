@@ -474,8 +474,7 @@ async fn table_scan(
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
     let mut data_file_groups: HashMap<Struct, Vec<(ManifestPath, ManifestEntry)>> = HashMap::new();
-    let mut equality_delete_file_groups: HashMap<Struct, Vec<(ManifestPath, ManifestEntry)>> =
-        HashMap::new();
+    let mut delete_file_groups: HashMap<Struct, PartitionDeleteFileIndex> = HashMap::new();
 
     // Prune data & delete file and insert them into the according map
     let (content_file_iter, statistics) = if let Some(physical_predicate) =
@@ -586,12 +585,15 @@ async fn table_scan(
     };
 
     if partition_fields.is_empty() {
-        let (data_files, equality_delete_files): (Vec<_>, Vec<_>) = content_file_iter
+        let mut data_files = Vec::new();
+        let mut equality_deletes = Vec::new();
+        let mut delete_vectors = Vec::new();
+        content_file_iter
             .filter(|manifest| *manifest.1.status() != Status::Deleted)
-            .partition(|manifest| match manifest.1.data_file().content() {
-                Content::Data => true,
-                Content::EqualityDeletes => false,
-                Content::PositionDeletes => panic!("Position deletes not supported."),
+            .for_each(|manifest| match manifest.1.data_file().content() {
+                Content::Data => data_files.push(manifest),
+                Content::EqualityDeletes => equality_deletes.push(manifest),
+                Content::PositionDeletes => delete_vectors.push(manifest),
             });
         if !data_files.is_empty() {
             data_file_groups.insert(
@@ -602,13 +604,16 @@ async fn table_scan(
                 data_files,
             );
         }
-        if !equality_delete_files.is_empty() {
-            equality_delete_file_groups.insert(
+        if !equality_deletes.is_empty() || !delete_vectors.is_empty() {
+            delete_file_groups.insert(
                 Struct {
                     fields: Vec::new(),
                     lookup: BTreeMap::new(),
                 },
-                equality_delete_files,
+                PartitionDeleteFileIndex {
+                    equality_deletes,
+                    delete_vectors,
+                },
             );
         }
     } else {
@@ -622,13 +627,18 @@ async fn table_scan(
                             .push(manifest);
                     }
                     Content::EqualityDeletes => {
-                        equality_delete_file_groups
+                        delete_file_groups
                             .entry(manifest.1.data_file().partition().clone())
                             .or_default()
+                            .equality_deletes
                             .push(manifest);
                     }
                     Content::PositionDeletes => {
-                        panic!("Position deletes not supported.")
+                        delete_file_groups
+                            .entry(manifest.1.data_file().partition().clone())
+                            .or_default()
+                            .delete_vectors
+                            .push(manifest);
                     }
                 }
             }
@@ -644,7 +654,7 @@ async fn table_scan(
     };
 
     // Create plan for every partition with delete files
-    let mut plans = stream::iter(equality_delete_file_groups.into_iter())
+    let mut plans = stream::iter(delete_file_groups.into_iter())
         .then(|(partition_value, mut delete_files)| {
             let object_store_url = object_store_url.clone();
             let statistics = statistics.clone();
@@ -658,7 +668,7 @@ async fn table_scan(
 
             async move {
                 // Sort data & delete files by sequence_number
-                delete_files.sort_by(|x, y| {
+                delete_files.equality_deletes.sort_by(|x, y| {
                     x.1.sequence_number()
                         .unwrap()
                         .cmp(&y.1.sequence_number().unwrap())
@@ -678,6 +688,7 @@ async fn table_scan(
                 // we need to make sure their schemas are fully compatible in all intermediate nodes.
                 let mut equality_projection = projection.clone();
                 delete_files
+                    .equality_deletes
                     .iter()
                     .flat_map(|delete_manifest| delete_manifest.1.data_file().equality_ids())
                     .flatten()
@@ -696,7 +707,7 @@ async fn table_scan(
                         }
                     });
 
-                let mut plan = stream::iter(delete_files.iter())
+                let mut plan = stream::iter(delete_files.equality_deletes.iter())
                     .map(Ok::<_, DataFusionError>)
                     .try_fold(None, |acc, delete_manifest| {
                         let object_store_url = object_store_url.clone();
@@ -1421,6 +1432,12 @@ fn create_new_file_stream(
         DataFusionError::Execution("Error sending RecordBatch to file stream!".into())
     })?;
     Ok(tx_file)
+}
+
+#[derive(Debug, Default)]
+struct PartitionDeleteFileIndex {
+    pub equality_deletes: Vec<(ManifestPath, ManifestEntry)>,
+    pub delete_vectors: Vec<(ManifestPath, ManifestEntry)>,
 }
 
 #[cfg(test)]
