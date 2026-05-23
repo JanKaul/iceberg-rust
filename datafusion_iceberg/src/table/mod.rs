@@ -1908,6 +1908,8 @@ mod tests {
                 name: "id".to_string(),
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
+                initial_default: None,
+                write_default: None,
                 doc: None,
             })
             .with_struct_field(StructField {
@@ -1915,6 +1917,8 @@ mod tests {
                 name: "customer_id".to_string(),
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
+                initial_default: None,
+                write_default: None,
                 doc: None,
             })
             .with_struct_field(StructField {
@@ -1922,6 +1926,8 @@ mod tests {
                 name: "product_id".to_string(),
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Long),
+                initial_default: None,
+                write_default: None,
                 doc: None,
             })
             .with_struct_field(StructField {
@@ -1929,6 +1935,8 @@ mod tests {
                 name: "created_at".to_string(),
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Timestamptz),
+                initial_default: None,
+                write_default: None,
                 doc: None,
             })
             .with_struct_field(StructField {
@@ -1936,6 +1944,8 @@ mod tests {
                 name: "amount".to_string(),
                 required: true,
                 field_type: Type::Primitive(PrimitiveType::Int),
+                initial_default: None,
+                write_default: None,
                 doc: None,
             })
             .build()

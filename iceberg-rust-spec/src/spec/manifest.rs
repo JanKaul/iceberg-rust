@@ -664,6 +664,7 @@ impl DataFile {
             value_counts: value.value_counts,
             null_value_counts: value.null_value_counts,
             nan_value_counts: value.nan_value_counts,
+            distinct_counts: None,
             lower_bounds: value
                 .lower_bounds
                 .map(|map| map.into_value_map(schema.fields()))
@@ -1782,6 +1783,7 @@ mod tests {
                 value_counts: None,
                 null_value_counts: None,
                 nan_value_counts: None,
+                distinct_counts: None,
                 lower_bounds: Some(HashMap::from_iter(vec![(0, Value::Date(0))])),
                 upper_bounds: None,
                 key_metadata: None,
@@ -1906,6 +1908,7 @@ mod tests {
                 value_counts: None,
                 null_value_counts: None,
                 nan_value_counts: None,
+                distinct_counts: None,
                 lower_bounds: None,
                 upper_bounds: None,
                 key_metadata: None,
