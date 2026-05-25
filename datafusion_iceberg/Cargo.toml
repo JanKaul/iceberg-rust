@@ -12,7 +12,7 @@ repository = "https://github.com/JanKaul/iceberg-rust"
 [dependencies]
 async-trait = { workspace = true }
 chrono = { workspace = true }
-dashmap = "6.1.0"
+dashmap = "6.2.1"
 datafusion = { workspace = true }
 datafusion-expr = { workspace = true }
 derive_builder = { workspace = true }
