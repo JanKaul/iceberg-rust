@@ -13,6 +13,7 @@
 //! Each submodule implements a specific part of the specification, providing
 //! serialization/deserialization and validation logic.
 
+pub mod deletion_vector;
 pub mod expressions;
 pub mod identifier;
 pub mod manifest;

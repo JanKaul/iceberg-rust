@@ -196,7 +196,7 @@ fn distinct_values_primitive<T: Eq + Hash, P: ArrowPrimitiveType<Native = T>>(
 ///
 /// # Returns
 /// A HashSet containing all unique string values from the array
-fn distinct_values_string(array: ArrayRef) -> Result<HashSet<String>, ArrowError> {
+pub fn distinct_values_string(array: ArrayRef) -> Result<HashSet<String>, ArrowError> {
     let slice_len = array.len() - 1;
 
     let array = as_string_array(&array);

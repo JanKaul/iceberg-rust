@@ -42,6 +42,7 @@ use crate::{
     table::transaction::TableTransaction,
 };
 
+pub mod deletion_vector;
 pub mod manifest;
 pub mod manifest_list;
 pub mod transaction;

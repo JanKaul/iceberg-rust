@@ -2,6 +2,8 @@
  * Tableprovider to use iceberg table with datafusion.
 */
 
+mod dv_exec;
+
 use async_trait::async_trait;
 use chrono::DateTime;
 use datafusion::arrow::array::RecordBatch;
@@ -515,9 +517,13 @@ async fn table_scan(
         })
         .collect();
 
-    if enable_data_file_path_column {
-        table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
-    }
+    // Always add the data-file-path partition column. It may be force-needed
+    // by the IcebergDvExec wrapper (DV-present path) even when the user did
+    // not opt in via `DataFusionTableConfig::enable_data_file_path_column`.
+    // Whether it actually appears in the final output is decided by the
+    // FileScanConfig projection and the IcebergDvExec strip flag below.
+    let data_file_path_col_idx = file_schema.fields().len() + table_partition_cols.len();
+    table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
 
     if enable_manifest_file_path_column {
         table_partition_cols.push(Field::new(MANIFEST_FILE_PATH_COLUMN, DataType::Utf8, false));
@@ -636,66 +642,110 @@ async fn table_scan(
         (itertools::Either::Right(iter), statistics)
     };
 
+    // Deletion-vector manifest entries are collected directly during the
+    // content split rather than parked on `PartitionDeleteFileIndex`:
+    // we need them as a flat list later for the eager load, and they no
+    // longer interact with the equality-delete plan path.
+    let mut dv_entries: Vec<ManifestEntry> = Vec::new();
+    // Partition values that already have a DV entry, so we can reject the
+    // unsupported "equality deletes + DVs on the same partition" case during
+    // classification rather than walking the maps again.
+    let mut partitions_with_dvs: HashSet<Struct> = HashSet::new();
+
+    fn check_no_mix(
+        partition: &Struct,
+        delete_file_groups: &HashMap<Struct, PartitionDeleteFileIndex>,
+        partitions_with_dvs: &HashSet<Struct>,
+    ) -> Result<(), DataFusionError> {
+        if partitions_with_dvs.contains(partition)
+            && delete_file_groups
+                .get(partition)
+                .map(|g| !g.equality_deletes.is_empty())
+                .unwrap_or(false)
+        {
+            // Equality deletes mixed with deletion vectors on the same partition
+            // is not supported: the equality plan reorders rows through a
+            // HashJoin so the absolute row positions a DV bitmap depends on
+            // are lost.
+            return plan_err!(
+                "scanning a partition with both equality deletes and deletion vectors is not yet supported"
+            );
+        }
+        Ok(())
+    }
+
     if partition_fields.is_empty() {
+        let empty_partition = Struct {
+            fields: Vec::new(),
+            lookup: BTreeMap::new(),
+        };
         let mut data_files = Vec::new();
         let mut equality_deletes = Vec::new();
-        let mut delete_vectors = Vec::new();
         content_file_iter
             .filter(|manifest| *manifest.1.status() != Status::Deleted)
             .for_each(|manifest| match manifest.1.data_file().content() {
                 Content::Data => data_files.push(manifest),
                 Content::EqualityDeletes => equality_deletes.push(manifest),
-                Content::PositionDeletes => delete_vectors.push(manifest),
+                Content::PositionDeletes => {
+                    partitions_with_dvs.insert(empty_partition.clone());
+                    dv_entries.push(manifest.1.clone());
+                }
             });
         if !data_files.is_empty() {
-            data_file_groups.insert(
-                Struct {
-                    fields: Vec::new(),
-                    lookup: BTreeMap::new(),
-                },
-                data_files,
-            );
+            data_file_groups.insert(empty_partition.clone(), data_files);
         }
-        if !equality_deletes.is_empty() || !delete_vectors.is_empty() {
+        if !equality_deletes.is_empty() {
             delete_file_groups.insert(
-                Struct {
-                    fields: Vec::new(),
-                    lookup: BTreeMap::new(),
-                },
-                PartitionDeleteFileIndex {
-                    equality_deletes,
-                    delete_vectors,
-                },
+                empty_partition.clone(),
+                PartitionDeleteFileIndex { equality_deletes },
             );
         }
+        check_no_mix(&empty_partition, &delete_file_groups, &partitions_with_dvs)?;
     } else {
         content_file_iter.for_each(|manifest| {
             if *manifest.1.status() != Status::Deleted {
+                let partition = manifest.1.data_file().partition().clone();
                 match manifest.1.data_file().content() {
                     Content::Data => {
                         data_file_groups
-                            .entry(manifest.1.data_file().partition().clone())
+                            .entry(partition)
                             .or_default()
                             .push(manifest);
                     }
                     Content::EqualityDeletes => {
                         delete_file_groups
-                            .entry(manifest.1.data_file().partition().clone())
+                            .entry(partition)
                             .or_default()
                             .equality_deletes
                             .push(manifest);
                     }
                     Content::PositionDeletes => {
-                        delete_file_groups
-                            .entry(manifest.1.data_file().partition().clone())
-                            .or_default()
-                            .delete_vectors
-                            .push(manifest);
+                        partitions_with_dvs.insert(partition);
+                        dv_entries.push(manifest.1.clone());
                     }
                 }
             }
         });
+        for partition in &partitions_with_dvs {
+            check_no_mix(partition, &delete_file_groups, &partitions_with_dvs)?;
+        }
     }
+
+    // Eagerly load each DV blob via a ranged object-store read. The index
+    // is keyed by the normalized `referenced_data_file` path so it lines up
+    // with the normalized `data_file.file_path()` we look up downstream.
+    let dv_index: HashMap<String, iceberg_rust::spec::deletion_vector::DeletionVector> =
+        if dv_entries.is_empty() {
+            HashMap::new()
+        } else {
+            iceberg_rust::table::deletion_vector::load_deletion_vectors(
+                &dv_entries,
+                table.object_store(),
+            )
+            .await
+            .map_err(DataFusionIcebergError::from)?
+        };
+    let dvs_present = !dv_index.is_empty();
 
     let file_source = {
         let table_schema = TableSchema::new(
@@ -705,7 +755,10 @@ async fn table_scan(
         Arc::new(ParquetSource::new(table_schema))
     };
 
-    // Create plan for every partition with delete files
+    // Create plan for every partition with equality delete files. Partitions
+    // whose only deletes are deletion vectors never reach `delete_file_groups`
+    // (DV entries go straight into `dv_entries`); they're handled by the
+    // data-file path below and wrapped with IcebergDvExec.
     let mut plans = stream::iter(delete_file_groups.into_iter())
         .then(|(partition_value, mut delete_files)| {
             let object_store_url = object_store_url.clone();
@@ -931,37 +984,55 @@ async fn table_scan(
         .try_collect::<Vec<_>>()
         .await?;
 
-    // Create plan for partitions without delete files
-    let file_groups: Vec<_> = data_file_groups
+    // Create plan for partitions without equality delete files.
+    //
+    // The file_groups grouping is the same regardless of DVs — one FileGroup
+    // per Iceberg partition. DV filtering happens in a wrapping
+    // `IcebergDvExec` that keys lookups by the `__data_file_path` partition
+    // column carried in each batch, so it tolerates inter-file repartitioning
+    // by the optimizer. Parquet limit pushdown is disabled when DVs are
+    // present because LIMIT applied before the DV filter would silently
+    // under-return rows.
+    let last_updated_ms = table.metadata().last_updated_ms;
+    let make_partitioned_file = |(manifest_path, manifest): (ManifestPath, ManifestEntry)| {
+        let manifest_path = enable_manifest_file_path_column.then_some(manifest_path);
+        generate_partitioned_file(
+            &schema,
+            &manifest,
+            last_updated_ms,
+            enable_data_file_path_column,
+            manifest_path,
+        )
+    };
+    let file_groups: Vec<FileGroup> = data_file_groups
         .into_values()
-        .map(|x| {
-            x.into_iter()
-                .map(|x| {
-                    let last_updated_ms = table.metadata().last_updated_ms;
-                    let manifest_path = if enable_manifest_file_path_column {
-                        Some(x.0)
-                    } else {
-                        None
-                    };
-                    generate_partitioned_file(
-                        &schema,
-                        &x.1,
-                        last_updated_ms,
-                        enable_data_file_path_column,
-                        manifest_path,
-                    )
-                    .unwrap()
-                })
-                .collect()
+        .map(|files| {
+            let pfs: Vec<_> = files
+                .into_iter()
+                .map(make_partitioned_file)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok::<_, DataFusionError>(FileGroup::new(pfs))
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Force the parquet scan to emit `__data_file_path` when DVs are present
+    // (so IcebergDvExec can look up the right bitmap). Strip it again from
+    // the output if the user did not opt in via DataFusionTableConfig.
+    let internal_projection = if dvs_present && !projection.contains(&data_file_path_col_idx) {
+        let mut p = projection.clone();
+        p.push(data_file_path_col_idx);
+        p
+    } else {
+        projection.clone()
+    };
+    let strip_path_col = dvs_present && !enable_data_file_path_column;
 
     if !file_groups.is_empty() {
         let file_scan_config = FileScanConfigBuilder::new(object_store_url, file_source)
             .with_file_groups(file_groups)
             .with_statistics(statistics)
-            .with_projection_indices(Some(projection.clone()))?
-            .with_limit(limit)
+            .with_projection_indices(Some(internal_projection))?
+            .with_limit(if dvs_present { None } else { limit })
             .build();
 
         let other_plan = ParquetFormat::default()
@@ -970,6 +1041,17 @@ async fn table_scan(
                 "datafusion_iceberg::create_physical_plan_scan_data_files"
             ))
             .await?;
+
+        let other_plan: Arc<dyn ExecutionPlan> = if dvs_present {
+            Arc::new(dv_exec::IcebergDvExec::try_new(
+                other_plan,
+                Arc::new(dv_index),
+                DATA_FILE_PATH_COLUMN,
+                strip_path_col,
+            )?)
+        } else {
+            other_plan
+        };
 
         plans.push(other_plan);
     }
@@ -1086,7 +1168,7 @@ fn generate_partitioned_file(
     schema: &Schema,
     manifest: &ManifestEntry,
     last_updated_ms: i64,
-    enable_data_file_path: bool,
+    _enable_data_file_path: bool,
     manifest_file_path: Option<ManifestPath>,
 ) -> Result<PartitionedFile, DataFusionError> {
     let manifest_statistics = manifest_statistics(schema, manifest);
@@ -1101,11 +1183,13 @@ fn generate_partitioned_file(
         })
         .collect::<Result<Vec<ScalarValue>, _>>()?;
 
-    if enable_data_file_path {
-        partition_values.push(ScalarValue::Utf8(Some(
-            manifest.data_file().file_path().clone(),
-        )));
-    }
+    // `__data_file_path` is always present in `table_partition_cols`; whether
+    // it's projected into the output is decided by the scan plan, not here.
+    // The `_enable_data_file_path` arg is retained for ABI stability with the
+    // existing call sites but is no longer load-bearing.
+    partition_values.push(ScalarValue::Utf8(Some(
+        manifest.data_file().file_path().clone(),
+    )));
 
     if let Some(manifest_file_path) = manifest_file_path {
         partition_values.push(ScalarValue::Utf8(Some(manifest_file_path)));
@@ -1489,7 +1573,6 @@ fn create_new_file_stream(
 #[derive(Debug, Default)]
 struct PartitionDeleteFileIndex {
     pub equality_deletes: Vec<(ManifestPath, ManifestEntry)>,
-    pub delete_vectors: Vec<(ManifestPath, ManifestEntry)>,
 }
 
 #[cfg(test)]
