@@ -490,6 +490,14 @@ impl Value {
                     };
                     Ok(Value::Decimal(Decimal::from_i128_with_scale(val, *scale)))
                 }
+                PrimitiveType::TimestampNs
+                | PrimitiveType::TimestamptzNs
+                | PrimitiveType::Unknown
+                | PrimitiveType::Variant
+                | PrimitiveType::Geometry(_)
+                | PrimitiveType::Geography(_, _) => Err(Error::NotSupported(format!(
+                    "Value::try_from_bytes for {primitive}"
+                ))),
             },
             _ => Err(Error::NotSupported("Complex types as bytes".to_string())),
         }
@@ -1235,6 +1243,8 @@ mod tests {
                     required: true,
                     field_type: Type::Primitive(PrimitiveType::Int),
                     doc: None,
+                    initial_default: None,
+                    write_default: None,
                 },
                 StructField {
                     id: 2,
@@ -1242,6 +1252,8 @@ mod tests {
                     required: false,
                     field_type: Type::Primitive(PrimitiveType::String),
                     doc: None,
+                    initial_default: None,
+                    write_default: None,
                 },
                 StructField {
                     id: 3,
@@ -1249,6 +1261,8 @@ mod tests {
                     required: false,
                     field_type: Type::Primitive(PrimitiveType::String),
                     doc: None,
+                    initial_default: None,
+                    write_default: None,
                 },
             ])),
         );

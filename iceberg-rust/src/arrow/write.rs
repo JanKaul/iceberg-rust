@@ -639,6 +639,8 @@ mod tests {
             required: false,
             field_type: Type::Primitive(iceberg_rust_spec::types::PrimitiveType::Date),
             doc: None,
+            initial_default: None,
+            write_default: None,
         };
         let partfield = PartitionField::new(1, 1001, "month", Transform::Month);
         let partition_fields = vec![BoundPartitionField::new(&partfield, &field)];

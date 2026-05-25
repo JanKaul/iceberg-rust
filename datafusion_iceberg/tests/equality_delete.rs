@@ -78,6 +78,8 @@ pub async fn test_equality_delete() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Long),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .with_struct_field(StructField {
             id: 2,
@@ -85,6 +87,8 @@ pub async fn test_equality_delete() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Long),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .with_struct_field(StructField {
             id: 3,
@@ -92,6 +96,8 @@ pub async fn test_equality_delete() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Long),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .with_struct_field(StructField {
             id: 4,
@@ -99,6 +105,8 @@ pub async fn test_equality_delete() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Date),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .with_struct_field(StructField {
             id: 5,
@@ -106,6 +114,8 @@ pub async fn test_equality_delete() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Int),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .build()
         .unwrap();

@@ -54,6 +54,50 @@ impl fmt::Display for Type {
     }
 }
 
+/// Default CRS used by Iceberg geospatial types when none is specified.
+pub const DEFAULT_GEO_CRS: &str = "OGC:CRS84";
+
+/// Edge interpolation algorithm for the V3 `geography` type. Default is `Spherical`.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum EdgeAlgorithm {
+    /// Spherical interpolation (default).
+    Spherical,
+    /// Vincenty formula.
+    Vincenty,
+    /// Thomas-Andoyer.
+    Andoyer,
+    /// Karney algorithm.
+    Karney,
+}
+
+impl fmt::Display for EdgeAlgorithm {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            EdgeAlgorithm::Spherical => write!(f, "spherical"),
+            EdgeAlgorithm::Vincenty => write!(f, "vincenty"),
+            EdgeAlgorithm::Andoyer => write!(f, "andoyer"),
+            EdgeAlgorithm::Karney => write!(f, "karney"),
+        }
+    }
+}
+
+impl std::str::FromStr for EdgeAlgorithm {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "spherical" => Ok(EdgeAlgorithm::Spherical),
+            "vincenty" => Ok(EdgeAlgorithm::Vincenty),
+            "andoyer" => Ok(EdgeAlgorithm::Andoyer),
+            "karney" => Ok(EdgeAlgorithm::Karney),
+            _ => Err(Error::Conversion(
+                "string".to_string(),
+                "EdgeAlgorithm".to_string(),
+            )),
+        }
+    }
+}
+
 /// Primitive data types
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 #[serde(rename_all = "lowercase", remote = "Self")]
@@ -83,6 +127,12 @@ pub enum PrimitiveType {
     Timestamp,
     /// Timestamp with timezone
     Timestamptz,
+    /// Timestamp without timezone, nanosecond precision. Added in v3.
+    #[serde(rename = "timestamp_ns")]
+    TimestampNs,
+    /// Timestamp with timezone, nanosecond precision. Added in v3.
+    #[serde(rename = "timestamptz_ns")]
+    TimestamptzNs,
     /// Arbitrary-length character sequences
     String,
     /// Universally Unique Identifiers
@@ -91,6 +141,15 @@ pub enum PrimitiveType {
     Fixed(u64),
     /// Arbitrary-length byte array.
     Binary,
+    /// Default/null column type used when a more specific type is not known. Added in v3.
+    Unknown,
+    /// Semi-structured value using the Parquet variant encoding. Added in v3.
+    Variant,
+    /// Geospatial geometry. CRS defaults to `OGC:CRS84` when `None`. Added in v3.
+    Geometry(Option<String>),
+    /// Geospatial geography parameterised by CRS and edge-interpolation algorithm.
+    /// Defaults: CRS `OGC:CRS84`, algorithm `Spherical`. Added in v3.
+    Geography(Option<String>, Option<EdgeAlgorithm>),
 }
 
 impl<'de> Deserialize<'de> for PrimitiveType {
@@ -103,6 +162,10 @@ impl<'de> Deserialize<'de> for PrimitiveType {
             deserialize_decimal(s.into_deserializer())
         } else if s.starts_with("fixed") {
             deserialize_fixed(s.into_deserializer())
+        } else if s == "geometry" || s.starts_with("geometry(") {
+            deserialize_geometry::<D>(&s)
+        } else if s == "geography" || s.starts_with("geography(") {
+            deserialize_geography::<D>(&s)
         } else {
             PrimitiveType::deserialize(s.into_deserializer())
         }
@@ -119,7 +182,93 @@ impl Serialize for PrimitiveType {
                 serialize_decimal(precision, scale, serializer)
             }
             PrimitiveType::Fixed(l) => serialize_fixed(l, serializer),
+            PrimitiveType::Geometry(crs) => serialize_geometry(crs.as_deref(), serializer),
+            PrimitiveType::Geography(crs, algorithm) => {
+                serialize_geography(crs.as_deref(), algorithm.as_ref(), serializer)
+            }
             _ => PrimitiveType::serialize(self, serializer),
+        }
+    }
+}
+
+fn deserialize_geometry<'de, D>(s: &str) -> Result<PrimitiveType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    if s == "geometry" {
+        return Ok(PrimitiveType::Geometry(None));
+    }
+    let inner = s
+        .strip_prefix("geometry(")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .ok_or_else(|| D::Error::custom(format!("invalid geometry type: {s}")))?
+        .trim();
+    if inner.is_empty() {
+        return Err(D::Error::custom("geometry type requires non-empty CRS"));
+    }
+    Ok(PrimitiveType::Geometry(
+        if inner.eq_ignore_ascii_case(DEFAULT_GEO_CRS) {
+            None
+        } else {
+            Some(inner.to_string())
+        },
+    ))
+}
+
+fn serialize_geometry<S>(crs: Option<&str>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match crs {
+        None => serializer.serialize_str("geometry"),
+        Some(crs) => serializer.serialize_str(&format!("geometry({crs})")),
+    }
+}
+
+fn deserialize_geography<'de, D>(s: &str) -> Result<PrimitiveType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    if s == "geography" {
+        return Ok(PrimitiveType::Geography(None, None));
+    }
+    let inner = s
+        .strip_prefix("geography(")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .ok_or_else(|| D::Error::custom(format!("invalid geography type: {s}")))?
+        .trim();
+    if inner.is_empty() {
+        return Err(D::Error::custom("geography type requires non-empty CRS"));
+    }
+    let mut parts = inner.splitn(2, ',');
+    let crs_part = parts.next().unwrap_or("").trim();
+    let algorithm_part = parts.next().map(|x| x.trim()).filter(|x| !x.is_empty());
+    let crs = if crs_part.eq_ignore_ascii_case(DEFAULT_GEO_CRS) {
+        None
+    } else {
+        Some(crs_part.to_string())
+    };
+    let algorithm = algorithm_part
+        .map(|x| x.parse::<EdgeAlgorithm>())
+        .transpose()
+        .map_err(D::Error::custom)?;
+    Ok(PrimitiveType::Geography(crs, algorithm))
+}
+
+fn serialize_geography<S>(
+    crs: Option<&str>,
+    algorithm: Option<&EdgeAlgorithm>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match (crs, algorithm) {
+        (None, None) => serializer.serialize_str("geography"),
+        (Some(crs), None) => serializer.serialize_str(&format!("geography({crs})")),
+        (crs, Some(algorithm)) => {
+            let crs = crs.unwrap_or(DEFAULT_GEO_CRS);
+            serializer.serialize_str(&format!("geography({crs}, {algorithm})"))
         }
     }
 }
@@ -186,10 +335,22 @@ impl fmt::Display for PrimitiveType {
             PrimitiveType::Time => write!(f, "time"),
             PrimitiveType::Timestamp => write!(f, "timestamp"),
             PrimitiveType::Timestamptz => write!(f, "timestamptz"),
+            PrimitiveType::TimestampNs => write!(f, "timestamp_ns"),
+            PrimitiveType::TimestamptzNs => write!(f, "timestamptz_ns"),
             PrimitiveType::String => write!(f, "string"),
             PrimitiveType::Uuid => write!(f, "uuid"),
             PrimitiveType::Fixed(_) => write!(f, "fixed"),
             PrimitiveType::Binary => write!(f, "binary"),
+            PrimitiveType::Unknown => write!(f, "unknown"),
+            PrimitiveType::Variant => write!(f, "variant"),
+            PrimitiveType::Geometry(None) => write!(f, "geometry"),
+            PrimitiveType::Geometry(Some(crs)) => write!(f, "geometry({crs})"),
+            PrimitiveType::Geography(None, None) => write!(f, "geography"),
+            PrimitiveType::Geography(Some(crs), None) => write!(f, "geography({crs})"),
+            PrimitiveType::Geography(crs, Some(algorithm)) => {
+                let crs = crs.as_deref().unwrap_or(DEFAULT_GEO_CRS);
+                write!(f, "geography({crs}, {algorithm})")
+            }
         }
     }
 }
@@ -412,6 +573,22 @@ pub struct StructField {
     /// Fields may have an optional comment or doc string.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
+    /// Default value used to fill this field for existing rows when the field is added.
+    /// Added in v3. Stored as raw JSON; the value is typed by `field_type`.
+    #[serde(
+        rename = "initial-default",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub initial_default: Option<serde_json::Value>,
+    /// Default value used by writers when no value is provided for this field.
+    /// Added in v3. Stored as raw JSON; the value is typed by `field_type`.
+    #[serde(
+        rename = "write-default",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub write_default: Option<serde_json::Value>,
 }
 
 impl StructField {
@@ -430,6 +607,8 @@ impl StructField {
             required,
             field_type,
             doc,
+            initial_default: None,
+            write_default: None,
         }
     }
 }
@@ -526,6 +705,8 @@ mod tests {
                 }),
                 required: true,
                 doc: None,
+                initial_default: None,
+                write_default: None,
             }])),
         )
     }
@@ -554,6 +735,8 @@ mod tests {
                 field_type: Type::Primitive(PrimitiveType::Fixed(8)),
                 required: true,
                 doc: None,
+                initial_default: None,
+                write_default: None,
             }])),
         )
     }
@@ -588,6 +771,8 @@ mod tests {
                     field_type: Type::Primitive(PrimitiveType::Uuid),
                     required: true,
                     doc: None,
+                    initial_default: None,
+                    write_default: None,
                 },
                 StructField {
                     id: 2,
@@ -595,6 +780,8 @@ mod tests {
                     field_type: Type::Primitive(PrimitiveType::Int),
                     required: false,
                     doc: None,
+                    initial_default: None,
+                    write_default: None,
                 },
             ])),
         )
@@ -631,5 +818,77 @@ mod tests {
         let result: MapType = serde_json::from_str(record).unwrap();
         assert_eq!(Type::Primitive(PrimitiveType::String), *result.key);
         assert_eq!(Type::Primitive(PrimitiveType::Double), *result.value);
+    }
+
+    fn check_primitive_round_trip(json_value: &str, expected: PrimitiveType) {
+        let json = format!(r#""{json_value}""#);
+        let parsed: PrimitiveType = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, expected);
+        let serialized = serde_json::to_string(&expected).unwrap();
+        assert_eq!(serialized, json);
+    }
+
+    #[test]
+    fn v3_simple_primitive_types() {
+        check_primitive_round_trip("unknown", PrimitiveType::Unknown);
+        check_primitive_round_trip("variant", PrimitiveType::Variant);
+        check_primitive_round_trip("timestamp_ns", PrimitiveType::TimestampNs);
+        check_primitive_round_trip("timestamptz_ns", PrimitiveType::TimestamptzNs);
+    }
+
+    #[test]
+    fn v3_geometry_default_crs() {
+        check_primitive_round_trip("geometry", PrimitiveType::Geometry(None));
+    }
+
+    #[test]
+    fn v3_geometry_explicit_crs() {
+        check_primitive_round_trip(
+            "geometry(EPSG:4326)",
+            PrimitiveType::Geometry(Some("EPSG:4326".to_string())),
+        );
+    }
+
+    #[test]
+    fn v3_geometry_default_crs_string_normalises() {
+        // The spec says CRS84 is the default; reading it back must be None
+        // (so equal to the no-arg form).
+        let parsed: PrimitiveType = serde_json::from_str(r#""geometry(OGC:CRS84)""#).unwrap();
+        assert_eq!(parsed, PrimitiveType::Geometry(None));
+    }
+
+    #[test]
+    fn v3_geography_default() {
+        check_primitive_round_trip("geography", PrimitiveType::Geography(None, None));
+    }
+
+    #[test]
+    fn v3_geography_with_crs() {
+        check_primitive_round_trip(
+            "geography(EPSG:4326)",
+            PrimitiveType::Geography(Some("EPSG:4326".to_string()), None),
+        );
+    }
+
+    #[test]
+    fn v3_geography_with_crs_and_algorithm() {
+        let parsed: PrimitiveType =
+            serde_json::from_str(r#""geography(EPSG:4326, vincenty)""#).unwrap();
+        assert_eq!(
+            parsed,
+            PrimitiveType::Geography(Some("EPSG:4326".to_string()), Some(EdgeAlgorithm::Vincenty),)
+        );
+        let serialized = serde_json::to_string(&parsed).unwrap();
+        assert_eq!(serialized, r#""geography(EPSG:4326, vincenty)""#);
+    }
+
+    #[test]
+    fn v3_geography_default_crs_with_algorithm_uses_default_crs_in_output() {
+        let value = PrimitiveType::Geography(None, Some(EdgeAlgorithm::Karney));
+        let serialized = serde_json::to_string(&value).unwrap();
+        // Java emits the default CRS explicitly when an algorithm is set.
+        assert_eq!(serialized, r#""geography(OGC:CRS84, karney)""#);
+        let parsed: PrimitiveType = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(parsed, value);
     }
 }

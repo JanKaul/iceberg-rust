@@ -18,7 +18,7 @@ use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::{
         avro_value_to_manifest_list_entry, manifest_list_schema_v1, manifest_list_schema_v2,
-        Content, ManifestListEntry,
+        manifest_list_schema_v3, Content, ManifestListEntry,
     },
     snapshot::Snapshot,
     table_metadata::{FormatVersion, TableMetadata},
@@ -99,6 +99,7 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
         let schema: &AvroSchema = match table_metadata.format_version {
             FormatVersion::V1 => manifest_list_schema_v1(),
             FormatVersion::V2 => manifest_list_schema_v2(),
+            FormatVersion::V3 => manifest_list_schema_v3(),
         };
         Ok(Self {
             reader: AvroReader::with_schema(schema, reader)?

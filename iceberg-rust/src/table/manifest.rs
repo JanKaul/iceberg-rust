@@ -29,7 +29,7 @@ use apache_avro::{
 };
 use futures::TryFutureExt;
 use iceberg_rust_spec::{
-    manifest::{Content, ManifestEntry, ManifestEntryV1, ManifestEntryV2, Status},
+    manifest::{Content, ManifestEntry, ManifestEntryV1, ManifestEntryV2, ManifestEntryV3, Status},
     manifest_list::{self, FieldSummary, ManifestListEntry},
     partition::{PartitionField, PartitionSpec},
     schema::{Schema, SchemaV1, SchemaV2},
@@ -102,6 +102,7 @@ impl<R: Read> ManifestReader<'_, R> {
         {
             "1" => Ok(FormatVersion::V1),
             "2" => Ok(FormatVersion::V2),
+            "3" => Ok(FormatVersion::V3),
             _ => Err(Error::InvalidFormat("format version".to_string())),
         }?;
 
@@ -111,11 +112,13 @@ impl<R: Read> ManifestReader<'_, R> {
                     .get("schema")
                     .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
             )?)?,
-            FormatVersion::V2 => TryFrom::<SchemaV2>::try_from(serde_json::from_slice(
-                metadata
-                    .get("schema")
-                    .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
-            )?)?,
+            FormatVersion::V2 | FormatVersion::V3 => {
+                TryFrom::<SchemaV2>::try_from(serde_json::from_slice(
+                    metadata
+                        .get("schema")
+                        .ok_or(Error::InvalidFormat("manifest metadata".to_string()))?,
+                )?)?
+            }
         };
 
         let partition_fields: Vec<PartitionField> = serde_json::from_slice(
@@ -208,6 +211,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             match table_metadata.format_version {
                 FormatVersion::V1 => "1".as_bytes(),
                 FormatVersion::V2 => "2".as_bytes(),
+                FormatVersion::V3 => "3".as_bytes(),
             },
         )?;
 
@@ -217,9 +221,9 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
                     table_metadata.current_schema(branch)?.clone(),
                 ))?,
-                FormatVersion::V2 => serde_json::to_string(&Into::<SchemaV2>::into(
-                    table_metadata.current_schema(branch)?.clone(),
-                ))?,
+                FormatVersion::V2 | FormatVersion::V3 => serde_json::to_string(
+                    &Into::<SchemaV2>::into(table_metadata.current_schema(branch)?.clone()),
+                )?,
             },
         )?;
 
@@ -315,6 +319,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             match table_metadata.format_version {
                 FormatVersion::V1 => "1".as_bytes(),
                 FormatVersion::V2 => "2".as_bytes(),
+                FormatVersion::V3 => "3".as_bytes(),
             },
         )?;
 
@@ -324,9 +329,9 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
                     table_metadata.current_schema(branch)?.clone(),
                 ))?,
-                FormatVersion::V2 => serde_json::to_string(&Into::<SchemaV2>::into(
-                    table_metadata.current_schema(branch)?.clone(),
-                ))?,
+                FormatVersion::V2 | FormatVersion::V3 => serde_json::to_string(
+                    &Into::<SchemaV2>::into(table_metadata.current_schema(branch)?.clone()),
+                )?,
             },
         )?;
 
@@ -453,6 +458,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             match table_metadata.format_version {
                 FormatVersion::V1 => "1".as_bytes(),
                 FormatVersion::V2 => "2".as_bytes(),
+                FormatVersion::V3 => "3".as_bytes(),
             },
         )?;
 
@@ -462,9 +468,9 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
                     table_metadata.current_schema(branch)?.clone(),
                 ))?,
-                FormatVersion::V2 => serde_json::to_string(&Into::<SchemaV2>::into(
-                    table_metadata.current_schema(branch)?.clone(),
-                ))?,
+                FormatVersion::V2 | FormatVersion::V3 => serde_json::to_string(
+                    &Into::<SchemaV2>::into(table_metadata.current_schema(branch)?.clone()),
+                )?,
             },
         )?;
 
@@ -758,6 +764,12 @@ fn avro_value_to_manifest_entry(
     let partition_spec = &value.1 .1;
     let format_version = &value.1 .2;
     match format_version {
+        FormatVersion::V3 => ManifestEntry::try_from_v3(
+            apache_avro::from_value::<ManifestEntryV3>(&entry)?,
+            schema,
+            partition_spec,
+        )
+        .map_err(Error::from),
         FormatVersion::V2 => ManifestEntry::try_from_v2(
             apache_avro::from_value::<ManifestEntryV2>(&entry)?,
             schema,

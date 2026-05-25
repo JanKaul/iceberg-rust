@@ -252,6 +252,8 @@ async fn integration_trino_rest() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Long),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .with_struct_field(StructField {
             id: 2,
@@ -259,6 +261,8 @@ async fn integration_trino_rest() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Long),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .with_struct_field(StructField {
             id: 3,
@@ -266,6 +270,8 @@ async fn integration_trino_rest() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Long),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .with_struct_field(StructField {
             id: 4,
@@ -273,6 +279,8 @@ async fn integration_trino_rest() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Date),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .with_struct_field(StructField {
             id: 5,
@@ -280,6 +288,8 @@ async fn integration_trino_rest() {
             required: true,
             field_type: Type::Primitive(PrimitiveType::Int),
             doc: None,
+            initial_default: None,
+            write_default: None,
         })
         .build()
         .unwrap();
