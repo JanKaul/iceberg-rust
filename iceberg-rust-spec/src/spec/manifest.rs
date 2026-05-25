@@ -1277,38 +1277,288 @@ impl DataFileV1 {
 impl DataFileV3 {
     /// Get schema for the V3 data file Avro encoding.
     ///
-    /// V3 extends the V2 schema with three optional fields used for deletion
-    /// vectors stored in Puffin files: `referenced_data_file` (143),
-    /// `content_offset` (144), `content_size_in_bytes` (145). The fields are
-    /// appended to V2's `fields` array via JSON manipulation rather than
-    /// duplicating the entire 250-line schema literal.
+    /// V3 drops V2's `distinct_counts` (field-id 111) and adds three optional
+    /// deletion-vector pointer fields: `referenced_data_file` (143),
+    /// `content_offset` (144), `content_size_in_bytes` (145).
     pub fn schema(partition_schema: &str) -> String {
-        let mut value: serde_json::Value =
-            serde_json::from_str(&DataFileV2::schema(partition_schema))
-                .expect("DataFileV2::schema produces valid JSON");
-        let fields = value
-            .get_mut("fields")
-            .and_then(|v| v.as_array_mut())
-            .expect("DataFileV2 schema has a `fields` array");
-        fields.push(serde_json::json!({
-            "name": "referenced_data_file",
-            "type": ["null", "string"],
-            "default": null,
-            "field-id": 143,
-        }));
-        fields.push(serde_json::json!({
-            "name": "content_offset",
-            "type": ["null", "long"],
-            "default": null,
-            "field-id": 144,
-        }));
-        fields.push(serde_json::json!({
-            "name": "content_size_in_bytes",
-            "type": ["null", "long"],
-            "default": null,
-            "field-id": 145,
-        }));
-        serde_json::to_string(&value).expect("serialize V3 DataFile schema")
+        r#"{
+            "type": "record",
+            "name": "r2",
+            "fields": [
+                {
+                    "name": "content",
+                    "type": "int",
+                    "field-id": 134
+                },
+                {
+                    "name": "file_path",
+                    "type": "string",
+                    "field-id": 100
+                },
+                {
+                    "name": "file_format",
+                    "type": "string",
+                    "field-id": 101
+                },
+                {
+                    "name": "partition",
+                    "type": "#
+            .to_owned()
+            + partition_schema
+            + r#",
+                    "field-id": 102
+                },
+                {
+                    "name": "record_count",
+                    "type": "long",
+                    "field-id": 103
+                },
+                {
+                    "name": "file_size_in_bytes",
+                    "type": "long",
+                    "field-id": 104
+                },
+                {
+                    "name": "column_sizes",
+                    "type": [
+                        "null",
+                        {
+                            "type": "array",
+                            "logicalType": "map",
+                            "items": {
+                                "type": "record",
+                                "name": "k117_v118",
+                                "fields": [
+                                    {
+                                        "name": "key",
+                                        "type": "int",
+                                        "field-id": 117
+                                    },
+                                    {
+                                        "name": "value",
+                                        "type": "long",
+                                        "field-id": 118
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "default": null,
+                    "field-id": 108
+                },
+                {
+                    "name": "value_counts",
+                    "type": [
+                        "null",
+                        {
+                            "type": "array",
+                            "logicalType": "map",
+                            "items": {
+                                "type": "record",
+                                "name": "k119_v120",
+                                "fields": [
+                                    {
+                                        "name": "key",
+                                        "type": "int",
+                                        "field-id": 119
+                                    },
+                                    {
+                                        "name": "value",
+                                        "type": "long",
+                                        "field-id": 120
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "default": null,
+                    "field-id": 109
+                },
+                {
+                    "name": "null_value_counts",
+                    "type": [
+                        "null",
+                        {
+                            "type": "array",
+                            "logicalType": "map",
+                            "items": {
+                                "type": "record",
+                                "name": "k121_v122",
+                                "fields": [
+                                    {
+                                        "name": "key",
+                                        "type": "int",
+                                        "field-id": 121
+                                    },
+                                    {
+                                        "name": "value",
+                                        "type": "long",
+                                        "field-id": 122
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "default": null,
+                    "field-id": 110
+                },
+                {
+                    "name": "nan_value_counts",
+                    "type": [
+                        "null",
+                        {
+                            "type": "array",
+                            "logicalType": "map",
+                            "items": {
+                                "type": "record",
+                                "name": "k138_v139",
+                                "fields": [
+                                    {
+                                        "name": "key",
+                                        "type": "int",
+                                        "field-id": 138
+                                    },
+                                    {
+                                        "name": "value",
+                                        "type": "long",
+                                        "field-id": 139
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "default": null,
+                    "field-id": 137
+                },
+                {
+                    "name": "lower_bounds",
+                    "type": [
+                        "null",
+                        {
+                            "type": "array",
+                            "logicalType": "map",
+                            "items": {
+                                "type": "record",
+                                "name": "k126_v127",
+                                "fields": [
+                                    {
+                                        "name": "key",
+                                        "type": "int",
+                                        "field-id": 126
+                                    },
+                                    {
+                                        "name": "value",
+                                        "type": "bytes",
+                                        "field-id": 127
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "default": null,
+                    "field-id": 125
+                },
+                {
+                    "name": "upper_bounds",
+                    "type": [
+                        "null",
+                        {
+                            "type": "array",
+                            "logicalType": "map",
+                            "items": {
+                                "type": "record",
+                                "name": "k129_v130",
+                                "fields": [
+                                    {
+                                        "name": "key",
+                                        "type": "int",
+                                        "field-id": 129
+                                    },
+                                    {
+                                        "name": "value",
+                                        "type": "bytes",
+                                        "field-id": 130
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "default": null,
+                    "field-id": 128
+                },
+                {
+                    "name": "key_metadata",
+                    "type": [
+                        "null",
+                        "bytes"
+                    ],
+                    "default": null,
+                    "field-id": 131
+                },
+                {
+                    "name": "split_offsets",
+                    "type": [
+                        "null",
+                        {
+                            "type": "array",
+                            "items": "long",
+                            "element-id": 133
+                        }
+                    ],
+                    "default": null,
+                    "field-id": 132
+                },
+                {
+                    "name": "equality_ids",
+                    "type": [
+                        "null",
+                        {
+                            "type": "array",
+                            "items": "int",
+                            "element-id": 136
+                        }
+                    ],
+                    "default": null,
+                    "field-id": 135
+                },
+                {
+                    "name": "sort_order_id",
+                    "type": [
+                        "null",
+                        "int"
+                    ],
+                    "default": null,
+                    "field-id": 140
+                },
+                {
+                    "name": "referenced_data_file",
+                    "type": [
+                        "null",
+                        "string"
+                    ],
+                    "default": null,
+                    "field-id": 143
+                },
+                {
+                    "name": "content_offset",
+                    "type": [
+                        "null",
+                        "long"
+                    ],
+                    "default": null,
+                    "field-id": 144
+                },
+                {
+                    "name": "content_size_in_bytes",
+                    "type": [
+                        "null",
+                        "long"
+                    ],
+                    "default": null,
+                    "field-id": 145
+                }
+            ]
+        }"#
     }
 }
 
