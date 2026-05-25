@@ -12,6 +12,7 @@ description = "Unofficial implementation of the Iceberg table format specificati
 apache-avro = { workspace = true }
 arrow-schema = { workspace = true }
 chrono = { workspace = true }
+crc32fast = { workspace = true }
 derive-getters = { workspace = true }
 derive_builder = { workspace = true }
 fastnum = { workspace = true }
@@ -19,6 +20,7 @@ getrandom = { workspace = true }
 itertools = { workspace = true }
 murmur3 = { workspace = true }
 ordered-float = { version = "5.3.0", features = ["serde"] }
+roaring = { workspace = true }
 serde = { workspace = true }
 serde_bytes = "0.11.15"
 serde_derive = { workspace = true }

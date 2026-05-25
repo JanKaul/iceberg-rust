@@ -14,6 +14,7 @@
 //! serialization/deserialization and validation logic.
 
 pub mod decimal;
+pub mod deletion_vector;
 pub mod expressions;
 pub mod identifier;
 pub mod manifest;

@@ -23,6 +23,7 @@ lru = { workspace = true }
 object_store = { workspace = true }
 pin-project-lite = "0.2.17"
 regex = { workspace = true }
+roaring = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.50", features = ["rt-multi-thread"] }
