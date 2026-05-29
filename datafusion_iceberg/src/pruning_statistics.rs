@@ -528,8 +528,8 @@ mod date_transform_tests {
     #[test]
     fn month_on_date32() {
         let result = invoke_date_transform("month", ScalarValue::Date32(Some(19797))).unwrap();
-        // (2024 - 1970) * 12 + 3 = 651 (month is 1-based)
-        assert_eq!(unwrap_int32(result), 651);
+        // Spec formula: (year - 1970) * 12 + (month - 1). 2024-03 -> 54*12 + 2 = 650.
+        assert_eq!(unwrap_int32(result), 650);
     }
 
     #[test]
@@ -568,8 +568,8 @@ mod date_transform_tests {
             ScalarValue::TimestampMicrosecond(Some(TS_MICROS), None),
         )
         .unwrap();
-        // (2024 - 1970) * 12 + 3 = 651 (month is 1-based)
-        assert_eq!(unwrap_int32(result), 651);
+        // Spec formula: (year - 1970) * 12 + (month - 1). 2024-03 -> 54*12 + 2 = 650.
+        assert_eq!(unwrap_int32(result), 650);
     }
 
     #[test]
@@ -613,7 +613,7 @@ mod date_transform_tests {
             ScalarValue::TimestampMicrosecond(Some(TS_MICROS), Some("UTC".into())),
         )
         .unwrap();
-        assert_eq!(unwrap_int32(result), 651);
+        assert_eq!(unwrap_int32(result), 650);
     }
 
     #[test]
@@ -643,7 +643,7 @@ mod date_transform_tests {
         // 1970-01-01T00:00:00Z
         let cases = vec![
             ("year", 0),  // 1970 - 1970 = 0
-            ("month", 1), // 0 * 12 + 1 = 1 (month is 1-based)
+            ("month", 0), // (1970 - 1970) * 12 + (1 - 1) = 0
             ("day", 0),   // day 0 since epoch
             ("hour", 0),  // hour 0 since epoch
         ];

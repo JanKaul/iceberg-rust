@@ -1957,8 +1957,7 @@ mod tests {
     /// changed across serde versions in the past and is not stable enough
     /// to pin.
     fn assert_fixture_rejected(name: &str) {
-        let payload =
-            fs::read_to_string(format!("testdata/table_metadata/{name}")).unwrap();
+        let payload = fs::read_to_string(format!("testdata/table_metadata/{name}")).unwrap();
         let result: Result<TableMetadata, _> = serde_json::from_str(&payload);
         assert!(
             result.is_err(),
@@ -1993,10 +1992,9 @@ mod tests {
         // not match any entry in `schemas`. Deserialization may succeed
         // (serde does not check the cross-reference), but resolving the
         // current schema must fail.
-        let payload = fs::read_to_string(
-            "testdata/table_metadata/TableMetadataV2CurrentSchemaNotFound.json",
-        )
-        .unwrap();
+        let payload =
+            fs::read_to_string("testdata/table_metadata/TableMetadataV2CurrentSchemaNotFound.json")
+                .unwrap();
 
         match serde_json::from_str::<TableMetadata>(&payload) {
             Ok(metadata) => {
@@ -2017,8 +2015,7 @@ mod tests {
 
     fn load_minimal_v2() -> TableMetadata {
         let payload =
-            fs::read_to_string("testdata/table_metadata/TableMetadataV2ValidMinimal.json")
-                .unwrap();
+            fs::read_to_string("testdata/table_metadata/TableMetadataV2ValidMinimal.json").unwrap();
         serde_json::from_str(&payload).unwrap()
     }
 

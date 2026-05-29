@@ -467,7 +467,12 @@ mod tests {
 
         let spec = PartitionSpec::builder()
             .with_spec_id(1)
-            .with_partition_field(PartitionField::new(0, 1000, "id_ident", Transform::Identity))
+            .with_partition_field(PartitionField::new(
+                0,
+                1000,
+                "id_ident",
+                Transform::Identity,
+            ))
             .with_partition_field(PartitionField::new(1, 1001, "ts_year", Transform::Year))
             .with_partition_field(PartitionField::new(
                 2,

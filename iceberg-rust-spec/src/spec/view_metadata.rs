@@ -611,8 +611,7 @@ mod tests {
 
     #[test]
     fn test_view_metadata_display_and_fromstr_round_trip() {
-        let metadata: ViewMetadata =
-            serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
         let rendered = metadata.to_string();
         let parsed: ViewMetadata = rendered.parse().unwrap();
         assert_eq!(parsed, metadata);
@@ -620,8 +619,7 @@ mod tests {
 
     #[test]
     fn test_view_metadata_current_schema_follows_current_version_id() {
-        let metadata: ViewMetadata =
-            serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
         let schema = metadata.current_schema(None).unwrap();
         // current_version_id = 5 -> schema-id 20 -> two fields.
         assert_eq!(schema.schema_id(), &20);
@@ -631,16 +629,14 @@ mod tests {
     #[test]
     fn test_view_metadata_current_version_via_branch_reference_property() {
         // properties["ref-staging"] = "3" routes the named ref to version 3.
-        let metadata: ViewMetadata =
-            serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
         let version = metadata.current_version(Some("staging")).unwrap();
         assert_eq!(version.version_id, 3);
     }
 
     #[test]
     fn test_view_metadata_current_version_falls_back_when_ref_property_missing() {
-        let metadata: ViewMetadata =
-            serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
         // No `ref-experimental` property -> fall back to current_version_id (5).
         let version = metadata.current_version(Some("experimental")).unwrap();
         assert_eq!(version.version_id, 5);
@@ -648,16 +644,14 @@ mod tests {
 
     #[test]
     fn test_view_metadata_schema_lookup_for_unknown_version_id_returns_not_found() {
-        let metadata: ViewMetadata =
-            serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
         let err = metadata.schema(9999).unwrap_err();
         assert!(matches!(err, Error::NotFound(_)));
     }
 
     #[test]
     fn test_view_metadata_add_schema_inserts_by_schema_id() {
-        let mut metadata: ViewMetadata =
-            serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let mut metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
         assert_eq!(metadata.schemas.len(), 2);
 
         let new_schema = Schema::builder()
@@ -681,8 +675,14 @@ mod tests {
 
     #[test]
     fn test_view_operation_serializes_as_lowercase_keyword() {
-        assert_eq!(serde_json::to_string(&Operation::Create).unwrap(), "\"create\"");
-        assert_eq!(serde_json::to_string(&Operation::Replace).unwrap(), "\"replace\"");
+        assert_eq!(
+            serde_json::to_string(&Operation::Create).unwrap(),
+            "\"create\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Operation::Replace).unwrap(),
+            "\"replace\""
+        );
         assert_eq!(
             serde_json::from_str::<Operation>("\"replace\"").unwrap(),
             Operation::Replace,
@@ -694,8 +694,7 @@ mod tests {
     #[test]
     fn test_view_representation_sql_helper_defaults_dialect_to_ansi() {
         // Default dialect when caller passes None.
-        let ViewRepresentation::Sql { sql, dialect } =
-            ViewRepresentation::sql("select 1", None);
+        let ViewRepresentation::Sql { sql, dialect } = ViewRepresentation::sql("select 1", None);
         assert_eq!(sql, "select 1");
         assert_eq!(dialect, "ansi");
 

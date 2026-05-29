@@ -339,11 +339,13 @@ mod tests {
             "s3://bucket/db/table/metadata/snap-17-1-uuid.avro",
         );
         assert_eq!(snap.summary().operation, Operation::Append);
-        assert_eq!(snap.summary().other.get("added-records"), Some(&"150".to_string()));
+        assert_eq!(
+            snap.summary().other.get("added-records"),
+            Some(&"150".to_string())
+        );
         assert_eq!(snap.schema_id(), &Some(4));
 
-        let again: Snapshot =
-            serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap();
+        let again: Snapshot = serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap();
         assert_eq!(again, snap);
 
         // Display/FromStr exercises the same Serialize/Deserialize impls via

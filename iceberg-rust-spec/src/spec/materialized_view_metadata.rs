@@ -296,7 +296,10 @@ mod tests {
 
     #[test]
     fn test_source_state_snapshot_id_returns_some_for_table_and_none_for_view() {
-        assert_eq!(SourceState::Table(sample_source_table()).snapshot_id(), Some(42));
+        assert_eq!(
+            SourceState::Table(sample_source_table()).snapshot_id(),
+            Some(42)
+        );
         assert_eq!(SourceState::View(sample_source_view()).snapshot_id(), None);
     }
 

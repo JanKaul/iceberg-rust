@@ -589,14 +589,10 @@ impl Value {
                     Ok(Some(Value::Binary(hex_to_bytes(&s)?)))
                 }
                 (PrimitiveType::Decimal { scale, .. }, JsonValue::String(s)) => {
-                    let d = Decimal::from_str_exact(&s).map_err(|e| {
-                        Error::Conversion(s.clone(), format!("decimal: {e}"))
-                    })?;
+                    let d = Decimal::from_str_exact(&s)
+                        .map_err(|e| Error::Conversion(s.clone(), format!("decimal: {e}")))?;
                     if d.scale() != *scale {
-                        return Err(Error::Conversion(
-                            s,
-                            format!("decimal with scale {scale}"),
-                        ));
+                        return Err(Error::Conversion(s, format!("decimal with scale {scale}")));
                     }
                     Ok(Some(Value::Decimal(d)))
                 }
@@ -788,7 +784,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 }
 
 fn hex_to_bytes(s: &str) -> Result<Vec<u8>, Error> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err(Error::InvalidFormat(format!(
             "hex string length {} is not even",
             s.len()
@@ -1039,17 +1035,13 @@ mod datetime {
     /// chrono's `Duration::num_days` truncates toward zero; we need floor.
     #[inline]
     pub(crate) fn datetime_to_days(time: &NaiveDateTime) -> i64 {
-        time.and_utc()
-            .timestamp_micros()
-            .div_euclid(86_400_000_000)
+        time.and_utc().timestamp_micros().div_euclid(86_400_000_000)
     }
 
     /// Iceberg "hour transform" of a timestamp, with floor semantics.
     #[inline]
     pub(crate) fn datetime_to_hours(time: &NaiveDateTime) -> i64 {
-        time.and_utc()
-            .timestamp_micros()
-            .div_euclid(3_600_000_000)
+        time.and_utc().timestamp_micros().div_euclid(3_600_000_000)
     }
 
     use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
@@ -1723,8 +1715,7 @@ mod tests {
         let time_micros: i64 = 81_068 * 1_000_000;
         // 2017-11-16T22:31:08 UTC = 1_510_871_468 seconds since epoch.
         let ts_2017_micros: i64 = 1_510_871_468 * 1_000_000;
-        let uuid =
-            Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap();
+        let uuid = Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap();
 
         for (label, value, spec_hash) in [
             ("long(34)", Value::LongInt(34), 2017239379_i32),
@@ -1747,7 +1738,11 @@ mod tests {
                 1210000089,
             ),
             ("uuid", Value::UUID(uuid), 1488055340),
-            ("binary [00 01 02 03]", Value::Binary(vec![0, 1, 2, 3]), -188683207),
+            (
+                "binary [00 01 02 03]",
+                Value::Binary(vec![0, 1, 2, 3]),
+                -188683207,
+            ),
         ] {
             assert_eq!(bucket(value), bucket_of(spec_hash), "{label}");
         }
@@ -1787,9 +1782,7 @@ mod tests {
     #[test]
     fn test_bucket_decimal_matches_spec() {
         assert_eq!(
-            bucket(Value::Decimal(
-                Decimal::from_str_exact("14.20").unwrap()
-            )),
+            bucket(Value::Decimal(Decimal::from_str_exact("14.20").unwrap())),
             bucket_of(-500754589),
         );
     }
@@ -1979,7 +1972,11 @@ mod tests {
         // The timestamp Year arm uses chrono::DateTime::year, which handles
         // both eras correctly (unlike the Date arm).
         for ts in [TS_2017_12_01_MICROS, -1] {
-            let expected = if ts < 0 { Value::Int(-1) } else { Value::Int(47) };
+            let expected = if ts < 0 {
+                Value::Int(-1)
+            } else {
+                Value::Int(47)
+            };
             assert_eq!(
                 Value::Timestamp(ts).transform(&Transform::Year).unwrap(),
                 expected,
@@ -2058,9 +2055,7 @@ mod tests {
             Value::Timestamp(1_510_871_468_000_000),
             Value::TimestampTZ(1_510_871_468_000_000),
             Value::String("a/b/c=d".to_string()),
-            Value::UUID(
-                Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap(),
-            ),
+            Value::UUID(Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap()),
             Value::Fixed(3, vec![1, 2, 3]),
             Value::Binary(vec![1, 2, 3]),
             Value::Decimal(Decimal::from_str_exact("-1.50").unwrap()),
@@ -2184,14 +2179,13 @@ mod tests {
 
     #[test]
     fn test_byte_conversion_uuid_is_sixteen_big_endian_bytes() {
-        let uuid =
-            Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap();
+        let uuid = Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap();
         assert_byte_round_trip(
             Value::UUID(uuid),
             Type::Primitive(PrimitiveType::Uuid),
             &[
-                0xF7, 0x9C, 0x3E, 0x09, 0x67, 0x7C, 0x4B, 0xBD,
-                0xA4, 0x79, 0x3F, 0x34, 0x9C, 0xB7, 0x85, 0xE7,
+                0xF7, 0x9C, 0x3E, 0x09, 0x67, 0x7C, 0x4B, 0xBD, 0xA4, 0x79, 0x3F, 0x34, 0x9C, 0xB7,
+                0x85, 0xE7,
             ],
         );
     }
@@ -2259,13 +2253,11 @@ mod tests {
     #[test]
     fn test_byte_conversion_decimal_encode_uses_minimum_byte_encoding() {
         // 3.45 unscaled = 345 -> spec encoding [0x01, 0x59].
-        let encoded: ByteBuf =
-            Value::Decimal(Decimal::from_str_exact("3.45").unwrap()).into();
+        let encoded: ByteBuf = Value::Decimal(Decimal::from_str_exact("3.45").unwrap()).into();
         assert_eq!(encoded.as_slice(), &[0x01, 0x59]);
 
         // -123.4567 unscaled = -1234567 -> spec encoding [0xED, 0x29, 0x79].
-        let encoded: ByteBuf =
-            Value::Decimal(Decimal::from_str_exact("-123.4567").unwrap()).into();
+        let encoded: ByteBuf = Value::Decimal(Decimal::from_str_exact("-123.4567").unwrap()).into();
         assert_eq!(encoded.as_slice(), &[0xED, 0x29, 0x79]);
     }
 
@@ -2305,28 +2297,24 @@ mod tests {
     #[test]
     fn test_try_from_json_for_fixed_round_trips_hex() {
         let ty = Type::Primitive(PrimitiveType::Fixed(3));
-        let decoded =
-            Value::try_from_json(serde_json::Value::String("0aff10".to_string()), &ty)
-                .unwrap()
-                .unwrap();
+        let decoded = Value::try_from_json(serde_json::Value::String("0aff10".to_string()), &ty)
+            .unwrap()
+            .unwrap();
         assert_eq!(decoded, Value::Fixed(3, vec![0x0A, 0xFF, 0x10]));
     }
 
     #[test]
     fn test_try_from_json_for_fixed_rejects_wrong_length() {
         let ty = Type::Primitive(PrimitiveType::Fixed(3));
-        assert!(
-            Value::try_from_json(serde_json::Value::String("0aff".to_string()), &ty).is_err()
-        );
+        assert!(Value::try_from_json(serde_json::Value::String("0aff".to_string()), &ty).is_err());
     }
 
     #[test]
     fn test_try_from_json_for_binary_round_trips_hex() {
         let ty = Type::Primitive(PrimitiveType::Binary);
-        let decoded =
-            Value::try_from_json(serde_json::Value::String("0a".to_string()), &ty)
-                .unwrap()
-                .unwrap();
+        let decoded = Value::try_from_json(serde_json::Value::String("0a".to_string()), &ty)
+            .unwrap()
+            .unwrap();
         assert_eq!(decoded, Value::Binary(vec![0x0A]));
     }
 
@@ -2336,10 +2324,9 @@ mod tests {
             precision: 4,
             scale: 2,
         });
-        let decoded =
-            Value::try_from_json(serde_json::Value::String("14.20".to_string()), &ty)
-                .unwrap()
-                .unwrap();
+        let decoded = Value::try_from_json(serde_json::Value::String("14.20".to_string()), &ty)
+            .unwrap()
+            .unwrap();
         assert_eq!(
             decoded,
             Value::Decimal(Decimal::from_str_exact("14.20").unwrap()),
@@ -2353,8 +2340,6 @@ mod tests {
             precision: 4,
             scale: 2,
         });
-        assert!(
-            Value::try_from_json(serde_json::Value::String("1.5".to_string()), &ty).is_err()
-        );
+        assert!(Value::try_from_json(serde_json::Value::String("1.5".to_string()), &ty).is_err());
     }
 }

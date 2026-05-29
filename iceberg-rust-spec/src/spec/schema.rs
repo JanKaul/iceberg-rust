@@ -339,7 +339,10 @@ mod tests {
 
         let schema: Schema = serde_json::from_str(json).unwrap();
         assert_eq!(schema.schema_id(), &12);
-        assert_eq!(schema.fields()[0].doc.as_deref(), Some("primary identifier"));
+        assert_eq!(
+            schema.fields()[0].doc.as_deref(),
+            Some("primary identifier")
+        );
         assert_eq!(
             schema.fields()[1].initial_default,
             Some(serde_json::Value::String("anonymous".to_string())),
@@ -349,8 +352,7 @@ mod tests {
             Some(serde_json::Value::String("anonymous".to_string())),
         );
 
-        let again: Schema =
-            serde_json::from_str(&serde_json::to_string(&schema).unwrap()).unwrap();
+        let again: Schema = serde_json::from_str(&serde_json::to_string(&schema).unwrap()).unwrap();
         assert_eq!(again, schema);
     }
 
@@ -411,21 +413,21 @@ mod tests {
         let schema: Schema = serde_json::from_str(json).unwrap();
         assert_eq!(schema.fields().len(), 4);
         // Cheap shape assertion: types match what the JSON declared.
-        assert!(matches!(
-            schema.fields()[1].field_type,
-            Type::Struct(_),
-        ));
+        assert!(matches!(schema.fields()[1].field_type, Type::Struct(_),));
         assert!(matches!(
             schema.fields()[2].field_type,
             Type::List(ListType { element_id: 6, .. }),
         ));
         assert!(matches!(
             schema.fields()[3].field_type,
-            Type::Map(MapType { key_id: 8, value_id: 9, .. }),
+            Type::Map(MapType {
+                key_id: 8,
+                value_id: 9,
+                ..
+            }),
         ));
 
-        let again: Schema =
-            serde_json::from_str(&serde_json::to_string(&schema).unwrap()).unwrap();
+        let again: Schema = serde_json::from_str(&serde_json::to_string(&schema).unwrap()).unwrap();
         assert_eq!(again, schema);
     }
 
