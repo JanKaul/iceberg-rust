@@ -1335,4 +1335,101 @@ mod tests {
         let updates = execute_operation(&metadata, Some(950), None, true, true).unwrap();
         assert!(updates.is_empty());
     }
+
+    // --- TestLocationProvider analogues -----------------------------------
+    //
+    // `new_manifest_location` / `new_manifest_list_location` produce the
+    // location strings written into table metadata. These tests pin the
+    // expected `{base}/metadata/...` shape so that catalog readers can
+    // rely on the conventional layout when, e.g., walking metadata files
+    // for orphan-file detection.
+
+    #[test]
+    fn test_new_manifest_location_uses_metadata_subdirectory_and_indexed_suffix() {
+        let location = new_manifest_location("s3://bucket/db/table", "uuid-abc", 7);
+        assert_eq!(location, "s3://bucket/db/table/metadata/uuid-abc-m7.avro",);
+    }
+
+    #[test]
+    fn test_new_manifest_location_changes_only_index_for_consecutive_calls() {
+        // The index disambiguates manifest files written in the same
+        // commit; iterating over manifest writers yields a strictly
+        // increasing index suffix.
+        let base = "/warehouse/db/table";
+        let uuid = "commit-123";
+        let a = new_manifest_location(base, uuid, 0);
+        let b = new_manifest_location(base, uuid, 1);
+        let c = new_manifest_location(base, uuid, 2);
+        assert!(a.ends_with("-m0.avro"));
+        assert!(b.ends_with("-m1.avro"));
+        assert!(c.ends_with("-m2.avro"));
+        // All three live under the same metadata directory.
+        for path in [&a, &b, &c] {
+            assert!(path.starts_with("/warehouse/db/table/metadata/"));
+        }
+    }
+
+    #[test]
+    fn test_new_manifest_list_location_includes_snap_snapshot_id_attempt_uuid() {
+        let location =
+            new_manifest_list_location("s3://bucket/db/table", 39_487_483_032, 1, "uuid-xyz");
+        assert_eq!(
+            location,
+            "s3://bucket/db/table/metadata/snap-39487483032-1-uuid-xyz.avro",
+        );
+    }
+
+    #[test]
+    fn test_new_manifest_list_location_preserves_negative_snapshot_id() {
+        // Snapshot ids are signed; the formatter must keep the sign so the
+        // path is unambiguous when the catalog issued a negative id.
+        let location = new_manifest_list_location("/data/table", -42, 0, "uuid");
+        assert_eq!(location, "/data/table/metadata/snap--42-0-uuid.avro");
+    }
+
+    // --- compute_n_splits boundary tests ----------------------------------
+    //
+    // `compute_n_splits` decides how many times a manifest must be split
+    // to keep the manifest fan-out near sqrt(total data files). The
+    // boundary cases below pin the math without leaning on any external
+    // state. MIN_DATAFILES_PER_MANIFEST is currently 4.
+
+    #[test]
+    fn test_compute_n_splits_returns_zero_when_new_manifest_fits_under_limit() {
+        // existing=10, new=2, selected=1 -> limit = 4 + sqrt(12) = 7;
+        // new_manifest_file_count = 3; 3 / 7 = 0 -> 0 splits.
+        assert_eq!(compute_n_splits(10, 2, 1), 0);
+    }
+
+    #[test]
+    fn test_compute_n_splits_returns_one_when_just_over_limit() {
+        // limit = 4 + sqrt(10) = 7; new_manifest_file_count = 8; 8/7 = 1;
+        // ilog2(1)+1 = 1.
+        assert_eq!(compute_n_splits(10, 0, 8), 1);
+    }
+
+    #[test]
+    fn test_compute_n_splits_returns_two_when_ratio_exceeds_two() {
+        // limit = 4 + sqrt(0) = 4; new_manifest_file_count = 16; 16/4 = 4;
+        // ilog2(4)+1 = 3.
+        assert_eq!(compute_n_splits(0, 0, 16), 3);
+    }
+
+    #[test]
+    fn test_compute_n_splits_scales_logarithmically_with_excess() {
+        // For a fixed limit, doubling the new manifest count adds one
+        // split. limit = 4 + sqrt(0) = 4.
+        // 8 -> ratio 2 -> ilog2(2)+1 = 2
+        // 16 -> ratio 4 -> ilog2(4)+1 = 3
+        // 32 -> ratio 8 -> ilog2(8)+1 = 4
+        assert_eq!(compute_n_splits(0, 0, 8), 2);
+        assert_eq!(compute_n_splits(0, 0, 16), 3);
+        assert_eq!(compute_n_splits(0, 0, 32), 4);
+    }
+
+    #[test]
+    fn test_compute_n_splits_zero_inputs_yields_zero() {
+        // No data files anywhere -> no splits.
+        assert_eq!(compute_n_splits(0, 0, 0), 0);
+    }
 }
