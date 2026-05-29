@@ -239,3 +239,318 @@ enum DistinctValues {
     Long(HashSet<i64>),
     String(HashSet<String>),
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow::array::{Float64Array, Int32Array, Int64Array, StringArray};
+    use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+
+    use iceberg_rust_spec::spec::partition::{BoundPartitionField, PartitionField, Transform};
+    use iceberg_rust_spec::spec::types::{PrimitiveType, StructField, Type};
+    use iceberg_rust_spec::spec::values::Value;
+
+    use super::*;
+
+    /// Build a `BoundPartitionField` and the two backing structs it borrows
+    /// from. The caller pins the returned tuple on the stack and then borrows
+    /// the first element for `partition_fields`.
+    fn make_field(
+        source_id: i32,
+        field_id: i32,
+        source_name: &str,
+        partition_name: &str,
+        primitive: PrimitiveType,
+        transform: Transform,
+        required: bool,
+    ) -> (PartitionField, StructField) {
+        let part = PartitionField::new(source_id, field_id, partition_name, transform);
+        let source = StructField::new(
+            source_id,
+            source_name,
+            required,
+            Type::Primitive(primitive),
+            None,
+        );
+        (part, source)
+    }
+
+    fn arrow_schema(fields: &[(&str, DataType)]) -> Arc<ArrowSchema> {
+        let arrow_fields: Vec<Field> = fields
+            .iter()
+            .map(|(name, dt)| Field::new(*name, dt.clone(), false))
+            .collect();
+        Arc::new(ArrowSchema::new(arrow_fields))
+    }
+
+    /// Sort the partition tuples so assertions don't depend on HashSet
+    /// iteration order.
+    fn sort_partitions(
+        mut groups: Vec<(Vec<Value>, RecordBatch)>,
+    ) -> Vec<(Vec<Value>, RecordBatch)> {
+        groups.sort_by_key(|(values, _)| {
+            values
+                .iter()
+                .map(|v| format!("{v:?}"))
+                .collect::<Vec<_>>()
+                .join("|")
+        });
+        groups
+    }
+
+    #[test]
+    fn test_partition_identity_int_splits_by_distinct_values() {
+        let schema = arrow_schema(&[("region_id", DataType::Int32), ("sales", DataType::Int32)]);
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int32Array::from(vec![10, 10, 20, 20, 30])),
+                Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5])),
+            ],
+        )
+        .unwrap();
+        let (part_field, source_field) = make_field(
+            1,
+            1000,
+            "region_id",
+            "region_id",
+            PrimitiveType::Int,
+            Transform::Identity,
+            true,
+        );
+        let bound = vec![BoundPartitionField::new(&part_field, &source_field)];
+
+        let groups = sort_partitions(
+            partition_record_batch(&batch, &bound)
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+        );
+
+        assert_eq!(groups.len(), 3, "three distinct region ids");
+        assert_eq!(groups[0].0, vec![Value::Int(10)]);
+        assert_eq!(groups[0].1.num_rows(), 2);
+        assert_eq!(groups[1].0, vec![Value::Int(20)]);
+        assert_eq!(groups[1].1.num_rows(), 2);
+        assert_eq!(groups[2].0, vec![Value::Int(30)]);
+        assert_eq!(groups[2].1.num_rows(), 1);
+    }
+
+    #[test]
+    fn test_partition_identity_string_groups_distinct_strings() {
+        let schema = arrow_schema(&[("country", DataType::Utf8), ("amount", DataType::Int64)]);
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec!["NL", "DE", "NL", "DE", "FR"])),
+                Arc::new(Int64Array::from(vec![1, 2, 3, 4, 5])),
+            ],
+        )
+        .unwrap();
+        let (part_field, source_field) = make_field(
+            1,
+            1000,
+            "country",
+            "country",
+            PrimitiveType::String,
+            Transform::Identity,
+            true,
+        );
+        let bound = vec![BoundPartitionField::new(&part_field, &source_field)];
+
+        let groups = sort_partitions(
+            partition_record_batch(&batch, &bound)
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+        );
+
+        let labels: Vec<String> = groups
+            .iter()
+            .map(|(values, _)| match &values[0] {
+                Value::String(s) => s.clone(),
+                other => panic!("expected string partition value, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(labels, vec!["DE", "FR", "NL"]);
+        // Two rows for NL and DE, one for FR.
+        let row_counts: Vec<usize> = groups.iter().map(|(_, b)| b.num_rows()).collect();
+        assert_eq!(row_counts, vec![2, 1, 2]);
+    }
+
+    #[test]
+    fn test_partition_two_fields_take_cartesian_product_of_distinct_values() {
+        let schema = arrow_schema(&[
+            ("region", DataType::Int32),
+            ("category", DataType::Utf8),
+            ("amount", DataType::Int64),
+        ]);
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int32Array::from(vec![1, 1, 2, 2, 1])),
+                Arc::new(StringArray::from(vec!["A", "B", "A", "B", "A"])),
+                Arc::new(Int64Array::from(vec![10, 20, 30, 40, 50])),
+            ],
+        )
+        .unwrap();
+        let (r_part, r_src) = make_field(
+            1,
+            1000,
+            "region",
+            "region",
+            PrimitiveType::Int,
+            Transform::Identity,
+            true,
+        );
+        let (c_part, c_src) = make_field(
+            2,
+            1001,
+            "category",
+            "category",
+            PrimitiveType::String,
+            Transform::Identity,
+            true,
+        );
+        let bound = vec![
+            BoundPartitionField::new(&r_part, &r_src),
+            BoundPartitionField::new(&c_part, &c_src),
+        ];
+
+        let groups = partition_record_batch(&batch, &bound)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        // Region {1, 2} × category {A, B} = 4 possible groups, but no row has
+        // region=2 / category=A only — wait, the data does have (2,A). All 4
+        // tuples appear in the input, so all 4 groups should be produced and
+        // contain at least one row each.
+        assert_eq!(groups.len(), 4);
+        for (_, batch) in &groups {
+            assert!(batch.num_rows() >= 1);
+        }
+        let total: usize = groups.iter().map(|(_, b)| b.num_rows()).sum();
+        assert_eq!(total, 5, "every input row lands in exactly one group");
+    }
+
+    #[test]
+    fn test_partition_truncate_groups_ints_into_step_buckets() {
+        let schema = arrow_schema(&[("amount", DataType::Int32)]);
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Int32Array::from(vec![5, 12, 17, 99, 100, 234]))],
+        )
+        .unwrap();
+        let (part_field, source_field) = make_field(
+            1,
+            1000,
+            "amount",
+            "amount_bucket",
+            PrimitiveType::Int,
+            Transform::Truncate(100),
+            true,
+        );
+        let bound = vec![BoundPartitionField::new(&part_field, &source_field)];
+
+        let groups = sort_partitions(
+            partition_record_batch(&batch, &bound)
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+        );
+
+        // Truncate(100): 5/12/17/99 -> 0, 100 -> 100, 234 -> 200.
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].0, vec![Value::Int(0)]);
+        assert_eq!(groups[0].1.num_rows(), 4);
+        assert_eq!(groups[1].0, vec![Value::Int(100)]);
+        assert_eq!(groups[1].1.num_rows(), 1);
+        assert_eq!(groups[2].0, vec![Value::Int(200)]);
+        assert_eq!(groups[2].1.num_rows(), 1);
+    }
+
+    #[test]
+    fn test_partition_bucket_string_produces_int_partition_values() {
+        let schema = arrow_schema(&[("name", DataType::Utf8)]);
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(StringArray::from(vec![
+                "alpha", "beta", "gamma", "delta",
+            ]))],
+        )
+        .unwrap();
+        let (part_field, source_field) = make_field(
+            1,
+            1000,
+            "name",
+            "name_bucket",
+            PrimitiveType::String,
+            Transform::Bucket(4),
+            true,
+        );
+        let bound = vec![BoundPartitionField::new(&part_field, &source_field)];
+
+        let groups = partition_record_batch(&batch, &bound)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        // Every partition value is a non-negative bucket id < 4.
+        for (values, batch) in &groups {
+            match &values[0] {
+                Value::Int(b) => {
+                    assert!((0..4).contains(b), "bucket id should be in [0, 4), got {b}",)
+                }
+                other => panic!("expected bucket Int partition value, got {other:?}"),
+            }
+            assert!(batch.num_rows() >= 1);
+        }
+        let total: usize = groups.iter().map(|(_, b)| b.num_rows()).sum();
+        assert_eq!(total, 4);
+    }
+
+    #[test]
+    fn test_partition_missing_source_column_returns_schema_error() {
+        let schema = arrow_schema(&[("present", DataType::Int32)]);
+        let batch =
+            RecordBatch::try_new(schema, vec![Arc::new(Int32Array::from(vec![1, 2, 3]))]).unwrap();
+        let (part_field, source_field) = make_field(
+            1,
+            1000,
+            "absent",
+            "absent_partition",
+            PrimitiveType::Int,
+            Transform::Identity,
+            true,
+        );
+        let bound = vec![BoundPartitionField::new(&part_field, &source_field)];
+
+        let err = partition_record_batch(&batch, &bound).err().unwrap();
+        assert!(matches!(err, ArrowError::SchemaError(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_partition_unsupported_source_datatype_returns_compute_error() {
+        // distinct_values only handles Int32, Int64, and Utf8 today; Float64
+        // should surface as a ComputeError rather than silently grouping.
+        let schema = arrow_schema(&[("score", DataType::Float64)]);
+        let batch =
+            RecordBatch::try_new(schema, vec![Arc::new(Float64Array::from(vec![1.0, 2.0]))])
+                .unwrap();
+        let (part_field, source_field) = make_field(
+            1,
+            1000,
+            "score",
+            "score",
+            PrimitiveType::Double,
+            Transform::Identity,
+            true,
+        );
+        let bound = vec![BoundPartitionField::new(&part_field, &source_field)];
+
+        let err = partition_record_batch(&batch, &bound).err().unwrap();
+        assert!(matches!(err, ArrowError::ComputeError(_)), "got {err:?}");
+    }
+}
