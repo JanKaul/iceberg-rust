@@ -1146,4 +1146,183 @@ mod tests {
         );
         assert!(!metadata.properties.contains_key("retention.days"));
     }
+
+    // --- TestUpdateRequirementParser / TestUpdateTableRequestParser --------
+    //
+    // The TableRequirement / TableUpdate enums use serde with a kebab-case
+    // tag (`"type"` / `"action"`) and kebab-case field names. These tests
+    // pin the exact wire shape so a REST catalog talking to the Java
+    // reference implementation sees the same payload.
+
+    #[test]
+    fn test_table_requirement_assert_create_serialises_with_kebab_case_type() {
+        let json = serde_json::to_value(TableRequirement::AssertCreate).unwrap();
+        assert_eq!(json["type"], "assert-create");
+    }
+
+    #[test]
+    fn test_table_requirement_round_trips_every_variant_via_json() {
+        let uuid = Uuid::from_u128(0x42);
+        let cases = vec![
+            TableRequirement::AssertCreate,
+            TableRequirement::AssertTableUuid { uuid },
+            TableRequirement::AssertRefSnapshotId {
+                r#ref: "main".to_string(),
+                snapshot_id: 17,
+            },
+            TableRequirement::AssertLastAssignedFieldId {
+                last_assigned_field_id: 7,
+            },
+            TableRequirement::AssertCurrentSchemaId {
+                current_schema_id: 3,
+            },
+            TableRequirement::AssertLastAssignedPartitionId {
+                last_assigned_partition_id: 1001,
+            },
+            TableRequirement::AssertDefaultSpecId { default_spec_id: 2 },
+            TableRequirement::AssertDefaultSortOrderId {
+                default_sort_order_id: 4,
+            },
+        ];
+        for req in cases {
+            let json = serde_json::to_string(&req).unwrap();
+            let back: TableRequirement = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, req, "round-trip mismatch via {json}");
+        }
+    }
+
+    #[test]
+    fn test_table_requirement_assert_ref_snapshot_id_uses_kebab_case_field_names() {
+        // `r#ref` should serialise as `ref` (Rust keyword escape) and
+        // `snapshot_id` as `snapshot-id` thanks to rename_all_fields.
+        let req = TableRequirement::AssertRefSnapshotId {
+            r#ref: "main".to_string(),
+            snapshot_id: 17,
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["type"], "assert-ref-snapshot-id");
+        assert_eq!(json["ref"], "main");
+        assert_eq!(json["snapshot-id"], 17);
+    }
+
+    #[test]
+    fn test_table_requirement_rejects_unknown_type_tag() {
+        let json = r#"{"type": "assert-frobnicated", "extra": 42}"#;
+        assert!(serde_json::from_str::<TableRequirement>(json).is_err());
+    }
+
+    #[test]
+    fn test_table_update_round_trips_every_variant_via_json() {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(8)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        let snapshot = SnapshotBuilder::default()
+            .with_snapshot_id(101)
+            .with_sequence_number(5)
+            .with_timestamp_ms(5_000)
+            .with_manifest_list("manifest-101.avro".to_string())
+            .with_summary(iceberg_rust_spec::spec::snapshot::Summary {
+                operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
+                other: HashMap::new(),
+            })
+            .with_schema_id(0)
+            .build()
+            .unwrap();
+
+        let mut props = HashMap::new();
+        props.insert("k".to_string(), "v".to_string());
+
+        let cases = vec![
+            TableUpdate::AssignUuid {
+                uuid: Uuid::from_u128(0xA).to_string(),
+            },
+            TableUpdate::UpgradeFormatVersion { format_version: 2 },
+            TableUpdate::AddSchema {
+                schema,
+                last_column_id: Some(7),
+            },
+            TableUpdate::SetCurrentSchema { schema_id: 8 },
+            TableUpdate::AddSpec {
+                spec: PartitionSpec::builder()
+                    .with_spec_id(3)
+                    .with_partition_field(PartitionField::new(1, 1000, "x", Transform::Identity))
+                    .build()
+                    .unwrap(),
+            },
+            TableUpdate::SetDefaultSpec { spec_id: 3 },
+            TableUpdate::AddSortOrder {
+                sort_order: SortOrder {
+                    order_id: 4,
+                    fields: vec![SortField {
+                        source_id: 1,
+                        transform: Transform::Identity,
+                        direction: SortDirection::Ascending,
+                        null_order: NullOrder::First,
+                    }],
+                },
+            },
+            TableUpdate::SetDefaultSortOrder { sort_order_id: 4 },
+            TableUpdate::AddSnapshot { snapshot },
+            TableUpdate::SetSnapshotRef {
+                ref_name: "main".to_string(),
+                snapshot_reference: SnapshotReference {
+                    snapshot_id: 17,
+                    retention: SnapshotRetention::default(),
+                },
+            },
+            TableUpdate::RemoveSnapshots {
+                snapshot_ids: vec![1, 2],
+            },
+            TableUpdate::RemoveSnapshotRef {
+                ref_name: "release".to_string(),
+            },
+            TableUpdate::SetLocation {
+                location: "s3://b/p".to_string(),
+            },
+            TableUpdate::SetProperties { updates: props },
+            TableUpdate::RemoveProperties {
+                removals: vec!["k".to_string()],
+            },
+        ];
+        for update in cases {
+            let json = serde_json::to_string(&update).unwrap();
+            let back: TableUpdate = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, update, "round-trip mismatch via {json}");
+        }
+    }
+
+    #[test]
+    fn test_table_update_uses_kebab_case_action_tag() {
+        let json = serde_json::to_value(TableUpdate::AssignUuid {
+            uuid: Uuid::from_u128(0xA).to_string(),
+        })
+        .unwrap();
+        assert_eq!(json["action"], "assign-uuid");
+
+        let json = serde_json::to_value(TableUpdate::SetCurrentSchema { schema_id: 1 }).unwrap();
+        assert_eq!(json["action"], "set-current-schema");
+        assert_eq!(json["schema-id"], 1);
+
+        let json =
+            serde_json::to_value(TableUpdate::UpgradeFormatVersion { format_version: 2 }).unwrap();
+        assert_eq!(json["action"], "upgrade-format-version");
+        assert_eq!(json["format-version"], 2);
+    }
+
+    #[test]
+    fn test_table_update_rejects_unknown_action_tag() {
+        let json = r#"{"action": "rewrite-the-universe"}"#;
+        assert!(serde_json::from_str::<TableUpdate>(json).is_err());
+    }
 }
