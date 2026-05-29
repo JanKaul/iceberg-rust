@@ -236,4 +236,130 @@ mod tests {
 
         Ok(())
     }
+
+    // --- RefreshState / SourceState / SourceStates ----------------------
+
+    use super::*;
+
+    fn sample_source_table() -> SourceTable {
+        SourceTable::new(
+            Some("prod_cat"),
+            &["analytics".to_string(), "events".to_string()],
+            "page_views",
+            Uuid::parse_str("aa000000-1111-2222-3333-444444444444").unwrap(),
+            42,
+            Some("staging".to_string()),
+        )
+    }
+
+    fn sample_source_view() -> SourceView {
+        SourceView {
+            name: "session_facts".to_string(),
+            namespace: Namespace(vec!["analytics".to_string(), "views".to_string()]),
+            catalog: None,
+            uuid: Uuid::parse_str("bb000000-1111-2222-3333-444444444444").unwrap(),
+            version_id: 7,
+        }
+    }
+
+    #[test]
+    fn test_source_table_new_constructs_expected_struct() {
+        let t = sample_source_table();
+        // Re-serialize and inspect the JSON to confirm field shapes
+        // including the kebab-case rename of `snapshot-id` and `ref`.
+        let json = serde_json::to_string(&t).unwrap();
+        assert!(json.contains("\"name\":\"page_views\""));
+        assert!(json.contains("\"namespace\":[\"analytics\",\"events\"]"));
+        assert!(json.contains("\"catalog\":\"prod_cat\""));
+        assert!(json.contains("\"snapshot-id\":42"));
+        assert!(json.contains("\"ref\":\"staging\""));
+    }
+
+    #[test]
+    fn test_source_state_table_round_trip() {
+        let state = SourceState::Table(sample_source_table());
+        let json = serde_json::to_string(&state).unwrap();
+        // The `tag = "type"` attribute injects the discriminator.
+        assert!(json.contains("\"type\":\"table\""));
+        let parsed: SourceState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, state);
+    }
+
+    #[test]
+    fn test_source_state_view_round_trip() {
+        let state = SourceState::View(sample_source_view());
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("\"type\":\"view\""));
+        let parsed: SourceState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, state);
+    }
+
+    #[test]
+    fn test_source_state_snapshot_id_returns_some_for_table_and_none_for_view() {
+        assert_eq!(SourceState::Table(sample_source_table()).snapshot_id(), Some(42));
+        assert_eq!(SourceState::View(sample_source_view()).snapshot_id(), None);
+    }
+
+    #[test]
+    fn test_source_states_round_trip_via_vec_representation() {
+        // Two source states keyed by their FullIdentifiers; the type
+        // serializes as a JSON array via the `from`/`into` Vec adapters.
+        let states_vec = vec![
+            SourceState::Table(sample_source_table()),
+            SourceState::View(sample_source_view()),
+        ];
+        let source_states: SourceStates = states_vec.clone().into();
+        assert_eq!(source_states.len(), 2);
+
+        let json = serde_json::to_string(&source_states).unwrap();
+        // The outer container is an array, not an object.
+        assert!(json.starts_with('['), "expected JSON array, got {json}");
+
+        let parsed: SourceStates = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.len(), 2);
+        // The HashMap re-keys by FullIdentifier on deserialize; the keys
+        // must match those produced from the original input.
+        for state in &states_vec {
+            let key = match state {
+                SourceState::Table(t) => {
+                    let json_value = serde_json::to_value(t).unwrap();
+                    FullIdentifier::new(
+                        json_value["catalog"].as_str(),
+                        &Namespace(
+                            json_value["namespace"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|v| v.as_str().unwrap().to_string())
+                                .collect(),
+                        ),
+                        json_value["name"].as_str().unwrap(),
+                    )
+                }
+                SourceState::View(v) => {
+                    FullIdentifier::new(v.catalog.as_deref(), &v.namespace, &v.name)
+                }
+            };
+            assert_eq!(parsed.get(&key), Some(state));
+        }
+    }
+
+    #[test]
+    fn test_refresh_state_round_trip_with_table_and_view_sources() {
+        let refresh = RefreshState {
+            refresh_version_id: 11,
+            source_states: SourceStates::from(vec![
+                SourceState::Table(sample_source_table()),
+                SourceState::View(sample_source_view()),
+            ]),
+            refresh_start_timestamp_ms: 1_730_000_000_000,
+        };
+        let json = serde_json::to_string(&refresh).unwrap();
+        // kebab-case rename on the outer struct.
+        assert!(json.contains("\"refresh-version-id\":11"));
+        assert!(json.contains("\"refresh-start-timestamp-ms\":1730000000000"));
+
+        let parsed: RefreshState = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, refresh);
+    }
 }
