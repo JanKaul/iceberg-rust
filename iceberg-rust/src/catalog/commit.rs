@@ -842,4 +842,308 @@ mod tests {
         ];
         assert!(!check_table_requirements(&reqs, &metadata));
     }
+
+    // --- TestMetadataUpdateParser: apply_table_updates ----------------------
+
+    use iceberg_rust_spec::spec::{
+        partition::{PartitionField, Transform},
+        snapshot::SnapshotBuilder,
+        sort::{NullOrder, SortDirection, SortField, SortOrder},
+    };
+
+    fn add_default_snapshot(metadata: &mut TableMetadata, id: i64, seq: i64) {
+        let snapshot = SnapshotBuilder::default()
+            .with_snapshot_id(id)
+            .with_sequence_number(seq)
+            .with_timestamp_ms(seq * 1_000)
+            .with_manifest_list(format!("manifest-{id}.avro"))
+            .with_summary(iceberg_rust_spec::spec::snapshot::Summary {
+                operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
+                other: HashMap::new(),
+            })
+            .with_schema_id(0)
+            .build()
+            .unwrap();
+        metadata.snapshots.insert(id, snapshot);
+    }
+
+    #[test]
+    fn test_apply_table_updates_assign_uuid_parses_string() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        let new_uuid = Uuid::from_u128(0xDEAD_BEEF);
+        apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::AssignUuid {
+                uuid: new_uuid.to_string(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(metadata.table_uuid, new_uuid);
+    }
+
+    #[test]
+    fn test_apply_table_updates_add_schema_inserts_and_optionally_advances_last_column_id() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        let new_schema = SchemaBuilder::default()
+            .with_schema_id(5)
+            .with_struct_field(StructField {
+                id: 17,
+                name: "label".to_string(),
+                required: false,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::AddSchema {
+                schema: new_schema.clone(),
+                last_column_id: Some(17),
+            }],
+        )
+        .unwrap();
+        assert!(metadata.schemas.contains_key(&5));
+        assert_eq!(metadata.last_column_id, 17);
+    }
+
+    #[test]
+    fn test_apply_table_updates_set_current_schema_by_explicit_id() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        // Add a schema with id 9, then SetCurrentSchema 9.
+        let new_schema = SchemaBuilder::default()
+            .with_schema_id(9)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        apply_table_updates(
+            &mut metadata,
+            vec![
+                TableUpdate::AddSchema {
+                    schema: new_schema,
+                    last_column_id: None,
+                },
+                TableUpdate::SetCurrentSchema { schema_id: 9 },
+            ],
+        )
+        .unwrap();
+        assert_eq!(metadata.current_schema_id, 9);
+    }
+
+    #[test]
+    fn test_apply_table_updates_set_current_schema_minus_one_uses_last_added() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        let new_schema = SchemaBuilder::default()
+            .with_schema_id(11)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        apply_table_updates(
+            &mut metadata,
+            vec![
+                TableUpdate::AddSchema {
+                    schema: new_schema,
+                    last_column_id: None,
+                },
+                TableUpdate::SetCurrentSchema { schema_id: -1 },
+            ],
+        )
+        .unwrap();
+        assert_eq!(metadata.current_schema_id, 11);
+    }
+
+    #[test]
+    fn test_apply_table_updates_set_current_schema_minus_one_without_add_errors() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        let err = apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::SetCurrentSchema { schema_id: -1 }],
+        )
+        .unwrap_err();
+        assert!(matches!(err, Error::InvalidFormat(_)));
+    }
+
+    #[test]
+    fn test_apply_table_updates_add_spec_and_set_default_spec_minus_one() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        let spec = PartitionSpec::builder()
+            .with_spec_id(3)
+            .with_partition_field(PartitionField::new(1, 1000, "id_id", Transform::Identity))
+            .build()
+            .unwrap();
+        apply_table_updates(
+            &mut metadata,
+            vec![
+                TableUpdate::AddSpec { spec },
+                TableUpdate::SetDefaultSpec { spec_id: -1 },
+            ],
+        )
+        .unwrap();
+        assert_eq!(metadata.default_spec_id, 3);
+        assert!(metadata.partition_specs.contains_key(&3));
+    }
+
+    #[test]
+    fn test_apply_table_updates_add_sort_order_and_set_default_minus_one() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        let sort_order = SortOrder {
+            order_id: 4,
+            fields: vec![SortField {
+                source_id: 1,
+                transform: Transform::Identity,
+                direction: SortDirection::Ascending,
+                null_order: NullOrder::First,
+            }],
+        };
+        apply_table_updates(
+            &mut metadata,
+            vec![
+                TableUpdate::AddSortOrder { sort_order },
+                TableUpdate::SetDefaultSortOrder { sort_order_id: -1 },
+            ],
+        )
+        .unwrap();
+        assert_eq!(metadata.default_sort_order_id, 4);
+        assert!(metadata.sort_orders.contains_key(&4));
+    }
+
+    #[test]
+    fn test_apply_table_updates_add_snapshot_appends_log_and_advances_sequence() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        let snapshot = SnapshotBuilder::default()
+            .with_snapshot_id(101)
+            .with_sequence_number(5)
+            .with_timestamp_ms(5_000)
+            .with_manifest_list("manifest-101.avro".to_string())
+            .with_summary(iceberg_rust_spec::spec::snapshot::Summary {
+                operation: iceberg_rust_spec::spec::snapshot::Operation::Append,
+                other: HashMap::new(),
+            })
+            .with_schema_id(0)
+            .build()
+            .unwrap();
+
+        apply_table_updates(&mut metadata, vec![TableUpdate::AddSnapshot { snapshot }]).unwrap();
+        assert!(metadata.snapshots.contains_key(&101));
+        assert_eq!(metadata.last_sequence_number, 5);
+        assert_eq!(metadata.snapshot_log.len(), 1);
+        assert_eq!(metadata.snapshot_log[0].snapshot_id, 101);
+        assert_eq!(metadata.snapshot_log[0].timestamp_ms, 5_000);
+    }
+
+    #[test]
+    fn test_apply_table_updates_set_snapshot_ref_main_updates_current_snapshot_id() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::SetSnapshotRef {
+                ref_name: "main".to_string(),
+                snapshot_reference: SnapshotReference {
+                    snapshot_id: 42,
+                    retention: SnapshotRetention::default(),
+                },
+            }],
+        )
+        .unwrap();
+        assert_eq!(metadata.current_snapshot_id, Some(42));
+        assert!(metadata.refs.contains_key("main"));
+    }
+
+    #[test]
+    fn test_apply_table_updates_set_snapshot_ref_non_main_does_not_touch_current_snapshot_id() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        let before = metadata.current_snapshot_id;
+        apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::SetSnapshotRef {
+                ref_name: "release".to_string(),
+                snapshot_reference: SnapshotReference {
+                    snapshot_id: 99,
+                    retention: SnapshotRetention::default(),
+                },
+            }],
+        )
+        .unwrap();
+        assert_eq!(metadata.current_snapshot_id, before);
+        assert_eq!(metadata.refs.get("release").unwrap().snapshot_id, 99,);
+    }
+
+    #[test]
+    fn test_apply_table_updates_remove_snapshots_prunes_snapshot_log() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        add_default_snapshot(&mut metadata, 1, 1);
+        add_default_snapshot(&mut metadata, 2, 2);
+        metadata.snapshot_log = vec![
+            iceberg_rust_spec::table_metadata::SnapshotLog {
+                snapshot_id: 1,
+                timestamp_ms: 1_000,
+            },
+            iceberg_rust_spec::table_metadata::SnapshotLog {
+                snapshot_id: 2,
+                timestamp_ms: 2_000,
+            },
+        ];
+        apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::RemoveSnapshots {
+                snapshot_ids: vec![1],
+            }],
+        )
+        .unwrap();
+        assert!(!metadata.snapshots.contains_key(&1));
+        assert!(metadata.snapshots.contains_key(&2));
+        // snapshot_log entries pointing at removed snapshots are pruned.
+        assert_eq!(metadata.snapshot_log.len(), 1);
+        assert_eq!(metadata.snapshot_log[0].snapshot_id, 2);
+    }
+
+    #[test]
+    fn test_apply_table_updates_set_location_and_properties_round_trip() {
+        let mut metadata = fixture(Uuid::nil(), &[]);
+        let mut new_props = HashMap::new();
+        new_props.insert("write.format.default".to_string(), "parquet".to_string());
+        new_props.insert("retention.days".to_string(), "30".to_string());
+
+        apply_table_updates(
+            &mut metadata,
+            vec![
+                TableUpdate::SetLocation {
+                    location: "s3://bucket/new/location".to_string(),
+                },
+                TableUpdate::SetProperties { updates: new_props },
+                TableUpdate::RemoveProperties {
+                    removals: vec!["retention.days".to_string()],
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(metadata.location, "s3://bucket/new/location");
+        assert_eq!(
+            metadata
+                .properties
+                .get("write.format.default")
+                .map(String::as_str),
+            Some("parquet"),
+        );
+        assert!(!metadata.properties.contains_key("retention.days"));
+    }
 }
