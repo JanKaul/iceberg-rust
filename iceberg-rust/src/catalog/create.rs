@@ -896,4 +896,122 @@ mod tests {
         let back: CreateView<Option<()>> = serde_json::from_str(&json).unwrap();
         assert_eq!(back, create);
     }
+
+    // --- Port: TestCreateViewRequestParser (Apache Iceberg Java) -----------
+    //
+    // The Java parser tests three scenarios: nullAndEmptyCheck (rejecting
+    // null/empty input), missingFields (rejecting partial input), and
+    // roundTripSerde (full payload). Rust's CreateView<T> is a serde
+    // struct with `name`, `view_version`, and `schema` required and
+    // `location`, `properties` optional. The Rust serde derive enforces
+    // missing-required-field rejection automatically.
+
+    #[test]
+    fn test_create_view_parser_rejects_empty_object() {
+        // Java: fromJson("{}") -> "Cannot parse missing string: name".
+        // Rust: serde_json rejects with a missing-field error message
+        // referencing one of the required fields.
+        let result: Result<CreateView<Option<()>>, _> = serde_json::from_str("{}");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("name") || msg.contains("schema") || msg.contains("view-version"),
+            "got {msg}",
+        );
+    }
+
+    #[test]
+    fn test_create_view_parser_rejects_object_with_only_unrelated_keys() {
+        // Java: fromJson("{\"x\": \"val\"}") -> "Cannot parse missing string: name".
+        let result: Result<CreateView<Option<()>>, _> = serde_json::from_str(r#"{"x": "val"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_view_parser_rejects_object_missing_view_version() {
+        // Java: fromJson("{\"name\": \"view-name\"}") -> "Cannot parse missing field: view-version".
+        let result: Result<CreateView<Option<()>>, _> =
+            serde_json::from_str(r#"{"name": "view-name"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_view_parser_rejects_object_missing_schema() {
+        // Java: a payload with name + location + view-version but no schema
+        // is rejected with "Cannot parse missing field: schema".
+        let json = r#"{
+            "name": "view-name",
+            "location": "loc",
+            "view-version": {
+                "version-id": 1,
+                "timestamp-ms": 23,
+                "schema-id": 0,
+                "summary": {},
+                "default-namespace": ["ns1"],
+                "representations": []
+            }
+        }"#;
+        let result: Result<CreateView<Option<()>>, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "expected missing-schema rejection, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_create_view_round_trip_full_payload_uses_kebab_case_wire_shape() {
+        // Port of Java's roundTripSerde. Java pins the exact pretty-printed
+        // JSON; Rust pins the same field set via serde_json::Value
+        // comparison. The kebab-case rename on the struct means the wire
+        // key is `view-version` not `view_version`.
+        let schema = Schema::builder()
+            .with_struct_field(StructField {
+                id: 1,
+                name: "x".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        let version: Version<Option<()>> = Version::builder()
+            .version_id(1)
+            .schema_id(0)
+            .timestamp_ms(23)
+            .default_namespace(vec!["ns1".to_string()])
+            .build()
+            .unwrap();
+
+        let mut builder: CreateViewBuilder<Option<()>> = CreateViewBuilder::default();
+        let request = builder
+            .with_name("view-name")
+            .with_location("location")
+            .with_schema(schema)
+            .with_view_version(version)
+            .with_property(("key1".to_string(), "val1".to_string()))
+            .create()
+            .unwrap();
+
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value["name"], "view-name");
+        assert_eq!(value["location"], "location");
+        // Kebab-case rename:
+        assert_eq!(value["view-version"]["version-id"], 1);
+        assert_eq!(value["view-version"]["schema-id"], 0);
+        assert_eq!(value["view-version"]["timestamp-ms"], 23);
+        assert_eq!(
+            value["view-version"]["default-namespace"],
+            serde_json::json!(["ns1"])
+        );
+        assert_eq!(value["schema"]["schema-id"], 0);
+        assert_eq!(value["schema"]["fields"][0]["name"], "x");
+        assert_eq!(value["schema"]["fields"][0]["type"], "long");
+        assert_eq!(value["properties"]["key1"], "val1");
+
+        // Round-trip through serde returns an equal struct.
+        let parsed: CreateView<Option<()>> = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed, request);
+    }
 }
