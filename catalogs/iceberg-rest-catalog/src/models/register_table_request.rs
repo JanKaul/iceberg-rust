@@ -27,3 +27,88 @@ impl RegisterTableRequest {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    // --- Port: TestRegisterTableRequestParser (Apache Iceberg Java) --------
+    //
+    // Java's TestRegisterTableRequestParser has 4 @Test methods: nullCheck,
+    // missingFields, roundTripSerde, roundTripSerdeWithOverwrite. The
+    // Rust struct mirrors the (name, metadata-location) shape but has no
+    // `overwrite` field; that gap is pinned with #[ignore].
+    //
+    // Java's RegisterViewRequest has the same (name, metadata-location)
+    // shape and three of the same scenarios. Rust has no view-side
+    // counterpart model; the gap is recorded in the audit doc.
+
+    #[test]
+    fn test_register_table_request_parser_rejects_empty_object() {
+        // Java: fromJson("{}") -> "Cannot parse missing string: name".
+        let result: Result<RegisterTableRequest, _> = serde_json::from_str("{}");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_register_table_request_parser_rejects_missing_metadata_location() {
+        // Java: fromJson(r#"{"name":"test_tbl"}"#) ->
+        //   "Cannot parse missing string: metadata-location".
+        let result: Result<RegisterTableRequest, _> =
+            serde_json::from_str(r#"{"name": "test_tbl"}"#);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("metadata-location") || msg.contains("metadata_location"),
+            "got {msg}"
+        );
+    }
+
+    #[test]
+    fn test_register_table_request_parser_rejects_missing_name() {
+        // Java: a payload with only metadata-location -> "missing string: name".
+        let result: Result<RegisterTableRequest, _> = serde_json::from_str(
+            r#"{"metadata-location": "file://tmp/NS/test_tbl/metadata/v1.metadata.json"}"#,
+        );
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("name"), "got {msg}");
+    }
+
+    #[test]
+    fn test_register_table_request_round_trip_pinned_wire_shape() {
+        // Port of Java's roundTripSerde. Rust pins the same two keys via
+        // serde_json::Value comparison.
+        let request = RegisterTableRequest::new(
+            "table_1".to_string(),
+            "file://tmp/NS/test_tbl/metadata/00000-d4f60d2f-2ad2-408b-8832-0ed7fbd851ee.metadata.json".to_string(),
+        );
+        let value: Value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value["name"], "table_1");
+        assert_eq!(
+            value["metadata-location"],
+            "file://tmp/NS/test_tbl/metadata/00000-d4f60d2f-2ad2-408b-8832-0ed7fbd851ee.metadata.json",
+        );
+
+        let parsed: RegisterTableRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed, request);
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust RegisterTableRequest lacks the optional `overwrite` field that Java's request supports for register-or-replace semantics"]
+    fn test_register_table_request_round_trip_with_overwrite_per_java() {
+        // Port of Java's roundTripSerdeWithOverwrite. Rust's RegisterTableRequest
+        // doesn't carry an `overwrite` field today, so the JSON parse below
+        // would silently drop it. When the Rust struct gains the field
+        // (matching Java's signature), this test should flip to passing.
+        let json = r#"{
+            "name": "table_1",
+            "metadata-location": "file://tmp/NS/test_tbl/metadata/v1.metadata.json",
+            "overwrite": true
+        }"#;
+        let parsed: RegisterTableRequest = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["overwrite"], true);
+    }
+}
