@@ -1949,4 +1949,110 @@ mod tests {
             "data did not match any variant of untagged enum TableMetadataEnum"
         )
     }
+
+    // --- Additional rejection fixtures -----------------------------------
+
+    /// Returns `Err` if the fixture deserializes successfully; otherwise the
+    /// loose assertion is enough — the specific serde error message has
+    /// changed across serde versions in the past and is not stable enough
+    /// to pin.
+    fn assert_fixture_rejected(name: &str) {
+        let payload =
+            fs::read_to_string(format!("testdata/table_metadata/{name}")).unwrap();
+        let result: Result<TableMetadata, _> = serde_json::from_str(&payload);
+        assert!(
+            result.is_err(),
+            "fixture {name} unexpectedly deserialized to {:?}",
+            result.ok(),
+        );
+    }
+
+    #[test]
+    fn test_table_metadata_unsupported_format_version_is_rejected() {
+        assert_fixture_rejected("TableMetadataUnsupportedVersion.json");
+    }
+
+    #[test]
+    fn test_table_metadata_v2_missing_schemas_is_rejected() {
+        assert_fixture_rejected("TableMetadataV2MissingSchemas.json");
+    }
+
+    #[test]
+    fn test_table_metadata_v2_missing_partition_specs_is_rejected() {
+        assert_fixture_rejected("TableMetadataV2MissingPartitionSpecs.json");
+    }
+
+    #[test]
+    fn test_table_metadata_v2_missing_last_partition_id_is_rejected() {
+        assert_fixture_rejected("TableMetadataV2MissingLastPartitionId.json");
+    }
+
+    #[test]
+    fn test_table_metadata_v2_current_schema_not_found_fails_schema_lookup() {
+        // This fixture has a valid V2 shape but the `current-schema-id` does
+        // not match any entry in `schemas`. Deserialization may succeed
+        // (serde does not check the cross-reference), but resolving the
+        // current schema must fail.
+        let payload = fs::read_to_string(
+            "testdata/table_metadata/TableMetadataV2CurrentSchemaNotFound.json",
+        )
+        .unwrap();
+
+        match serde_json::from_str::<TableMetadata>(&payload) {
+            Ok(metadata) => {
+                let err = metadata.current_schema(None).unwrap_err();
+                assert!(
+                    matches!(err, Error::InvalidFormat(_)),
+                    "expected InvalidFormat, got {err:?}",
+                );
+            }
+            Err(_) => {
+                // If serde itself rejects it, that's also acceptable
+                // protection for this gap.
+            }
+        }
+    }
+
+    // --- Behaviour on the minimal valid fixture --------------------------
+
+    fn load_minimal_v2() -> TableMetadata {
+        let payload =
+            fs::read_to_string("testdata/table_metadata/TableMetadataV2ValidMinimal.json")
+                .unwrap();
+        serde_json::from_str(&payload).unwrap()
+    }
+
+    #[test]
+    fn test_minimal_v2_current_schema_resolves_via_current_schema_id() {
+        let metadata = load_minimal_v2();
+        let schema = metadata.current_schema(None).unwrap();
+        // Fixture pins schema-id 0 with fields x, y, z (all long).
+        assert_eq!(schema.schema_id(), &0);
+        assert_eq!(
+            schema
+                .fields()
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["x", "y", "z"],
+        );
+    }
+
+    #[test]
+    fn test_minimal_v2_default_partition_spec_matches_default_spec_id() {
+        let metadata = load_minimal_v2();
+        let spec = metadata.default_partition_spec().unwrap();
+        // Fixture has default-spec-id 0 with one identity field over `x`.
+        assert_eq!(spec.spec_id(), &0);
+        assert_eq!(spec.fields().len(), 1);
+        assert_eq!(spec.fields()[0].name(), "x");
+    }
+
+    #[test]
+    fn test_minimal_v2_current_snapshot_is_none_when_no_snapshots_exist() {
+        let metadata = load_minimal_v2();
+        assert!(metadata.current_snapshot(None).unwrap().is_none());
+        // Also unknown refs return None instead of erroring.
+        assert!(metadata.current_snapshot(Some("nope")).unwrap().is_none());
+    }
 }
