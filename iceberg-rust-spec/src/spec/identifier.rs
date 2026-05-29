@@ -118,7 +118,8 @@ impl From<&FullIdentifier> for Identifier {
 
 #[cfg(test)]
 mod tests {
-    use super::Identifier;
+    use super::{FullIdentifier, Identifier};
+    use crate::error::Error;
 
     #[test]
     fn test_new() {
@@ -151,5 +152,64 @@ mod tests {
     fn test_parse() {
         let identifier = Identifier::parse("level1.level2.table", None).unwrap();
         assert_eq!(&format!("{identifier}"), "level1.level2.table");
+    }
+
+    #[test]
+    fn test_identifier_try_new_uses_default_namespace_for_bare_name() {
+        let id = Identifier::try_new(
+            &["events".to_string()],
+            Some(&["analytics".to_string(), "raw".to_string()]),
+        )
+        .unwrap();
+        assert_eq!(id.name(), "events");
+        assert_eq!(format!("{id}"), "analytics.raw.events");
+    }
+
+    #[test]
+    fn test_identifier_try_new_requires_default_namespace_when_name_has_no_qualifier() {
+        let err = Identifier::try_new(&["events".to_string()], None).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)));
+    }
+
+    #[test]
+    fn test_identifier_try_from_str_parses_dotted_form() {
+        let id: Identifier = "analytics.raw.events".try_into().unwrap();
+        assert_eq!(id.name(), "events");
+        assert_eq!(id.namespace().len(), 2);
+    }
+
+    #[test]
+    fn test_full_identifier_omits_none_catalog_from_serialization() {
+        let id = FullIdentifier::new(None, &["ns".to_string()], "t");
+        let json = serde_json::to_string(&id).unwrap();
+        assert!(!json.contains("catalog"), "got {json}");
+        let parsed: FullIdentifier = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, id);
+    }
+
+    #[test]
+    fn test_full_identifier_round_trips_with_catalog() {
+        let id = FullIdentifier::new(
+            Some("prod_cat"),
+            &["analytics".to_string(), "raw".to_string()],
+            "events",
+        );
+        let json = serde_json::to_string(&id).unwrap();
+        assert!(json.contains("\"catalog\":\"prod_cat\""));
+        let parsed: FullIdentifier = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, id);
+    }
+
+    #[test]
+    fn test_full_identifier_to_identifier_conversion_drops_catalog() {
+        let full = FullIdentifier::new(
+            Some("prod_cat"),
+            &["analytics".to_string(), "raw".to_string()],
+            "events",
+        );
+        let short: Identifier = (&full).into();
+        assert_eq!(short.name(), "events");
+        assert_eq!(short.namespace().len(), 2);
+        assert_eq!(format!("{short}"), "analytics.raw.events");
     }
 }
