@@ -507,4 +507,143 @@ mod tests {
         let parsed: Schema = rendered.parse().unwrap();
         assert_eq!(parsed, original);
     }
+
+    // --- TestSchemaParser: rejection cases ---------------------------------
+    //
+    // The Java SchemaParser refuses malformed schema JSON; these tests
+    // pin the corresponding Rust serde behaviour and document gaps where
+    // the Rust parser is more lenient than the spec demands.
+
+    #[test]
+    #[ignore = "spec gap: Schema parser accepts JSON without a top-level `\"type\": \"struct\"` tag; spec requires it"]
+    fn test_schema_parser_rejects_missing_top_level_type() {
+        let json = r#"{
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "name": "a", "required": true, "type": "long" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
+
+    #[test]
+    #[ignore = "spec gap: Schema parser accepts wrong top-level type tags; spec requires literal `struct`"]
+    fn test_schema_parser_rejects_wrong_top_level_type_tag() {
+        let json = r#"{
+            "type": "table",
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "name": "a", "required": true, "type": "long" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
+
+    #[test]
+    fn test_schema_parser_rejects_missing_fields_array() {
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
+
+    #[test]
+    fn test_schema_parser_rejects_field_missing_id() {
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [
+                { "name": "a", "required": true, "type": "long" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
+
+    #[test]
+    fn test_schema_parser_rejects_field_missing_name() {
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "required": true, "type": "long" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
+
+    #[test]
+    fn test_schema_parser_rejects_field_missing_type() {
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "name": "a", "required": true }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
+
+    #[test]
+    fn test_schema_parser_rejects_unknown_primitive_type() {
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "name": "a", "required": true, "type": "biginteger" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
+
+    #[test]
+    fn test_schema_parser_rejects_malformed_decimal_type() {
+        // The decimal parser expects `decimal(precision,scale)`; an empty
+        // parameter list or non-numeric parts must be rejected.
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "name": "a", "required": true, "type": "decimal()" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "name": "a", "required": true, "type": "decimal(p,s)" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
+
+    #[test]
+    #[ignore = "spec gap: Schema parser does not reject duplicate field names within a struct; spec requires rejection"]
+    fn test_schema_parser_rejects_duplicate_field_names() {
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "name": "dup", "required": true, "type": "long" },
+                { "id": 2, "name": "dup", "required": true, "type": "string" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
+
+    #[test]
+    #[ignore = "spec gap: Schema parser does not reject duplicate field ids; spec requires rejection"]
+    fn test_schema_parser_rejects_duplicate_field_ids() {
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "name": "a", "required": true, "type": "long" },
+                { "id": 1, "name": "b", "required": true, "type": "string" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Schema>(json).is_err());
+    }
 }
