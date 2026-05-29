@@ -1325,4 +1325,209 @@ mod tests {
         let json = r#"{"action": "rewrite-the-universe"}"#;
         assert!(serde_json::from_str::<TableUpdate>(json).is_err());
     }
+
+    // --- ViewRequirement / ViewUpdate JSON parser + apply_view_updates ----
+
+    use iceberg_rust_spec::spec::view_metadata::{
+        Version, ViewMetadata, ViewMetadataBuilder, ViewRepresentation,
+    };
+
+    fn view_fixture(uuid: Uuid) -> ViewMetadata {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        let version: Version<Option<()>> = Version::builder()
+            .version_id(1)
+            .schema_id(0)
+            .timestamp_ms(0)
+            .default_namespace(vec!["ns".to_string()])
+            .build()
+            .unwrap();
+
+        ViewMetadataBuilder::default()
+            .view_uuid(uuid)
+            .location("s3://tests/view".to_string())
+            .current_version_id(1)
+            .with_version((1, version))
+            .with_schema((0, schema))
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_view_requirement_assert_view_uuid_round_trips() {
+        let uuid = Uuid::from_u128(0x1234);
+        let req = ViewRequirement::AssertViewUuid { uuid };
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["type"], "assert-view-uuid");
+        let back: ViewRequirement = serde_json::from_value(json).unwrap();
+        assert_eq!(back, req);
+    }
+
+    #[test]
+    fn test_check_view_requirements_pass_and_fail() {
+        let uuid = Uuid::from_u128(0xAA);
+        let metadata = view_fixture(uuid);
+        assert!(check_view_requirements(
+            &[ViewRequirement::AssertViewUuid { uuid }],
+            &metadata,
+        ));
+        assert!(!check_view_requirements(
+            &[ViewRequirement::AssertViewUuid {
+                uuid: Uuid::from_u128(0xBB),
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_view_update_round_trips_every_variant_via_json() {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(7)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        let version: Version<Option<()>> = Version::builder()
+            .version_id(2)
+            .schema_id(7)
+            .timestamp_ms(1_000)
+            .default_namespace(vec!["ns".to_string()])
+            .with_representation(ViewRepresentation::sql("select 1", None))
+            .build()
+            .unwrap();
+
+        let mut props = HashMap::new();
+        props.insert("comment".to_string(), "hi".to_string());
+
+        let cases: Vec<ViewUpdate<Option<()>>> = vec![
+            ViewUpdate::AssignUuid {
+                uuid: Uuid::from_u128(0xC).to_string(),
+            },
+            ViewUpdate::UpgradeFormatVersion { format_version: 1 },
+            ViewUpdate::AddSchema {
+                schema,
+                last_column_id: Some(7),
+            },
+            ViewUpdate::SetLocation {
+                location: "s3://b/p".to_string(),
+            },
+            ViewUpdate::SetProperties { updates: props },
+            ViewUpdate::RemoveProperties {
+                removals: vec!["comment".to_string()],
+            },
+            ViewUpdate::AddViewVersion {
+                view_version: version,
+            },
+            ViewUpdate::SetCurrentViewVersion { view_version_id: 2 },
+        ];
+        for update in cases {
+            let json = serde_json::to_string(&update).unwrap();
+            let back: ViewUpdate<Option<()>> = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, update, "round-trip mismatch via {json}");
+        }
+    }
+
+    #[test]
+    fn test_view_update_uses_kebab_case_action_tag() {
+        let update: ViewUpdate<Option<()>> =
+            ViewUpdate::SetCurrentViewVersion { view_version_id: 9 };
+        let json = serde_json::to_value(&update).unwrap();
+        assert_eq!(json["action"], "set-current-view-version");
+        assert_eq!(json["view-version-id"], 9);
+    }
+
+    #[test]
+    fn test_apply_view_updates_assign_uuid_and_set_location_and_properties() {
+        let mut metadata = view_fixture(Uuid::nil());
+        let new_uuid = Uuid::from_u128(0xFEED);
+        let mut props = HashMap::new();
+        props.insert("k".to_string(), "v".to_string());
+        apply_view_updates(
+            &mut metadata,
+            vec![
+                ViewUpdate::AssignUuid {
+                    uuid: new_uuid.to_string(),
+                },
+                ViewUpdate::SetLocation {
+                    location: "s3://other/loc".to_string(),
+                },
+                ViewUpdate::SetProperties {
+                    updates: props.clone(),
+                },
+                ViewUpdate::RemoveProperties {
+                    removals: vec!["k".to_string()],
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(metadata.view_uuid, new_uuid);
+        assert_eq!(metadata.location, "s3://other/loc");
+        assert!(!metadata.properties.contains_key("k"));
+    }
+
+    #[test]
+    fn test_apply_view_updates_add_schema_and_add_view_version_and_set_current() {
+        let mut metadata = view_fixture(Uuid::nil());
+        let schema = SchemaBuilder::default()
+            .with_schema_id(11)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        let version: Version<Option<()>> = Version::builder()
+            .version_id(99)
+            .schema_id(11)
+            .timestamp_ms(1_000)
+            .default_namespace(vec!["ns".to_string()])
+            .build()
+            .unwrap();
+
+        apply_view_updates(
+            &mut metadata,
+            vec![
+                ViewUpdate::AddSchema {
+                    schema,
+                    last_column_id: None,
+                },
+                ViewUpdate::AddViewVersion {
+                    view_version: version,
+                },
+                ViewUpdate::SetCurrentViewVersion {
+                    view_version_id: 99,
+                },
+            ],
+        )
+        .unwrap();
+        assert!(metadata.schemas.contains_key(&11));
+        assert!(metadata.versions.contains_key(&99));
+        assert_eq!(metadata.current_version_id, 99);
+    }
 }
