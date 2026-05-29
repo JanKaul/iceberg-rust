@@ -2304,4 +2304,87 @@ mod tests {
             vec!["id_b", "ts_d"],
         );
     }
+
+    // --- FormatVersion conversions ----------------------------------------
+    //
+    // FormatVersion has Default=V2, a TryFrom<u8> that accepts 1/2/3, and
+    // two `From<FormatVersion>` impls (u8 returning ASCII digits, i32
+    // returning the bare integer). The u8 impls disagree about
+    // representation — `From` emits the ASCII byte `b'1'/b'2'/b'3'` while
+    // `TryFrom` expects 1/2/3, so a round-trip through u8 cannot succeed
+    // today. The #[ignore]'d test below pins that contract for the
+    // eventual fix.
+
+    #[test]
+    fn test_format_version_default_is_v2() {
+        assert_eq!(FormatVersion::default(), FormatVersion::V2);
+    }
+
+    #[test]
+    fn test_format_version_to_u8_returns_ascii_digit() {
+        let v1: u8 = FormatVersion::V1.into();
+        let v2: u8 = FormatVersion::V2.into();
+        let v3: u8 = FormatVersion::V3.into();
+        assert_eq!(v1, b'1');
+        assert_eq!(v2, b'2');
+        assert_eq!(v3, b'3');
+    }
+
+    #[test]
+    fn test_format_version_to_i32_returns_bare_integer() {
+        let v1: i32 = FormatVersion::V1.into();
+        let v2: i32 = FormatVersion::V2.into();
+        let v3: i32 = FormatVersion::V3.into();
+        assert_eq!(v1, 1);
+        assert_eq!(v2, 2);
+        assert_eq!(v3, 3);
+    }
+
+    #[test]
+    fn test_format_version_try_from_u8_accepts_bare_integers_1_2_3() {
+        assert_eq!(FormatVersion::try_from(1).unwrap(), FormatVersion::V1);
+        assert_eq!(FormatVersion::try_from(2).unwrap(), FormatVersion::V2);
+        assert_eq!(FormatVersion::try_from(3).unwrap(), FormatVersion::V3);
+    }
+
+    #[test]
+    fn test_format_version_try_from_u8_rejects_zero_and_high_value() {
+        assert!(FormatVersion::try_from(0u8).is_err());
+        assert!(FormatVersion::try_from(4u8).is_err());
+        assert!(FormatVersion::try_from(99u8).is_err());
+    }
+
+    #[test]
+    fn test_format_version_into_u8_does_not_round_trip_via_try_from_today() {
+        // `From<FormatVersion> for u8` returns the ASCII digit (b'1'/b'2'/
+        // b'3') but `TryFrom<u8>` expects bare integers 1/2/3, so feeding
+        // the Into result back into TryFrom errors.
+        for v in [FormatVersion::V1, FormatVersion::V2, FormatVersion::V3] {
+            let as_u8: u8 = v.into();
+            assert!(
+                FormatVersion::try_from(as_u8).is_err(),
+                "expected round-trip to fail for {as_u8}",
+            );
+        }
+    }
+
+    #[test]
+    fn test_format_version_into_i32_then_to_u8_round_trips_via_try_from() {
+        // The i32 conversion returns 1/2/3, which fits in u8 and matches
+        // TryFrom — so this *indirect* path is consistent.
+        for v in [FormatVersion::V1, FormatVersion::V2, FormatVersion::V3] {
+            let as_i32: i32 = v.into();
+            let as_u8 = as_i32 as u8;
+            assert_eq!(FormatVersion::try_from(as_u8).unwrap(), v);
+        }
+    }
+
+    #[test]
+    #[ignore = "spec gap: From<FormatVersion> for u8 emits ASCII digits (b'1'/b'2'/b'3') but TryFrom<u8> expects bare integers 1/2/3; the two should agree"]
+    fn test_format_version_into_u8_round_trips_via_try_from_per_spec() {
+        for v in [FormatVersion::V1, FormatVersion::V2, FormatVersion::V3] {
+            let as_u8: u8 = v.into();
+            assert_eq!(FormatVersion::try_from(as_u8).unwrap(), v);
+        }
+    }
 }
