@@ -1973,4 +1973,205 @@ mod tests {
             assert_eq!(v.clone().transform(&Transform::Identity).unwrap(), v);
         }
     }
+
+    // --- Byte conversions ----------------------------------------------------
+    //
+    // Per the Iceberg Table Spec ("Appendix D: Single-value serialization"),
+    // each primitive type has a canonical byte encoding used for
+    // partition values and column statistics bounds. These tests pin both
+    // halves of that contract: `From<Value> for ByteBuf` (encode) and
+    // `Value::try_from_bytes` (decode).
+
+    /// Encode `value`, assert the bytes match `expected`, decode `expected`
+    /// back, assert it equals `value`.
+    fn assert_byte_round_trip(value: Value, ty: Type, expected: &[u8]) {
+        let byte_buf: ByteBuf = value.clone().into();
+        assert_eq!(byte_buf.as_slice(), expected, "encode {value:?}");
+        let decoded = Value::try_from_bytes(expected, &ty).unwrap();
+        assert_eq!(decoded, value, "decode {expected:?}");
+    }
+
+    #[test]
+    fn test_byte_conversion_boolean_uses_one_byte_with_zero_for_false() {
+        let ty = Type::Primitive(PrimitiveType::Boolean);
+        assert_byte_round_trip(Value::Boolean(false), ty.clone(), &[0x00]);
+        assert_byte_round_trip(Value::Boolean(true), ty, &[0x01]);
+    }
+
+    #[test]
+    fn test_byte_conversion_int_is_four_byte_little_endian() {
+        let ty = Type::Primitive(PrimitiveType::Int);
+        // 0x12345678 -> LE [0x78, 0x56, 0x34, 0x12]
+        assert_byte_round_trip(
+            Value::Int(0x1234_5678),
+            ty.clone(),
+            &[0x78, 0x56, 0x34, 0x12],
+        );
+        // -1 in two's complement is all-ones.
+        assert_byte_round_trip(Value::Int(-1), ty, &[0xFF, 0xFF, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn test_byte_conversion_long_is_eight_byte_little_endian() {
+        let ty = Type::Primitive(PrimitiveType::Long);
+        // 0x0123456789ABCDEF -> LE [EF CD AB 89 67 45 23 01]
+        assert_byte_round_trip(
+            Value::LongInt(0x0123_4567_89AB_CDEF),
+            ty.clone(),
+            &[0xEF, 0xCD, 0xAB, 0x89, 0x67, 0x45, 0x23, 0x01],
+        );
+        assert_byte_round_trip(Value::LongInt(-1), ty, &[0xFF; 8]);
+    }
+
+    #[test]
+    fn test_byte_conversion_float_is_ieee754_little_endian() {
+        // -2.0_f32 has bit pattern 0xC0000000.
+        assert_byte_round_trip(
+            Value::Float(OrderedFloat(-2.0)),
+            Type::Primitive(PrimitiveType::Float),
+            &[0x00, 0x00, 0x00, 0xC0],
+        );
+    }
+
+    #[test]
+    fn test_byte_conversion_double_is_ieee754_little_endian() {
+        // -0.5_f64 has bit pattern 0xBFE0000000000000.
+        assert_byte_round_trip(
+            Value::Double(OrderedFloat(-0.5)),
+            Type::Primitive(PrimitiveType::Double),
+            &[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0xBF],
+        );
+    }
+
+    #[test]
+    fn test_byte_conversion_date_is_four_byte_little_endian_signed() {
+        let ty = Type::Primitive(PrimitiveType::Date);
+        // Day 50 since the epoch.
+        assert_byte_round_trip(Value::Date(50), ty.clone(), &[0x32, 0x00, 0x00, 0x00]);
+        // 1969-12-25 = day -7.
+        assert_byte_round_trip(Value::Date(-7), ty, &[0xF9, 0xFF, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn test_byte_conversion_time_is_eight_byte_little_endian_micros() {
+        // 12345 microseconds since midnight = 0x3039.
+        assert_byte_round_trip(
+            Value::Time(12_345),
+            Type::Primitive(PrimitiveType::Time),
+            &[0x39, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        );
+    }
+
+    #[test]
+    fn test_byte_conversion_timestamp_and_timestamptz_share_micro_encoding() {
+        // 1_000_000_000 micros from epoch.
+        let bytes = [0x00, 0xCA, 0x9A, 0x3B, 0x00, 0x00, 0x00, 0x00];
+        assert_byte_round_trip(
+            Value::Timestamp(1_000_000_000),
+            Type::Primitive(PrimitiveType::Timestamp),
+            &bytes,
+        );
+        assert_byte_round_trip(
+            Value::TimestampTZ(1_000_000_000),
+            Type::Primitive(PrimitiveType::Timestamptz),
+            &bytes,
+        );
+    }
+
+    #[test]
+    fn test_byte_conversion_string_is_raw_utf8_without_length_prefix() {
+        assert_byte_round_trip(
+            Value::String("rust".to_string()),
+            Type::Primitive(PrimitiveType::String),
+            b"rust",
+        );
+    }
+
+    #[test]
+    fn test_byte_conversion_uuid_is_sixteen_big_endian_bytes() {
+        let uuid =
+            Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap();
+        assert_byte_round_trip(
+            Value::UUID(uuid),
+            Type::Primitive(PrimitiveType::Uuid),
+            &[
+                0xF7, 0x9C, 0x3E, 0x09, 0x67, 0x7C, 0x4B, 0xBD,
+                0xA4, 0x79, 0x3F, 0x34, 0x9C, 0xB7, 0x85, 0xE7,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_byte_conversion_fixed_passes_payload_through() {
+        assert_byte_round_trip(
+            Value::Fixed(4, vec![0xDE, 0xAD, 0xBE, 0xEF]),
+            Type::Primitive(PrimitiveType::Fixed(4)),
+            &[0xDE, 0xAD, 0xBE, 0xEF],
+        );
+    }
+
+    #[test]
+    fn test_byte_conversion_binary_passes_payload_through() {
+        assert_byte_round_trip(
+            Value::Binary(vec![0x00, 0xFF, 0x42]),
+            Type::Primitive(PrimitiveType::Binary),
+            &[0x00, 0xFF, 0x42],
+        );
+    }
+
+    #[test]
+    fn test_byte_conversion_decimal_decode_accepts_minimum_byte_encoding() {
+        // The spec encodes decimals as the unscaled two's-complement BE value
+        // in the minimum number of bytes. `Value::try_from_bytes` accepts that
+        // form via `sign_extend_be`, even though the matching encode path is
+        // not yet spec-compliant (see ignored test below).
+        let ty = Type::Primitive(PrimitiveType::Decimal {
+            precision: 3,
+            scale: 2,
+        });
+        // 0x0159 = 345 -> 3.45
+        let decoded = Value::try_from_bytes(&[0x01, 0x59], &ty).unwrap();
+        assert_eq!(
+            decoded,
+            Value::Decimal(Decimal::from_str_exact("3.45").unwrap()),
+        );
+
+        let ty = Type::Primitive(PrimitiveType::Decimal {
+            precision: 7,
+            scale: 4,
+        });
+        // 0xED2979 (3 bytes, sign bit set in MSB) = -1234567 -> -123.4567
+        let decoded = Value::try_from_bytes(&[0xED, 0x29, 0x79], &ty).unwrap();
+        assert_eq!(
+            decoded,
+            Value::Decimal(Decimal::from_str_exact("-123.4567").unwrap()),
+        );
+
+        // A leading zero byte protects a value whose magnitude sets the sign
+        // bit of the smallest unsigned representation.
+        let ty = Type::Primitive(PrimitiveType::Decimal {
+            precision: 5,
+            scale: 2,
+        });
+        // 0x00C8 = 200 -> 2.00
+        let decoded = Value::try_from_bytes(&[0x00, 0xC8], &ty).unwrap();
+        assert_eq!(
+            decoded,
+            Value::Decimal(Decimal::from_str_exact("2.00").unwrap()),
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 12 zero-padded BE bytes for Decimal; spec requires the minimum-byte unscaled two's-complement BE encoding"]
+    fn test_byte_conversion_decimal_encode_uses_minimum_byte_encoding() {
+        // 3.45 unscaled = 345 -> spec encoding [0x01, 0x59].
+        let encoded: ByteBuf =
+            Value::Decimal(Decimal::from_str_exact("3.45").unwrap()).into();
+        assert_eq!(encoded.as_slice(), &[0x01, 0x59]);
+
+        // -123.4567 unscaled = -1234567 -> spec encoding [0xED, 0x29, 0x79].
+        let encoded: ByteBuf =
+            Value::Decimal(Decimal::from_str_exact("-123.4567").unwrap()).into();
+        assert_eq!(encoded.as_slice(), &[0xED, 0x29, 0x79]);
+    }
 }
