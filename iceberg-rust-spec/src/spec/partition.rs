@@ -616,4 +616,90 @@ mod tests {
             "duplicate partition-field ids should be rejected",
         );
     }
+
+    // --- PartitionSpec parser rejection (TestPartitionSpecParser) ----------
+    //
+    // The parser should accept well-formed input and refuse malformed
+    // partition specs. These tests pin the rejection paths beyond the
+    // missing-field-id case already covered above.
+
+    #[test]
+    fn test_partition_spec_parser_rejects_unknown_transform_name() {
+        let json = r#"{
+            "spec-id": 1,
+            "fields": [
+                { "source-id": 1, "field-id": 1000, "name": "x", "transform": "frobnicate" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<PartitionSpec>(json).is_err());
+    }
+
+    #[test]
+    fn test_partition_spec_parser_rejects_bucket_with_non_numeric_width() {
+        let json = r#"{
+            "spec-id": 1,
+            "fields": [
+                { "source-id": 1, "field-id": 1000, "name": "x", "transform": "bucket[abc]" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<PartitionSpec>(json).is_err());
+    }
+
+    #[test]
+    fn test_partition_spec_parser_rejects_truncate_with_negative_width() {
+        // The width is parsed into u32, so a negative integer cannot fit.
+        let json = r#"{
+            "spec-id": 1,
+            "fields": [
+                { "source-id": 1, "field-id": 1000, "name": "x", "transform": "truncate[-5]" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<PartitionSpec>(json).is_err());
+    }
+
+    #[test]
+    fn test_partition_spec_parser_rejects_missing_source_id() {
+        let json = r#"{
+            "spec-id": 1,
+            "fields": [
+                { "field-id": 1000, "name": "x", "transform": "identity" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<PartitionSpec>(json).is_err());
+    }
+
+    #[test]
+    fn test_partition_spec_parser_rejects_missing_transform() {
+        let json = r#"{
+            "spec-id": 1,
+            "fields": [
+                { "source-id": 1, "field-id": 1000, "name": "x" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<PartitionSpec>(json).is_err());
+    }
+
+    #[test]
+    fn test_partition_spec_parser_rejects_missing_name() {
+        let json = r#"{
+            "spec-id": 1,
+            "fields": [
+                { "source-id": 1, "field-id": 1000, "transform": "identity" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<PartitionSpec>(json).is_err());
+    }
+
+    #[test]
+    fn test_partition_spec_parser_accepts_empty_fields_as_unpartitioned() {
+        // An empty `fields` array is a valid representation of an
+        // unpartitioned table; the parser must accept it.
+        let json = r#"{
+            "spec-id": 0,
+            "fields": []
+        }"#;
+        let spec: PartitionSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.spec_id(), &0);
+        assert!(spec.fields().is_empty());
+    }
 }
