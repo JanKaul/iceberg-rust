@@ -2087,6 +2087,114 @@ mod tests {
         assert!(result.is_ok(), "Void transform should succeed");
     }
 
+    // --- Value::cast (TestNumericLiteralConversions) -------------------------
+    //
+    // Per spec, literal values may be promoted across compatible types
+    // (Int -> Long, Float -> Double, etc.) and may be re-interpreted as
+    // temporal types whose physical encoding is an int or long. The Rust
+    // `Value::cast` impl covers a subset of these conversions; the tests
+    // below pin the supported set and surface known gaps via `#[ignore]`.
+
+    fn t(prim: PrimitiveType) -> Type {
+        Type::Primitive(prim)
+    }
+
+    #[test]
+    fn test_value_cast_same_type_is_identity() {
+        // The first branch short-circuits when the source datatype already
+        // matches the target.
+        let v = Value::LongInt(42);
+        let cast = v.clone().cast(&t(PrimitiveType::Long)).unwrap();
+        assert_eq!(cast, v);
+    }
+
+    #[test]
+    fn test_value_cast_int_widens_to_long() {
+        let cast = Value::Int(-7).cast(&t(PrimitiveType::Long)).unwrap();
+        assert_eq!(cast, Value::LongInt(-7));
+    }
+
+    #[test]
+    fn test_value_cast_int_to_date_reinterprets_as_days_since_epoch() {
+        // Date is encoded as days-since-epoch in an i32, so a bare Int
+        // value can be reinterpreted without loss.
+        let cast = Value::Int(17_501).cast(&t(PrimitiveType::Date)).unwrap();
+        assert_eq!(cast, Value::Date(17_501));
+        // Pre-epoch negative day count is also accepted.
+        let cast = Value::Int(-1).cast(&t(PrimitiveType::Date)).unwrap();
+        assert_eq!(cast, Value::Date(-1));
+    }
+
+    #[test]
+    fn test_value_cast_long_reinterprets_as_temporal_micro_types() {
+        // Time / Timestamp / Timestamptz are all i64 micros under the hood,
+        // so casting from Long is a no-op rebrand.
+        let micros: i64 = 1_512_123_175_038_194;
+        assert_eq!(
+            Value::LongInt(micros)
+                .cast(&t(PrimitiveType::Time))
+                .unwrap(),
+            Value::Time(micros),
+        );
+        assert_eq!(
+            Value::LongInt(micros)
+                .cast(&t(PrimitiveType::Timestamp))
+                .unwrap(),
+            Value::Timestamp(micros),
+        );
+        assert_eq!(
+            Value::LongInt(micros)
+                .cast(&t(PrimitiveType::Timestamptz))
+                .unwrap(),
+            Value::TimestampTZ(micros),
+        );
+    }
+
+    #[test]
+    fn test_value_cast_long_to_int_is_rejected() {
+        // Narrowing conversions never appear in the supported arms, so they
+        // fall into the catch-all and return NotSupported. The spec
+        // explicitly forbids implicit narrowing.
+        let err = Value::LongInt(1).cast(&t(PrimitiveType::Int)).unwrap_err();
+        assert!(matches!(err, Error::NotSupported(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_value_cast_string_to_int_is_rejected() {
+        let err = Value::String("42".to_string())
+            .cast(&t(PrimitiveType::Int))
+            .unwrap_err();
+        assert!(matches!(err, Error::NotSupported(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_value_cast_int_to_long_then_to_timestamp_chains() {
+        // Cast is associative through the supported arms: Int -> Long is
+        // direct, then Long -> Timestamp re-interprets.
+        let micros = Value::Int(1_000_000)
+            .cast(&t(PrimitiveType::Long))
+            .unwrap()
+            .cast(&t(PrimitiveType::Timestamp))
+            .unwrap();
+        assert_eq!(micros, Value::Timestamp(1_000_000));
+    }
+
+    #[test]
+    #[ignore = "spec gap: Value::cast has no Float -> Double widening arm; spec allows the widening promotion"]
+    fn test_value_cast_float_widens_to_double() {
+        let cast = Value::Float(OrderedFloat(1.5_f32))
+            .cast(&t(PrimitiveType::Double))
+            .unwrap();
+        assert_eq!(cast, Value::Double(OrderedFloat(1.5_f64)));
+    }
+
+    #[test]
+    #[ignore = "spec gap: Value::cast has no Int -> Double promotion arm; spec allows integer-to-floating widening"]
+    fn test_value_cast_int_promotes_to_double() {
+        let cast = Value::Int(7).cast(&t(PrimitiveType::Double)).unwrap();
+        assert_eq!(cast, Value::Double(OrderedFloat(7.0)));
+    }
+
     // --- Byte conversions ----------------------------------------------------
     //
     // Per the Iceberg Table Spec ("Appendix D: Single-value serialization"),
