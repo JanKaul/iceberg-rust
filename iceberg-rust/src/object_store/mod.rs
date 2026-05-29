@@ -657,4 +657,102 @@ mod tests {
             _ => panic!("Expected Local bucket"),
         }
     }
+
+    // --- Display impls (TestFileURI) ----------------------------------------
+    //
+    // `Bucket` has a `Display` impl that produces a canonical URI for each
+    // backend; the `from_path` side is well-tested but the Display side
+    // was not. These tests pin every Display variant + an end-to-end
+    // Display -> from_path round-trip where the input form is itself the
+    // canonical one.
+
+    #[test]
+    fn test_azure_endpoint_type_displays_as_lowercase_dfs_or_blob() {
+        assert_eq!(format!("{}", AzureEndpointType::DFS), "dfs");
+        assert_eq!(format!("{}", AzureEndpointType::Blob), "blob");
+    }
+
+    #[test]
+    fn test_bucket_display_s3_uses_s3_scheme() {
+        assert_eq!(format!("{}", Bucket::S3("my-bucket")), "s3://my-bucket");
+    }
+
+    #[test]
+    fn test_bucket_display_gcs_uses_gs_scheme() {
+        assert_eq!(format!("{}", Bucket::GCS("my-bucket")), "gs://my-bucket");
+    }
+
+    #[test]
+    fn test_bucket_display_azure_dfs_renders_canonical_abfss_uri() {
+        let bucket = Bucket::Azure {
+            account: "myaccount",
+            container: "warehouse",
+            endpoint_type: AzureEndpointType::DFS,
+        };
+        assert_eq!(
+            format!("{bucket}"),
+            "abfss://warehouse@myaccount.dfs.core.windows.net",
+        );
+    }
+
+    #[test]
+    fn test_bucket_display_azure_blob_renders_blob_subdomain() {
+        let bucket = Bucket::Azure {
+            account: "myaccount",
+            container: "warehouse",
+            endpoint_type: AzureEndpointType::Blob,
+        };
+        assert_eq!(
+            format!("{bucket}"),
+            "abfss://warehouse@myaccount.blob.core.windows.net",
+        );
+    }
+
+    #[test]
+    fn test_bucket_display_local_renders_empty_string() {
+        assert_eq!(format!("{}", Bucket::Local), "");
+    }
+
+    #[test]
+    fn test_bucket_round_trip_s3_display_then_from_path() {
+        let original = Bucket::S3("my-bucket");
+        let rendered = format!("{original}");
+        let parsed = Bucket::from_path(&rendered).unwrap();
+        match parsed {
+            Bucket::S3(name) => assert_eq!(name, "my-bucket"),
+            other => panic!("expected S3, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_bucket_round_trip_gcs_display_then_from_path() {
+        let rendered = format!("{}", Bucket::GCS("my-bucket"));
+        let parsed = Bucket::from_path(&rendered).unwrap();
+        match parsed {
+            Bucket::GCS(name) => assert_eq!(name, "my-bucket"),
+            other => panic!("expected GCS, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_bucket_round_trip_azure_dfs_display_then_from_path() {
+        let original = Bucket::Azure {
+            account: "myaccount",
+            container: "warehouse",
+            endpoint_type: AzureEndpointType::DFS,
+        };
+        let rendered = format!("{original}");
+        let parsed = Bucket::from_path(&rendered).unwrap();
+        match parsed {
+            Bucket::Azure {
+                account,
+                container,
+                endpoint_type: AzureEndpointType::DFS,
+            } => {
+                assert_eq!(account, "myaccount");
+                assert_eq!(container, "warehouse");
+            }
+            other => panic!("expected Azure DFS, got {other:?}"),
+        }
+    }
 }
