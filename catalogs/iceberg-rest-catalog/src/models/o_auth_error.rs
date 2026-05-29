@@ -54,3 +54,68 @@ impl Default for Error {
         Self::InvalidRequest
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    #[test]
+    fn test_oauth_error_variant_default_is_invalid_request() {
+        assert_eq!(Error::default(), Error::InvalidRequest);
+    }
+
+    #[test]
+    fn test_oauth_error_variants_serialise_with_underscore_canonical_tags() {
+        // The OAuth 2.0 spec uses snake_case tags; serde renames each
+        // variant to the exact RFC-defined string.
+        let cases = [
+            (Error::InvalidRequest, "\"invalid_request\""),
+            (Error::InvalidClient, "\"invalid_client\""),
+            (Error::InvalidGrant, "\"invalid_grant\""),
+            (Error::UnauthorizedClient, "\"unauthorized_client\""),
+            (Error::UnsupportedGrantType, "\"unsupported_grant_type\""),
+            (Error::InvalidScope, "\"invalid_scope\""),
+        ];
+        for (variant, expected) in cases {
+            let json = serde_json::to_string(&variant).unwrap();
+            assert_eq!(json, expected, "variant {variant:?}");
+            let parsed: Error = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn test_oauth_error_new_initialises_with_just_the_variant() {
+        let err = OAuthError::new(Error::InvalidGrant);
+        assert_eq!(err.error, Error::InvalidGrant);
+        assert!(err.error_description.is_none());
+        assert!(err.error_uri.is_none());
+    }
+
+    #[test]
+    fn test_oauth_error_omits_optional_fields_when_none() {
+        let err = OAuthError::new(Error::InvalidScope);
+        let value: Value = serde_json::to_value(&err).unwrap();
+        assert_eq!(value["error"], "invalid_scope");
+        assert!(value.get("error_description").is_none(), "got {value}");
+        assert!(value.get("error_uri").is_none(), "got {value}");
+    }
+
+    #[test]
+    fn test_oauth_error_round_trip_with_full_payload() {
+        let mut original = OAuthError::new(Error::InvalidRequest);
+        original.error_description = Some("missing client_id".to_string());
+        original.error_uri =
+            Some("https://example.com/oauth/error-docs#invalid_request".to_string());
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: OAuthError = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn test_oauth_error_rejects_unknown_variant_tag() {
+        let json = "\"frobnicate_token\"";
+        assert!(serde_json::from_str::<Error>(json).is_err());
+    }
+}

@@ -38,3 +38,58 @@ impl CatalogConfig {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_catalog_config_serialises_overrides_and_defaults_as_objects() {
+        let overrides = HashMap::from([("k1".to_string(), "v1".to_string())]);
+        let defaults = HashMap::from([("k2".to_string(), "v2".to_string())]);
+        let config = CatalogConfig::new(overrides, defaults);
+        let value: Value = serde_json::to_value(&config).unwrap();
+        assert_eq!(value["overrides"]["k1"], "v1");
+        assert_eq!(value["defaults"]["k2"], "v2");
+        // Empty endpoints is None, so the key is omitted.
+        assert!(value.get("endpoints").is_none(), "got {value}");
+    }
+
+    #[test]
+    fn test_catalog_config_empty_maps_render_as_empty_objects() {
+        // Required keys are always present, even when their map is empty,
+        // so the server contract stays predictable.
+        let config = CatalogConfig::new(HashMap::new(), HashMap::new());
+        let value: Value = serde_json::to_value(&config).unwrap();
+        assert_eq!(value["overrides"], json!({}));
+        assert_eq!(value["defaults"], json!({}));
+    }
+
+    #[test]
+    fn test_catalog_config_serialises_endpoints_as_array_when_some() {
+        let mut config = CatalogConfig::new(HashMap::new(), HashMap::new());
+        config.endpoints = Some(vec![
+            "GET /v1/{prefix}/namespaces".to_string(),
+            "POST /v1/{prefix}/tables".to_string(),
+        ]);
+        let value: Value = serde_json::to_value(&config).unwrap();
+        assert_eq!(
+            value["endpoints"],
+            json!(["GET /v1/{prefix}/namespaces", "POST /v1/{prefix}/tables",])
+        );
+    }
+
+    #[test]
+    fn test_catalog_config_round_trip_via_json() {
+        let mut original = CatalogConfig::new(
+            HashMap::from([("o.k".to_string(), "o.v".to_string())]),
+            HashMap::from([("d.k".to_string(), "d.v".to_string())]),
+        );
+        original.endpoints = Some(vec!["GET /v1/config".to_string()]);
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: CatalogConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+}

@@ -28,3 +28,49 @@ impl ListNamespacesResponse {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn test_list_namespaces_response_empty_serialises_to_empty_object() {
+        let response = ListNamespacesResponse::new();
+        let value: Value = serde_json::to_value(&response).unwrap();
+        // Both optional fields are None -> the JSON object is empty.
+        assert_eq!(value, json!({}));
+    }
+
+    #[test]
+    fn test_list_namespaces_response_serialises_nested_namespaces() {
+        let mut response = ListNamespacesResponse::new();
+        response.namespaces = Some(vec![
+            vec!["analytics".to_string()],
+            vec!["analytics".to_string(), "events".to_string()],
+        ]);
+        let value: Value = serde_json::to_value(&response).unwrap();
+        assert_eq!(
+            value["namespaces"],
+            json!([["analytics"], ["analytics", "events"]])
+        );
+    }
+
+    #[test]
+    fn test_list_namespaces_response_uses_kebab_renamed_pagination_token() {
+        let mut response = ListNamespacesResponse::new();
+        response.next_page_token = Some("opaque-token-xyz".to_string());
+        let value: Value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["next-page-token"], "opaque-token-xyz");
+    }
+
+    #[test]
+    fn test_list_namespaces_response_round_trip_with_pagination_and_namespaces() {
+        let mut original = ListNamespacesResponse::new();
+        original.next_page_token = Some("tok".to_string());
+        original.namespaces = Some(vec![vec!["a".to_string(), "b".to_string()]]);
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: ListNamespacesResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+}
