@@ -323,6 +323,172 @@ mod tests {
         assert_eq!(Transform::Truncate(4), partition_spec.fields[2].transform);
     }
 
+    // --- PartitionSpec JSON serde and behaviour --------------------------
+
+    #[test]
+    fn test_partition_spec_json_round_trip_covers_every_transform() {
+        let json = r#"{
+            "spec-id": 7,
+            "fields": [
+                { "source-id": 1, "field-id": 1000, "name": "id_ident",    "transform": "identity"   },
+                { "source-id": 2, "field-id": 1001, "name": "data_bucket", "transform": "bucket[16]" },
+                { "source-id": 3, "field-id": 1002, "name": "data_trunc",  "transform": "truncate[8]"},
+                { "source-id": 4, "field-id": 1003, "name": "ts_year",     "transform": "year"       },
+                { "source-id": 4, "field-id": 1004, "name": "ts_month",    "transform": "month"      },
+                { "source-id": 4, "field-id": 1005, "name": "ts_day",      "transform": "day"        },
+                { "source-id": 4, "field-id": 1006, "name": "ts_hour",     "transform": "hour"       },
+                { "source-id": 5, "field-id": 1007, "name": "void_field",  "transform": "void"       }
+            ]
+        }"#;
+
+        let spec: PartitionSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.spec_id(), &7);
+        assert_eq!(spec.fields().len(), 8);
+        assert_eq!(
+            spec.fields()
+                .iter()
+                .map(|f| f.transform.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Transform::Identity,
+                Transform::Bucket(16),
+                Transform::Truncate(8),
+                Transform::Year,
+                Transform::Month,
+                Transform::Day,
+                Transform::Hour,
+                Transform::Void,
+            ],
+        );
+
+        let again: PartitionSpec =
+            serde_json::from_str(&serde_json::to_string(&spec).unwrap()).unwrap();
+        assert_eq!(again, spec);
+    }
+
+    #[test]
+    fn test_partition_spec_rejects_partition_field_without_field_id() {
+        // Java's `PartitionSpecParser` auto-assigns missing field-ids starting at
+        // 1000; the Rust struct treats `field-id` as required and rejects input
+        // that omits it. This test pins the current Rust behaviour.
+        let json = r#"{
+            "spec-id": 1,
+            "fields": [
+                { "source-id": 1, "name": "id_bucket", "transform": "bucket[8]" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<PartitionSpec>(json).is_err());
+    }
+
+    #[test]
+    fn test_partition_spec_preserves_field_order_through_round_trip() {
+        // Field-ids are intentionally out-of-numeric-order in the input to
+        // confirm the Vec preserves the JSON order rather than sorting.
+        let json = r#"{
+            "spec-id": 1,
+            "fields": [
+                { "source-id": 2, "field-id": 1001, "name": "second", "transform": "identity" },
+                { "source-id": 1, "field-id": 1000, "name": "first",  "transform": "identity" }
+            ]
+        }"#;
+
+        let spec: PartitionSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.fields()[0].name, "second");
+        assert_eq!(spec.fields()[1].name, "first");
+
+        let again: PartitionSpec =
+            serde_json::from_str(&serde_json::to_string(&spec).unwrap()).unwrap();
+        assert_eq!(again, spec);
+    }
+
+    #[test]
+    fn test_partition_spec_builder_and_display_fromstr_round_trip() {
+        let spec = PartitionSpec::builder()
+            .with_spec_id(42)
+            .with_partition_field(PartitionField::new(
+                1,
+                1000,
+                "id_bucket",
+                Transform::Bucket(8),
+            ))
+            .with_partition_field(PartitionField::new(
+                2,
+                1001,
+                "data_trunc",
+                Transform::Truncate(10),
+            ))
+            .build()
+            .unwrap();
+
+        assert_eq!(spec.spec_id(), &42);
+        assert_eq!(spec.fields().len(), 2);
+        assert_eq!(spec.fields()[0].name, "id_bucket");
+        assert_eq!(spec.fields()[0].transform, Transform::Bucket(8));
+
+        // The Display impl emits JSON, and FromStr parses it back to an
+        // equal value.
+        let parsed: PartitionSpec = spec.to_string().parse().unwrap();
+        assert_eq!(parsed, spec);
+    }
+
+    #[test]
+    fn test_partition_spec_data_types_apply_each_transform_to_source_field() {
+        use crate::spec::types::{PrimitiveType, StructField, StructType, Type};
+
+        let schema = StructType::new(vec![
+            StructField {
+                id: 0,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            },
+            StructField {
+                id: 1,
+                name: "ts".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Timestamp),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            },
+            StructField {
+                id: 2,
+                name: "label".to_string(),
+                required: false,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            },
+        ]);
+
+        let spec = PartitionSpec::builder()
+            .with_spec_id(1)
+            .with_partition_field(PartitionField::new(0, 1000, "id_ident", Transform::Identity))
+            .with_partition_field(PartitionField::new(1, 1001, "ts_year", Transform::Year))
+            .with_partition_field(PartitionField::new(
+                2,
+                1002,
+                "label_bucket",
+                Transform::Bucket(16),
+            ))
+            .build()
+            .unwrap();
+
+        let types = spec.data_types(&schema).unwrap();
+        assert_eq!(
+            types,
+            vec![
+                Type::Primitive(PrimitiveType::Long), // Identity over Long stays Long
+                Type::Primitive(PrimitiveType::Int),  // Year transform always yields Int
+                Type::Primitive(PrimitiveType::Int),  // Bucket always yields Int
+            ],
+        );
+    }
+
     #[test]
     fn test_transform_json_round_trips_every_variant() {
         for t in [
