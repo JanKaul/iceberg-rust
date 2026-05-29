@@ -651,4 +651,140 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "month=10/");
     }
+
+    // The tests below pin the behaviour of `generate_partition_path`, the
+    // Rust analogue of Apache Iceberg's `PartitionSpec.partitionToPath`
+    // (Java `TestPartitionPaths`). Per spec, the rendered path is a sequence
+    // of `field=value/` components in spec order; partition values must be
+    // URL-encoded before they reach a path component. The current Rust
+    // impl does not URL-encode — a gap pinned below with `#[ignore]`.
+
+    use iceberg_rust_spec::types::PrimitiveType;
+
+    fn make_field(
+        source_id: i32,
+        field_id: i32,
+        source_name: &str,
+        partition_name: &str,
+        primitive: PrimitiveType,
+        transform: Transform,
+    ) -> (PartitionField, StructField) {
+        let part = PartitionField::new(source_id, field_id, partition_name, transform);
+        let source = StructField {
+            id: source_id,
+            name: source_name.to_owned(),
+            required: true,
+            field_type: Type::Primitive(primitive),
+            doc: None,
+            initial_default: None,
+            write_default: None,
+        };
+        (part, source)
+    }
+
+    #[test]
+    fn test_generate_partition_path_two_fields_render_in_spec_order() {
+        let (yp, ys) = make_field(1, 1000, "ts", "year", PrimitiveType::Date, Transform::Year);
+        let (mp, ms) = make_field(
+            1,
+            1001,
+            "ts",
+            "month",
+            PrimitiveType::Date,
+            Transform::Month,
+        );
+        let bound = vec![
+            BoundPartitionField::new(&yp, &ys),
+            BoundPartitionField::new(&mp, &ms),
+        ];
+        // Post-transform values: year offset 54 (= 2024 - 1970), month offset
+        // 575 (= (2017 - 1970) * 12 + 12 - 1 -> spec formula).
+        let values = vec![Value::Int(54), Value::Int(575)];
+
+        let path = super::generate_partition_path(&bound, &values).unwrap();
+        assert_eq!(path, "year=54/month=575/");
+    }
+
+    #[test]
+    fn test_generate_partition_path_identity_string_passes_through() {
+        let (pf, sf) = make_field(
+            1,
+            1000,
+            "country",
+            "country",
+            PrimitiveType::String,
+            Transform::Identity,
+        );
+        let bound = vec![BoundPartitionField::new(&pf, &sf)];
+        let values = vec![Value::String("DE".to_owned())];
+
+        assert_eq!(
+            super::generate_partition_path(&bound, &values).unwrap(),
+            "country=DE/",
+        );
+    }
+
+    #[test]
+    fn test_generate_partition_path_empty_partition_returns_empty_string() {
+        let bound: Vec<BoundPartitionField<'_>> = vec![];
+        let values: Vec<Value> = vec![];
+        assert_eq!(super::generate_partition_path(&bound, &values).unwrap(), "");
+    }
+
+    #[test]
+    fn test_generate_partition_path_renders_negative_day_with_sign() {
+        // Day-transform output is the signed days-from-epoch; pre-epoch dates
+        // give negative values that must round-trip into the path component.
+        let (pf, sf) = make_field(1, 1000, "ts", "day", PrimitiveType::Date, Transform::Day);
+        let bound = vec![BoundPartitionField::new(&pf, &sf)];
+        let values = vec![Value::Int(-1)];
+
+        assert_eq!(
+            super::generate_partition_path(&bound, &values).unwrap(),
+            "day=-1/",
+        );
+    }
+
+    #[test]
+    fn test_generate_partition_path_truncate_int_renders_truncated_value() {
+        let (pf, sf) = make_field(
+            1,
+            1000,
+            "amount",
+            "amount_bucket",
+            PrimitiveType::Int,
+            Transform::Truncate(100),
+        );
+        let bound = vec![BoundPartitionField::new(&pf, &sf)];
+        // The caller hands `generate_partition_path` the *post*-transform
+        // value, so for `truncate(amount=237, 100)` that is `Int(200)`.
+        let values = vec![Value::Int(200)];
+
+        assert_eq!(
+            super::generate_partition_path(&bound, &values).unwrap(),
+            "amount_bucket=200/",
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: generate_partition_path does not URL-encode reserved characters; spec requires URL-encoding (e.g. `/` -> `%2F`)"]
+    fn test_generate_partition_path_url_encodes_reserved_characters() {
+        let (pf, sf) = make_field(
+            1,
+            1000,
+            "label",
+            "label",
+            PrimitiveType::String,
+            Transform::Identity,
+        );
+        let bound = vec![BoundPartitionField::new(&pf, &sf)];
+        // `/` is reserved in URL paths; without encoding it would split the
+        // path component and break the bidirectional partitionToPath/pathToPartition
+        // contract.
+        let values = vec![Value::String("a/b".to_owned())];
+        assert_eq!(
+            super::generate_partition_path(&bound, &values).unwrap(),
+            "label=a%2Fb/",
+        );
+    }
 }
