@@ -1573,4 +1573,185 @@ mod tests {
         assert!(metadata.versions.contains_key(&99));
         assert_eq!(metadata.current_version_id, 99);
     }
+
+    // --- Port: TestUpdateTableRequestParser (Apache Iceberg Java) ----------
+    //
+    // Java's TestUpdateTableRequestParser has 7 @Test methods. The Rust
+    // CommitTable struct mirrors most of the Java UpdateTableRequest shape
+    // but differs on identifier nullability: Rust requires identifier;
+    // Java treats it as optional.
+
+    #[test]
+    fn test_commit_table_parser_rejects_invalid_identifier_missing_name() {
+        // Java: fromJson("{identifier: {}}") -> "missing string: name".
+        // Rust serde rejects with the same intent (missing required field).
+        let json = r#"{
+            "identifier": {},
+            "requirements": [],
+            "updates": []
+        }"#;
+        let result: Result<CommitTable, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_table_parser_rejects_invalid_identifier_non_string_name() {
+        // Java: fromJson("{identifier: {name: 23}}") ->
+        //   "Cannot parse to a string value: name: 23".
+        let json = r#"{
+            "identifier": {"namespace": ["ns1"], "name": 23},
+            "requirements": [],
+            "updates": []
+        }"#;
+        let result: Result<CommitTable, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_table_parser_rejects_invalid_requirement_non_object() {
+        // Java: requirements:[23] -> "non-object value: 23".
+        let json = r#"{
+            "identifier": {"namespace": ["ns1"], "name": "table1"},
+            "requirements": [23],
+            "updates": []
+        }"#;
+        let result: Result<CommitTable, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_table_parser_rejects_requirement_with_missing_type_tag() {
+        // Java: requirements:[{}] -> "Missing field: type".
+        let json = r#"{
+            "identifier": {"namespace": ["ns1"], "name": "table1"},
+            "requirements": [{}],
+            "updates": []
+        }"#;
+        let result: Result<CommitTable, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_table_parser_rejects_assert_table_uuid_without_uuid() {
+        // Java: requirements:[{type:"assert-table-uuid"}] -> "missing string: uuid".
+        let json = r#"{
+            "identifier": {"namespace": ["ns1"], "name": "table1"},
+            "requirements": [{"type": "assert-table-uuid"}],
+            "updates": []
+        }"#;
+        let result: Result<CommitTable, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_table_parser_rejects_invalid_metadata_update_non_object() {
+        // Java: updates:[23] -> "non-object value: 23".
+        let json = r#"{
+            "identifier": {"namespace": ["ns1"], "name": "table1"},
+            "requirements": [],
+            "updates": [23]
+        }"#;
+        let result: Result<CommitTable, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_table_parser_rejects_update_with_missing_action_tag() {
+        // Java: updates:[{}] -> "Missing field: action".
+        let json = r#"{
+            "identifier": {"namespace": ["ns1"], "name": "table1"},
+            "requirements": [],
+            "updates": [{}]
+        }"#;
+        let result: Result<CommitTable, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_table_parser_rejects_assign_uuid_without_uuid() {
+        // Java: updates:[{action:"assign-uuid"}] -> "missing string: uuid".
+        let json = r#"{
+            "identifier": {"namespace": ["ns1"], "name": "table1"},
+            "requirements": [],
+            "updates": [{"action": "assign-uuid"}]
+        }"#;
+        let result: Result<CommitTable, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_commit_table_round_trip_pinned_wire_shape() {
+        // Port of Java's roundTripSerde with the same uuid + two
+        // requirements + two updates. Rust pins the per-key wire shape via
+        // serde_json::Value comparison.
+        let uuid_str = "2cc52516-5e73-41f2-b139-545d41a4e151";
+        let uuid = Uuid::parse_str(uuid_str).unwrap();
+        let request = CommitTable {
+            identifier: Identifier::new(&["ns1".to_string()], "table1"),
+            requirements: vec![
+                TableRequirement::AssertTableUuid { uuid },
+                TableRequirement::AssertCreate,
+            ],
+            updates: vec![
+                TableUpdate::AssignUuid {
+                    uuid: uuid.to_string(),
+                },
+                TableUpdate::SetCurrentSchema { schema_id: 23 },
+            ],
+        };
+
+        let value = serde_json::to_value(&request).unwrap();
+        assert_eq!(value["identifier"]["name"], "table1");
+        assert_eq!(value["identifier"]["namespace"], serde_json::json!(["ns1"]));
+        assert_eq!(value["requirements"][0]["type"], "assert-table-uuid");
+        assert_eq!(value["requirements"][0]["uuid"], uuid_str);
+        assert_eq!(value["requirements"][1]["type"], "assert-create");
+        assert_eq!(value["updates"][0]["action"], "assign-uuid");
+        assert_eq!(value["updates"][0]["uuid"], uuid_str);
+        assert_eq!(value["updates"][1]["action"], "set-current-schema");
+        assert_eq!(value["updates"][1]["schema-id"], 23);
+
+        let parsed: CommitTable = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed, request);
+    }
+
+    #[test]
+    fn test_commit_table_round_trip_with_empty_requirements_and_updates() {
+        // Port of Java's emptyRequirementsAndUpdates. Both vecs empty
+        // round-trip via JSON.
+        let request = CommitTable {
+            identifier: Identifier::new(&["ns1".to_string()], "table1"),
+            requirements: vec![],
+            updates: vec![],
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: CommitTable = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, request);
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust CommitTable.identifier is required (not Option); Java's UpdateTableRequest treats identifier as optional, allowing fromJson(\"{}\") to return a request with null identifier + empty vecs"]
+    fn test_commit_table_parser_accepts_empty_object_per_java() {
+        // Java: fromJson("{}") returns UpdateTableRequest with
+        //   identifier=null, updates=[], requirements=[].
+        // Rust's CommitTable requires identifier; an empty object fails to
+        // parse. Removing the marker after making identifier optional
+        // will flip this test to passing.
+        let result: Result<CommitTable, _> = serde_json::from_str("{}");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust CommitTable cannot omit identifier; Java's UpdateTableRequest accepts {requirements:[...], updates:[...]} without identifier"]
+    fn test_commit_table_parser_accepts_request_without_identifier_per_java() {
+        // Java: roundTripSerdeWithoutIdentifier — full request body with
+        // requirements + updates but no identifier field. Once the Rust
+        // struct uses Option<Identifier>, this should parse and round-trip.
+        let json = r#"{
+            "requirements": [{"type":"assert-create"}],
+            "updates": []
+        }"#;
+        let result: Result<CommitTable, _> = serde_json::from_str(json);
+        assert!(result.is_ok());
+    }
 }
