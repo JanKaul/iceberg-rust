@@ -2174,4 +2174,74 @@ mod tests {
             Value::Decimal(Decimal::from_str_exact("-123.4567").unwrap()).into();
         assert_eq!(encoded.as_slice(), &[0xED, 0x29, 0x79]);
     }
+
+    // --- Single-value JSON encoding for Fixed / Binary / Decimal ---------
+    //
+    // Per Iceberg "Appendix C: JSON serialization for single values":
+    //   fixed/binary -> lowercase hex, two characters per byte
+    //   decimal      -> the value rendered as a string with `.` for the
+    //                   decimal point
+    //
+    // The current Rust impl has three known gaps that these tests pin:
+    //   - hex encoding uses {:x} (no width) and so drops leading zeros
+    //   - encode of Value::Decimal is `todo!()`
+    //   - decode of Fixed/Binary/Decimal from JSON is `todo!()`
+
+    #[test]
+    #[ignore = "spec gap: Fixed -> JSON uses {:x} which drops leading zeros; spec requires two hex chars per byte"]
+    fn test_fixed_to_json_uses_two_hex_chars_per_byte() {
+        let v = Value::Fixed(4, vec![0x0A, 0xFF, 0x10, 0x00]);
+        let j: serde_json::Value = (&v).into();
+        assert_eq!(j, serde_json::Value::String("0aff1000".to_string()));
+    }
+
+    #[test]
+    #[ignore = "spec gap: Binary -> JSON uses {:x} which drops leading zeros; spec requires two hex chars per byte"]
+    fn test_binary_to_json_uses_two_hex_chars_per_byte() {
+        let v = Value::Binary(vec![0x00, 0x0A, 0xFF]);
+        let j: serde_json::Value = (&v).into();
+        assert_eq!(j, serde_json::Value::String("000aff".to_string()));
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn test_decimal_to_json_currently_panics() {
+        // Pins the current `todo!()` arm in `From<&Value> for JsonValue`.
+        // Will start failing — in a useful way — once the encoder is
+        // implemented; at that point this test should be replaced with the
+        // round-trip below.
+        let v = Value::Decimal(Decimal::from_str_exact("14.20").unwrap());
+        let _: serde_json::Value = (&v).into();
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn test_try_from_json_for_fixed_currently_panics() {
+        // Pins the current `todo!()` decoder arm.
+        let _ = Value::try_from_json(
+            serde_json::Value::String("0aff10".to_string()),
+            &Type::Primitive(PrimitiveType::Fixed(3)),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn test_try_from_json_for_binary_currently_panics() {
+        let _ = Value::try_from_json(
+            serde_json::Value::String("0a".to_string()),
+            &Type::Primitive(PrimitiveType::Binary),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn test_try_from_json_for_decimal_currently_panics() {
+        let _ = Value::try_from_json(
+            serde_json::Value::String("14.20".to_string()),
+            &Type::Primitive(PrimitiveType::Decimal {
+                precision: 4,
+                scale: 2,
+            }),
+        );
+    }
 }
