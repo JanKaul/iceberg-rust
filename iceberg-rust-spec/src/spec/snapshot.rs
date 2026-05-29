@@ -292,7 +292,8 @@ pub enum SnapshotRetention {
     Tag {
         /// For snapshot references except the main branch, a positive number for the max age of the snapshot reference to keep while expiring snapshots.
         /// Defaults to table property history.expire.max-ref-age-ms. The main branch never expires.
-        max_ref_age_ms: i64,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        max_ref_age_ms: Option<i64>,
     },
 }
 
@@ -484,7 +485,9 @@ mod tests {
         let r: SnapshotReference = serde_json::from_str(json).unwrap();
         assert_eq!(r.snapshot_id, 99);
         match r.retention {
-            SnapshotRetention::Tag { max_ref_age_ms } => assert_eq!(max_ref_age_ms, 1234),
+            SnapshotRetention::Tag { max_ref_age_ms } => {
+                assert_eq!(max_ref_age_ms, Some(1234))
+            }
             other => panic!("expected tag retention, got {other:?}"),
         }
 
@@ -506,15 +509,25 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot_reference_tag_requires_max_ref_age_ms_today() {
-        // Spec/Java allow a tag with only `snapshot-id` and `type`; the Rust
-        // `SnapshotRetention::Tag` variant treats `max_ref_age_ms` as
-        // required and rejects input that omits it. This test pins current
-        // Rust behaviour so any future relaxation is a deliberate change.
+    fn test_snapshot_reference_tag_allows_omitting_max_ref_age_ms() {
+        // Spec/Java allow a tag with only `snapshot-id` and `type`. The Rust
+        // variant treats `max_ref_age_ms` as optional in line with that
+        // contract, and re-serialising omits the absent field.
         let json = r#"{
             "snapshot-id": 1,
             "type": "tag"
         }"#;
-        assert!(serde_json::from_str::<SnapshotReference>(json).is_err());
+
+        let r: SnapshotReference = serde_json::from_str(json).unwrap();
+        assert_eq!(r.snapshot_id, 1);
+        match r.retention {
+            SnapshotRetention::Tag { max_ref_age_ms } => assert_eq!(max_ref_age_ms, None),
+            other => panic!("expected tag retention, got {other:?}"),
+        }
+
+        let again = serde_json::to_value(&r).unwrap();
+        assert!(again.get("max-ref-age-ms").is_none(), "got {again}");
+        let round_trip: SnapshotReference = serde_json::from_value(again).unwrap();
+        assert_eq!(round_trip, r);
     }
 }

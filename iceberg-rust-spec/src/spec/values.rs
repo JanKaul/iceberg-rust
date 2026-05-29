@@ -121,12 +121,7 @@ impl From<Value> for ByteBuf {
             Value::UUID(val) => ByteBuf::from(val.as_u128().to_be_bytes()),
             Value::Fixed(_, val) => ByteBuf::from(val),
             Value::Binary(val) => ByteBuf::from(val),
-            Value::Decimal(val) => {
-                // rust_decimal mantissa is 96 bits
-                // so we can remove the first 32 bits of the i128 representation
-                let bytes = val.mantissa().to_be_bytes()[4..].to_vec();
-                ByteBuf::from(bytes)
-            }
+            Value::Decimal(val) => ByteBuf::from(decimal_unscaled_min_be(&val)),
             _ => todo!(),
         }
     }
@@ -367,8 +362,8 @@ impl Value {
         match transform {
             Transform::Identity => Ok(self.clone()),
             Transform::Bucket(n) => {
-                let mut bytes = Cursor::new(<Value as Into<ByteBuf>>::into(self.clone()));
-                let hash = murmur3::murmur3_32(&mut bytes, 0).unwrap();
+                let bytes = bucket_hash_bytes(self);
+                let hash = murmur3::murmur3_32(&mut Cursor::new(bytes), 0).unwrap();
                 Ok(Value::Int((hash % n) as i32))
             }
             Transform::Truncate(w) => match self {
@@ -378,6 +373,20 @@ impl Value {
                     let mut s = s.clone();
                     s.truncate(*w as usize);
                     Ok(Value::String(s))
+                }
+                Value::Binary(b) => {
+                    let mut bytes = b.clone();
+                    bytes.truncate(*w as usize);
+                    Ok(Value::Binary(bytes))
+                }
+                Value::Decimal(d) => {
+                    let unscaled: i128 = d.mantissa();
+                    let width = *w as i128;
+                    let truncated = unscaled - unscaled.rem_euclid(width);
+                    Ok(Value::Decimal(Decimal::from_i128_with_scale(
+                        truncated,
+                        d.scale(),
+                    )))
                 }
                 _ => Err(Error::NotSupported(
                     "Datatype for truncate partition transform.".to_string(),
@@ -566,15 +575,31 @@ impl Value {
                 (PrimitiveType::Uuid, JsonValue::String(s)) => {
                     Ok(Some(Value::UUID(Uuid::parse_str(&s)?)))
                 }
-                (PrimitiveType::Fixed(_), JsonValue::String(_)) => todo!(),
-                (PrimitiveType::Binary, JsonValue::String(_)) => todo!(),
-                (
-                    PrimitiveType::Decimal {
-                        precision: _,
-                        scale: _,
-                    },
-                    JsonValue::String(_),
-                ) => todo!(),
+                (PrimitiveType::Fixed(len), JsonValue::String(s)) => {
+                    let bytes = hex_to_bytes(&s)?;
+                    if bytes.len() != *len as usize {
+                        return Err(Error::Conversion(
+                            format!("fixed({})", len),
+                            format!("hex string of {} bytes", bytes.len()),
+                        ));
+                    }
+                    Ok(Some(Value::Fixed(*len as usize, bytes)))
+                }
+                (PrimitiveType::Binary, JsonValue::String(s)) => {
+                    Ok(Some(Value::Binary(hex_to_bytes(&s)?)))
+                }
+                (PrimitiveType::Decimal { scale, .. }, JsonValue::String(s)) => {
+                    let d = Decimal::from_str_exact(&s).map_err(|e| {
+                        Error::Conversion(s.clone(), format!("decimal: {e}"))
+                    })?;
+                    if d.scale() != *scale {
+                        return Err(Error::Conversion(
+                            s,
+                            format!("decimal with scale {scale}"),
+                        ));
+                    }
+                    Ok(Some(Value::Decimal(d)))
+                }
                 (_, JsonValue::Null) => Ok(None),
                 (i, j) => Err(Error::Type(i.to_string(), j.to_string())),
             },
@@ -750,6 +775,113 @@ impl Value {
     }
 }
 
+/// Spec (Appendix C) single-value JSON for `fixed` and `binary`: lowercase
+/// hex, two characters per byte. `{:02x}` keeps leading zeros that the bare
+/// `{:x}` formatter drops.
+fn bytes_to_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        use std::fmt::Write;
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+fn hex_to_bytes(s: &str) -> Result<Vec<u8>, Error> {
+    if s.len() % 2 != 0 {
+        return Err(Error::InvalidFormat(format!(
+            "hex string length {} is not even",
+            s.len()
+        )));
+    }
+    let mut out = Vec::with_capacity(s.len() / 2);
+    let bytes = s.as_bytes();
+    for pair in bytes.chunks(2) {
+        let hi = hex_nibble(pair[0])?;
+        let lo = hex_nibble(pair[1])?;
+        out.push((hi << 4) | lo);
+    }
+    Ok(out)
+}
+
+fn hex_nibble(c: u8) -> Result<u8, Error> {
+    match c {
+        b'0'..=b'9' => Ok(c - b'0'),
+        b'a'..=b'f' => Ok(c - b'a' + 10),
+        b'A'..=b'F' => Ok(c - b'A' + 10),
+        _ => Err(Error::InvalidFormat(format!(
+            "{:?} is not a hex digit",
+            c as char
+        ))),
+    }
+}
+
+/// Spec-compliant bytes for Murmur3 bucket hashing (Appendix B). Numeric
+/// types are promoted before hashing (int→long, float→double) so that
+/// numerically equal values hash equally regardless of declared width.
+/// Signed zero is canonicalised to positive zero. Other types fall back
+/// to the partition-value byte encoding.
+fn bucket_hash_bytes(value: &Value) -> Vec<u8> {
+    match value {
+        Value::Int(v) => (*v as i64).to_le_bytes().to_vec(),
+        Value::Date(v) => (*v as i64).to_le_bytes().to_vec(),
+        Value::Boolean(v) => (*v as i64).to_le_bytes().to_vec(),
+        Value::Float(v) => {
+            let promoted = canonical_zero(v.into_inner() as f64);
+            promoted.to_bits().to_le_bytes().to_vec()
+        }
+        Value::Double(v) => {
+            let canonical = canonical_zero(v.into_inner());
+            canonical.to_bits().to_le_bytes().to_vec()
+        }
+        other => {
+            let buf: ByteBuf = other.clone().into();
+            buf.into_vec()
+        }
+    }
+}
+
+#[inline]
+fn canonical_zero(v: f64) -> f64 {
+    // IEEE-754 treats +0.0 and -0.0 as equal, so the comparison catches
+    // both signed zero variants and returns the positive representation.
+    if v == 0.0 {
+        0.0
+    } else {
+        v
+    }
+}
+
+/// Spec encoding for `Value::Decimal` (Appendix D): the unscaled integer
+/// part of the decimal serialised as big-endian two's complement in the
+/// minimum number of bytes — i.e. `BigInteger.toByteArray()` semantics.
+fn decimal_unscaled_min_be(d: &Decimal) -> Vec<u8> {
+    let unscaled: i128 = d.mantissa();
+    let full = unscaled.to_be_bytes();
+    let is_negative = unscaled < 0;
+    let mut start = 0;
+    // Strip leading bytes that are redundant for sign preservation. A
+    // byte is redundant when it is the sign-extension byte (0x00 for
+    // non-negative, 0xFF for negative) AND the next byte's top bit still
+    // encodes the same sign. Stop one byte before the end so that zero
+    // is encoded as a single 0x00.
+    while start < full.len() - 1 {
+        let cur = full[start];
+        let next_top = full[start + 1] & 0x80;
+        let redundant = if is_negative {
+            cur == 0xFF && next_top != 0
+        } else {
+            cur == 0x00 && next_top == 0
+        };
+        if redundant {
+            start += 1;
+        } else {
+            break;
+        }
+    }
+    full[start..].to_vec()
+}
+
 /// Performs big endian sign extension
 /// Copied from arrow-rs repo/parquet crate:
 /// https://github.com/apache/arrow-rs/blob/b25c441745602c9967b1e3cc4a28bc469cfb1311/parquet/src/arrow/buffer/bit_util.rs#L54
@@ -791,19 +923,9 @@ impl From<&Value> for JsonValue {
             ),
             Value::String(val) => JsonValue::String(val.clone()),
             Value::UUID(val) => JsonValue::String(val.to_string()),
-            Value::Fixed(_, val) => {
-                JsonValue::String(val.iter().fold(String::new(), |mut acc, x| {
-                    acc.push_str(&format!("{x:x}"));
-                    acc
-                }))
-            }
-            Value::Binary(val) => {
-                JsonValue::String(val.iter().fold(String::new(), |mut acc, x| {
-                    acc.push_str(&format!("{x:x}"));
-                    acc
-                }))
-            }
-            Value::Decimal(_) => todo!(),
+            Value::Fixed(_, val) => JsonValue::String(bytes_to_hex(val)),
+            Value::Binary(val) => JsonValue::String(bytes_to_hex(val)),
+            Value::Decimal(val) => JsonValue::String(val.to_string()),
 
             Value::Struct(s) => JsonValue::Object(JsonMap::from_iter(
                 s.lookup
@@ -849,32 +971,23 @@ impl From<&Value> for JsonValue {
 }
 
 mod datetime {
+    /// Signed number of years between `date` and the Unix epoch
+    /// (1970-01-01). Negative for pre-epoch dates.
     #[inline]
     pub(crate) fn date_to_years(date: &NaiveDate) -> i32 {
-        date.years_since(
-            // This is always the same and shouldn't fail
-            NaiveDate::from_ymd_opt(YEARS_BEFORE_UNIX_EPOCH, 1, 1).unwrap(),
-        )
-        .unwrap() as i32
+        date.year() - YEARS_BEFORE_UNIX_EPOCH
     }
 
+    /// Iceberg "month transform" of a date: `(year - 1970) * 12 + (month - 1)`.
     #[inline]
     pub(crate) fn date_to_months(date: &NaiveDate) -> i32 {
-        let years = date
-            .years_since(
-                // This is always the same and shouldn't fail
-                NaiveDate::from_ymd_opt(YEARS_BEFORE_UNIX_EPOCH, 1, 1).unwrap(),
-            )
-            .unwrap() as i32;
-        let months = date.month();
-        years * 12 + months as i32
+        (date.year() - YEARS_BEFORE_UNIX_EPOCH) * 12 + (date.month() as i32 - 1)
     }
 
+    /// Iceberg "month transform" of a timestamp.
     #[inline]
     pub(crate) fn datetime_to_months(date: &NaiveDateTime) -> i32 {
-        let years = date.year() - YEARS_BEFORE_UNIX_EPOCH;
-        let months = date.month();
-        years * 12 + months as i32
+        (date.year() - YEARS_BEFORE_UNIX_EPOCH) * 12 + (date.month() as i32 - 1)
     }
 
     #[inline]
@@ -922,22 +1035,21 @@ mod datetime {
         DateTime::from_timestamp_micros(time).unwrap().naive_utc()
     }
 
+    /// Iceberg "day transform" of a timestamp: floor((micros - 0) / 86_400_000_000).
+    /// chrono's `Duration::num_days` truncates toward zero; we need floor.
     #[inline]
     pub(crate) fn datetime_to_days(time: &NaiveDateTime) -> i64 {
-        time.signed_duration_since(
-            // This is always the same and shouldn't fail
-            DateTime::from_timestamp_micros(0).unwrap().naive_utc(),
-        )
-        .num_days()
+        time.and_utc()
+            .timestamp_micros()
+            .div_euclid(86_400_000_000)
     }
 
+    /// Iceberg "hour transform" of a timestamp, with floor semantics.
     #[inline]
     pub(crate) fn datetime_to_hours(time: &NaiveDateTime) -> i64 {
-        time.signed_duration_since(
-            // This is always the same and shouldn't fail
-            DateTime::from_timestamp_micros(0).unwrap().naive_utc(),
-        )
-        .num_hours()
+        time.and_utc()
+            .timestamp_micros()
+            .div_euclid(3_600_000_000)
     }
 
     use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
@@ -1375,13 +1487,12 @@ mod tests {
     fn avro_bytes_decimal() {
         let value = Value::Decimal(Decimal::from_str_exact("104899.50").unwrap());
 
-        // Test serialization
+        // 104899.50 unscaled = 10_489_950 = 0xA0105E. The high bit of 0xA0 is
+        // set, so the spec encoding retains a leading 0x00 byte to keep the
+        // sign positive.
         let byte_buf: ByteBuf = value.clone().into();
         let bytes: Vec<u8> = byte_buf.into_vec();
-        assert_eq!(
-            bytes,
-            vec![0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 160u8, 16u8, 94u8]
-        );
+        assert_eq!(bytes, vec![0x00, 0xA0, 0x10, 0x5E]);
 
         // Test deserialization
         check_avro_bytes_serde(
@@ -1470,30 +1581,30 @@ mod tests {
     fn test_transform_month_date() {
         let value = Value::Date(19478);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(641)); // 0-based month index
+        assert_eq!(result, Value::Int(640)); // 0-based month index
 
         let value = Value::Date(19523);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(642)); // 0-based month index
+        assert_eq!(result, Value::Int(641)); // 0-based month index
 
         let value = Value::Date(19723);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(649)); // 0-based month index
+        assert_eq!(result, Value::Int(648)); // 0-based month index
     }
 
     #[test]
     fn test_transform_month_timestamp() {
         let value = Value::Timestamp(1682937000000000);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(641)); // 0-based month index
+        assert_eq!(result, Value::Int(640)); // 0-based month index
 
         let value = Value::Timestamp(1686840330000000);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(642)); // 0-based month index
+        assert_eq!(result, Value::Int(641)); // 0-based month index
 
         let value = Value::Timestamp(1704067200000000);
         let result = value.transform(&Transform::Month).unwrap();
-        assert_eq!(result, Value::Int(649)); // 0-based month index
+        assert_eq!(result, Value::Int(648)); // 0-based month index
     }
 
     #[test]
@@ -1650,13 +1761,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 4 LE bytes for Int; spec hashes the long-promoted 8 LE bytes"]
     fn test_bucket_int_matches_spec_via_long_promotion() {
         assert_eq!(bucket(Value::Int(34)), bucket_of(2017239379));
     }
 
     #[test]
-    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 4 LE bytes for Float; spec hashes the double-promoted 8 LE bytes"]
     fn test_bucket_float_matches_spec_via_double_promotion() {
         assert_eq!(
             bucket(Value::Float(OrderedFloat(1.0))),
@@ -1665,20 +1774,17 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 4 LE bytes for Date; spec hashes the long-promoted 8 LE bytes"]
     fn test_bucket_date_matches_spec_via_long_promotion() {
         // 2017-11-16 sits at day 17486 since the Unix epoch.
         assert_eq!(bucket(Value::Date(17486)), bucket_of(-653330422));
     }
 
     #[test]
-    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 1 byte for Boolean; spec hashes 1/0 as a long (8 LE bytes)"]
     fn test_bucket_boolean_matches_spec_via_long_promotion() {
         assert_eq!(bucket(Value::Boolean(true)), bucket_of(1392991556));
     }
 
     #[test]
-    #[ignore = "spec gap: Decimal encodes 12 padded BE bytes; spec uses the minimum-byte unscaled BE representation"]
     fn test_bucket_decimal_matches_spec() {
         assert_eq!(
             bucket(Value::Decimal(
@@ -1689,13 +1795,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: Int and Long values with the same numeric value should hash equally"]
     fn test_bucket_int_and_long_agree_for_same_value() {
         assert_eq!(bucket(Value::Int(42)), bucket(Value::LongInt(42)));
     }
 
     #[test]
-    #[ignore = "spec gap: Float and Double values with the same numeric value should hash equally"]
     fn test_bucket_float_and_double_agree_for_same_value() {
         assert_eq!(
             bucket(Value::Float(OrderedFloat(1.5_f32))),
@@ -1704,7 +1808,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: -0.0 should be canonicalized to +0.0 before hashing"]
     fn test_bucket_signed_zero_floats_agree() {
         assert_eq!(
             bucket(Value::Float(OrderedFloat(0.0_f32))),
@@ -1713,7 +1816,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: -0.0 should be canonicalized to +0.0 before hashing"]
     fn test_bucket_signed_zero_doubles_agree() {
         assert_eq!(
             bucket(Value::Double(OrderedFloat(0.0))),
@@ -1784,7 +1886,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "feature gap: Truncate has no Value::Decimal arm (returns NotSupported)"]
     fn test_truncate_decimal_rounds_toward_negative_infinity() {
         // For a width=10 truncate over a 2-decimal-place value, the step is
         // 10 * 10^(-scale) = 0.10. Truncation rounds toward -infinity.
@@ -1808,7 +1909,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "feature gap: Truncate has no Value::Binary arm (returns NotSupported)"]
     fn test_truncate_binary_cuts_without_padding() {
         let w = 2u32;
         for (input, expected) in [
@@ -1849,7 +1949,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: date_to_years uses chrono::NaiveDate::years_since which returns None pre-epoch, then unwraps"]
     fn test_year_of_date_pre_epoch() {
         assert_eq!(
             Value::Date(-1).transform(&Transform::Year).unwrap(),
@@ -1868,7 +1967,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: date_to_months adds chrono::month() (1-indexed); spec is year*12 + month - 1 (0-indexed)"]
     fn test_month_of_date_matches_spec() {
         assert_eq!(
             Value::Date(17501).transform(&Transform::Month).unwrap(),
@@ -1920,7 +2018,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: datetime_to_months adds chrono::month() (1-indexed); spec is year*12 + month - 1 (0-indexed)"]
     fn test_month_of_timestamp_matches_spec() {
         assert_eq!(
             Value::Timestamp(TS_2017_12_01_MICROS)
@@ -1931,7 +2028,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: chrono::Duration::num_days truncates toward zero; spec requires floor"]
     fn test_day_of_timestamp_pre_epoch() {
         assert_eq!(
             Value::Timestamp(-1).transform(&Transform::Day).unwrap(),
@@ -1940,7 +2036,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: chrono::Duration::num_hours truncates toward zero; spec requires floor"]
     fn test_hour_of_timestamp_pre_epoch() {
         assert_eq!(
             Value::Timestamp(-1).transform(&Transform::Hour).unwrap(),
@@ -2162,7 +2257,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 12 zero-padded BE bytes for Decimal; spec requires the minimum-byte unscaled two's-complement BE encoding"]
     fn test_byte_conversion_decimal_encode_uses_minimum_byte_encoding() {
         // 3.45 unscaled = 345 -> spec encoding [0x01, 0x59].
         let encoded: ByteBuf =
@@ -2188,7 +2282,6 @@ mod tests {
     //   - decode of Fixed/Binary/Decimal from JSON is `todo!()`
 
     #[test]
-    #[ignore = "spec gap: Fixed -> JSON uses {:x} which drops leading zeros; spec requires two hex chars per byte"]
     fn test_fixed_to_json_uses_two_hex_chars_per_byte() {
         let v = Value::Fixed(4, vec![0x0A, 0xFF, 0x10, 0x00]);
         let j: serde_json::Value = (&v).into();
@@ -2196,7 +2289,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "spec gap: Binary -> JSON uses {:x} which drops leading zeros; spec requires two hex chars per byte"]
     fn test_binary_to_json_uses_two_hex_chars_per_byte() {
         let v = Value::Binary(vec![0x00, 0x0A, 0xFF]);
         let j: serde_json::Value = (&v).into();
@@ -2204,44 +2296,65 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
-    fn test_decimal_to_json_currently_panics() {
-        // Pins the current `todo!()` arm in `From<&Value> for JsonValue`.
-        // Will start failing — in a useful way — once the encoder is
-        // implemented; at that point this test should be replaced with the
-        // round-trip below.
+    fn test_decimal_to_json_renders_as_canonical_string() {
         let v = Value::Decimal(Decimal::from_str_exact("14.20").unwrap());
-        let _: serde_json::Value = (&v).into();
+        let j: serde_json::Value = (&v).into();
+        assert_eq!(j, serde_json::Value::String("14.20".to_string()));
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
-    fn test_try_from_json_for_fixed_currently_panics() {
-        // Pins the current `todo!()` decoder arm.
-        let _ = Value::try_from_json(
-            serde_json::Value::String("0aff10".to_string()),
-            &Type::Primitive(PrimitiveType::Fixed(3)),
+    fn test_try_from_json_for_fixed_round_trips_hex() {
+        let ty = Type::Primitive(PrimitiveType::Fixed(3));
+        let decoded =
+            Value::try_from_json(serde_json::Value::String("0aff10".to_string()), &ty)
+                .unwrap()
+                .unwrap();
+        assert_eq!(decoded, Value::Fixed(3, vec![0x0A, 0xFF, 0x10]));
+    }
+
+    #[test]
+    fn test_try_from_json_for_fixed_rejects_wrong_length() {
+        let ty = Type::Primitive(PrimitiveType::Fixed(3));
+        assert!(
+            Value::try_from_json(serde_json::Value::String("0aff".to_string()), &ty).is_err()
         );
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
-    fn test_try_from_json_for_binary_currently_panics() {
-        let _ = Value::try_from_json(
-            serde_json::Value::String("0a".to_string()),
-            &Type::Primitive(PrimitiveType::Binary),
+    fn test_try_from_json_for_binary_round_trips_hex() {
+        let ty = Type::Primitive(PrimitiveType::Binary);
+        let decoded =
+            Value::try_from_json(serde_json::Value::String("0a".to_string()), &ty)
+                .unwrap()
+                .unwrap();
+        assert_eq!(decoded, Value::Binary(vec![0x0A]));
+    }
+
+    #[test]
+    fn test_try_from_json_for_decimal_round_trips() {
+        let ty = Type::Primitive(PrimitiveType::Decimal {
+            precision: 4,
+            scale: 2,
+        });
+        let decoded =
+            Value::try_from_json(serde_json::Value::String("14.20".to_string()), &ty)
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            decoded,
+            Value::Decimal(Decimal::from_str_exact("14.20").unwrap()),
         );
     }
 
     #[test]
-    #[should_panic(expected = "not yet implemented")]
-    fn test_try_from_json_for_decimal_currently_panics() {
-        let _ = Value::try_from_json(
-            serde_json::Value::String("14.20".to_string()),
-            &Type::Primitive(PrimitiveType::Decimal {
-                precision: 4,
-                scale: 2,
-            }),
+    fn test_try_from_json_for_decimal_rejects_scale_mismatch() {
+        // The JSON value has scale 1; the declared type has scale 2.
+        let ty = Type::Primitive(PrimitiveType::Decimal {
+            precision: 4,
+            scale: 2,
+        });
+        assert!(
+            Value::try_from_json(serde_json::Value::String("1.5".to_string()), &ty).is_err()
         );
     }
 }
