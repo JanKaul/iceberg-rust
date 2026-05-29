@@ -24,3 +24,49 @@ impl IcebergErrorResponse {
         IcebergErrorResponse { error }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn test_iceberg_error_response_wraps_inner_error_under_error_key() {
+        let inner = models::ErrorModel::new(
+            "table foo not found".to_string(),
+            "NoSuchTableException".to_string(),
+            404,
+        );
+        let wrapped = IcebergErrorResponse::new(inner.clone());
+        let value: Value = serde_json::to_value(&wrapped).unwrap();
+        // Spec: the entire payload is a single-key object whose value is
+        // the inner ErrorModel.
+        assert_eq!(value["error"]["message"], "table foo not found");
+        assert_eq!(value["error"]["type"], "NoSuchTableException");
+        assert_eq!(value["error"]["code"], 404);
+    }
+
+    #[test]
+    fn test_iceberg_error_response_round_trip_via_json() {
+        let inner =
+            models::ErrorModel::new("internal".to_string(), "InternalError".to_string(), 500);
+        let original = IcebergErrorResponse::new(inner);
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: IcebergErrorResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn test_iceberg_error_response_parses_canonical_payload() {
+        let json = json!({
+            "error": {
+                "message": "table foo not found",
+                "type": "NoSuchTableException",
+                "code": 404
+            }
+        });
+        let response: IcebergErrorResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(response.error.message, "table foo not found");
+        assert_eq!(response.error.code, 404);
+    }
+}

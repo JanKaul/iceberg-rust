@@ -38,3 +38,67 @@ impl ErrorModel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn test_error_model_new_initialises_required_fields_and_no_stack() {
+        let err = ErrorModel::new(
+            "table foo not found".to_string(),
+            "NoSuchTableException".to_string(),
+            404,
+        );
+        assert_eq!(err.message, "table foo not found");
+        assert_eq!(err.r#type, "NoSuchTableException");
+        assert_eq!(err.code, 404);
+        assert!(err.stack.is_none());
+    }
+
+    #[test]
+    fn test_error_model_serialises_required_keys_with_kebab_renamed_type() {
+        // The Rust field is `r#type` to escape the keyword; serde renames
+        // it back to the canonical `type` JSON key.
+        let err = ErrorModel::new("internal".to_string(), "InternalError".to_string(), 500);
+        let value: Value = serde_json::to_value(&err).unwrap();
+        assert_eq!(value["message"], "internal");
+        assert_eq!(value["type"], "InternalError");
+        assert_eq!(value["code"], 500);
+        // `stack` is omitted entirely when None.
+        assert!(value.get("stack").is_none(), "got {value}");
+    }
+
+    #[test]
+    fn test_error_model_serialises_stack_when_some() {
+        let mut err = ErrorModel::new("boom".to_string(), "RuntimeError".to_string(), 500);
+        err.stack = Some(vec!["frame 1".to_string(), "frame 2".to_string()]);
+        let value: Value = serde_json::to_value(&err).unwrap();
+        assert_eq!(value["stack"], json!(["frame 1", "frame 2"]));
+    }
+
+    #[test]
+    fn test_error_model_deserialises_from_canonical_payload() {
+        let json = json!({
+            "message": "table foo not found",
+            "type": "NoSuchTableException",
+            "code": 404,
+            "stack": ["a", "b"]
+        });
+        let err: ErrorModel = serde_json::from_value(json).unwrap();
+        assert_eq!(err.message, "table foo not found");
+        assert_eq!(err.r#type, "NoSuchTableException");
+        assert_eq!(err.code, 404);
+        assert_eq!(err.stack, Some(vec!["a".to_string(), "b".to_string()]));
+    }
+
+    #[test]
+    fn test_error_model_round_trip_via_json_preserves_all_fields() {
+        let mut original = ErrorModel::new("msg".to_string(), "TypeX".to_string(), 418);
+        original.stack = Some(vec!["one".to_string()]);
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: ErrorModel = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+}
