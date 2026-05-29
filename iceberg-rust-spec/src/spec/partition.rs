@@ -322,4 +322,22 @@ mod tests {
         assert_eq!("id_truncate", partition_spec.fields[2].name);
         assert_eq!(Transform::Truncate(4), partition_spec.fields[2].transform);
     }
+
+    #[test]
+    fn test_transform_json_round_trips_every_variant() {
+        for t in [
+            Transform::Identity,
+            Transform::Bucket(1024),
+            Transform::Truncate(16),
+            Transform::Year,
+            Transform::Month,
+            Transform::Day,
+            Transform::Hour,
+            Transform::Void,
+        ] {
+            let json = serde_json::to_string(&t).unwrap();
+            let parsed: Transform = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, t, "round-trip {t:?} via {json}");
+        }
+    }
 }

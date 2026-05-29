@@ -1581,4 +1581,396 @@ mod tests {
             5354
         );
     }
+
+    // Partition transform behavior tests.
+    //
+    // Bucket spec hash vectors come from the Iceberg Table Spec, Appendix B
+    // ("32-bit Hash Requirements"). Tests pinned with `#[ignore]` document a
+    // current divergence from the spec; removing the attribute exercises the
+    // fix once the underlying gap is addressed.
+
+    const APPENDIX_B_BUCKETS: u32 = 1024;
+
+    fn bucket(value: Value) -> Value {
+        value
+            .transform(&Transform::Bucket(APPENDIX_B_BUCKETS))
+            .unwrap()
+    }
+
+    fn bucket_of(spec_hash: i32) -> Value {
+        Value::Int(((spec_hash as u32) % APPENDIX_B_BUCKETS) as i32)
+    }
+
+    // --- Bucket: spec hash vectors -------------------------------------------
+
+    /// Every Value variant whose current `From<Value> for ByteBuf` encoding
+    /// already matches the spec lives here. The remaining variants live in
+    /// individual `#[ignore]`'d tests below so the gap is named.
+    #[test]
+    fn test_bucket_supported_primitives_match_spec_hashes() {
+        // 22:31:08 = 81_068 seconds from midnight, stored in microseconds.
+        let time_micros: i64 = 81_068 * 1_000_000;
+        // 2017-11-16T22:31:08 UTC = 1_510_871_468 seconds since epoch.
+        let ts_2017_micros: i64 = 1_510_871_468 * 1_000_000;
+        let uuid =
+            Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap();
+
+        for (label, value, spec_hash) in [
+            ("long(34)", Value::LongInt(34), 2017239379_i32),
+            ("double(1.0)", Value::Double(OrderedFloat(1.0)), -142385009),
+            ("double(+0.0)", Value::Double(OrderedFloat(0.0)), 1669671676),
+            ("time 22:31:08", Value::Time(time_micros), -662762989),
+            (
+                "timestamp 2017-11-16T22:31:08",
+                Value::Timestamp(ts_2017_micros),
+                -2047944441,
+            ),
+            (
+                "timestamptz 2017-11-16T14:31:08-08:00",
+                Value::TimestampTZ(ts_2017_micros),
+                -2047944441,
+            ),
+            (
+                "string(\"iceberg\")",
+                Value::String("iceberg".to_string()),
+                1210000089,
+            ),
+            ("uuid", Value::UUID(uuid), 1488055340),
+            ("binary [00 01 02 03]", Value::Binary(vec![0, 1, 2, 3]), -188683207),
+        ] {
+            assert_eq!(bucket(value), bucket_of(spec_hash), "{label}");
+        }
+    }
+
+    #[test]
+    fn test_bucket_string_is_deterministic_for_multibyte_utf8() {
+        let v = Value::String("payday 💰".to_string());
+        assert_eq!(bucket(v.clone()), bucket(v.clone()));
+        assert!(matches!(bucket(v), Value::Int(_)));
+    }
+
+    #[test]
+    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 4 LE bytes for Int; spec hashes the long-promoted 8 LE bytes"]
+    fn test_bucket_int_matches_spec_via_long_promotion() {
+        assert_eq!(bucket(Value::Int(34)), bucket_of(2017239379));
+    }
+
+    #[test]
+    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 4 LE bytes for Float; spec hashes the double-promoted 8 LE bytes"]
+    fn test_bucket_float_matches_spec_via_double_promotion() {
+        assert_eq!(
+            bucket(Value::Float(OrderedFloat(1.0))),
+            bucket_of(-142385009),
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 4 LE bytes for Date; spec hashes the long-promoted 8 LE bytes"]
+    fn test_bucket_date_matches_spec_via_long_promotion() {
+        // 2017-11-16 sits at day 17486 since the Unix epoch.
+        assert_eq!(bucket(Value::Date(17486)), bucket_of(-653330422));
+    }
+
+    #[test]
+    #[ignore = "spec gap: `From<Value> for ByteBuf` emits 1 byte for Boolean; spec hashes 1/0 as a long (8 LE bytes)"]
+    fn test_bucket_boolean_matches_spec_via_long_promotion() {
+        assert_eq!(bucket(Value::Boolean(true)), bucket_of(1392991556));
+    }
+
+    #[test]
+    #[ignore = "spec gap: Decimal encodes 12 padded BE bytes; spec uses the minimum-byte unscaled BE representation"]
+    fn test_bucket_decimal_matches_spec() {
+        assert_eq!(
+            bucket(Value::Decimal(
+                Decimal::from_str_exact("14.20").unwrap()
+            )),
+            bucket_of(-500754589),
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: Int and Long values with the same numeric value should hash equally"]
+    fn test_bucket_int_and_long_agree_for_same_value() {
+        assert_eq!(bucket(Value::Int(42)), bucket(Value::LongInt(42)));
+    }
+
+    #[test]
+    #[ignore = "spec gap: Float and Double values with the same numeric value should hash equally"]
+    fn test_bucket_float_and_double_agree_for_same_value() {
+        assert_eq!(
+            bucket(Value::Float(OrderedFloat(1.5_f32))),
+            bucket(Value::Double(OrderedFloat(1.5_f32 as f64))),
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: -0.0 should be canonicalized to +0.0 before hashing"]
+    fn test_bucket_signed_zero_floats_agree() {
+        assert_eq!(
+            bucket(Value::Float(OrderedFloat(0.0_f32))),
+            bucket(Value::Float(OrderedFloat(-0.0_f32))),
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: -0.0 should be canonicalized to +0.0 before hashing"]
+    fn test_bucket_signed_zero_doubles_agree() {
+        assert_eq!(
+            bucket(Value::Double(OrderedFloat(0.0))),
+            bucket(Value::Double(OrderedFloat(-0.0))),
+        );
+    }
+
+    // --- Truncate ------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_int_uses_euclidean_modulo() {
+        // truncate(v, w) is the largest multiple of w <= v, including v < 0.
+        let w = 7u32;
+        for (input, expected) in [
+            (0_i32, 0_i32),
+            (3, 0),
+            (6, 0),
+            (7, 7),
+            (13, 7),
+            (14, 14),
+            (-1, -7),
+            (-7, -7),
+            (-8, -14),
+        ] {
+            let got = Value::Int(input)
+                .transform(&Transform::Truncate(w))
+                .unwrap();
+            assert_eq!(got, Value::Int(expected), "Int({input}) / {w}");
+        }
+    }
+
+    #[test]
+    fn test_truncate_long_uses_euclidean_modulo() {
+        let w = 100u32;
+        for (input, expected) in [
+            (0_i64, 0_i64),
+            (99, 0),
+            (100, 100),
+            (250, 200),
+            (-1, -100),
+            (-100, -100),
+            (-101, -200),
+        ] {
+            let got = Value::LongInt(input)
+                .transform(&Transform::Truncate(w))
+                .unwrap();
+            assert_eq!(got, Value::LongInt(expected), "LongInt({input}) / {w}");
+        }
+    }
+
+    #[test]
+    fn test_truncate_string_cuts_without_padding() {
+        let w = 3u32;
+        for (input, expected) in [
+            ("go", "go"),       // shorter than width — no padding
+            ("run", "run"),     // exactly the width
+            ("iceberg", "ice"), // longer than width
+        ] {
+            let got = Value::String(input.to_string())
+                .transform(&Transform::Truncate(w))
+                .unwrap();
+            assert_eq!(
+                got,
+                Value::String(expected.to_string()),
+                "String({input:?}) / {w}",
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "feature gap: Truncate has no Value::Decimal arm (returns NotSupported)"]
+    fn test_truncate_decimal_rounds_toward_negative_infinity() {
+        // For a width=10 truncate over a 2-decimal-place value, the step is
+        // 10 * 10^(-scale) = 0.10. Truncation rounds toward -infinity.
+        let w = 10u32;
+        for (input, expected) in [
+            ("0.09", "0.00"),
+            ("0.10", "0.10"),
+            ("0.19", "0.10"),
+            ("-0.01", "-0.10"),
+            ("-0.10", "-0.10"),
+        ] {
+            let got = Value::Decimal(Decimal::from_str_exact(input).unwrap())
+                .transform(&Transform::Truncate(w))
+                .unwrap();
+            assert_eq!(
+                got,
+                Value::Decimal(Decimal::from_str_exact(expected).unwrap()),
+                "Decimal({input}) / {w}",
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "feature gap: Truncate has no Value::Binary arm (returns NotSupported)"]
+    fn test_truncate_binary_cuts_without_padding() {
+        let w = 2u32;
+        for (input, expected) in [
+            (vec![1u8, 2, 3, 4, 5], vec![1u8, 2]),
+            (vec![9u8], vec![9u8]),
+        ] {
+            let got = Value::Binary(input.clone())
+                .transform(&Transform::Truncate(w))
+                .unwrap();
+            assert_eq!(got, Value::Binary(expected), "Binary({input:?}) / {w}");
+        }
+    }
+
+    // --- Date / Timestamp transforms -----------------------------------------
+    //
+    // Reference dates used below:
+    //   1970-01-01            -> day 0    / year offset 0
+    //   1969-12-31            -> day -1   / year offset -1
+    //   2017-12-01            -> day 17501 / year offset 47 / month offset 575
+    //                            (47*12 + 11) / hour offset 420034 (17501*24 + 10)
+    //
+    // The microsecond constant below pins down a sub-second instant so the
+    // hour test exercises a non-trivial intra-day computation.
+
+    /// Microseconds since epoch for `2017-12-01T10:12:55.038194` UTC.
+    const TS_2017_12_01_MICROS: i64 = 1_512_123_175_038_194;
+
+    #[test]
+    fn test_year_of_date_post_epoch() {
+        assert_eq!(
+            Value::Date(17501).transform(&Transform::Year).unwrap(),
+            Value::Int(47),
+        );
+        assert_eq!(
+            Value::Date(0).transform(&Transform::Year).unwrap(),
+            Value::Int(0),
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: date_to_years uses chrono::NaiveDate::years_since which returns None pre-epoch, then unwraps"]
+    fn test_year_of_date_pre_epoch() {
+        assert_eq!(
+            Value::Date(-1).transform(&Transform::Year).unwrap(),
+            Value::Int(-1),
+        );
+    }
+
+    #[test]
+    fn test_day_of_date_is_identity_across_epoch() {
+        for date in [17501_i32, 0, -1] {
+            assert_eq!(
+                Value::Date(date).transform(&Transform::Day).unwrap(),
+                Value::Int(date),
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "spec gap: date_to_months adds chrono::month() (1-indexed); spec is year*12 + month - 1 (0-indexed)"]
+    fn test_month_of_date_matches_spec() {
+        assert_eq!(
+            Value::Date(17501).transform(&Transform::Month).unwrap(),
+            Value::Int(575),
+        );
+    }
+
+    #[test]
+    fn test_year_of_timestamp_works_across_epoch() {
+        // The timestamp Year arm uses chrono::DateTime::year, which handles
+        // both eras correctly (unlike the Date arm).
+        for ts in [TS_2017_12_01_MICROS, -1] {
+            let expected = if ts < 0 { Value::Int(-1) } else { Value::Int(47) };
+            assert_eq!(
+                Value::Timestamp(ts).transform(&Transform::Year).unwrap(),
+                expected,
+                "Timestamp({ts})",
+            );
+            assert_eq!(
+                Value::TimestampTZ(ts).transform(&Transform::Year).unwrap(),
+                expected,
+                "TimestampTZ({ts})",
+            );
+        }
+    }
+
+    #[test]
+    fn test_day_of_timestamp_post_epoch() {
+        for variant in [Value::Timestamp, Value::TimestampTZ] {
+            assert_eq!(
+                variant(TS_2017_12_01_MICROS)
+                    .transform(&Transform::Day)
+                    .unwrap(),
+                Value::Int(17501),
+            );
+        }
+    }
+
+    #[test]
+    fn test_hour_of_timestamp_post_epoch() {
+        for variant in [Value::Timestamp, Value::TimestampTZ] {
+            assert_eq!(
+                variant(TS_2017_12_01_MICROS)
+                    .transform(&Transform::Hour)
+                    .unwrap(),
+                Value::Int(420034),
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "spec gap: datetime_to_months adds chrono::month() (1-indexed); spec is year*12 + month - 1 (0-indexed)"]
+    fn test_month_of_timestamp_matches_spec() {
+        assert_eq!(
+            Value::Timestamp(TS_2017_12_01_MICROS)
+                .transform(&Transform::Month)
+                .unwrap(),
+            Value::Int(575),
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: chrono::Duration::num_days truncates toward zero; spec requires floor"]
+    fn test_day_of_timestamp_pre_epoch() {
+        assert_eq!(
+            Value::Timestamp(-1).transform(&Transform::Day).unwrap(),
+            Value::Int(-1),
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: chrono::Duration::num_hours truncates toward zero; spec requires floor"]
+    fn test_hour_of_timestamp_pre_epoch() {
+        assert_eq!(
+            Value::Timestamp(-1).transform(&Transform::Hour).unwrap(),
+            Value::Int(-1),
+        );
+    }
+
+    // --- Identity ------------------------------------------------------------
+
+    #[test]
+    fn test_identity_preserves_value_for_every_primitive_variant() {
+        for v in [
+            Value::Boolean(true),
+            Value::Int(42),
+            Value::LongInt(-1_234_567_890_000),
+            Value::Float(OrderedFloat(1.5)),
+            Value::Double(OrderedFloat(-2.5)),
+            Value::Date(17486),
+            Value::Time(81_068_000_000),
+            Value::Timestamp(1_510_871_468_000_000),
+            Value::TimestampTZ(1_510_871_468_000_000),
+            Value::String("a/b/c=d".to_string()),
+            Value::UUID(
+                Uuid::parse_str("f79c3e09-677c-4bbd-a479-3f349cb785e7").unwrap(),
+            ),
+            Value::Fixed(3, vec![1, 2, 3]),
+            Value::Binary(vec![1, 2, 3]),
+            Value::Decimal(Decimal::from_str_exact("-1.50").unwrap()),
+        ] {
+            assert_eq!(v.clone().transform(&Transform::Identity).unwrap(), v);
+        }
+    }
 }
