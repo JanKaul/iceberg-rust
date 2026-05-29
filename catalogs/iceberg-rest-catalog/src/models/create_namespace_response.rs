@@ -29,3 +29,29 @@ impl CreateNamespaceResponse {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn test_create_namespace_response_round_trip_with_properties() {
+        let mut original = CreateNamespaceResponse::new(vec!["ns".to_string()]);
+        original.properties = Some(std::collections::HashMap::from([(
+            "k".to_string(),
+            "v".to_string(),
+        )]));
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: CreateNamespaceResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn test_create_namespace_response_omits_properties_key_when_none() {
+        let response = CreateNamespaceResponse::new(vec!["ns".to_string()]);
+        let value: Value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["namespace"], json!(["ns"]));
+        assert!(value.get("properties").is_none(), "got {value}");
+    }
+}

@@ -29,3 +29,51 @@ impl CreateNamespaceRequest {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn test_create_namespace_request_new_uses_namespace_and_no_properties() {
+        let req = CreateNamespaceRequest::new(vec!["analytics".to_string(), "events".to_string()]);
+        assert_eq!(req.namespace, vec!["analytics", "events"]);
+        assert!(req.properties.is_none());
+    }
+
+    #[test]
+    fn test_create_namespace_request_omits_properties_key_when_none() {
+        let req = CreateNamespaceRequest::new(vec!["ns".to_string()]);
+        let value: Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(value["namespace"], json!(["ns"]));
+        assert!(value.get("properties").is_none(), "got {value}");
+    }
+
+    #[test]
+    fn test_create_namespace_request_includes_properties_when_some() {
+        let mut req = CreateNamespaceRequest::new(vec!["ns".to_string()]);
+        req.properties = Some(std::collections::HashMap::from([(
+            "owner".to_string(),
+            "team-a".to_string(),
+        )]));
+        let value: Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(value["properties"]["owner"], "team-a");
+    }
+
+    #[test]
+    fn test_create_namespace_request_round_trip_with_nested_namespace() {
+        let mut original = CreateNamespaceRequest::new(vec![
+            "warehouse".to_string(),
+            "analytics".to_string(),
+            "events".to_string(),
+        ]);
+        original.properties = Some(std::collections::HashMap::from([(
+            "retention.days".to_string(),
+            "30".to_string(),
+        )]));
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: CreateNamespaceRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+}

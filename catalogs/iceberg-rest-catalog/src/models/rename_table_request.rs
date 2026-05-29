@@ -28,3 +28,47 @@ impl RenameTableRequest {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn test_rename_table_request_serialises_source_and_destination_identifiers() {
+        let req = RenameTableRequest::new(
+            Identifier::parse("ns.old_name", None).unwrap(),
+            Identifier::parse("ns.new_name", None).unwrap(),
+        );
+        let value: Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(value["source"]["name"], "old_name");
+        assert_eq!(value["source"]["namespace"], json!(["ns"]));
+        assert_eq!(value["destination"]["name"], "new_name");
+        assert_eq!(value["destination"]["namespace"], json!(["ns"]));
+    }
+
+    #[test]
+    fn test_rename_table_request_round_trip_via_json() {
+        let original = RenameTableRequest::new(
+            Identifier::parse("db.events_v1", None).unwrap(),
+            Identifier::parse("db.events_v2", None).unwrap(),
+        );
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: RenameTableRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn test_rename_table_request_supports_cross_namespace_move() {
+        let req = RenameTableRequest::new(
+            Identifier::parse("staging.daily_events", None).unwrap(),
+            Identifier::parse("production.daily_events", None).unwrap(),
+        );
+        let value: Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(value["source"]["namespace"], json!(["staging"]));
+        assert_eq!(value["destination"]["namespace"], json!(["production"]));
+        // The table name does not change, only the namespace.
+        assert_eq!(value["source"]["name"], "daily_events");
+        assert_eq!(value["destination"]["name"], "daily_events");
+    }
+}
