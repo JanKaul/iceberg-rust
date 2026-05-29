@@ -423,4 +423,130 @@ mod tests {
         assert_eq!(rect1.min, smallvec![] as SmallVec<[Value; 4]>);
         assert_eq!(rect1.max, smallvec![] as SmallVec<[Value; 4]>);
     }
+
+    // --- summary_to_rectangle -----------------------------------------------
+    //
+    // `summary_to_rectangle` turns a slice of FieldSummary into a partition
+    // Rectangle whose min/max vectors are aligned with the spec order.
+    // Bounds are required — a missing upper_bound or lower_bound surfaces
+    // as Error::NotFound rather than silently producing an inconsistent
+    // rectangle.
+
+    use iceberg_rust_spec::manifest_list::FieldSummary;
+
+    fn full_summary(low: Value, high: Value) -> FieldSummary {
+        FieldSummary {
+            contains_null: false,
+            contains_nan: Some(false),
+            lower_bound: Some(low),
+            upper_bound: Some(high),
+        }
+    }
+
+    #[test]
+    fn test_summary_to_rectangle_aligns_min_and_max_in_spec_order() {
+        let summaries = vec![
+            full_summary(Value::Int(0), Value::Int(10)),
+            full_summary(Value::Int(100), Value::Int(200)),
+        ];
+        let rect = super::summary_to_rectangle(&summaries).unwrap();
+        assert_eq!(
+            rect.min,
+            smallvec![Value::Int(0), Value::Int(100)] as SmallVec<[Value; 4]>
+        );
+        assert_eq!(
+            rect.max,
+            smallvec![Value::Int(10), Value::Int(200)] as SmallVec<[Value; 4]>
+        );
+    }
+
+    #[test]
+    fn test_summary_to_rectangle_errors_when_upper_bound_missing() {
+        let summaries = vec![FieldSummary {
+            contains_null: true,
+            contains_nan: Some(false),
+            lower_bound: Some(Value::Int(0)),
+            upper_bound: None,
+        }];
+        let err = super::summary_to_rectangle(&summaries).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_summary_to_rectangle_errors_when_lower_bound_missing() {
+        let summaries = vec![FieldSummary {
+            contains_null: true,
+            contains_nan: Some(false),
+            lower_bound: None,
+            upper_bound: Some(Value::Int(10)),
+        }];
+        let err = super::summary_to_rectangle(&summaries).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_summary_to_rectangle_empty_slice_yields_empty_rectangle() {
+        let rect = super::summary_to_rectangle(&[]).unwrap();
+        assert!(rect.min.is_empty());
+        assert!(rect.max.is_empty());
+    }
+
+    // --- partition_struct_to_vec -------------------------------------------
+    //
+    // `partition_struct_to_vec` projects a Struct down to a Vec4 in the
+    // order requested by `names`. Missing names surface as InvalidFormat
+    // rather than producing a short vector or panicking.
+
+    use iceberg_rust_spec::values::Struct;
+
+    fn partition_struct(entries: &[(&str, Option<Value>)]) -> Struct {
+        Struct::from_iter(entries.iter().map(|(k, v)| ((*k).to_string(), v.clone())))
+    }
+
+    #[test]
+    fn test_partition_struct_to_vec_returns_values_in_requested_order() {
+        let s = partition_struct(&[
+            ("year", Some(Value::Int(2024))),
+            ("month", Some(Value::Int(7))),
+            ("day", Some(Value::Int(15))),
+        ]);
+        let vec = super::partition_struct_to_vec(&s, &["year", "month", "day"]).unwrap();
+        assert_eq!(
+            vec,
+            smallvec![Value::Int(2024), Value::Int(7), Value::Int(15)] as SmallVec<[Value; 4]>
+        );
+    }
+
+    #[test]
+    fn test_partition_struct_to_vec_preserves_caller_supplied_order_over_struct_order() {
+        // The struct insertion order is year/month/day; the caller asks for
+        // day/year, which must be honoured even though it's a different
+        // order from the struct.
+        let s = partition_struct(&[
+            ("year", Some(Value::Int(2024))),
+            ("month", Some(Value::Int(7))),
+            ("day", Some(Value::Int(15))),
+        ]);
+        let vec = super::partition_struct_to_vec(&s, &["day", "year"]).unwrap();
+        assert_eq!(
+            vec,
+            smallvec![Value::Int(15), Value::Int(2024)] as SmallVec<[Value; 4]>
+        );
+    }
+
+    #[test]
+    fn test_partition_struct_to_vec_errors_when_name_missing_from_struct() {
+        let s = partition_struct(&[("year", Some(Value::Int(2024)))]);
+        let err = super::partition_struct_to_vec(&s, &["year", "missing"]).unwrap_err();
+        assert!(matches!(err, Error::InvalidFormat(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_partition_struct_to_vec_errors_when_value_is_null() {
+        // A null partition value surfaces the same InvalidFormat error,
+        // since the helper insists on a typed Value per requested name.
+        let s = partition_struct(&[("year", None)]);
+        let err = super::partition_struct_to_vec(&s, &["year"]).unwrap_err();
+        assert!(matches!(err, Error::InvalidFormat(_)), "got {err:?}");
+    }
 }
