@@ -1099,7 +1099,7 @@ mod tests {
             schema::SchemaBuilder,
             snapshot::{Operation, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary},
             sort::{NullOrder, SortDirection, SortField, SortOrderBuilder},
-            table_metadata::{TableMetadata, TableMetadataBuilder},
+            table_metadata::{partition_fields, TableMetadata, TableMetadataBuilder},
             types::{PrimitiveType, StructField, Type},
         },
     };
@@ -2173,5 +2173,135 @@ mod tests {
         assert_eq!(metadata.sequence_number(20).unwrap(), 2);
         assert_eq!(metadata.sequence_number(30).unwrap(), 3);
         assert!(metadata.sequence_number(999).is_none());
+    }
+
+    // --- TestPartitioning: partition_fields + current_partition_fields ------
+
+    fn metadata_for_partitioning() -> TableMetadata {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField::new(
+                1,
+                "id",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ))
+            .with_struct_field(StructField::new(
+                2,
+                "ts",
+                true,
+                Type::Primitive(PrimitiveType::Timestamp),
+                None,
+            ))
+            .build()
+            .unwrap();
+
+        let spec = PartitionSpec::builder()
+            .with_spec_id(0)
+            .with_partition_field(PartitionField::new(1, 1000, "id_b", Transform::Bucket(4)))
+            .with_partition_field(PartitionField::new(2, 1001, "ts_d", Transform::Day))
+            .build()
+            .unwrap();
+
+        let snapshot = SnapshotBuilder::default()
+            .with_snapshot_id(50)
+            .with_sequence_number(1)
+            .with_timestamp_ms(1_000)
+            .with_manifest_list("manifest-50.avro".to_string())
+            .with_summary(Summary {
+                operation: Operation::Append,
+                other: HashMap::new(),
+            })
+            .with_schema_id(0)
+            .build()
+            .unwrap();
+
+        TableMetadataBuilder::default()
+            .location("s3://tests/table".to_string())
+            .current_schema_id(0)
+            .schemas(HashMap::from_iter(vec![(0, schema)]))
+            .partition_specs(HashMap::from_iter(vec![(0, spec)]))
+            .default_spec_id(0)
+            .snapshots(HashMap::from_iter(vec![(50, snapshot)]))
+            .refs(HashMap::from_iter(vec![(
+                "main".to_string(),
+                SnapshotReference {
+                    snapshot_id: 50,
+                    retention: SnapshotRetention::default(),
+                },
+            )]))
+            .current_snapshot_id(Some(50))
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_partition_fields_helper_binds_each_partition_to_its_source() {
+        let metadata = metadata_for_partitioning();
+        let schema = metadata.current_schema(None).unwrap();
+        let spec = metadata.default_partition_spec().unwrap();
+        let bound = partition_fields(spec, schema).unwrap();
+
+        assert_eq!(bound.len(), 2);
+        assert_eq!(bound[0].name(), "id_b");
+        assert_eq!(bound[0].source_name(), "id");
+        assert_eq!(bound[0].transform(), &Transform::Bucket(4));
+        assert_eq!(bound[1].name(), "ts_d");
+        assert_eq!(bound[1].source_name(), "ts");
+        assert_eq!(bound[1].transform(), &Transform::Day);
+    }
+
+    #[test]
+    fn test_partition_fields_helper_errors_when_source_id_missing_from_schema() {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField::new(
+                42,
+                "other",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ))
+            .build()
+            .unwrap();
+        let spec = PartitionSpec::builder()
+            .with_spec_id(0)
+            .with_partition_field(PartitionField::new(99, 1000, "ghost", Transform::Identity))
+            .build()
+            .unwrap();
+
+        let err = partition_fields(&spec, &schema).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_current_partition_fields_uses_default_spec_with_current_schema() {
+        let metadata = metadata_for_partitioning();
+        let bound = metadata.current_partition_fields(None).unwrap();
+        assert_eq!(
+            bound.iter().map(|b| b.name()).collect::<Vec<_>>(),
+            vec!["id_b", "ts_d"],
+        );
+    }
+
+    #[test]
+    fn test_current_partition_fields_branch_routes_through_main_ref() {
+        let metadata = metadata_for_partitioning();
+        let by_none = metadata.current_partition_fields(None).unwrap();
+        let by_main = metadata.current_partition_fields(Some("main")).unwrap();
+        let names_none = by_none.iter().map(|b| b.name()).collect::<Vec<_>>();
+        let names_main = by_main.iter().map(|b| b.name()).collect::<Vec<_>>();
+        assert_eq!(names_none, names_main);
+    }
+
+    #[test]
+    fn test_partition_fields_by_snapshot_id_uses_that_snapshots_schema() {
+        let metadata = metadata_for_partitioning();
+        let bound = metadata.partition_fields(50).unwrap();
+        assert_eq!(
+            bound.iter().map(|b| b.name()).collect::<Vec<_>>(),
+            vec!["id_b", "ts_d"],
+        );
     }
 }
