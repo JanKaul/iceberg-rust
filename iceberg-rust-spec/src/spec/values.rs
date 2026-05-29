@@ -2064,6 +2064,29 @@ mod tests {
         }
     }
 
+    // --- Void ----------------------------------------------------------------
+
+    #[test]
+    fn test_void_transform_currently_errors_as_unsupported() {
+        // The catch-all arm in `Value::transform` produces NotSupported for
+        // Void today. This test pins that behaviour so a future Void
+        // implementation is a deliberate change with the matching
+        // `#[ignore]`'d test (below) flipping to Ok(()).
+        let err = Value::Int(42).transform(&Transform::Void).unwrap_err();
+        assert!(matches!(err, Error::NotSupported(_)), "got {err:?}");
+    }
+
+    #[test]
+    #[ignore = "spec gap: Value::transform has no Transform::Void arm; spec says Void always produces null"]
+    fn test_void_transform_produces_null_per_spec() {
+        // The spec's Void transform always returns null regardless of input.
+        // Once implemented, `Value::transform(&Transform::Void)` should
+        // return `Ok(_)` representing null — exact shape TBD by impl
+        // (likely a dedicated `Value::Null` variant or `Option<Value>`).
+        let result = Value::Int(42).transform(&Transform::Void);
+        assert!(result.is_ok(), "Void transform should succeed");
+    }
+
     // --- Byte conversions ----------------------------------------------------
     //
     // Per the Iceberg Table Spec ("Appendix D: Single-value serialization"),

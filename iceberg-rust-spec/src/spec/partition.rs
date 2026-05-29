@@ -511,4 +511,109 @@ mod tests {
             assert_eq!(parsed, t, "round-trip {t:?} via {json}");
         }
     }
+
+    // --- PartitionSpec validation ------------------------------------------
+    //
+    // Catalogue entry: TestPartitionSpecValidation. The spec requires the
+    // builder to reject duplicate partition-field names and duplicate
+    // field ids, and to refuse `Void` over a Void-typed source. The Rust
+    // builder is derive_builder-generated and does not yet enforce these
+    // checks; the `#[ignore]`'d tests below pin the gaps so removing the
+    // marker is the natural last step of fixing the underlying validation.
+
+    use crate::spec::types::{PrimitiveType, StructField, StructType, Type};
+
+    fn primitive_schema(fields: &[(i32, &str, PrimitiveType)]) -> StructType {
+        StructType::new(
+            fields
+                .iter()
+                .map(|(id, name, prim)| {
+                    StructField::new(*id, name, true, Type::Primitive(prim.clone()), None)
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn test_partition_spec_default_spec_id_is_zero() {
+        // Per spec, an unset spec id defaults to 0 (`DEFAULT_PARTITION_SPEC_ID`).
+        // The `fields` setter has no default, so the empty vec must be
+        // supplied explicitly.
+        let spec = PartitionSpec::builder()
+            .with_fields(Vec::new())
+            .build()
+            .unwrap();
+        assert_eq!(*spec.spec_id(), DEFAULT_PARTITION_SPEC_ID);
+        assert_eq!(*spec.spec_id(), 0);
+    }
+
+    #[test]
+    fn test_partition_spec_builder_supports_empty_fields_for_unpartitioned_table() {
+        // An empty `fields` list is the canonical representation of an
+        // unpartitioned table; the builder must accept it once supplied
+        // explicitly.
+        let spec = PartitionSpec::builder()
+            .with_fields(Vec::new())
+            .build()
+            .unwrap();
+        assert!(spec.fields().is_empty());
+    }
+
+    #[test]
+    fn test_partition_spec_data_types_errors_when_source_id_missing_from_schema() {
+        // `data_types` resolves each partition field's source-id against
+        // the schema; an undefined id must surface as `NotFound`.
+        let schema = primitive_schema(&[(0, "id", PrimitiveType::Long)]);
+        let spec = PartitionSpec::builder()
+            .with_partition_field(PartitionField::new(
+                99, // undefined in the schema
+                1000,
+                "ghost",
+                Transform::Identity,
+            ))
+            .build()
+            .unwrap();
+        let err = spec.data_types(&schema).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_partition_spec_data_types_errors_on_void_transform() {
+        // `Type::tranform(&Transform::Void)` returns `NotSupported` — this
+        // surfaces through `PartitionSpec::data_types` for any field whose
+        // declared transform is `Void`.
+        let schema = primitive_schema(&[(0, "id", PrimitiveType::Long)]);
+        let spec = PartitionSpec::builder()
+            .with_partition_field(PartitionField::new(0, 1000, "id_void", Transform::Void))
+            .build()
+            .unwrap();
+        let err = spec.data_types(&schema).unwrap_err();
+        assert!(matches!(err, Error::NotSupported(_)), "got {err:?}");
+    }
+
+    #[test]
+    #[ignore = "spec gap: PartitionSpecBuilder does not reject duplicate partition-field names; spec requires rejection"]
+    fn test_partition_spec_builder_rejects_duplicate_partition_field_names() {
+        let result = PartitionSpec::builder()
+            .with_partition_field(PartitionField::new(0, 1000, "same", Transform::Identity))
+            .with_partition_field(PartitionField::new(1, 1001, "same", Transform::Identity))
+            .build();
+        assert!(
+            result.is_err(),
+            "duplicate partition-field names should be rejected",
+        );
+    }
+
+    #[test]
+    #[ignore = "spec gap: PartitionSpecBuilder does not reject duplicate partition-field ids; spec requires rejection"]
+    fn test_partition_spec_builder_rejects_duplicate_partition_field_ids() {
+        let result = PartitionSpec::builder()
+            .with_partition_field(PartitionField::new(0, 1000, "a", Transform::Identity))
+            .with_partition_field(PartitionField::new(1, 1000, "b", Transform::Identity))
+            .build();
+        assert!(
+            result.is_err(),
+            "duplicate partition-field ids should be rejected",
+        );
+    }
 }
