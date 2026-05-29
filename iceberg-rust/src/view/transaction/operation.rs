@@ -191,43 +191,89 @@ impl Operation {
 mod tests {
     use iceberg_rust_spec::view_metadata::ViewRepresentation;
 
-    use crate::view::transaction::operation::upsert_representations;
+    use crate::view::transaction::operation::{upsert_representation, upsert_representations};
+
+    fn sql(s: &str, dialect: &str) -> ViewRepresentation {
+        ViewRepresentation::sql(s, Some(dialect))
+    }
+
+    // --- upsert_representation (singular) ----------------------------------
+    //
+    // The singular helper replaces an existing representation whose SQL
+    // dialect matches the new one and otherwise appends to the end. The
+    // dialect ordering of existing representations is preserved.
 
     #[test]
-    fn test_upsert_representations() {
+    fn test_upsert_representation_replaces_when_dialect_matches() {
+        let current = vec![sql("a1", "a"), sql("b1", "b")];
+        let updated = upsert_representation(&current, sql("a2", "a"));
+        assert_eq!(updated, vec![sql("a2", "a"), sql("b1", "b")]);
+    }
+
+    #[test]
+    fn test_upsert_representation_appends_when_dialect_is_new() {
+        let current = vec![sql("a1", "a"), sql("b1", "b")];
+        let updated = upsert_representation(&current, sql("c1", "c"));
         assert_eq!(
-            upsert_representations(
-                &[
-                    ViewRepresentation::sql("a1", Some("a")),
-                    ViewRepresentation::sql("b1", Some("b"))
-                ],
-                &[
-                    ViewRepresentation::sql("b2", Some("b")),
-                    ViewRepresentation::sql("c2", Some("c"))
-                ]
-            ),
-            vec![
-                ViewRepresentation::sql("a1", Some("a")),
-                ViewRepresentation::sql("b2", Some("b")),
-                ViewRepresentation::sql("c2", Some("c")),
-            ]
+            updated,
+            vec![sql("a1", "a"), sql("b1", "b"), sql("c1", "c")]
         );
+    }
+
+    #[test]
+    fn test_upsert_representation_into_empty_list_appends_single_entry() {
+        let updated = upsert_representation(&[], sql("only", "a"));
+        assert_eq!(updated, vec![sql("only", "a")]);
+    }
+
+    #[test]
+    fn test_upsert_representation_preserves_order_of_unmatched_dialects() {
+        // Replacing the middle entry should leave the surrounding entries
+        // in their original positions.
+        let current = vec![sql("a1", "a"), sql("b1", "b"), sql("c1", "c")];
+        let updated = upsert_representation(&current, sql("b2", "b"));
         assert_eq!(
-            upsert_representations(
-                &[
-                    ViewRepresentation::sql("a1", Some("a")),
-                    ViewRepresentation::sql("b1", Some("b"))
-                ],
-                &[
-                    ViewRepresentation::sql("c2", Some("c")),
-                    ViewRepresentation::sql("a2", Some("a"))
-                ]
-            ),
-            vec![
-                ViewRepresentation::sql("a2", Some("a")),
-                ViewRepresentation::sql("b1", Some("b")),
-                ViewRepresentation::sql("c2", Some("c")),
-            ]
+            updated,
+            vec![sql("a1", "a"), sql("b2", "b"), sql("c1", "c")]
         );
+    }
+
+    // --- upsert_representations (plural) -----------------------------------
+    //
+    // The plural helper folds the singular helper over a Vec of new
+    // representations. New dialects are appended, matching dialects
+    // replace the existing entry in place. The plural helper covers the
+    // mixed case the original combined test exercised — split here into
+    // focused assertions.
+
+    #[test]
+    fn test_upsert_representations_replaces_existing_dialect_and_appends_new() {
+        let current = vec![sql("a1", "a"), sql("b1", "b")];
+        let new = vec![sql("b2", "b"), sql("c2", "c")];
+        assert_eq!(
+            upsert_representations(&current, &new),
+            vec![sql("a1", "a"), sql("b2", "b"), sql("c2", "c")],
+        );
+    }
+
+    #[test]
+    fn test_upsert_representations_processes_new_entries_in_order() {
+        // The original combined test required both replace ("a") and
+        // append ("c"); the new entries are supplied in order
+        // (c-then-a). The plural helper folds them left-to-right, so
+        // first "c" appends (a, b, c) and then "a" replaces position 0,
+        // yielding (a2, b1, c2).
+        let current = vec![sql("a1", "a"), sql("b1", "b")];
+        let new = vec![sql("c2", "c"), sql("a2", "a")];
+        assert_eq!(
+            upsert_representations(&current, &new),
+            vec![sql("a2", "a"), sql("b1", "b"), sql("c2", "c")],
+        );
+    }
+
+    #[test]
+    fn test_upsert_representations_empty_new_list_returns_current_unchanged() {
+        let current = vec![sql("a1", "a"), sql("b1", "b")];
+        assert_eq!(upsert_representations(&current, &[]), current);
     }
 }
