@@ -2015,4 +2015,978 @@ mod tests {
             other => panic!("expected AssertDefaultSortOrderId, got {other:?}"),
         }
     }
+
+    // --- Port: TestMetadataUpdateParser (Apache Iceberg Java, 56 @Test) ----
+    //
+    // Java's MetadataUpdate is a single union; Rust splits it between
+    // `TableUpdate` (table-only actions) and `ViewUpdate` (view-only actions).
+    // Each Java per-variant ToJson / FromJson test is ported below as one
+    // Rust test that pins the wire shape via `serde_json::to_value` (kebab-case
+    // keys + the `action` tag) or parses the canonical Java payload.
+    //
+    // Variants Rust doesn't model yet are pinned with `#[ignore]`:
+    //   - SetStatistics, RemoveStatistics
+    //   - SetPartitionStatistics, RemovePartitionStatistics
+    //   - RemovePartitionSpecs, RemoveSchemas
+    //   - AddEncryptionKey, RemoveEncryptionKey
+    // Plus a few wire-shape divergences (Java's "updated"/"removed" aliases,
+    // case-insensitive snapshot-ref type, AddViewVersion summary as free-form
+    // map, AddPartitionSpec auto-assigned field ids, Iceberg v3 snapshot
+    // fields first-row-id / added-rows / key-id).
+
+    const METADATA_UPDATE_UUID: &str = "9510c070-5e6d-4b40-bf40-a8915bb76e5d";
+
+    fn id_data_schema_for_metadata_update_parser() -> Schema {
+        SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Int),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "data".to_string(),
+                required: false,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap()
+    }
+
+    // --- 1. testMetadataUpdateWithoutActionCannotDeserialize ---------------
+
+    #[test]
+    fn test_table_update_rejects_object_missing_action_per_java() {
+        // Java: invalidJson includes `{"format-version":2}` — parser raises
+        // "Missing field: action". Rust's tag=action enum rejects too.
+        let result: Result<TableUpdate, _> = serde_json::from_str(r#"{"format-version":2}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_table_update_rejects_null_action_per_java() {
+        // Java: invalidJson includes `{"action":null,"format-version":2}`.
+        let result: Result<TableUpdate, _> =
+            serde_json::from_str(r#"{"action":null,"format-version":2}"#);
+        assert!(result.is_err());
+    }
+
+    // --- 2-3. testAssignUUID{To,From}Json ----------------------------------
+
+    #[test]
+    fn test_assign_uuid_to_json_per_java() {
+        let update = TableUpdate::AssignUuid {
+            uuid: METADATA_UPDATE_UUID.to_string(),
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "assign-uuid");
+        assert_eq!(value["uuid"], METADATA_UPDATE_UUID);
+    }
+
+    #[test]
+    fn test_assign_uuid_from_json_per_java() {
+        let json = format!(r#"{{"action":"assign-uuid","uuid":"{METADATA_UPDATE_UUID}"}}"#);
+        let parsed: TableUpdate = serde_json::from_str(&json).unwrap();
+        match parsed {
+            TableUpdate::AssignUuid { uuid } => assert_eq!(uuid, METADATA_UPDATE_UUID),
+            other => panic!("expected AssignUuid, got {other:?}"),
+        }
+    }
+
+    // --- 4-5. testUpgradeFormatVersion{To,From}Json ------------------------
+
+    #[test]
+    fn test_upgrade_format_version_to_json_per_java() {
+        let update = TableUpdate::UpgradeFormatVersion { format_version: 2 };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "upgrade-format-version");
+        assert_eq!(value["format-version"], 2);
+    }
+
+    #[test]
+    fn test_upgrade_format_version_from_json_per_java() {
+        let json = r#"{"action":"upgrade-format-version","format-version":2}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::UpgradeFormatVersion { format_version } => {
+                assert_eq!(format_version, 2)
+            }
+            other => panic!("expected UpgradeFormatVersion, got {other:?}"),
+        }
+    }
+
+    // --- 6-7. testAddSchema{From,To}Json -----------------------------------
+
+    #[test]
+    fn test_add_schema_from_json_per_java() {
+        // Java sends "{action:add-schema,schema:{...}}" without last-column-id.
+        // Rust's last_column_id is Option<i32>; missing key deserialises to None.
+        let schema = id_data_schema_for_metadata_update_parser();
+        let schema_json = serde_json::to_string(&schema).unwrap();
+        let json = format!(r#"{{"action":"add-schema","schema":{schema_json}}}"#);
+        let parsed: TableUpdate = serde_json::from_str(&json).unwrap();
+        match parsed {
+            TableUpdate::AddSchema {
+                schema: parsed_schema,
+                last_column_id,
+            } => {
+                assert_eq!(parsed_schema, schema);
+                assert_eq!(last_column_id, None);
+            }
+            other => panic!("expected AddSchema, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_add_schema_to_json_per_java() {
+        // Java sends "last-column-id" alongside the schema. Rust does too when
+        // the constructor sets `last_column_id`.
+        let schema = id_data_schema_for_metadata_update_parser();
+        let update = TableUpdate::AddSchema {
+            schema,
+            last_column_id: Some(2),
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "add-schema");
+        assert_eq!(value["last-column-id"], 2);
+        assert!(value["schema"].is_object(), "got {value}");
+    }
+
+    // --- 8-9. testSetCurrentSchema{From,To}Json ----------------------------
+
+    #[test]
+    fn test_set_current_schema_from_json_per_java() {
+        let json = r#"{"action":"set-current-schema","schema-id":6}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetCurrentSchema { schema_id } => assert_eq!(schema_id, 6),
+            other => panic!("expected SetCurrentSchema, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_set_current_schema_to_json_per_java() {
+        let update = TableUpdate::SetCurrentSchema { schema_id: 6 };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "set-current-schema");
+        assert_eq!(value["schema-id"], 6);
+    }
+
+    // --- 10. testAddPartitionSpecFromJsonWithFieldId -----------------------
+
+    #[test]
+    fn test_add_partition_spec_from_json_with_field_id_per_java() {
+        // Each PartitionField carries an explicit field-id in the wire.
+        let json = r#"{
+            "action":"add-spec",
+            "spec":{
+                "spec-id":1,
+                "fields":[
+                    {"name":"id_bucket","transform":"bucket[8]","source-id":1,"field-id":1000},
+                    {"name":"data_bucket","transform":"bucket[16]","source-id":2,"field-id":1001}
+                ]
+            }
+        }"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::AddSpec { spec } => {
+                assert_eq!(*spec.spec_id(), 1);
+                assert_eq!(spec.fields().len(), 2);
+                assert_eq!(*spec.fields()[0].field_id(), 1000);
+                assert_eq!(*spec.fields()[1].field_id(), 1001);
+            }
+            other => panic!("expected AddSpec, got {other:?}"),
+        }
+    }
+
+    // --- 11. testAddPartitionSpecFromJsonWithoutFieldId --------------------
+
+    #[test]
+    #[ignore = "feature gap: Rust PartitionField requires `field-id` on the wire; Java auto-assigns field-ids starting at 1000 when omitted"]
+    fn test_add_partition_spec_from_json_without_field_id_per_java() {
+        let json = r#"{
+            "action":"add-spec",
+            "spec":{
+                "spec-id":1,
+                "fields":[
+                    {"name":"id_bucket","transform":"bucket[8]","source-id":1},
+                    {"name":"data_bucket","transform":"bucket[16]","source-id":2}
+                ]
+            }
+        }"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::AddSpec { spec } => {
+                assert_eq!(*spec.fields()[0].field_id(), 1000);
+                assert_eq!(*spec.fields()[1].field_id(), 1001);
+            }
+            other => panic!("expected AddSpec, got {other:?}"),
+        }
+    }
+
+    // --- 12. testAddPartitionSpecToJson ------------------------------------
+
+    #[test]
+    fn test_add_partition_spec_to_json_per_java() {
+        let spec = PartitionSpec::builder()
+            .with_spec_id(1)
+            .with_partition_field(PartitionField::new(
+                1,
+                1000,
+                "id_bucket",
+                Transform::Bucket(8),
+            ))
+            .with_partition_field(PartitionField::new(
+                2,
+                1001,
+                "data_bucket",
+                Transform::Bucket(16),
+            ))
+            .build()
+            .unwrap();
+        let update = TableUpdate::AddSpec { spec };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "add-spec");
+        assert_eq!(value["spec"]["spec-id"], 1);
+        assert_eq!(value["spec"]["fields"][0]["field-id"], 1000);
+        assert_eq!(value["spec"]["fields"][1]["field-id"], 1001);
+    }
+
+    // --- 13-14. testSetDefaultPartitionSpec{To,From}Json -------------------
+
+    #[test]
+    fn test_set_default_partition_spec_to_json_per_java() {
+        let update = TableUpdate::SetDefaultSpec { spec_id: 4 };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "set-default-spec");
+        assert_eq!(value["spec-id"], 4);
+    }
+
+    #[test]
+    fn test_set_default_partition_spec_from_json_per_java() {
+        let json = r#"{"action":"set-default-spec","spec-id":4}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetDefaultSpec { spec_id } => assert_eq!(spec_id, 4),
+            other => panic!("expected SetDefaultSpec, got {other:?}"),
+        }
+    }
+
+    // --- 15-16. testAddSortOrder{To,From}Json ------------------------------
+
+    fn sample_metadata_update_sort_order() -> SortOrder {
+        SortOrder {
+            order_id: 3,
+            fields: vec![
+                SortField {
+                    source_id: 1,
+                    transform: Transform::Identity,
+                    direction: SortDirection::Ascending,
+                    null_order: NullOrder::First,
+                },
+                SortField {
+                    source_id: 2,
+                    transform: Transform::Identity,
+                    direction: SortDirection::Descending,
+                    null_order: NullOrder::Last,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn test_add_sort_order_to_json_per_java() {
+        let update = TableUpdate::AddSortOrder {
+            sort_order: sample_metadata_update_sort_order(),
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "add-sort-order");
+        assert_eq!(value["sort-order"]["order-id"], 3);
+        assert_eq!(value["sort-order"]["fields"][0]["source-id"], 1);
+        assert_eq!(value["sort-order"]["fields"][1]["direction"], "desc");
+    }
+
+    #[test]
+    fn test_add_sort_order_from_json_per_java() {
+        let expected = TableUpdate::AddSortOrder {
+            sort_order: sample_metadata_update_sort_order(),
+        };
+        let json = serde_json::to_string(&expected).unwrap();
+        let parsed: TableUpdate = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, expected);
+    }
+
+    // --- 17-18. testSetDefaultSortOrder{To,From}Json -----------------------
+
+    #[test]
+    fn test_set_default_sort_order_to_json_per_java() {
+        let update = TableUpdate::SetDefaultSortOrder { sort_order_id: 2 };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "set-default-sort-order");
+        assert_eq!(value["sort-order-id"], 2);
+    }
+
+    #[test]
+    fn test_set_default_sort_order_from_json_per_java() {
+        let json = r#"{"action":"set-default-sort-order","sort-order-id":2}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetDefaultSortOrder { sort_order_id } => {
+                assert_eq!(sort_order_id, 2)
+            }
+            other => panic!("expected SetDefaultSortOrder, got {other:?}"),
+        }
+    }
+
+    // --- 19-20. testAddSnapshot{To,From}Json -------------------------------
+
+    fn sample_metadata_update_snapshot() -> Snapshot {
+        SnapshotBuilder::default()
+            .with_snapshot_id(2)
+            .with_parent_snapshot_id(1_i64)
+            .with_sequence_number(0)
+            .with_timestamp_ms(1_700_000_000_000)
+            .with_manifest_list("s3://bucket/manifest-list.avro".to_string())
+            .with_summary(iceberg_rust_spec::spec::snapshot::Summary {
+                operation: iceberg_rust_spec::spec::snapshot::Operation::Replace,
+                other: HashMap::from([
+                    ("files-added".to_string(), "4".to_string()),
+                    ("files-deleted".to_string(), "100".to_string()),
+                ]),
+            })
+            .with_schema_id(3_i32)
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_add_snapshot_to_json_per_java() {
+        let update = TableUpdate::AddSnapshot {
+            snapshot: sample_metadata_update_snapshot(),
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "add-snapshot");
+        assert_eq!(value["snapshot"]["snapshot-id"], 2);
+        assert_eq!(value["snapshot"]["parent-snapshot-id"], 1);
+        assert_eq!(value["snapshot"]["schema-id"], 3);
+        assert_eq!(
+            value["snapshot"]["manifest-list"],
+            "s3://bucket/manifest-list.avro"
+        );
+    }
+
+    #[test]
+    fn test_add_snapshot_from_json_per_java() {
+        let update = TableUpdate::AddSnapshot {
+            snapshot: sample_metadata_update_snapshot(),
+        };
+        let json = serde_json::to_string(&update).unwrap();
+        let parsed: TableUpdate = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, update);
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust Snapshot lacks Iceberg v3 fields first-row-id, added-rows, key-id; Java's testAddSnapshot{To,From}Json BaseSnapshot constructor pins those keys on the wire"]
+    fn test_add_snapshot_includes_v3_fields_per_java() {
+        let json = r#"{
+            "action":"add-snapshot",
+            "snapshot":{
+                "snapshot-id":2,
+                "parent-snapshot-id":1,
+                "sequence-number":0,
+                "timestamp-ms":1700000000000,
+                "manifest-list":"x",
+                "summary":{"operation":"replace"},
+                "schema-id":3,
+                "first-row-id":4,
+                "added-rows":10,
+                "key-id":"key-1"
+            }
+        }"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["snapshot"]["first-row-id"], 4);
+        assert_eq!(value["snapshot"]["added-rows"], 10);
+        assert_eq!(value["snapshot"]["key-id"], "key-1");
+    }
+
+    // --- 21-22. testRemoveSnapshot{From,To}Json (single id) ----------------
+
+    #[test]
+    fn test_remove_snapshot_single_from_json_per_java() {
+        let json = r#"{"action":"remove-snapshots","snapshot-ids":[2]}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::RemoveSnapshots { snapshot_ids } => {
+                assert_eq!(snapshot_ids, vec![2]);
+            }
+            other => panic!("expected RemoveSnapshots, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_remove_snapshot_single_to_json_per_java() {
+        let update = TableUpdate::RemoveSnapshots {
+            snapshot_ids: vec![2],
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "remove-snapshots");
+        assert_eq!(value["snapshot-ids"], serde_json::json!([2]));
+    }
+
+    // --- 23-24. testRemoveSnapshots{From,To}Json (multi) -------------------
+
+    #[test]
+    fn test_remove_snapshots_multi_from_json_per_java() {
+        let json = r#"{"action":"remove-snapshots","snapshot-ids":[2,3]}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::RemoveSnapshots { snapshot_ids } => {
+                let mut sorted = snapshot_ids.clone();
+                sorted.sort();
+                assert_eq!(sorted, vec![2, 3]);
+            }
+            other => panic!("expected RemoveSnapshots, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_remove_snapshots_multi_to_json_per_java() {
+        let update = TableUpdate::RemoveSnapshots {
+            snapshot_ids: vec![2, 3],
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "remove-snapshots");
+        assert_eq!(value["snapshot-ids"], serde_json::json!([2, 3]));
+    }
+
+    // --- 25-26. testRemoveSnapshotRef{From,To}Json -------------------------
+
+    #[test]
+    fn test_remove_snapshot_ref_from_json_per_java() {
+        let json = r#"{"action":"remove-snapshot-ref","ref-name":"snapshot-ref"}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::RemoveSnapshotRef { ref_name } => {
+                assert_eq!(ref_name, "snapshot-ref")
+            }
+            other => panic!("expected RemoveSnapshotRef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_remove_snapshot_ref_to_json_per_java() {
+        let update = TableUpdate::RemoveSnapshotRef {
+            ref_name: "snapshot-ref".to_string(),
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "remove-snapshot-ref");
+        assert_eq!(value["ref-name"], "snapshot-ref");
+    }
+
+    // --- 27-30. testSetSnapshotRefTag {default,allFields} x {missing,null} -
+
+    #[test]
+    fn test_set_snapshot_ref_tag_default_from_json_per_java() {
+        // Java: testSetSnapshotRefTagFromJsonDefault_NullValuesMissing.
+        let json =
+            r#"{"action":"set-snapshot-ref","ref-name":"hank","snapshot-id":1,"type":"tag"}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetSnapshotRef {
+                ref_name,
+                snapshot_reference,
+            } => {
+                assert_eq!(ref_name, "hank");
+                assert_eq!(snapshot_reference.snapshot_id, 1);
+                assert!(matches!(
+                    snapshot_reference.retention,
+                    SnapshotRetention::Tag {
+                        max_ref_age_ms: None
+                    },
+                ));
+            }
+            other => panic!("expected SetSnapshotRef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_set_snapshot_ref_tag_default_explicit_nulls_from_json_per_java() {
+        // Java: testSetSnapshotRefTagFromJsonDefault_ExplicitNullValues. Java's
+        // tag JSON has min-snapshots-to-keep / max-snapshot-age-ms / max-ref-age-ms
+        // set to null. For a Tag those branch-only keys are unknown — serde
+        // skips unknown fields by default, so this still parses.
+        let json = r#"{"action":"set-snapshot-ref","ref-name":"hank","snapshot-id":1,"type":"tag","min-snapshots-to-keep":null,"max-snapshot-age-ms":null,"max-ref-age-ms":null}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetSnapshotRef {
+                snapshot_reference, ..
+            } => {
+                assert!(matches!(
+                    snapshot_reference.retention,
+                    SnapshotRetention::Tag {
+                        max_ref_age_ms: None
+                    },
+                ));
+            }
+            other => panic!("expected SetSnapshotRef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_set_snapshot_ref_tag_all_fields_from_json_per_java() {
+        // Java: testSetSnapshotRefTagFromJsonAllFields_NullValuesMissing.
+        let json = r#"{"action":"set-snapshot-ref","ref-name":"hank","snapshot-id":1,"type":"tag","max-ref-age-ms":1}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetSnapshotRef {
+                snapshot_reference, ..
+            } => match snapshot_reference.retention {
+                SnapshotRetention::Tag {
+                    max_ref_age_ms: Some(age),
+                } => assert_eq!(age, 1),
+                other => panic!("expected Tag retention, got {other:?}"),
+            },
+            other => panic!("expected SetSnapshotRef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_set_snapshot_ref_tag_all_fields_explicit_nulls_from_json_per_java() {
+        // Java: testSetSnapshotRefTagFromJsonAllFields_ExplicitNullValues.
+        let json = r#"{"action":"set-snapshot-ref","ref-name":"hank","snapshot-id":1,"type":"tag","max-ref-age-ms":1,"min-snapshots-to-keep":null,"max-snapshot-age-ms":null}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetSnapshotRef {
+                snapshot_reference, ..
+            } => match snapshot_reference.retention {
+                SnapshotRetention::Tag {
+                    max_ref_age_ms: Some(1),
+                } => {}
+                other => panic!("expected Tag(max_ref_age_ms=1), got {other:?}"),
+            },
+            other => panic!("expected SetSnapshotRef, got {other:?}"),
+        }
+    }
+
+    // --- 31-33. testSetSnapshotRefBranch tests -----------------------------
+
+    #[test]
+    #[ignore = "feature gap: Rust SnapshotRetention tag matcher is strictly lowercase; Java accepts \"bRaNch\" via case-insensitive enum parse in testSetSnapshotRefBranchFromJsonDefault_NullValuesMissing"]
+    fn test_set_snapshot_ref_branch_mixed_case_from_json_per_java() {
+        let json =
+            r#"{"action":"set-snapshot-ref","ref-name":"hank","snapshot-id":1,"type":"bRaNch"}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetSnapshotRef {
+                snapshot_reference, ..
+            } => assert!(matches!(
+                snapshot_reference.retention,
+                SnapshotRetention::Branch { .. },
+            )),
+            other => panic!("expected SetSnapshotRef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "feature gap: same case-insensitive enum parse gap as above; Java's testSetSnapshotRefBranchFromJsonDefault_ExplicitNullValues additionally sets the three retention keys to null"]
+    fn test_set_snapshot_ref_branch_mixed_case_explicit_nulls_from_json_per_java() {
+        let json = r#"{"action":"set-snapshot-ref","ref-name":"hank","snapshot-id":1,"type":"bRaNch","max-ref-age-ms":null,"min-snapshots-to-keep":null,"max-snapshot-age-ms":null}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetSnapshotRef {
+                snapshot_reference, ..
+            } => assert!(matches!(
+                snapshot_reference.retention,
+                SnapshotRetention::Branch { .. },
+            )),
+            other => panic!("expected SetSnapshotRef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_set_snapshot_ref_branch_all_fields_from_json_per_java() {
+        // Java: testBranchFromJsonAllFields.
+        let json = r#"{"action":"set-snapshot-ref","ref-name":"hank","snapshot-id":1,"type":"branch","min-snapshots-to-keep":2,"max-snapshot-age-ms":3,"max-ref-age-ms":4}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetSnapshotRef {
+                ref_name,
+                snapshot_reference,
+            } => {
+                assert_eq!(ref_name, "hank");
+                assert_eq!(snapshot_reference.snapshot_id, 1);
+                match snapshot_reference.retention {
+                    SnapshotRetention::Branch {
+                        min_snapshots_to_keep,
+                        max_snapshot_age_ms,
+                        max_ref_age_ms,
+                    } => {
+                        assert_eq!(min_snapshots_to_keep, Some(2));
+                        assert_eq!(max_snapshot_age_ms, Some(3));
+                        assert_eq!(max_ref_age_ms, Some(4));
+                    }
+                    other => panic!("expected Branch retention, got {other:?}"),
+                }
+            }
+            other => panic!("expected SetSnapshotRef, got {other:?}"),
+        }
+    }
+
+    // --- 34-37. testSetSnapshotRef{Tag,Branch}ToJson{Default,AllFields} ----
+
+    #[test]
+    fn test_set_snapshot_ref_tag_default_to_json_per_java() {
+        let update = TableUpdate::SetSnapshotRef {
+            ref_name: "hank".to_string(),
+            snapshot_reference: SnapshotReference {
+                snapshot_id: 1,
+                retention: SnapshotRetention::Tag {
+                    max_ref_age_ms: None,
+                },
+            },
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "set-snapshot-ref");
+        assert_eq!(value["ref-name"], "hank");
+        assert_eq!(value["snapshot-id"], 1);
+        assert_eq!(value["type"], "tag");
+        assert!(value.get("max-ref-age-ms").is_none(), "got {value}");
+    }
+
+    #[test]
+    fn test_set_snapshot_ref_tag_all_fields_to_json_per_java() {
+        let update = TableUpdate::SetSnapshotRef {
+            ref_name: "hank".to_string(),
+            snapshot_reference: SnapshotReference {
+                snapshot_id: 1,
+                retention: SnapshotRetention::Tag {
+                    max_ref_age_ms: Some(1),
+                },
+            },
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["type"], "tag");
+        assert_eq!(value["max-ref-age-ms"], 1);
+    }
+
+    #[test]
+    fn test_set_snapshot_ref_branch_default_to_json_per_java() {
+        let update = TableUpdate::SetSnapshotRef {
+            ref_name: "hank".to_string(),
+            snapshot_reference: SnapshotReference {
+                snapshot_id: 1,
+                retention: SnapshotRetention::Branch {
+                    min_snapshots_to_keep: None,
+                    max_snapshot_age_ms: None,
+                    max_ref_age_ms: None,
+                },
+            },
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "set-snapshot-ref");
+        assert_eq!(value["type"], "branch");
+        assert!(value.get("min-snapshots-to-keep").is_none(), "got {value}");
+        assert!(value.get("max-snapshot-age-ms").is_none(), "got {value}");
+        assert!(value.get("max-ref-age-ms").is_none(), "got {value}");
+    }
+
+    #[test]
+    fn test_set_snapshot_ref_branch_all_fields_to_json_per_java() {
+        let update = TableUpdate::SetSnapshotRef {
+            ref_name: "hank".to_string(),
+            snapshot_reference: SnapshotReference {
+                snapshot_id: 1,
+                retention: SnapshotRetention::Branch {
+                    min_snapshots_to_keep: Some(2),
+                    max_snapshot_age_ms: Some(3),
+                    max_ref_age_ms: Some(4),
+                },
+            },
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["min-snapshots-to-keep"], 2);
+        assert_eq!(value["max-snapshot-age-ms"], 3);
+        assert_eq!(value["max-ref-age-ms"], 4);
+    }
+
+    // --- 38-39. testSetProperties{From,Failure}Json ------------------------
+
+    #[test]
+    fn test_set_properties_from_json_per_java() {
+        // Java's testSetPropertiesFromJson asserts the "updates" key parses.
+        let json = r#"{"action":"set-properties","updates":{"prop1":"val1","prop2":"val2"}}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetProperties { updates } => {
+                assert_eq!(updates.get("prop1").map(String::as_str), Some("val1"));
+                assert_eq!(updates.get("prop2").map(String::as_str), Some("val2"));
+            }
+            other => panic!("expected SetProperties, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust SetProperties only accepts the canonical `updates` key; Java also accepts the deprecated `updated` alias and resolves `updates` taking precedence when both are present"]
+    fn test_set_properties_accepts_deprecated_updated_alias_per_java() {
+        let json = r#"{"action":"set-properties","updated":{"prop1":"val1"}}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetProperties { updates } => {
+                assert_eq!(updates.get("prop1").map(String::as_str), Some("val1"));
+            }
+            other => panic!("expected SetProperties, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_set_properties_rejects_null_property_value_per_java() {
+        // Java: testSetPropertiesFromJsonFailsWhenDeserializingNullValues.
+        let json = r#"{"action":"set-properties","updates":{"prop1":"val1","prop2":null}}"#;
+        let result: Result<TableUpdate, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "expected null value to be rejected");
+    }
+
+    // --- 40. testSetPropertiesToJson ---------------------------------------
+
+    #[test]
+    fn test_set_properties_to_json_per_java() {
+        let mut updates = HashMap::new();
+        updates.insert("prop1".to_string(), "val1".to_string());
+        updates.insert("prop2".to_string(), "val2".to_string());
+        let update = TableUpdate::SetProperties { updates };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "set-properties");
+        assert_eq!(value["updates"]["prop1"], "val1");
+        assert_eq!(value["updates"]["prop2"], "val2");
+    }
+
+    // --- 41-42. testRemoveProperties{From,To}Json --------------------------
+
+    #[test]
+    fn test_remove_properties_from_json_per_java() {
+        let json = r#"{"action":"remove-properties","removals":["prop1","prop2"]}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::RemoveProperties { mut removals } => {
+                removals.sort();
+                assert_eq!(removals, vec!["prop1", "prop2"]);
+            }
+            other => panic!("expected RemoveProperties, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust RemoveProperties only accepts the canonical `removals` key; Java also accepts the deprecated `removed` alias and resolves `removals` taking precedence when both are present"]
+    fn test_remove_properties_accepts_deprecated_removed_alias_per_java() {
+        let json = r#"{"action":"remove-properties","removed":["prop1","prop2"]}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::RemoveProperties { removals } => {
+                assert_eq!(removals.len(), 2);
+            }
+            other => panic!("expected RemoveProperties, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_remove_properties_to_json_per_java() {
+        let update = TableUpdate::RemoveProperties {
+            removals: vec!["prop1".to_string(), "prop2".to_string()],
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "remove-properties");
+        assert_eq!(value["removals"], serde_json::json!(["prop1", "prop2"]));
+    }
+
+    // --- 43-44. testSetLocation{From,To}Json -------------------------------
+
+    #[test]
+    fn test_set_location_from_json_per_java() {
+        let json = r#"{"action":"set-location","location":"s3://bucket/warehouse/tbl_location"}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableUpdate::SetLocation { location } => {
+                assert_eq!(location, "s3://bucket/warehouse/tbl_location");
+            }
+            other => panic!("expected SetLocation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_set_location_to_json_per_java() {
+        let update = TableUpdate::SetLocation {
+            location: "s3://bucket/warehouse/tbl_location".to_string(),
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "set-location");
+        assert_eq!(value["location"], "s3://bucket/warehouse/tbl_location");
+    }
+
+    // --- 45-46. testSetStatistics / testRemoveStatistics (Rust gap) --------
+
+    #[test]
+    #[ignore = "feature gap: Rust TableUpdate has no SetStatistics variant; Java models this action carrying a StatisticsFile with puffin path/size/blob-metadata"]
+    fn test_set_statistics_per_java() {
+        let json = r#"{"action":"set-statistics","snapshot-id":1940541653261589030,"statistics":{"snapshot-id":1940541653261589030,"statistics-path":"s3://bucket/warehouse/stats.puffin","file-size-in-bytes":124,"file-footer-size-in-bytes":27,"blob-metadata":[{"type":"boring-type","snapshot-id":1940541653261589030,"sequence-number":2,"fields":[1],"properties":{"prop-key":"prop-value"}}]}}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["action"], "set-statistics");
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust TableUpdate has no RemoveStatistics variant; Java's testRemoveStatistics pins {action:remove-statistics, snapshot-id} on the wire"]
+    fn test_remove_statistics_per_java() {
+        let json = r#"{"action":"remove-statistics","snapshot-id":1940541653261589030}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["action"], "remove-statistics");
+    }
+
+    // --- 47-48. testAddViewVersion{From,To}Json (ViewUpdate side) ---------
+
+    fn sample_metadata_update_view_version() -> Version<Option<()>> {
+        Version::builder()
+            .version_id(23)
+            .timestamp_ms(123_456_789)
+            .schema_id(4)
+            .summary(iceberg_rust_spec::spec::view_metadata::Summary::default())
+            .representations(vec![])
+            .default_namespace(vec!["ns".to_string()])
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_add_view_version_to_json_per_java() {
+        // Java pins {action:add-view-version, view-version:{version-id, ...}}.
+        // Rust matches the outer action tag and the view-version inner shape.
+        let update: ViewUpdate<Option<()>> = ViewUpdate::AddViewVersion {
+            view_version: sample_metadata_update_view_version(),
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "add-view-version");
+        assert_eq!(value["view-version"]["version-id"], 23);
+        assert_eq!(value["view-version"]["timestamp-ms"], 123_456_789);
+        assert_eq!(value["view-version"]["schema-id"], 4);
+        assert_eq!(
+            value["view-version"]["default-namespace"],
+            serde_json::json!(["ns"]),
+        );
+    }
+
+    #[test]
+    fn test_add_view_version_from_json_per_java() {
+        let expected: ViewUpdate<Option<()>> = ViewUpdate::AddViewVersion {
+            view_version: sample_metadata_update_view_version(),
+        };
+        let json = serde_json::to_string(&expected).unwrap();
+        let parsed: ViewUpdate<Option<()>> = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust view-version `summary` is a fixed struct (operation/engine-name/engine-version); Java's ViewVersion.summary is a free-form Map<String,String> and testAddViewVersion{To,From}Json pins {\"user\":\"some-user\"}"]
+    fn test_add_view_version_summary_is_free_form_map_per_java() {
+        let json = r#"{"action":"add-view-version","view-version":{"version-id":23,"timestamp-ms":123456789,"schema-id":4,"summary":{"user":"some-user"},"default-namespace":["ns"],"representations":[]}}"#;
+        let parsed: ViewUpdate<Option<()>> = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["view-version"]["summary"]["user"], "some-user");
+    }
+
+    // --- 49-50. testSetCurrentViewVersion{From,To}Json ---------------------
+
+    #[test]
+    fn test_set_current_view_version_from_json_per_java() {
+        let json = r#"{"action":"set-current-view-version","view-version-id":23}"#;
+        let parsed: ViewUpdate<Option<()>> = serde_json::from_str(json).unwrap();
+        match parsed {
+            ViewUpdate::SetCurrentViewVersion { view_version_id } => {
+                assert_eq!(view_version_id, 23);
+            }
+            other => panic!("expected SetCurrentViewVersion, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_set_current_view_version_to_json_per_java() {
+        let update: ViewUpdate<Option<()>> = ViewUpdate::SetCurrentViewVersion {
+            view_version_id: 23,
+        };
+        let value = serde_json::to_value(&update).unwrap();
+        assert_eq!(value["action"], "set-current-view-version");
+        assert_eq!(value["view-version-id"], 23);
+    }
+
+    // --- 51-52. testSetPartitionStatistics / testRemovePartitionStatistics -
+
+    #[test]
+    #[ignore = "feature gap: Rust TableUpdate has no SetPartitionStatistics variant; Java pins {action:set-partition-statistics, partition-statistics:{snapshot-id, statistics-path, file-size-in-bytes}}"]
+    fn test_set_partition_statistics_per_java() {
+        let json = r#"{"action":"set-partition-statistics","partition-statistics":{"snapshot-id":1940541653261589030,"statistics-path":"s3://bucket/warehouse/stats1.parquet","file-size-in-bytes":43}}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["action"], "set-partition-statistics");
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust TableUpdate has no RemovePartitionStatistics variant; Java pins {action:remove-partition-statistics, snapshot-id}"]
+    fn test_remove_partition_statistics_per_java() {
+        let json = r#"{"action":"remove-partition-statistics","snapshot-id":1940541653261589030}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["action"], "remove-partition-statistics");
+    }
+
+    // --- 53. testRemovePartitionSpec ---------------------------------------
+
+    #[test]
+    #[ignore = "feature gap: Rust TableUpdate has no RemovePartitionSpecs variant; Java pins {action:remove-partition-specs, spec-ids:[...]}"]
+    fn test_remove_partition_specs_per_java() {
+        let json = r#"{"action":"remove-partition-specs","spec-ids":[1,2,3]}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["action"], "remove-partition-specs");
+    }
+
+    // --- 54. testRemoveSchemas ---------------------------------------------
+
+    #[test]
+    #[ignore = "feature gap: Rust TableUpdate has no RemoveSchemas variant; Java pins {action:remove-schemas, schema-ids:[...]}"]
+    fn test_remove_schemas_per_java() {
+        let json = r#"{"action":"remove-schemas","schema-ids":[1,2,3]}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["action"], "remove-schemas");
+    }
+
+    // --- 55. testAddEncryptionKey ------------------------------------------
+
+    #[test]
+    #[ignore = "feature gap: Rust TableUpdate has no AddEncryptionKey variant; Java pins {action:add-encryption-key, encryption-key:{key-id, encrypted-key-metadata, encrypted-by-id}}"]
+    fn test_add_encryption_key_per_java() {
+        let json = r#"{"action":"add-encryption-key","encryption-key":{"key-id":"a","encrypted-key-metadata":"a2V5","encrypted-by-id":"b"}}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["action"], "add-encryption-key");
+    }
+
+    // --- 56. testRemoveEncryptionKey ---------------------------------------
+
+    #[test]
+    #[ignore = "feature gap: Rust TableUpdate has no RemoveEncryptionKey variant; Java pins {action:remove-encryption-key, key-id}"]
+    fn test_remove_encryption_key_per_java() {
+        let json = r#"{"action":"remove-encryption-key","key-id":"a"}"#;
+        let parsed: TableUpdate = serde_json::from_str(json).unwrap();
+        let value = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(value["action"], "remove-encryption-key");
+    }
 }
