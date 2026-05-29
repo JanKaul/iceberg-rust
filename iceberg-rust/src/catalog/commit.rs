@@ -606,3 +606,240 @@ pub fn apply_view_updates<T: Materialization + 'static>(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use iceberg_rust_spec::spec::{
+        partition::PartitionSpec,
+        schema::SchemaBuilder,
+        snapshot::{SnapshotReference, SnapshotRetention},
+        table_metadata::TableMetadataBuilder,
+        types::{PrimitiveType, StructField, Type},
+    };
+    use uuid::Uuid;
+
+    use super::*;
+
+    // --- TestUpdateRequirements: check_table_requirements ------------------
+    //
+    // `check_table_requirements` is a pure function — every variant of
+    // TableRequirement maps to a field on TableMetadata. These tests pin
+    // the pass/fail behaviour per variant + a couple of multi-requirement
+    // boundary cases. The helper below builds the smallest metadata that
+    // is valid for the builder.
+
+    fn fixture(uuid: Uuid, refs: &[(&str, i64)]) -> TableMetadata {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        let refs = refs
+            .iter()
+            .map(|(name, snapshot_id)| {
+                (
+                    (*name).to_string(),
+                    SnapshotReference {
+                        snapshot_id: *snapshot_id,
+                        retention: SnapshotRetention::default(),
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        TableMetadataBuilder::default()
+            .table_uuid(uuid)
+            .location("s3://tests/table".to_owned())
+            .current_schema_id(0)
+            .schemas(HashMap::from_iter(vec![(0, schema)]))
+            .partition_specs(HashMap::from_iter(vec![(0, PartitionSpec::default())]))
+            .default_spec_id(0)
+            .last_partition_id(999)
+            .last_column_id(7)
+            .default_sort_order_id(0)
+            .refs(refs)
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_check_table_requirements_empty_list_passes() {
+        let metadata = fixture(Uuid::nil(), &[]);
+        assert!(check_table_requirements(&[], &metadata));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_create_treated_as_satisfied() {
+        // The actual existence check happens elsewhere in the create path;
+        // the requirement walker treats AssertCreate as a no-op.
+        let metadata = fixture(Uuid::nil(), &[]);
+        assert!(check_table_requirements(
+            &[TableRequirement::AssertCreate],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_table_uuid() {
+        let uuid = Uuid::from_u128(0x42);
+        let metadata = fixture(uuid, &[]);
+        assert!(check_table_requirements(
+            &[TableRequirement::AssertTableUuid { uuid }],
+            &metadata,
+        ));
+        assert!(!check_table_requirements(
+            &[TableRequirement::AssertTableUuid {
+                uuid: Uuid::from_u128(0x43),
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_ref_snapshot_id_matches_existing_ref() {
+        let metadata = fixture(Uuid::nil(), &[("main", 1)]);
+        assert!(check_table_requirements(
+            &[TableRequirement::AssertRefSnapshotId {
+                r#ref: "main".to_string(),
+                snapshot_id: 1,
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_ref_snapshot_id_fails_on_wrong_id() {
+        let metadata = fixture(Uuid::nil(), &[("main", 1)]);
+        assert!(!check_table_requirements(
+            &[TableRequirement::AssertRefSnapshotId {
+                r#ref: "main".to_string(),
+                snapshot_id: 9999,
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_ref_snapshot_id_fails_when_ref_missing() {
+        let metadata = fixture(Uuid::nil(), &[]);
+        assert!(!check_table_requirements(
+            &[TableRequirement::AssertRefSnapshotId {
+                r#ref: "absent".to_string(),
+                snapshot_id: 1,
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_current_schema_id() {
+        let metadata = fixture(Uuid::nil(), &[]);
+        assert!(check_table_requirements(
+            &[TableRequirement::AssertCurrentSchemaId {
+                current_schema_id: 0,
+            }],
+            &metadata,
+        ));
+        assert!(!check_table_requirements(
+            &[TableRequirement::AssertCurrentSchemaId {
+                current_schema_id: 7,
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_default_spec_id() {
+        let metadata = fixture(Uuid::nil(), &[]);
+        assert!(check_table_requirements(
+            &[TableRequirement::AssertDefaultSpecId { default_spec_id: 0 }],
+            &metadata,
+        ));
+        assert!(!check_table_requirements(
+            &[TableRequirement::AssertDefaultSpecId {
+                default_spec_id: 42,
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_default_sort_order_id() {
+        let metadata = fixture(Uuid::nil(), &[]);
+        assert!(check_table_requirements(
+            &[TableRequirement::AssertDefaultSortOrderId {
+                default_sort_order_id: 0,
+            }],
+            &metadata,
+        ));
+        assert!(!check_table_requirements(
+            &[TableRequirement::AssertDefaultSortOrderId {
+                default_sort_order_id: 99,
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_last_assigned_field_id() {
+        let metadata = fixture(Uuid::nil(), &[]);
+        assert!(check_table_requirements(
+            &[TableRequirement::AssertLastAssignedFieldId {
+                last_assigned_field_id: 7,
+            }],
+            &metadata,
+        ));
+        assert!(!check_table_requirements(
+            &[TableRequirement::AssertLastAssignedFieldId {
+                last_assigned_field_id: 8,
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_assert_last_assigned_partition_id() {
+        let metadata = fixture(Uuid::nil(), &[]);
+        assert!(check_table_requirements(
+            &[TableRequirement::AssertLastAssignedPartitionId {
+                last_assigned_partition_id: 999,
+            }],
+            &metadata,
+        ));
+        assert!(!check_table_requirements(
+            &[TableRequirement::AssertLastAssignedPartitionId {
+                last_assigned_partition_id: 1000,
+            }],
+            &metadata,
+        ));
+    }
+
+    #[test]
+    fn test_check_table_requirements_short_circuits_when_any_fails() {
+        // Several pass-then-one-fail combination: a single failure must
+        // sink the whole list (`Iterator::all` semantics).
+        let uuid = Uuid::from_u128(0x55);
+        let metadata = fixture(uuid, &[]);
+        let reqs = vec![
+            TableRequirement::AssertCurrentSchemaId {
+                current_schema_id: 0,
+            },
+            TableRequirement::AssertTableUuid { uuid },
+            TableRequirement::AssertDefaultSpecId {
+                default_spec_id: 42, // wrong
+            },
+        ];
+        assert!(!check_table_requirements(&reqs, &metadata));
+    }
+}
