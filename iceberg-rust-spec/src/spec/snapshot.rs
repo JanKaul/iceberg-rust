@@ -426,6 +426,98 @@ mod tests {
         }
     }
 
+    // --- TestSnapshotSummary additional coverage ---------------------------
+    //
+    // The spec defines a small lowercase enum for the snapshot operation
+    // and a key/value summary map populated with canonical metric keys
+    // like `added-records`, `total-data-files`, etc. The tests below pin
+    // the default state, parser strictness, and the canonical key shape.
+
+    #[test]
+    fn test_operation_default_is_append() {
+        assert_eq!(Operation::default(), Operation::Append);
+    }
+
+    #[test]
+    fn test_summary_default_has_append_operation_and_empty_other() {
+        let summary = Summary::default();
+        assert_eq!(summary.operation, Operation::Append);
+        assert!(
+            summary.other.is_empty(),
+            "default Summary should not carry pre-populated metrics",
+        );
+    }
+
+    #[test]
+    fn test_summary_parser_rejects_unknown_operation_keyword() {
+        let json = r#"{
+            "operation": "rewrite-manifests"
+        }"#;
+        assert!(serde_json::from_str::<Summary>(json).is_err());
+    }
+
+    #[test]
+    fn test_summary_parser_rejects_uppercase_operation_keyword() {
+        // The serde rename_all = "lowercase" attribute on Operation makes
+        // the parser case-sensitive; uppercase keywords must not match.
+        let json = r#"{
+            "operation": "APPEND"
+        }"#;
+        assert!(serde_json::from_str::<Summary>(json).is_err());
+    }
+
+    #[test]
+    fn test_summary_round_trips_common_spec_metric_keys() {
+        // The canonical key set produced by Iceberg writers on an append
+        // commit. The Rust Summary models these as `other: HashMap<...>`,
+        // and the test pins that every common key survives a JSON
+        // round-trip without being absorbed into a typed field.
+        let canonical_keys: &[(&str, &str)] = &[
+            ("added-data-files", "3"),
+            ("added-records", "150"),
+            ("added-files-size", "1024000"),
+            ("removed-data-files", "0"),
+            ("removed-records", "0"),
+            ("total-data-files", "12"),
+            ("total-records", "1850"),
+            ("total-files-size", "4096000"),
+            ("total-position-deletes", "0"),
+            ("total-equality-deletes", "0"),
+        ];
+
+        let mut other = HashMap::new();
+        for (k, v) in canonical_keys {
+            other.insert((*k).to_owned(), (*v).to_owned());
+        }
+        let summary = Summary {
+            operation: Operation::Append,
+            other: other.clone(),
+        };
+
+        let parsed: Summary =
+            serde_json::from_str(&serde_json::to_string(&summary).unwrap()).unwrap();
+        assert_eq!(parsed.operation, Operation::Append);
+        for (k, v) in canonical_keys {
+            assert_eq!(
+                parsed.other.get(*k).map(String::as_str),
+                Some(*v),
+                "round-trip lost key {k}",
+            );
+        }
+    }
+
+    #[test]
+    fn test_summary_with_only_operation_parses_to_default_other() {
+        // A summary that omits all metric keys must still parse and yield
+        // an empty `other` map.
+        let json = r#"{
+            "operation": "delete"
+        }"#;
+        let parsed: Summary = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.operation, Operation::Delete);
+        assert!(parsed.other.is_empty());
+    }
+
     // --- SnapshotReference & SnapshotRetention --------------------------
 
     #[test]
