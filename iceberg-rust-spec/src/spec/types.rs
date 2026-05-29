@@ -891,4 +891,120 @@ mod tests {
         let parsed: PrimitiveType = serde_json::from_str(&serialized).unwrap();
         assert_eq!(parsed, value);
     }
+
+    // --- StructType accessors -----------------------------------------------
+    //
+    // Catalogue: TestSchemaCaseSensitivity, TestTypeUtil. These tests pin
+    // the StructType lookup contract — by-id (`get`), by-name (`get_name`),
+    // sorted field-id iteration — and document two gaps relative to the
+    // Iceberg Java contract:
+    //
+    //   * Java's `Schema.findField(String)` resolves dotted paths into
+    //     nested fields. The Rust impl short-circuits on the first match
+    //     and returns the parent. Pinned by an `#[ignore]`'d test below.
+    //   * Java's `Schema.caseInsensitiveFindField` looks up by lowered
+    //     name. The Rust impl has no case-insensitive variant; the test
+    //     below pins the case-sensitive miss.
+
+    fn struct_with_nested() -> StructType {
+        let inner = StructType::new(vec![
+            StructField::new(
+                101,
+                "street",
+                true,
+                Type::Primitive(PrimitiveType::String),
+                None,
+            ),
+            StructField::new(
+                102,
+                "city",
+                true,
+                Type::Primitive(PrimitiveType::String),
+                None,
+            ),
+        ]);
+        StructType::new(vec![
+            StructField::new(1, "id", true, Type::Primitive(PrimitiveType::Long), None),
+            StructField::new(
+                2,
+                "name",
+                true,
+                Type::Primitive(PrimitiveType::String),
+                None,
+            ),
+            StructField::new(3, "address", false, Type::Struct(inner), None),
+        ])
+    }
+
+    #[test]
+    fn test_struct_type_get_by_id_returns_field_with_matching_id() {
+        let s = struct_with_nested();
+        let field = s.get(2).expect("field with id=2 must exist");
+        assert_eq!(field.name, "name");
+        assert_eq!(field.id, 2);
+    }
+
+    #[test]
+    fn test_struct_type_get_by_unknown_id_returns_none() {
+        let s = struct_with_nested();
+        assert!(s.get(999).is_none());
+    }
+
+    #[test]
+    fn test_struct_type_get_name_finds_top_level_field_by_exact_name() {
+        let s = struct_with_nested();
+        let field = s.get_name("id").expect("field 'id' must exist");
+        assert_eq!(field.id, 1);
+    }
+
+    #[test]
+    fn test_struct_type_get_name_returns_none_for_missing_field() {
+        let s = struct_with_nested();
+        assert!(s.get_name("missing").is_none());
+    }
+
+    #[test]
+    fn test_struct_type_get_name_is_case_sensitive() {
+        // Pins current Rust behaviour: lookup uses string equality, so
+        // "ID" / "Name" do not match "id" / "name". Java exposes a
+        // separate `caseInsensitiveFindField` for the lowered-name path,
+        // which has no Rust counterpart today.
+        let s = struct_with_nested();
+        assert!(s.get_name("ID").is_none());
+        assert!(s.get_name("Name").is_none());
+    }
+
+    #[test]
+    fn test_struct_type_field_ids_are_sorted_ascending() {
+        let s = StructType::new(vec![
+            StructField::new(7, "a", true, Type::Primitive(PrimitiveType::Long), None),
+            StructField::new(3, "b", true, Type::Primitive(PrimitiveType::Long), None),
+            StructField::new(5, "c", true, Type::Primitive(PrimitiveType::Long), None),
+        ]);
+        let ids: Vec<i32> = s.field_ids().collect();
+        assert_eq!(ids, vec![3, 5, 7]);
+    }
+
+    #[test]
+    fn test_struct_type_dotted_path_returns_parent_today() {
+        // Current Rust behaviour: `get_name("address.city")` first tries
+        // the literal name, doesn't find it, then walks the dotted parts.
+        // On the first match (the parent `address`) it short-circuits and
+        // returns that parent rather than descending into the nested
+        // struct. Pinning this so any future fix that resolves into the
+        // child field becomes a deliberate change.
+        let s = struct_with_nested();
+        let found = s.get_name("address.city").expect("expected some hit");
+        assert_eq!(found.id, 3, "today returns the parent `address` field");
+        assert_eq!(found.name, "address");
+    }
+
+    #[test]
+    #[ignore = "spec gap: StructType::get_name short-circuits on the first dotted-path part instead of descending into nested structs; Java's Schema.findField resolves nested names"]
+    fn test_struct_type_dotted_path_resolves_into_nested_struct_per_spec() {
+        let s = struct_with_nested();
+        let found = s.get_name("address.city").unwrap();
+        assert_eq!(found.id, 102);
+        assert_eq!(found.name, "city");
+    }
 }
