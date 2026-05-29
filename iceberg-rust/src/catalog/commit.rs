@@ -1754,4 +1754,265 @@ mod tests {
         let result: Result<CommitTable, _> = serde_json::from_str(json);
         assert!(result.is_ok());
     }
+
+    // --- Port: TestUpdateRequirementParser (Apache Iceberg Java) -----------
+    //
+    // Java has explicit per-variant ToJson + FromJson tests for every
+    // UpdateRequirement variant. Cycle 17 already exercised round-trip via
+    // a loop; this section adds the explicit per-variant assertions Java
+    // does, so each variant has its own pin.
+
+    const SAMPLE_UUID_STR: &str = "2cc52516-5e73-41f2-b139-545d41a4e151";
+
+    fn sample_uuid() -> Uuid {
+        Uuid::parse_str(SAMPLE_UUID_STR).unwrap()
+    }
+
+    #[test]
+    fn test_update_requirement_parser_rejects_missing_type_tag() {
+        // Java: testUpdateRequirementWithoutRequirementTypeCannotParse —
+        // both `{type:null, uuid:...}` and `{uuid:...}` are rejected with
+        // "Missing field: type".
+        let null_type = r#"{"type":null,"uuid":"2cc52516-5e73-41f2-b139-545d41a4e151"}"#;
+        let no_type = r#"{"uuid":"2cc52516-5e73-41f2-b139-545d41a4e151"}"#;
+        assert!(serde_json::from_str::<TableRequirement>(null_type).is_err());
+        assert!(serde_json::from_str::<TableRequirement>(no_type).is_err());
+    }
+
+    #[test]
+    fn test_assert_table_uuid_to_json_per_java() {
+        // Java: testAssertUUIDToJson — exact JSON shape.
+        let req = TableRequirement::AssertTableUuid {
+            uuid: sample_uuid(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            format!(r#"{{"type":"assert-table-uuid","uuid":"{SAMPLE_UUID_STR}"}}"#),
+        );
+    }
+
+    #[test]
+    fn test_assert_table_uuid_from_json_per_java() {
+        // Java: testAssertUUIDFromJson — parse the canonical payload.
+        let json = format!(r#"{{"type":"assert-table-uuid","uuid":"{SAMPLE_UUID_STR}"}}"#);
+        let parsed: TableRequirement = serde_json::from_str(&json).unwrap();
+        match parsed {
+            TableRequirement::AssertTableUuid { uuid } => assert_eq!(uuid, sample_uuid()),
+            other => panic!("expected AssertTableUuid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_assert_view_uuid_to_json_per_java() {
+        // Java: testAssertViewUUIDToJson.
+        let req = ViewRequirement::AssertViewUuid {
+            uuid: sample_uuid(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            format!(r#"{{"type":"assert-view-uuid","uuid":"{SAMPLE_UUID_STR}"}}"#),
+        );
+    }
+
+    #[test]
+    fn test_assert_view_uuid_from_json_per_java() {
+        // Java: testAssertViewUUIDFromJson.
+        let json = format!(r#"{{"type":"assert-view-uuid","uuid":"{SAMPLE_UUID_STR}"}}"#);
+        let parsed: ViewRequirement = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ViewRequirement::AssertViewUuid { uuid } => assert_eq!(uuid, sample_uuid()),
+        }
+    }
+
+    #[test]
+    fn test_assert_table_does_not_exist_to_json_per_java() {
+        // Java: testAssertTableDoesNotExistToJson — bare tag form.
+        // Rust spells the variant AssertCreate.
+        let req = TableRequirement::AssertCreate;
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(json, r#"{"type":"assert-create"}"#);
+    }
+
+    #[test]
+    fn test_assert_table_does_not_exist_from_json_per_java() {
+        // Java: testAssertTableDoesNotExistFromJson.
+        let json = r#"{"type":"assert-create"}"#;
+        let parsed: TableRequirement = serde_json::from_str(json).unwrap();
+        assert!(matches!(parsed, TableRequirement::AssertCreate));
+    }
+
+    #[test]
+    fn test_assert_ref_snapshot_id_to_json_per_java() {
+        // Java: testAssertRefSnapshotIdFromJson (Java labels are swapped vs
+        // Rust convention; this test exercises the toJson path).
+        let req = TableRequirement::AssertRefSnapshotId {
+            r#ref: "snapshot-name".to_string(),
+            snapshot_id: 1,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"assert-ref-snapshot-id","ref":"snapshot-name","snapshot-id":1}"#,
+        );
+    }
+
+    #[test]
+    fn test_assert_ref_snapshot_id_from_json_per_java() {
+        // Java: testAssertRefSnapshotIdToJson (label-swapped, see above).
+        let json = r#"{"type":"assert-ref-snapshot-id","ref":"snapshot-name","snapshot-id":1}"#;
+        let parsed: TableRequirement = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableRequirement::AssertRefSnapshotId { r#ref, snapshot_id } => {
+                assert_eq!(r#ref, "snapshot-name");
+                assert_eq!(snapshot_id, 1);
+            }
+            other => panic!("expected AssertRefSnapshotId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust AssertRefSnapshotId.snapshot_id is i64 (not Option<i64>); Java models snapshot-id as nullable and tests the null case in testAssertRefSnapshotId{To,From}JsonWithNullSnapshotId"]
+    fn test_assert_ref_snapshot_id_with_null_snapshot_id_per_java() {
+        // Java: testAssertRefSnapshotIdToJsonWithNullSnapshotId — Java
+        // formats snapshot-id as the string "null" when it's null and the
+        // FromJson path accepts null. Rust models snapshot_id as i64, so
+        // the null payload cannot round-trip.
+        let json = r#"{"type":"assert-ref-snapshot-id","ref":"snapshot-name","snapshot-id":null}"#;
+        let result: Result<TableRequirement, _> = serde_json::from_str(json);
+        assert!(
+            result.is_ok(),
+            "expected null snapshot-id to parse: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_assert_last_assigned_field_id_to_json_per_java() {
+        // Java: testAssertLastAssignedFieldIdToJson.
+        let req = TableRequirement::AssertLastAssignedFieldId {
+            last_assigned_field_id: 12,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"assert-last-assigned-field-id","last-assigned-field-id":12}"#,
+        );
+    }
+
+    #[test]
+    fn test_assert_last_assigned_field_id_from_json_per_java() {
+        // Java: testAssertLastAssignedFieldIdFromJson.
+        let json = r#"{"type":"assert-last-assigned-field-id","last-assigned-field-id":12}"#;
+        let parsed: TableRequirement = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableRequirement::AssertLastAssignedFieldId {
+                last_assigned_field_id,
+            } => assert_eq!(last_assigned_field_id, 12),
+            other => panic!("expected AssertLastAssignedFieldId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_assert_current_schema_id_to_json_per_java() {
+        // Java: testAssertCurrentSchemaIdToJson.
+        let req = TableRequirement::AssertCurrentSchemaId {
+            current_schema_id: 4,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"assert-current-schema-id","current-schema-id":4}"#,
+        );
+    }
+
+    #[test]
+    fn test_assert_current_schema_id_from_json_per_java() {
+        // Java: testAssertCurrentSchemaIdFromJson.
+        let json = r#"{"type":"assert-current-schema-id","current-schema-id":4}"#;
+        let parsed: TableRequirement = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableRequirement::AssertCurrentSchemaId { current_schema_id } => {
+                assert_eq!(current_schema_id, 4)
+            }
+            other => panic!("expected AssertCurrentSchemaId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_assert_last_assigned_partition_id_to_json_per_java() {
+        // Java: testAssertLastAssignedPartitionIdToJson.
+        let req = TableRequirement::AssertLastAssignedPartitionId {
+            last_assigned_partition_id: 1004,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"assert-last-assigned-partition-id","last-assigned-partition-id":1004}"#,
+        );
+    }
+
+    #[test]
+    fn test_assert_last_assigned_partition_id_from_json_per_java() {
+        // Java: testAssertLastAssignedPartitionIdFromJson.
+        let json =
+            r#"{"type":"assert-last-assigned-partition-id","last-assigned-partition-id":1004}"#;
+        let parsed: TableRequirement = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableRequirement::AssertLastAssignedPartitionId {
+                last_assigned_partition_id,
+            } => assert_eq!(last_assigned_partition_id, 1004),
+            other => panic!("expected AssertLastAssignedPartitionId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_assert_default_spec_id_to_json_per_java() {
+        // Java: testAssertDefaultSpecIdToJson.
+        let req = TableRequirement::AssertDefaultSpecId { default_spec_id: 5 };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"assert-default-spec-id","default-spec-id":5}"#,
+        );
+    }
+
+    #[test]
+    fn test_assert_default_spec_id_from_json_per_java() {
+        // Java: testAssertDefaultSpecIdFromJson.
+        let json = r#"{"type":"assert-default-spec-id","default-spec-id":5}"#;
+        let parsed: TableRequirement = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableRequirement::AssertDefaultSpecId { default_spec_id } => {
+                assert_eq!(default_spec_id, 5)
+            }
+            other => panic!("expected AssertDefaultSpecId, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_assert_default_sort_order_id_to_json_per_java() {
+        // Java: testAssertDefaultSortOrderIdToJson.
+        let req = TableRequirement::AssertDefaultSortOrderId {
+            default_sort_order_id: 10,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"assert-default-sort-order-id","default-sort-order-id":10}"#,
+        );
+    }
+
+    #[test]
+    fn test_assert_default_sort_order_id_from_json_per_java() {
+        // Java: testAssertDefaultSortOrderIdFromJson.
+        let json = r#"{"type":"assert-default-sort-order-id","default-sort-order-id":10}"#;
+        let parsed: TableRequirement = serde_json::from_str(json).unwrap();
+        match parsed {
+            TableRequirement::AssertDefaultSortOrderId {
+                default_sort_order_id,
+            } => assert_eq!(default_sort_order_id, 10),
+            other => panic!("expected AssertDefaultSortOrderId, got {other:?}"),
+        }
+    }
 }
