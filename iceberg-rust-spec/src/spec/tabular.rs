@@ -194,7 +194,145 @@ impl<'a> From<&'a TabularMetadata> for TabularMetadataRef<'a> {
 #[cfg(test)]
 mod tests {
 
-    use crate::{error::Error, tabular::TabularMetadata};
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
+    use uuid::Uuid;
+
+    use crate::{
+        error::Error,
+        spec::{
+            schema::SchemaBuilder,
+            table_metadata::{TableMetadata, TableMetadataBuilder},
+            types::{PrimitiveType, StructField, Type},
+            view_metadata::{Version, ViewMetadata, ViewMetadataBuilder},
+        },
+        tabular::{TabularMetadata, TabularMetadataRef},
+    };
+
+    fn table_fixture(uuid: Uuid, last_sequence_number: i64) -> TableMetadata {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField::new(
+                1,
+                "id",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ))
+            .build()
+            .unwrap();
+        TableMetadataBuilder::default()
+            .table_uuid(uuid)
+            .location("s3://tabular/table".to_string())
+            .current_schema_id(0)
+            .schemas(HashMap::from_iter(vec![(0, schema)]))
+            .last_sequence_number(last_sequence_number)
+            .build()
+            .unwrap()
+    }
+
+    fn view_fixture(uuid: Uuid, current_version_id: i64) -> ViewMetadata {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField::new(
+                1,
+                "id",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ))
+            .build()
+            .unwrap();
+        let version: Version<Option<()>> = Version::builder()
+            .version_id(current_version_id)
+            .schema_id(0)
+            .timestamp_ms(0)
+            .default_namespace(vec!["ns".to_string()])
+            .build()
+            .unwrap();
+
+        ViewMetadataBuilder::default()
+            .view_uuid(uuid)
+            .location("s3://tabular/view".to_string())
+            .current_version_id(current_version_id)
+            .with_version((current_version_id, version))
+            .with_schema((0, schema))
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_tabular_metadata_from_table_metadata_wraps_into_table_variant() {
+        let metadata = table_fixture(Uuid::nil(), 0);
+        let wrapped: TabularMetadata = metadata.clone().into();
+        assert!(matches!(wrapped, TabularMetadata::Table(_)));
+    }
+
+    #[test]
+    fn test_tabular_metadata_from_view_metadata_wraps_into_view_variant() {
+        let metadata = view_fixture(Uuid::nil(), 1);
+        let wrapped: TabularMetadata = metadata.clone().into();
+        assert!(matches!(wrapped, TabularMetadata::View(_)));
+    }
+
+    #[test]
+    fn test_tabular_metadata_as_ref_matches_owned_variant() {
+        let table = TabularMetadata::Table(table_fixture(Uuid::nil(), 0));
+        let view = TabularMetadata::View(view_fixture(Uuid::nil(), 1));
+        assert!(matches!(table.as_ref(), TabularMetadataRef::Table(_)));
+        assert!(matches!(view.as_ref(), TabularMetadataRef::View(_)));
+    }
+
+    #[test]
+    fn test_tabular_metadata_display_then_fromstr_round_trips_table() {
+        let metadata: TabularMetadata = table_fixture(Uuid::from_u128(0xCAFE), 7).into();
+        let rendered = format!("{metadata}");
+        let parsed = TabularMetadata::from_str(&rendered).unwrap();
+        assert_eq!(parsed, metadata);
+    }
+
+    #[test]
+    fn test_tabular_metadata_ref_uuid_returns_per_variant_uuid() {
+        let table_uuid = Uuid::from_u128(0xAA);
+        let view_uuid = Uuid::from_u128(0xBB);
+        let table: TabularMetadata = table_fixture(table_uuid, 0).into();
+        let view: TabularMetadata = view_fixture(view_uuid, 1).into();
+        assert_eq!(table.as_ref().uuid(), &table_uuid);
+        assert_eq!(view.as_ref().uuid(), &view_uuid);
+    }
+
+    #[test]
+    fn test_tabular_metadata_ref_location_returns_per_variant_location() {
+        let table: TabularMetadata = table_fixture(Uuid::nil(), 0).into();
+        let view: TabularMetadata = view_fixture(Uuid::nil(), 1).into();
+        assert_eq!(table.as_ref().location(), "s3://tabular/table");
+        assert_eq!(view.as_ref().location(), "s3://tabular/view");
+    }
+
+    #[test]
+    fn test_tabular_metadata_ref_sequence_number_maps_to_table_seq_and_view_version() {
+        let table: TabularMetadata = table_fixture(Uuid::nil(), 17).into();
+        let view: TabularMetadata = view_fixture(Uuid::nil(), 4).into();
+        assert_eq!(table.as_ref().sequence_number(), 17);
+        // Views use current_version_id as their sequence-number analogue.
+        assert_eq!(view.as_ref().sequence_number(), 4);
+    }
+
+    #[test]
+    fn test_tabular_metadata_ref_current_schema_returns_per_variant_schema() {
+        let table: TabularMetadata = table_fixture(Uuid::nil(), 0).into();
+        let view: TabularMetadata = view_fixture(Uuid::nil(), 1).into();
+        // Both fixtures pin schema-id 0 with a single Long field named "id".
+        assert_eq!(
+            table.as_ref().current_schema(None).unwrap().fields()[0].name,
+            "id"
+        );
+        assert_eq!(
+            view.as_ref().current_schema(None).unwrap().fields()[0].name,
+            "id"
+        );
+    }
 
     #[test]
     fn test_deserialize_tabular_view_data_v1() -> Result<(), Error> {
