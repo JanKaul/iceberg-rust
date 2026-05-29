@@ -2473,4 +2473,146 @@ mod tests {
         });
         assert!(Value::try_from_json(serde_json::Value::String("1.5".to_string()), &ty).is_err());
     }
+
+    // --- try_from_json: string -> Date / Time / Timestamp / UUID / null -----
+    //
+    // Catalogue: §2 TestStringLiteralConversions. The remaining string
+    // parsers in `try_from_json` map ISO-8601 strings onto the typed
+    // temporal `Value` variants. The Iceberg spec uses ISO-8601 with
+    // fractional seconds; the Rust impl uses chrono's
+    // `%Y-%m-%dT%H:%M:%S%.f` format and a literal `+00:00` offset for
+    // timestamptz.
+
+    fn parse_date(s: &str) -> Result<Option<Value>, Error> {
+        Value::try_from_json(
+            serde_json::Value::String(s.to_string()),
+            &Type::Primitive(PrimitiveType::Date),
+        )
+    }
+
+    #[test]
+    fn test_try_from_json_for_date_parses_iso_yyyy_mm_dd() {
+        // 2017-12-01 sits at day 17501 since the Unix epoch.
+        let parsed = parse_date("2017-12-01").unwrap().unwrap();
+        assert_eq!(parsed, Value::Date(17_501));
+    }
+
+    #[test]
+    fn test_try_from_json_for_date_accepts_pre_epoch_dates() {
+        // 1969-12-31 is one day before the epoch.
+        let parsed = parse_date("1969-12-31").unwrap().unwrap();
+        assert_eq!(parsed, Value::Date(-1));
+    }
+
+    #[test]
+    fn test_try_from_json_for_date_rejects_malformed_input() {
+        // The chrono parser surfaces malformed input as an Err; either
+        // unstructured prose or an alternate separator both fail.
+        assert!(parse_date("1st of January 2017").is_err());
+        assert!(parse_date("2017/12/01").is_err());
+    }
+
+    #[test]
+    fn test_try_from_json_for_time_parses_hh_mm_ss_with_fractional_seconds() {
+        let parsed = Value::try_from_json(
+            serde_json::Value::String("22:31:08.123456".to_string()),
+            &Type::Primitive(PrimitiveType::Time),
+        )
+        .unwrap()
+        .unwrap();
+        // 22:31:08 = 81_068 seconds + 0.123456 fractional = 81_068.123456 s.
+        let expected_micros = 81_068_i64 * 1_000_000 + 123_456;
+        assert_eq!(parsed, Value::Time(expected_micros));
+    }
+
+    #[test]
+    fn test_try_from_json_for_timestamp_parses_iso_string_with_micros() {
+        // 2017-12-01T10:12:55.038194 = 1_512_123_175_038_194 micros.
+        let parsed = Value::try_from_json(
+            serde_json::Value::String("2017-12-01T10:12:55.038194".to_string()),
+            &Type::Primitive(PrimitiveType::Timestamp),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed, Value::Timestamp(1_512_123_175_038_194));
+    }
+
+    #[test]
+    fn test_try_from_json_for_timestamptz_requires_literal_plus_00_00() {
+        // The Rust parser uses a literal `+00:00` offset suffix; the spec
+        // form parses cleanly.
+        let parsed = Value::try_from_json(
+            serde_json::Value::String("2017-12-01T10:12:55.038194+00:00".to_string()),
+            &Type::Primitive(PrimitiveType::Timestamptz),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed, Value::TimestampTZ(1_512_123_175_038_194));
+    }
+
+    #[test]
+    fn test_try_from_json_for_uuid_parses_dashed_string() {
+        let s = "f79c3e09-677c-4bbd-a479-3f349cb785e7";
+        let parsed = Value::try_from_json(
+            serde_json::Value::String(s.to_string()),
+            &Type::Primitive(PrimitiveType::Uuid),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed, Value::UUID(Uuid::parse_str(s).unwrap()));
+    }
+
+    #[test]
+    fn test_try_from_json_for_uuid_rejects_malformed_string() {
+        let parsed = Value::try_from_json(
+            serde_json::Value::String("not-a-uuid".to_string()),
+            &Type::Primitive(PrimitiveType::Uuid),
+        );
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_try_from_json_for_string_passes_through_unchanged() {
+        let parsed = Value::try_from_json(
+            serde_json::Value::String("payday 💰".to_string()),
+            &Type::Primitive(PrimitiveType::String),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed, Value::String("payday 💰".to_string()));
+    }
+
+    #[test]
+    fn test_try_from_json_for_null_returns_none_for_every_primitive_target() {
+        for prim in [
+            PrimitiveType::Date,
+            PrimitiveType::Time,
+            PrimitiveType::Timestamp,
+            PrimitiveType::Timestamptz,
+            PrimitiveType::String,
+            PrimitiveType::Uuid,
+            PrimitiveType::Int,
+            PrimitiveType::Long,
+            PrimitiveType::Double,
+        ] {
+            let got = Value::try_from_json(serde_json::Value::Null, &Type::Primitive(prim.clone()))
+                .unwrap();
+            assert!(got.is_none(), "expected None for null -> {prim:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "spec gap: try_from_json's Timestamptz parser uses literal `+00:00`; spec allows any ISO-8601 offset to be normalised to UTC"]
+    fn test_try_from_json_for_timestamptz_accepts_non_zero_offset_per_spec() {
+        // Spec form: `2017-12-01T15:42:55.038194+05:30` is the same instant
+        // as `2017-12-01T10:12:55.038194+00:00`, so the parsed micros
+        // should match the UTC reference.
+        let parsed = Value::try_from_json(
+            serde_json::Value::String("2017-12-01T15:42:55.038194+05:30".to_string()),
+            &Type::Primitive(PrimitiveType::Timestamptz),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed, Value::TimestampTZ(1_512_123_175_038_194));
+    }
 }
