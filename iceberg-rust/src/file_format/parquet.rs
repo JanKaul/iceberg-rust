@@ -444,3 +444,143 @@ where
 
     (outside_overlap + new_in_overlap).round() as i64
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{estimate_distinct_count, range_overlap};
+
+    // --- range_overlap -----------------------------------------------------
+    //
+    // `range_overlap` returns `min(end) - max(start)`. A negative result
+    // means the two ranges are fully disjoint; a zero result means they
+    // touch on a single point; a positive result is the overlap width.
+
+    #[test]
+    fn test_range_overlap_disjoint_with_new_to_the_right_is_negative() {
+        let old = [&0_i64, &10];
+        let new = [&20_i64, &30];
+        assert_eq!(range_overlap(&old, &new), -10);
+    }
+
+    #[test]
+    fn test_range_overlap_disjoint_with_new_to_the_left_is_negative() {
+        let old = [&20_i64, &30];
+        let new = [&0_i64, &10];
+        assert_eq!(range_overlap(&old, &new), -10);
+    }
+
+    #[test]
+    fn test_range_overlap_touching_at_endpoint_is_zero() {
+        let old = [&0_i64, &10];
+        let new = [&10_i64, &20];
+        assert_eq!(range_overlap(&old, &new), 0);
+    }
+
+    #[test]
+    fn test_range_overlap_partial_overlap_is_positive_width() {
+        let old = [&0_i64, &10];
+        let new = [&5_i64, &15];
+        assert_eq!(range_overlap(&old, &new), 5);
+    }
+
+    #[test]
+    fn test_range_overlap_new_fully_inside_old_returns_new_width() {
+        let old = [&0_i64, &100];
+        let new = [&20_i64, &30];
+        assert_eq!(range_overlap(&old, &new), 10);
+    }
+
+    #[test]
+    fn test_range_overlap_identical_ranges_return_full_width() {
+        let old = [&0_i64, &10];
+        let new = [&0_i64, &10];
+        assert_eq!(range_overlap(&old, &new), 10);
+    }
+
+    // --- estimate_distinct_count ------------------------------------------
+    //
+    // `estimate_distinct_count` uses an independence-approximation to ask
+    // "how many of the new range's distinct values are likely to be new
+    // relative to the old range". The contract pinned here:
+    //
+    //   - Disjoint ranges: every new distinct value is new.
+    //   - Touching ranges (overlap == 0): same as disjoint.
+    //   - Identical ranges with equal counts: ~30 / 50 are new (independence
+    //     approximation ((R-1)/R)^k).
+    //   - New fully inside old: outside-overlap contribution is zero;
+    //     result is bounded by n2.
+    //   - Partial overlap: the half outside the old range contributes
+    //     fully, the half inside contributes via the independence approx.
+
+    #[test]
+    fn test_estimate_distinct_count_disjoint_returns_full_new_count() {
+        let old = [&0_i64, &100];
+        let new = [&200_i64, &300];
+        assert_eq!(estimate_distinct_count(&old, &new, 10, 20), 20);
+    }
+
+    #[test]
+    fn test_estimate_distinct_count_touching_returns_full_new_count() {
+        // Overlap of exactly 0 is treated like no overlap because the
+        // `overlap >= T::default()` branch produces `overlap_size = 0.0`
+        // and the new-in-overlap term vanishes.
+        let old = [&0_i64, &100];
+        let new = [&100_i64, &200];
+        assert_eq!(estimate_distinct_count(&old, &new, 10, 20), 20);
+    }
+
+    #[test]
+    fn test_estimate_distinct_count_identical_ranges_with_equal_counts() {
+        // outside_overlap = 0, expected_n1 = n2 = 50.
+        // new_in_overlap = 50 * (99/100)^50 ≈ 50 * 0.6050 ≈ 30.25.
+        let old = [&0_i64, &100];
+        let new = [&0_i64, &100];
+        let got = estimate_distinct_count(&old, &new, 50, 50);
+        assert!(
+            (29..=31).contains(&got),
+            "expected ~30 new distinct values, got {got}",
+        );
+    }
+
+    #[test]
+    fn test_estimate_distinct_count_new_fully_inside_old() {
+        // new=[400, 600] inside old=[0, 1000]. outside_overlap = 0.
+        // n2_overlap = 50, expected_n1_in_overlap = 200/1000 * 100 = 20.
+        // new_in_overlap = 50 * (199/200)^20 ≈ 50 * 0.9047 ≈ 45.24.
+        let old = [&0_i64, &1000];
+        let new = [&400_i64, &600];
+        let got = estimate_distinct_count(&old, &new, 100, 50);
+        assert!(
+            (44..=46).contains(&got),
+            "expected ~45 new distinct values, got {got}",
+        );
+    }
+
+    #[test]
+    fn test_estimate_distinct_count_partial_overlap_combines_both_paths() {
+        // old=[0,1000], new=[500,1500]: half of new is outside old (full
+        // contribution), the other half overlaps and is discounted.
+        // outside_overlap = 0.5 * 50 = 25.
+        // n2_overlap = 25, expected_n1 = 50.
+        // new_in_overlap = 25 * (499/500)^50 ≈ 25 * 0.9047 ≈ 22.62.
+        // total ≈ 47.62 -> 48.
+        let old = [&0_i64, &1000];
+        let new = [&500_i64, &1500];
+        let got = estimate_distinct_count(&old, &new, 100, 50);
+        assert!(
+            (47..=49).contains(&got),
+            "expected ~48 new distinct values, got {got}",
+        );
+    }
+
+    #[test]
+    fn test_estimate_distinct_count_i32_specialization_matches_i64() {
+        // The ToF64 impl is the same for i32 and i64 so the result must
+        // match a direct i64 call with the same inputs.
+        let old = [&0_i32, &1000];
+        let new = [&500_i32, &1500];
+        let got_i32 = estimate_distinct_count(&old, &new, 100, 50);
+        let got_i64 = estimate_distinct_count(&[&0_i64, &1000], &[&500_i64, &1500], 100, 50);
+        assert_eq!(got_i32, got_i64);
+    }
+}
