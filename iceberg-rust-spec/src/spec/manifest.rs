@@ -2327,6 +2327,126 @@ mod tests {
         );
     }
 
+    // --- Status / Content / FileFormat enums --------------------------------
+    //
+    // Per spec these three enums are part of the on-disk manifest contract.
+    // `Status` is a 1-byte enum with EXISTING=0, ADDED=1, DELETED=2 (Iceberg
+    // Java's ManifestEntry.Status). `Content` is the data-file content
+    // marker with DATA=0, POSITION_DELETES=1, EQUALITY_DELETES=2; in the
+    // Rust impl it doubles as a byte-payload (de)serializer for catalog
+    // payloads. `FileFormat` round-trips through the uppercase AVRO / ORC /
+    // PARQUET tags rather than the discriminant ordinal.
+
+    #[test]
+    fn test_status_serializes_as_u8_discriminant() {
+        assert_eq!(serde_json::to_string(&Status::Existing).unwrap(), "0");
+        assert_eq!(serde_json::to_string(&Status::Added).unwrap(), "1");
+        assert_eq!(serde_json::to_string(&Status::Deleted).unwrap(), "2");
+    }
+
+    #[test]
+    fn test_status_round_trips_via_json_for_every_variant() {
+        for variant in [Status::Existing, Status::Added, Status::Deleted] {
+            let json = serde_json::to_string(&variant).unwrap();
+            let parsed: Status = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn test_status_rejects_out_of_range_discriminant() {
+        // 0/1/2 are valid; anything else should fail to deserialise.
+        assert!(serde_json::from_str::<Status>("3").is_err());
+    }
+
+    #[test]
+    fn test_content_byte_conversion_accepts_uppercase_labels() {
+        let cases = [
+            ("DATA", Content::Data),
+            ("POSITION DELETES", Content::PositionDeletes),
+            ("EQUALITY DELETES", Content::EqualityDeletes),
+        ];
+        for (label, expected) in cases {
+            let bytes: Vec<u8> = label.as_bytes().to_vec();
+            let got = Content::try_from(bytes).unwrap();
+            assert_eq!(got, expected, "case-exact: {label}");
+        }
+    }
+
+    #[test]
+    fn test_content_byte_conversion_is_case_insensitive() {
+        // The TryFrom impl uppercases its input before matching, so the
+        // lower-case form must produce the same variant.
+        let bytes: Vec<u8> = "data".as_bytes().to_vec();
+        assert_eq!(Content::try_from(bytes).unwrap(), Content::Data);
+        let bytes: Vec<u8> = "position deletes".as_bytes().to_vec();
+        assert_eq!(Content::try_from(bytes).unwrap(), Content::PositionDeletes,);
+    }
+
+    #[test]
+    fn test_content_byte_conversion_rejects_unknown_label() {
+        let bytes: Vec<u8> = "row-deletes".as_bytes().to_vec();
+        let err = Content::try_from(bytes).unwrap_err();
+        assert!(matches!(err, Error::Conversion(_, _)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_content_byte_round_trip_via_into_then_try_from() {
+        for variant in [
+            Content::Data,
+            Content::PositionDeletes,
+            Content::EqualityDeletes,
+        ] {
+            let bytes: Vec<u8> = variant.clone().into();
+            let parsed = Content::try_from(bytes).unwrap();
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn test_content_serializes_as_u8_discriminant() {
+        assert_eq!(serde_json::to_string(&Content::Data).unwrap(), "0");
+        assert_eq!(
+            serde_json::to_string(&Content::PositionDeletes).unwrap(),
+            "1",
+        );
+        assert_eq!(
+            serde_json::to_string(&Content::EqualityDeletes).unwrap(),
+            "2",
+        );
+    }
+
+    #[test]
+    fn test_file_format_serializes_as_uppercase_tag() {
+        assert_eq!(
+            serde_json::to_string(&FileFormat::Avro).unwrap(),
+            "\"AVRO\"",
+        );
+        assert_eq!(serde_json::to_string(&FileFormat::Orc).unwrap(), "\"ORC\"",);
+        assert_eq!(
+            serde_json::to_string(&FileFormat::Parquet).unwrap(),
+            "\"PARQUET\"",
+        );
+    }
+
+    #[test]
+    fn test_file_format_round_trips_via_json_for_every_variant() {
+        for variant in [FileFormat::Avro, FileFormat::Orc, FileFormat::Parquet] {
+            let json = serde_json::to_string(&variant).unwrap();
+            let parsed: FileFormat = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, variant);
+        }
+    }
+
+    #[test]
+    fn test_file_format_rejects_unknown_or_lowercase_tag() {
+        // The deserialiser only accepts the spec-defined uppercase tags;
+        // common variants like "parquet" / "PROTOBUF" must error out so a
+        // malformed manifest is rejected at parse time.
+        assert!(serde_json::from_str::<FileFormat>("\"parquet\"").is_err());
+        assert!(serde_json::from_str::<FileFormat>("\"PROTOBUF\"").is_err());
+    }
+
     #[test]
     pub fn test_partition_values() {
         let partition_values = Struct::from_iter(vec![("day".to_owned(), Some(Value::Int(1)))]);
