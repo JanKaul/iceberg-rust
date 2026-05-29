@@ -794,4 +794,106 @@ mod tests {
         // Verify equality
         assert_eq!(create_table, deserialized);
     }
+
+    // --- CreateView TryInto + serde round-trip -----------------------------
+    //
+    // Catalogue: §1 CreateView. CreateView<Option<()>> represents an
+    // un-materialized (regular) view; converting it to ViewMetadata
+    // sets a fresh uuid, defaults format-version, copies location +
+    // properties, and installs the schema + version at the default
+    // ids. The tests below pin both the happy path and the
+    // missing-location error path, plus the serde shape.
+
+    use iceberg_rust_spec::spec::view_metadata::{Version, ViewMetadata};
+
+    fn sample_view_version() -> Version<Option<()>> {
+        Version::builder()
+            .version_id(1)
+            .schema_id(0)
+            .timestamp_ms(0)
+            .default_namespace(vec!["ns".to_string()])
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_create_view_try_into_metadata_installs_defaults() {
+        let schema = create_test_schema();
+        let mut builder: CreateViewBuilder<Option<()>> = CreateViewBuilder::default();
+        let create = builder
+            .with_name("v")
+            .with_location("/test/view")
+            .with_schema(schema)
+            .with_view_version(sample_view_version())
+            .create()
+            .unwrap();
+        let metadata: ViewMetadata = create.try_into().unwrap();
+
+        assert_eq!(metadata.location, "/test/view");
+        assert_eq!(metadata.current_version_id, DEFAULT_VERSION_ID);
+        assert!(metadata.versions.contains_key(&DEFAULT_VERSION_ID));
+        assert!(metadata.schemas.contains_key(&DEFAULT_SCHEMA_ID));
+        assert!(metadata.version_log.is_empty());
+        assert!(metadata.properties.is_empty());
+    }
+
+    #[test]
+    fn test_create_view_try_into_metadata_errors_when_location_missing() {
+        let schema = create_test_schema();
+        let mut builder: CreateViewBuilder<Option<()>> = CreateViewBuilder::default();
+        let create = builder
+            .with_name("v")
+            .with_schema(schema)
+            .with_view_version(sample_view_version())
+            .create()
+            .unwrap();
+        let err: Error = TryInto::<ViewMetadata>::try_into(create).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_create_view_try_into_metadata_propagates_properties() {
+        let schema = create_test_schema();
+        let mut builder: CreateViewBuilder<Option<()>> = CreateViewBuilder::default();
+        let create = builder
+            .with_name("v")
+            .with_location("/test/view")
+            .with_schema(schema)
+            .with_view_version(sample_view_version())
+            .with_property(("owner".to_string(), "team-a".to_string()))
+            .with_property(("comment".to_string(), "demo".to_string()))
+            .create()
+            .unwrap();
+        let metadata: ViewMetadata = create.try_into().unwrap();
+        assert_eq!(metadata.properties.len(), 2);
+        assert_eq!(
+            metadata.properties.get("owner").map(String::as_str),
+            Some("team-a"),
+        );
+        assert_eq!(
+            metadata.properties.get("comment").map(String::as_str),
+            Some("demo"),
+        );
+    }
+
+    #[test]
+    fn test_create_view_serde_round_trip() {
+        let schema = create_test_schema();
+        let mut builder: CreateViewBuilder<Option<()>> = CreateViewBuilder::default();
+        let create = builder
+            .with_name("v")
+            .with_location("/test/view")
+            .with_schema(schema)
+            .with_view_version(sample_view_version())
+            .create()
+            .unwrap();
+        let json = serde_json::to_string(&create).unwrap();
+        // The struct uses kebab-case; the version_id field of the inner
+        // Version uses its own derive_builder default name. Spot-check the
+        // top-level keys.
+        assert!(json.contains("\"name\":\"v\""), "got {json}");
+        assert!(json.contains("\"view-version\":"), "got {json}");
+        let back: CreateView<Option<()>> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, create);
+    }
 }
