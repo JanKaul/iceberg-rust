@@ -1099,7 +1099,7 @@ mod tests {
             schema::SchemaBuilder,
             snapshot::{Operation, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary},
             sort::{NullOrder, SortDirection, SortField, SortOrderBuilder},
-            table_metadata::TableMetadata,
+            table_metadata::{TableMetadata, TableMetadataBuilder},
             types::{PrimitiveType, StructField, Type},
         },
     };
@@ -2051,5 +2051,127 @@ mod tests {
         assert!(metadata.current_snapshot(None).unwrap().is_none());
         // Also unknown refs return None instead of erroring.
         assert!(metadata.current_snapshot(Some("nope")).unwrap().is_none());
+    }
+
+    // --- TestSnapshotSelection: current_snapshot + sequence_number ---------
+    //
+    // The minimal V2 fixture has no snapshots. The tests below build
+    // metadata with two snapshots + main/release branches and pin the
+    // branch lookup tree used by reads, including the InvalidFormat
+    // error when `current_snapshot_id` points at a missing snapshot but
+    // refs/snapshots are otherwise populated.
+
+    fn metadata_with_snapshots(
+        snapshots: &[(i64, i64)],
+        refs: &[(&str, i64)],
+        current_snapshot_id: Option<i64>,
+    ) -> TableMetadata {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField::new(
+                1,
+                "id",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ))
+            .build()
+            .unwrap();
+
+        let snapshots = snapshots
+            .iter()
+            .enumerate()
+            .map(|(idx, (snapshot_id, timestamp))| {
+                let snapshot = SnapshotBuilder::default()
+                    .with_snapshot_id(*snapshot_id)
+                    .with_sequence_number((idx + 1) as i64)
+                    .with_timestamp_ms(*timestamp)
+                    .with_manifest_list(format!("manifest-{snapshot_id}.avro"))
+                    .with_summary(Summary {
+                        operation: Operation::Append,
+                        other: HashMap::new(),
+                    })
+                    .with_schema_id(0)
+                    .build()
+                    .unwrap();
+                (*snapshot_id, snapshot)
+            })
+            .collect::<HashMap<_, _>>();
+
+        let refs = refs
+            .iter()
+            .map(|(name, sid)| {
+                (
+                    (*name).to_string(),
+                    SnapshotReference {
+                        snapshot_id: *sid,
+                        retention: SnapshotRetention::default(),
+                    },
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        TableMetadataBuilder::default()
+            .location("s3://tests/table".to_string())
+            .current_schema_id(0)
+            .schemas(HashMap::from_iter(vec![(0, schema)]))
+            .snapshots(snapshots)
+            .refs(refs)
+            .current_snapshot_id(current_snapshot_id)
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_current_snapshot_resolves_main_ref_when_branch_is_none() {
+        let metadata = metadata_with_snapshots(&[(1, 1_000), (2, 2_000)], &[("main", 2)], Some(1));
+        // `main` ref wins over `current_snapshot_id` per the impl.
+        let snap = metadata.current_snapshot(None).unwrap().unwrap();
+        assert_eq!(*snap.snapshot_id(), 2);
+    }
+
+    #[test]
+    fn test_current_snapshot_falls_back_to_current_snapshot_id_when_main_ref_absent() {
+        let metadata = metadata_with_snapshots(&[(7, 1_000)], &[], Some(7));
+        let snap = metadata.current_snapshot(None).unwrap().unwrap();
+        assert_eq!(*snap.snapshot_id(), 7);
+    }
+
+    #[test]
+    fn test_current_snapshot_returns_explicit_branch() {
+        let metadata = metadata_with_snapshots(
+            &[(1, 1_000), (2, 2_000)],
+            &[("main", 1), ("release", 2)],
+            Some(1),
+        );
+        let snap = metadata.current_snapshot(Some("release")).unwrap().unwrap();
+        assert_eq!(*snap.snapshot_id(), 2);
+    }
+
+    #[test]
+    fn test_current_snapshot_unknown_ref_returns_none() {
+        let metadata = metadata_with_snapshots(&[(1, 1_000)], &[("main", 1)], Some(1));
+        let snap = metadata.current_snapshot(Some("ghost")).unwrap();
+        assert!(snap.is_none());
+    }
+
+    #[test]
+    fn test_current_snapshot_errors_when_main_missing_but_snapshots_present() {
+        // No main ref, no current_snapshot_id, but the snapshots map is
+        // populated — the impl treats this as a corrupted state.
+        let metadata = metadata_with_snapshots(&[(1, 1_000)], &[], None);
+        let err = metadata.current_snapshot(None).unwrap_err();
+        assert!(matches!(err, Error::InvalidFormat(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn test_sequence_number_lookup_by_snapshot_id() {
+        let metadata = metadata_with_snapshots(&[(10, 1_000), (20, 2_000), (30, 3_000)], &[], None);
+        // sequence_number is the insertion index + 1 in our fixture; the
+        // helper just walks the snapshots map for the matching id.
+        assert_eq!(metadata.sequence_number(10).unwrap(), 1);
+        assert_eq!(metadata.sequence_number(20).unwrap(), 2);
+        assert_eq!(metadata.sequence_number(30).unwrap(), 3);
+        assert!(metadata.sequence_number(999).is_none());
     }
 }
