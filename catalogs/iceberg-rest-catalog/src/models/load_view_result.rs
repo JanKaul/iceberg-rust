@@ -36,3 +36,127 @@ impl LoadViewResult {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iceberg_rust::spec::{
+        schema::SchemaBuilder,
+        types::{PrimitiveType, StructField, Type},
+        view_metadata::{Version, ViewMetadataBuilder},
+    };
+    use serde_json::Value;
+    use std::collections::HashMap;
+    use uuid::Uuid;
+
+    // --- Port: TestLoadViewResponseParser (Apache Iceberg Java) ------------
+    //
+    // Java's TestLoadViewResponseParser has 4 @Test methods. Rust's
+    // LoadViewResult has three fields (metadata-location, metadata, optional
+    // config) and is built via serde derive, so the required-field
+    // rejection comes for free; the wire-shape and round-trip assertions
+    // need explicit ports.
+
+    fn sample_view_metadata() -> TabularMetadata {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "x".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        let version: Version<Option<()>> = Version::builder()
+            .version_id(1)
+            .schema_id(0)
+            .timestamp_ms(23)
+            .default_namespace(vec!["ns1".to_string()])
+            .build()
+            .unwrap();
+
+        let view: GeneralViewMetadata<Option<()>> = ViewMetadataBuilder::default()
+            .view_uuid(Uuid::parse_str("386b9f01-002b-4d8c-b77f-42c3fd3b7c9b").unwrap())
+            .location("location".to_string())
+            .current_version_id(1)
+            .with_version((1, version))
+            .with_schema((0, schema))
+            .build()
+            .unwrap();
+
+        TabularMetadata::View(view)
+    }
+
+    #[test]
+    fn test_load_view_result_parser_rejects_empty_object() {
+        // Java: fromJson("{}") -> "Cannot parse missing string: metadata-location".
+        let result: Result<LoadViewResult, _> = serde_json::from_str("{}");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_view_result_parser_rejects_object_with_only_unrelated_keys() {
+        // Java: fromJson(r#"{"x": "val"}"#) -> missing metadata-location.
+        let result: Result<LoadViewResult, _> = serde_json::from_str(r#"{"x": "val"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_view_result_parser_rejects_object_missing_metadata() {
+        // Java: fromJson(r#"{"metadata-location": "custom-location"}"#) ->
+        //   "Cannot parse missing field: metadata".
+        let result: Result<LoadViewResult, _> =
+            serde_json::from_str(r#"{"metadata-location": "custom-location"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_view_result_round_trip_pinned_wire_shape() {
+        // Port of Java's roundTripSerde. Rust pins the per-key wire shape
+        // (no pretty-printer assertion); the inner metadata is a
+        // TabularMetadata::View whose JSON shape mirrors the Java
+        // expectedJson.
+        let metadata = sample_view_metadata();
+        let response = LoadViewResult::new("custom-location".to_string(), metadata);
+
+        let value: Value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["metadata-location"], "custom-location");
+        // view-uuid is renamed to kebab-case by the inner serde.
+        assert_eq!(
+            value["metadata"]["view-uuid"],
+            "386b9f01-002b-4d8c-b77f-42c3fd3b7c9b",
+        );
+        assert_eq!(value["metadata"]["location"], "location");
+        assert_eq!(value["metadata"]["current-version-id"], 1);
+        // The optional config key is omitted when None.
+        assert!(value.get("config").is_none(), "got {value}");
+
+        let parsed: LoadViewResult = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed, response);
+    }
+
+    #[test]
+    fn test_load_view_result_round_trip_with_config() {
+        // Port of Java's roundTripSerdeWithConfig. Optional `config` is
+        // present and serialises as a JSON object alongside metadata-location
+        // and metadata.
+        let metadata = sample_view_metadata();
+        let mut response = LoadViewResult::new("custom-location".to_string(), metadata);
+        response.config = Some(HashMap::from([
+            ("key1".to_string(), "val1".to_string()),
+            ("key2".to_string(), "val2".to_string()),
+        ]));
+
+        let value: Value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["config"]["key1"], "val1");
+        assert_eq!(value["config"]["key2"], "val2");
+
+        let parsed: LoadViewResult = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed, response);
+    }
+}
