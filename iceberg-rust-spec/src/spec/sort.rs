@@ -143,4 +143,147 @@ mod tests {
         assert_eq!(SortDirection::Descending, order.fields[1].direction);
         assert_eq!(NullOrder::Last, order.fields[1].null_order);
     }
+
+    // --- JSON round-trip and rejection -----------------------------------
+
+    #[test]
+    fn test_default_sort_order_is_empty_with_id_zero() {
+        // Iceberg reserves order-id 0 for the unsorted order; in Rust this is
+        // also what `SortOrder::default()` produces.
+        let order = SortOrder::default();
+        assert_eq!(order.order_id, DEFAULT_SORT_ORDER_ID);
+        assert!(order.fields.is_empty());
+
+        let empty_json = r#"{ "order-id": 0, "fields": [] }"#;
+        let parsed: SortOrder = serde_json::from_str(empty_json).unwrap();
+        assert_eq!(parsed, order);
+    }
+
+    #[test]
+    fn test_sort_order_json_round_trip_covers_every_transform_and_modifier() {
+        // One SortOrder that exercises every Transform variant and both
+        // SortDirection / NullOrder values. Re-serializing then re-parsing
+        // must yield the same struct.
+        let json = r#"{
+            "order-id": 7,
+            "fields": [
+                { "source-id": 11, "transform": "identity",     "direction": "asc",  "null-order": "nulls-first" },
+                { "source-id": 12, "transform": "bucket[16]",   "direction": "desc", "null-order": "nulls-last"  },
+                { "source-id": 13, "transform": "truncate[8]",  "direction": "asc",  "null-order": "nulls-last"  },
+                { "source-id": 14, "transform": "year",         "direction": "desc", "null-order": "nulls-first" },
+                { "source-id": 14, "transform": "month",        "direction": "asc",  "null-order": "nulls-first" },
+                { "source-id": 14, "transform": "day",          "direction": "desc", "null-order": "nulls-last"  },
+                { "source-id": 14, "transform": "hour",         "direction": "asc",  "null-order": "nulls-last"  },
+                { "source-id": 15, "transform": "void",         "direction": "desc", "null-order": "nulls-first" }
+            ]
+        }"#;
+
+        let order: SortOrder = serde_json::from_str(json).unwrap();
+        assert_eq!(order.order_id, 7);
+        assert_eq!(
+            order
+                .fields
+                .iter()
+                .map(|f| f.transform.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Transform::Identity,
+                Transform::Bucket(16),
+                Transform::Truncate(8),
+                Transform::Year,
+                Transform::Month,
+                Transform::Day,
+                Transform::Hour,
+                Transform::Void,
+            ],
+        );
+        // source-ids must come out in input order (Vec preserves position).
+        assert_eq!(
+            order.fields.iter().map(|f| f.source_id).collect::<Vec<_>>(),
+            vec![11, 12, 13, 14, 14, 14, 14, 15],
+        );
+
+        let re_serialized = serde_json::to_string(&order).unwrap();
+        let order_again: SortOrder = serde_json::from_str(&re_serialized).unwrap();
+        assert_eq!(order_again, order);
+    }
+
+    #[test]
+    fn test_sort_order_rejects_invalid_direction_value() {
+        let json = r#"{
+            "order-id": 1,
+            "fields": [
+                { "source-id": 1, "transform": "identity", "direction": "sideways", "null-order": "nulls-first" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<SortOrder>(json).is_err());
+    }
+
+    #[test]
+    fn test_sort_order_rejects_invalid_null_order_value() {
+        let json = r#"{
+            "order-id": 1,
+            "fields": [
+                { "source-id": 1, "transform": "identity", "direction": "asc", "null-order": "nulls-middle" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<SortOrder>(json).is_err());
+    }
+
+    #[test]
+    fn test_sort_order_rejects_unknown_transform_string() {
+        // Java accepts unknown transforms via an `UnknownTransform` carrier
+        // variant; Rust enumerates known variants and rejects anything else.
+        // This test pins the current Rust behavior so a future `Transform`
+        // extension is an opt-in decision rather than a silent change.
+        let json = r#"{
+            "order-id": 10,
+            "fields": [
+                { "source-id": 2, "transform": "custom_transform", "direction": "desc", "null-order": "nulls-first" }
+            ]
+        }"#;
+        assert!(serde_json::from_str::<SortOrder>(json).is_err());
+    }
+
+    #[test]
+    fn test_sort_order_display_and_fromstr_round_trip() {
+        let order = SortOrder {
+            order_id: 5,
+            fields: vec![SortField {
+                source_id: 9,
+                transform: Transform::Bucket(32),
+                direction: SortDirection::Descending,
+                null_order: NullOrder::Last,
+            }],
+        };
+        let rendered = order.to_string();
+        let parsed: SortOrder = rendered.parse().unwrap();
+        assert_eq!(parsed, order);
+    }
+
+    #[test]
+    fn test_sort_order_builder_produces_expected_struct() {
+        let order = SortOrderBuilder::default()
+            .with_order_id(3)
+            .with_sort_field(SortField {
+                source_id: 1,
+                transform: Transform::Identity,
+                direction: SortDirection::Ascending,
+                null_order: NullOrder::First,
+            })
+            .with_sort_field(SortField {
+                source_id: 2,
+                transform: Transform::Truncate(4),
+                direction: SortDirection::Descending,
+                null_order: NullOrder::Last,
+            })
+            .build()
+            .unwrap();
+
+        assert_eq!(order.order_id, 3);
+        assert_eq!(order.fields.len(), 2);
+        assert_eq!(order.fields[0].transform, Transform::Identity);
+        assert_eq!(order.fields[1].transform, Transform::Truncate(4));
+        assert_eq!(order.fields[1].direction, SortDirection::Descending);
+    }
 }

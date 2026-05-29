@@ -270,7 +270,7 @@ impl From<SchemaV1> for SchemaV2 {
 
 #[cfg(test)]
 mod tests {
-    use crate::spec::types::{PrimitiveType, Type};
+    use crate::spec::types::{ListType, MapType, PrimitiveType, StructField, Type};
 
     use super::*;
 
@@ -309,5 +309,202 @@ mod tests {
         );
         assert_eq!(2, result.fields[1].id);
         assert!(!result.fields[1].required);
+    }
+
+    // --- Round-trip and behaviour ----------------------------------------
+
+    fn primitive_field(id: i32, name: &str, required: bool, ty: PrimitiveType) -> StructField {
+        StructField {
+            id,
+            name: name.to_string(),
+            required,
+            field_type: Type::Primitive(ty),
+            doc: None,
+            initial_default: None,
+            write_default: None,
+        }
+    }
+
+    #[test]
+    fn test_schema_round_trip_preserves_doc_and_defaults() {
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 12,
+            "fields": [
+                { "id": 1, "name": "user_id",  "required": true,  "type": "long",   "doc": "primary identifier" },
+                { "id": 2, "name": "username", "required": false, "type": "string",
+                  "initial-default": "anonymous", "write-default": "anonymous" }
+            ]
+        }"#;
+
+        let schema: Schema = serde_json::from_str(json).unwrap();
+        assert_eq!(schema.schema_id(), &12);
+        assert_eq!(
+            schema.fields()[0].doc.as_deref(),
+            Some("primary identifier")
+        );
+        assert_eq!(
+            schema.fields()[1].initial_default,
+            Some(serde_json::Value::String("anonymous".to_string())),
+        );
+        assert_eq!(
+            schema.fields()[1].write_default,
+            Some(serde_json::Value::String("anonymous".to_string())),
+        );
+
+        let again: Schema = serde_json::from_str(&serde_json::to_string(&schema).unwrap()).unwrap();
+        assert_eq!(again, schema);
+    }
+
+    #[test]
+    fn test_schema_identifier_field_ids_round_trip() {
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 5,
+            "identifier-field-ids": [1, 2],
+            "fields": [
+                { "id": 1, "name": "first_key",  "required": true,  "type": "int" },
+                { "id": 2, "name": "second_key", "required": true,  "type": "int" },
+                { "id": 3, "name": "payload",    "required": false, "type": "string" }
+            ]
+        }"#;
+
+        let schema: Schema = serde_json::from_str(json).unwrap();
+        assert_eq!(schema.identifier_field_ids(), &Some(vec![1, 2]));
+
+        let serialized = serde_json::to_string(&schema).unwrap();
+        assert!(serialized.contains("identifier-field-ids"));
+        let again: Schema = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(again, schema);
+    }
+
+    #[test]
+    fn test_schema_nested_struct_list_and_map_round_trip() {
+        // Address (nested struct), tags (list of string), attributes (map of string).
+        let json = r#"{
+            "type": "struct",
+            "schema-id": 1,
+            "fields": [
+                { "id": 1, "name": "id",      "required": true,  "type": "long" },
+                { "id": 2, "name": "address", "required": false, "type": {
+                    "type": "struct",
+                    "fields": [
+                        { "id": 3, "name": "street", "required": true,  "type": "string" },
+                        { "id": 4, "name": "zip",    "required": false, "type": "string" }
+                    ]
+                } },
+                { "id": 5, "name": "tags", "required": false, "type": {
+                    "type": "list",
+                    "element-id": 6,
+                    "element-required": true,
+                    "element": "string"
+                } },
+                { "id": 7, "name": "attributes", "required": false, "type": {
+                    "type": "map",
+                    "key-id": 8,
+                    "key": "string",
+                    "value-id": 9,
+                    "value-required": false,
+                    "value": "string"
+                } }
+            ]
+        }"#;
+
+        let schema: Schema = serde_json::from_str(json).unwrap();
+        assert_eq!(schema.fields().len(), 4);
+        // Cheap shape assertion: types match what the JSON declared.
+        assert!(matches!(schema.fields()[1].field_type, Type::Struct(_),));
+        assert!(matches!(
+            schema.fields()[2].field_type,
+            Type::List(ListType { element_id: 6, .. }),
+        ));
+        assert!(matches!(
+            schema.fields()[3].field_type,
+            Type::Map(MapType {
+                key_id: 8,
+                value_id: 9,
+                ..
+            }),
+        ));
+
+        let again: Schema = serde_json::from_str(&serde_json::to_string(&schema).unwrap()).unwrap();
+        assert_eq!(again, schema);
+    }
+
+    #[test]
+    fn test_schema_v1_without_schema_id_converts_to_v2_with_default() {
+        // V1 schemas may omit `schema-id`; converting to V2 (and into the
+        // canonical `Schema`) should default it to `DEFAULT_SCHEMA_ID`.
+        let v1_json = r#"{
+            "type": "struct",
+            "fields": [
+                { "id": 1, "name": "data", "required": true, "type": "string" }
+            ]
+        }"#;
+
+        let v1: SchemaV1 = serde_json::from_str(v1_json).unwrap();
+        assert!(v1.schema_id.is_none());
+
+        let v2: SchemaV2 = v1.clone().into();
+        assert_eq!(v2.schema_id, DEFAULT_SCHEMA_ID);
+
+        let schema: Schema = v1.try_into().unwrap();
+        assert_eq!(schema.schema_id(), &DEFAULT_SCHEMA_ID);
+        assert_eq!(schema.fields().len(), 1);
+    }
+
+    #[test]
+    fn test_schema_builder_constructs_expected_struct() {
+        let schema = Schema::builder()
+            .with_schema_id(42)
+            .with_struct_field(primitive_field(1, "k", true, PrimitiveType::Long))
+            .with_struct_field(primitive_field(2, "v", false, PrimitiveType::String))
+            .with_identifier_field_ids(vec![1])
+            .build()
+            .unwrap();
+
+        assert_eq!(schema.schema_id(), &42);
+        assert_eq!(schema.fields().len(), 2);
+        assert_eq!(schema.identifier_field_ids(), &Some(vec![1]));
+        assert_eq!(schema.fields()[0].name, "k");
+        assert_eq!(schema.fields()[1].name, "v");
+    }
+
+    #[test]
+    fn test_schema_project_keeps_listed_fields_and_filters_identifiers() {
+        let schema = Schema::builder()
+            .with_schema_id(1)
+            .with_struct_field(primitive_field(1, "a", true, PrimitiveType::Long))
+            .with_struct_field(primitive_field(2, "b", true, PrimitiveType::Long))
+            .with_struct_field(primitive_field(3, "c", true, PrimitiveType::Long))
+            .with_identifier_field_ids(vec![1, 3])
+            .build()
+            .unwrap();
+
+        let projected = schema.project(&[1, 3]);
+        assert_eq!(projected.fields().len(), 2);
+        assert_eq!(projected.fields()[0].id, 1);
+        assert_eq!(projected.fields()[1].id, 3);
+        assert_eq!(projected.identifier_field_ids(), &Some(vec![1, 3]));
+
+        let projected = schema.project(&[2]);
+        assert_eq!(projected.fields().len(), 1);
+        assert_eq!(projected.fields()[0].id, 2);
+        // 2 was never in the identifier set, so projection leaves it empty.
+        assert_eq!(projected.identifier_field_ids(), &Some(Vec::<i32>::new()));
+    }
+
+    #[test]
+    fn test_schema_display_and_fromstr_round_trip() {
+        let original = Schema::builder()
+            .with_schema_id(99)
+            .with_struct_field(primitive_field(1, "flag", false, PrimitiveType::Boolean))
+            .with_struct_field(primitive_field(2, "label", true, PrimitiveType::String))
+            .build()
+            .unwrap();
+
+        let rendered = original.to_string();
+        let parsed: Schema = rendered.parse().unwrap();
+        assert_eq!(parsed, original);
     }
 }

@@ -109,4 +109,31 @@ mod tests {
         let deserialized: Namespace = serde_json::from_str(&serialized).unwrap();
         assert_eq!(original, deserialized);
     }
+
+    #[test]
+    fn test_namespace_empty_constructor_has_no_levels() {
+        let n = Namespace::empty();
+        assert_eq!(n.len(), 0);
+        assert_eq!(format!("{n}"), "");
+    }
+
+    #[test]
+    fn test_namespace_deref_exposes_string_slice() {
+        let n = Namespace(vec!["sales".to_string(), "north".to_string()]);
+        // Deref<Target = [String]> means we can call slice methods directly.
+        let names: &[String] = &n;
+        assert_eq!(names.len(), 2);
+        assert_eq!(names.first().map(String::as_str), Some("sales"));
+    }
+
+    #[test]
+    fn test_namespace_url_encode_round_trip_preserves_levels() {
+        // The url-encoded form joins levels with U+001F (Unit Separator).
+        // Including a name that requires percent-encoding exercises both
+        // the join and the percent-codec halves.
+        let original = Namespace(vec!["café".to_string(), "team/a".to_string()]);
+        let encoded = original.url_encode();
+        let decoded = Namespace::from_url_encoded(&encoded).unwrap();
+        assert_eq!(decoded, original);
+    }
 }

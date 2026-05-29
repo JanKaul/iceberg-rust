@@ -292,7 +292,8 @@ pub enum SnapshotRetention {
     Tag {
         /// For snapshot references except the main branch, a positive number for the max age of the snapshot reference to keep while expiring snapshots.
         /// Defaults to table property history.expire.max-ref-age-ms. The main branch never expires.
-        max_ref_age_ms: i64,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        max_ref_age_ms: Option<i64>,
     },
 }
 
@@ -303,5 +304,232 @@ impl Default for SnapshotRetention {
             max_snapshot_age_ms: None,
             min_snapshots_to_keep: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- Snapshot --------------------------------------------------------
+
+    #[test]
+    fn test_snapshot_v2_json_round_trip_with_full_population() {
+        let json = r#"{
+            "snapshot-id": 8390124917451423234,
+            "parent-snapshot-id": 8390124917451423233,
+            "sequence-number": 17,
+            "timestamp-ms": 1730000000000,
+            "manifest-list": "s3://bucket/db/table/metadata/snap-17-1-uuid.avro",
+            "summary": {
+                "operation": "append",
+                "added-data-files": "3",
+                "added-records": "150"
+            },
+            "schema-id": 4
+        }"#;
+
+        let snap: Snapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(snap.snapshot_id(), &8390124917451423234_i64);
+        assert_eq!(snap.parent_snapshot_id(), &Some(8390124917451423233));
+        assert_eq!(snap.sequence_number(), &17_i64);
+        assert_eq!(snap.timestamp_ms(), &1730000000000_i64);
+        assert_eq!(
+            snap.manifest_list(),
+            "s3://bucket/db/table/metadata/snap-17-1-uuid.avro",
+        );
+        assert_eq!(snap.summary().operation, Operation::Append);
+        assert_eq!(
+            snap.summary().other.get("added-records"),
+            Some(&"150".to_string())
+        );
+        assert_eq!(snap.schema_id(), &Some(4));
+
+        let again: Snapshot = serde_json::from_str(&serde_json::to_string(&snap).unwrap()).unwrap();
+        assert_eq!(again, snap);
+
+        // Display/FromStr exercises the same Serialize/Deserialize impls via
+        // String I/O.
+        let parsed: Snapshot = snap.to_string().parse().unwrap();
+        assert_eq!(parsed, snap);
+    }
+
+    #[test]
+    fn test_snapshot_without_parent_is_serialized_without_parent_field() {
+        let json = r#"{
+            "snapshot-id": 1,
+            "sequence-number": 1,
+            "timestamp-ms": 1730000000000,
+            "manifest-list": "snap-1.avro",
+            "summary": { "operation": "append" }
+        }"#;
+
+        let snap: Snapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(snap.parent_snapshot_id(), &None);
+
+        let serialized = serde_json::to_string(&snap).unwrap();
+        assert!(
+            !serialized.contains("parent-snapshot-id"),
+            "root snapshot must not emit `parent-snapshot-id`; got {serialized}",
+        );
+    }
+
+    #[test]
+    fn test_snapshot_v1_input_defaults_sequence_number_to_zero() {
+        // V1 snapshots predate sequence numbers. When deserializing V1 JSON
+        // through the V1/V2 enum, the resulting Snapshot must have
+        // `sequence_number = 0`.
+        let v1_json = r#"{
+            "snapshot-id": 100,
+            "timestamp-ms": 1730000000000,
+            "manifest-list": "snap-100.avro"
+        }"#;
+        let snap: Snapshot = serde_json::from_str(v1_json).unwrap();
+        assert_eq!(snap.sequence_number(), &0);
+        assert_eq!(snap.snapshot_id(), &100);
+        assert_eq!(snap.summary().operation, Operation::default());
+    }
+
+    #[test]
+    fn test_snapshot_summary_other_entries_round_trip_via_flatten() {
+        let mut other = HashMap::new();
+        other.insert("added-data-files".to_string(), "7".to_string());
+        other.insert("changed-partition-count".to_string(), "2".to_string());
+
+        let summary = Summary {
+            operation: Operation::Overwrite,
+            other,
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        // `operation` is rendered at the top level because of the rename_all
+        // = lowercase serde attribute on Operation; the `other` map is
+        // flattened next to it.
+        assert!(json.contains("\"operation\":\"overwrite\""));
+        assert!(json.contains("\"added-data-files\":\"7\""));
+
+        let parsed: Summary = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, summary);
+    }
+
+    #[test]
+    fn test_operation_serializes_as_lowercase_keyword_per_spec() {
+        for (op, expected_token) in [
+            (Operation::Append, "\"append\""),
+            (Operation::Replace, "\"replace\""),
+            (Operation::Overwrite, "\"overwrite\""),
+            (Operation::Delete, "\"delete\""),
+        ] {
+            let json = serde_json::to_string(&op).unwrap();
+            assert_eq!(json, expected_token, "Operation::{op:?}");
+            let parsed: Operation = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, op);
+        }
+    }
+
+    // --- SnapshotReference & SnapshotRetention --------------------------
+
+    #[test]
+    fn test_snapshot_reference_branch_with_all_retention_fields_round_trip() {
+        let json = r#"{
+            "snapshot-id": 42,
+            "type": "branch",
+            "min-snapshots-to-keep": 5,
+            "max-snapshot-age-ms": 86400000,
+            "max-ref-age-ms": 604800000
+        }"#;
+
+        let r: SnapshotReference = serde_json::from_str(json).unwrap();
+        assert_eq!(r.snapshot_id, 42);
+        match &r.retention {
+            SnapshotRetention::Branch {
+                min_snapshots_to_keep,
+                max_snapshot_age_ms,
+                max_ref_age_ms,
+            } => {
+                assert_eq!(*min_snapshots_to_keep, Some(5));
+                assert_eq!(*max_snapshot_age_ms, Some(86_400_000));
+                assert_eq!(*max_ref_age_ms, Some(604_800_000));
+            }
+            other => panic!("expected branch retention, got {other:?}"),
+        }
+
+        let again: SnapshotReference =
+            serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(again, r);
+    }
+
+    #[test]
+    fn test_snapshot_reference_branch_omits_unset_retention_fields() {
+        // Default branch retention has all three policy fields unset; the
+        // serialized JSON must therefore carry only `snapshot-id` and `type`.
+        let r = SnapshotReference {
+            snapshot_id: 11,
+            retention: SnapshotRetention::default(),
+        };
+        let serialized = serde_json::to_string(&r).unwrap();
+        assert!(serialized.contains("\"type\":\"branch\""));
+        assert!(!serialized.contains("min-snapshots-to-keep"));
+        assert!(!serialized.contains("max-snapshot-age-ms"));
+        assert!(!serialized.contains("max-ref-age-ms"));
+
+        let parsed: SnapshotReference = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(parsed, r);
+    }
+
+    #[test]
+    fn test_snapshot_reference_tag_round_trip() {
+        let json = r#"{
+            "snapshot-id": 99,
+            "type": "tag",
+            "max-ref-age-ms": 1234
+        }"#;
+
+        let r: SnapshotReference = serde_json::from_str(json).unwrap();
+        assert_eq!(r.snapshot_id, 99);
+        match r.retention {
+            SnapshotRetention::Tag { max_ref_age_ms } => {
+                assert_eq!(max_ref_age_ms, Some(1234))
+            }
+            other => panic!("expected tag retention, got {other:?}"),
+        }
+
+        let again: SnapshotReference =
+            serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(again, r);
+    }
+
+    #[test]
+    fn test_snapshot_retention_default_is_unbounded_branch() {
+        assert_eq!(
+            SnapshotRetention::default(),
+            SnapshotRetention::Branch {
+                min_snapshots_to_keep: None,
+                max_snapshot_age_ms: None,
+                max_ref_age_ms: None,
+            },
+        );
+    }
+
+    #[test]
+    fn test_snapshot_reference_tag_allows_omitting_max_ref_age_ms() {
+        // Spec/Java allow a tag with only `snapshot-id` and `type`. The Rust
+        // variant treats `max_ref_age_ms` as optional in line with that
+        // contract, and re-serialising omits the absent field.
+        let json = r#"{
+            "snapshot-id": 1,
+            "type": "tag"
+        }"#;
+
+        let r: SnapshotReference = serde_json::from_str(json).unwrap();
+        assert_eq!(r.snapshot_id, 1);
+        match r.retention {
+            SnapshotRetention::Tag { max_ref_age_ms } => assert_eq!(max_ref_age_ms, None),
+            other => panic!("expected tag retention, got {other:?}"),
+        }
+
+        let again = serde_json::to_value(&r).unwrap();
+        assert!(again.get("max-ref-age-ms").is_none(), "got {again}");
+        let round_trip: SnapshotReference = serde_json::from_value(again).unwrap();
+        assert_eq!(round_trip, r);
     }
 }

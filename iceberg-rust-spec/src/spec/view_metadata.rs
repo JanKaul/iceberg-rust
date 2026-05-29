@@ -477,7 +477,14 @@ impl ViewRepresentation {
 #[cfg(test)]
 mod tests {
 
-    use crate::{error::Error, spec::view_metadata::ViewMetadata};
+    use crate::{
+        error::Error,
+        spec::{
+            schema::Schema,
+            types::{PrimitiveType, StructField, Type},
+            view_metadata::{Operation, ViewMetadata, ViewRepresentation},
+        },
+    };
 
     #[test]
     fn test_deserialize_view_data_v1() -> Result<(), Error> {
@@ -539,5 +546,161 @@ mod tests {
         assert_eq!(metadata, metadata_two);
 
         Ok(())
+    }
+
+    // --- ViewMetadata behaviour ----------------------------------------
+
+    /// A multi-version view used as input to the behaviour tests below.
+    /// Schema 10 is referenced by version 3 (the `staging` ref); schema 20
+    /// by version 5 (the current version).
+    fn sample_view_metadata_json() -> &'static str {
+        r#"{
+            "view-uuid": "11111111-2222-3333-4444-555555555555",
+            "format-version": 1,
+            "location": "s3://bucket/warehouse/db/v",
+            "current-version-id": 5,
+            "properties": {
+                "comment": "rolling user counts",
+                "ref-staging": "3"
+            },
+            "schemas": [
+                {
+                    "schema-id": 10,
+                    "type": "struct",
+                    "fields": [
+                        { "id": 1, "name": "n", "required": true, "type": "int" }
+                    ]
+                },
+                {
+                    "schema-id": 20,
+                    "type": "struct",
+                    "fields": [
+                        { "id": 1, "name": "n",     "required": true,  "type": "long" },
+                        { "id": 2, "name": "label", "required": false, "type": "string" }
+                    ]
+                }
+            ],
+            "versions": [
+                {
+                    "version-id": 3,
+                    "schema-id": 10,
+                    "timestamp-ms": 1700000000000,
+                    "default-namespace": ["staging"],
+                    "summary": { "operation": "create" },
+                    "representations": [
+                        { "type": "sql", "sql": "select 1", "dialect": "ansi" }
+                    ]
+                },
+                {
+                    "version-id": 5,
+                    "schema-id": 20,
+                    "timestamp-ms": 1730000000000,
+                    "default-namespace": ["prod"],
+                    "summary": { "operation": "replace" },
+                    "representations": [
+                        { "type": "sql", "sql": "select n, label from t", "dialect": "ansi" }
+                    ]
+                }
+            ],
+            "version-log": [
+                { "timestamp-ms": 1700000000000, "version-id": 3 },
+                { "timestamp-ms": 1730000000000, "version-id": 5 }
+            ]
+        }"#
+    }
+
+    #[test]
+    fn test_view_metadata_display_and_fromstr_round_trip() {
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let rendered = metadata.to_string();
+        let parsed: ViewMetadata = rendered.parse().unwrap();
+        assert_eq!(parsed, metadata);
+    }
+
+    #[test]
+    fn test_view_metadata_current_schema_follows_current_version_id() {
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let schema = metadata.current_schema(None).unwrap();
+        // current_version_id = 5 -> schema-id 20 -> two fields.
+        assert_eq!(schema.schema_id(), &20);
+        assert_eq!(schema.fields().len(), 2);
+    }
+
+    #[test]
+    fn test_view_metadata_current_version_via_branch_reference_property() {
+        // properties["ref-staging"] = "3" routes the named ref to version 3.
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let version = metadata.current_version(Some("staging")).unwrap();
+        assert_eq!(version.version_id, 3);
+    }
+
+    #[test]
+    fn test_view_metadata_current_version_falls_back_when_ref_property_missing() {
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
+        // No `ref-experimental` property -> fall back to current_version_id (5).
+        let version = metadata.current_version(Some("experimental")).unwrap();
+        assert_eq!(version.version_id, 5);
+    }
+
+    #[test]
+    fn test_view_metadata_schema_lookup_for_unknown_version_id_returns_not_found() {
+        let metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
+        let err = metadata.schema(9999).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)));
+    }
+
+    #[test]
+    fn test_view_metadata_add_schema_inserts_by_schema_id() {
+        let mut metadata: ViewMetadata = serde_json::from_str(sample_view_metadata_json()).unwrap();
+        assert_eq!(metadata.schemas.len(), 2);
+
+        let new_schema = Schema::builder()
+            .with_schema_id(99)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "x".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        metadata.add_schema(new_schema.clone());
+
+        assert_eq!(metadata.schemas.len(), 3);
+        assert_eq!(metadata.schemas.get(&99), Some(&new_schema));
+    }
+
+    #[test]
+    fn test_view_operation_serializes_as_lowercase_keyword() {
+        assert_eq!(
+            serde_json::to_string(&Operation::Create).unwrap(),
+            "\"create\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Operation::Replace).unwrap(),
+            "\"replace\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Operation>("\"replace\"").unwrap(),
+            Operation::Replace,
+        );
+        // Anything else is rejected by the custom Deserialize impl.
+        assert!(serde_json::from_str::<Operation>("\"merge\"").is_err());
+    }
+
+    #[test]
+    fn test_view_representation_sql_helper_defaults_dialect_to_ansi() {
+        // Default dialect when caller passes None.
+        let ViewRepresentation::Sql { sql, dialect } = ViewRepresentation::sql("select 1", None);
+        assert_eq!(sql, "select 1");
+        assert_eq!(dialect, "ansi");
+
+        // Explicit dialect overrides the default.
+        let ViewRepresentation::Sql { dialect, .. } =
+            ViewRepresentation::sql("select 1", Some("spark"));
+        assert_eq!(dialect, "spark");
     }
 }

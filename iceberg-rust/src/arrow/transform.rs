@@ -191,12 +191,12 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
 
 #[inline]
 fn micros_to_days(a: i64) -> i32 {
-    (a / MICROS_IN_DAY) as i32
+    a.div_euclid(MICROS_IN_DAY) as i32
 }
 
 #[inline]
 fn micros_to_hours(a: i64) -> i32 {
-    (a / MICROS_IN_HOUR) as i32
+    a.div_euclid(MICROS_IN_HOUR) as i32
 }
 
 #[inline]
@@ -206,7 +206,7 @@ fn datepart_to_years(year: i32) -> i32 {
 
 #[inline]
 fn datepart_to_months(year: i32, month: i32) -> i32 {
-    12 * (year - YEARS_BEFORE_UNIX_EPOCH) + month
+    12 * (year - YEARS_BEFORE_UNIX_EPOCH) + (month - 1)
 }
 
 #[cfg(test)]
@@ -269,10 +269,11 @@ mod tests {
     fn test_date32_month_transform() {
         let array = create_date32_array();
         let result = transform_arrow(array, &Transform::Month).unwrap();
+        // (year - 1970) * 12 + (month - 1), with month 1-indexed in chrono.
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(640),
             Some(641),
-            Some(642),
-            Some(649),
+            Some(648),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -322,9 +323,9 @@ mod tests {
         let array = create_timestamp_micro_array();
         let result = transform_arrow(array, &Transform::Month).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(640),
             Some(641),
-            Some(642),
-            Some(649),
+            Some(648),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
@@ -374,9 +375,9 @@ mod tests {
         let array = create_timestamptz_micro_array();
         let result = transform_arrow(array, &Transform::Month).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(640),
             Some(641),
-            Some(642),
-            Some(649),
+            Some(648),
             None,
         ])) as ArrayRef;
         assert_eq!(&expected, &result);
