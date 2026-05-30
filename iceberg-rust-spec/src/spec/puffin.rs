@@ -856,4 +856,53 @@ mod tests {
         // the buffer directly; there is no incremental length() accessor
         // and no encrypted-output adapter.
     }
+
+    // --- TestPuffinFormat port (Java parity) -------------------------------
+    //
+    // Java's `PuffinFormat.writeIntegerLittleEndian(OutputStream, int)` and
+    // `readIntegerLittleEndian(byte[], offset)` are i32 LE helpers used
+    // throughout the puffin write/read path. Rust uses `i32::to_le_bytes`
+    // and `i32::from_le_bytes` directly from the standard library — the
+    // equivalent operation, not a separate facade.
+
+    #[test]
+    fn test_puffin_format_write_integer_little_endian_per_java() {
+        // Java: testWriteIntegerLittleEndian.
+        // Four representative i32 values must encode to the same 4-byte
+        // little-endian byte pattern that Java's PuffinFormat helper produces.
+        assert_eq!(0_i32.to_le_bytes(), [0, 0, 0, 0]);
+        assert_eq!(42_i32.to_le_bytes(), [42, 0, 0, 0]);
+        assert_eq!(
+            (i32::MAX - 5).to_le_bytes(),
+            [0xFA, 0xFF, 0xFF, 0x7F],
+            "i32::MAX - 5 must encode to 0xFA, 0xFF, 0xFF, 0x7F",
+        );
+        assert_eq!(
+            (-7_i32).to_le_bytes(),
+            [0xF9, 0xFF, 0xFF, 0xFF],
+            "Negative -7 must encode via two's complement to 0xF9, 0xFF, 0xFF, 0xFF",
+        );
+    }
+
+    #[test]
+    fn test_puffin_format_read_integer_little_endian_per_java() {
+        // Java: testReadIntegerLittleEndian.
+        // Decode 4 bytes from the byte slice at a given offset; mirror
+        // Java's helper signature (slice + offset) using a Rust slice
+        // operation + i32::from_le_bytes.
+        fn read_le_i32(bytes: &[u8], offset: usize) -> i32 {
+            i32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
+        }
+
+        assert_eq!(read_le_i32(&[0, 0, 0, 0], 0), 0);
+        assert_eq!(read_le_i32(&[42, 0, 0, 0], 0), 42);
+        // Surrounding bytes (13, 14) must not affect decoding when an
+        // offset is supplied — Java's helper takes (bytes, offset).
+        assert_eq!(read_le_i32(&[13, 42, 0, 0, 0, 14], 1), 42);
+        assert_eq!(
+            read_le_i32(&[13, 0xFA, 0xFF, 0xFF, 0x7F, 14], 1),
+            i32::MAX - 5,
+        );
+        assert_eq!(read_le_i32(&[13, 0xF9, 0xFF, 0xFF, 0xFF, 14], 1), -7,);
+    }
 }
