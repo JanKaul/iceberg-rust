@@ -1270,4 +1270,238 @@ mod tests {
         //     map key / value descendants
         //   - [pointsElement, points] for list element descendants.
     }
+
+    // --- TestReadabilityChecks port ----------------------------------------
+    //
+    // Java's `CheckCompatibility.writeCompatibilityErrors(readSchema,
+    // writeSchema)` validates that data written under one schema is
+    // readable with another. It returns a list of error messages
+    // (`String`s) describing each compatibility violation. The companion
+    // `typeCompatibilityErrors(read, write)` checks types only (ignoring
+    // nullability), and `readCompatibilityErrors(read, write)` allows
+    // read-side field reordering.
+    //
+    // Pinned errors include phrases like:
+    //   "cannot be promoted to ..."
+    //   "should be required, but is optional"
+    //   "is required, but is missing"
+    //   "<kind> cannot be read as a <other-kind>"
+    //   "values should be required, but are optional"
+    //   "elements should be required, but are optional"
+    //   "field_X is out of order, before field_Y"
+    //   "cannot be read as a variant"
+    //
+    // Rust has NO `CheckCompatibility` analog (grep across the workspace
+    // finds zero matches), no `TypeUtil::isPromotionAllowed` helper, and
+    // no `Schema::caseInsensitiveSelect`. All 24 Java @Test scenarios are
+    // pinned `#[ignore]` here for a future `compatibility` module.
+    //
+    // Expected eventual Rust API:
+    //   compatibility::write_compatibility_errors(&Schema, &Schema) -> Vec<String>;
+    //   compatibility::read_compatibility_errors(&Schema, &Schema)  -> Vec<String>;
+    //   compatibility::type_compatibility_errors(&Schema, &Schema)  -> Vec<String>;
+    //   type_util::is_promotion_allowed(&Type, &Type) -> bool;
+    //   Schema::case_insensitive_select(&str) -> Schema;
+
+    #[test]
+    #[ignore = "feature gap: no compatibility::write_compatibility_errors / type_util::is_promotion_allowed; promotion table covers Int->Long, Float->Double, Decimal precision growth, Date->Timestamp/Timestamptz, FixedType length equality, etc."]
+    fn test_readability_checks_primitive_types_per_java() {
+        // Java: testPrimitiveTypes. Iterates the 24-element PRIMITIVES
+        // list (Boolean, Int/Long/Float/Double, Date, Time,
+        // Timestamp+TimestampNano with/without zone, String, UUID,
+        // Fixed(3), Fixed(4), Binary, Decimal(9,2), Decimal(11,2),
+        // Decimal(9,3), Geometry crs84, Geometry srid:3857, Geography
+        // crs84, Geography srid:4269, Geography srid:4269 + KARNEY).
+        // For each (from, to) pair (24*24=576):
+        //   - if is_promotion_allowed(from, to): zero errors;
+        //   - else: 1 error mentioning "cannot be promoted to".
+        // Also per `from`: testDisallowPrimitiveToStruct/List/Map.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no compatibility check for Variant -> Variant; should accept identity (zero errors)"]
+    fn test_readability_checks_variant_to_variant_per_java() {
+        // Java: testVariantToVariant.
+        // Schema(Variant) -> Schema(Variant) yields zero errors.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no compatibility check rejecting non-Variant types into Variant; struct/map/list + every primitive must each report 'cannot be read as a variant'"]
+    fn test_readability_checks_incompatible_types_to_variant_per_java() {
+        // Java: testIncompatibleTypesToVariant (parametrized).
+        // From: {Struct(int), Map(string, int), List(string)} plus the
+        // 24 primitives. Each must yield 1 error containing
+        // "cannot be read as a variant".
+    }
+
+    #[test]
+    #[ignore = "feature gap: no compatibility check for optional->required column promotion; should flag 'should be required, but is optional'"]
+    fn test_readability_checks_required_schema_field_per_java() {
+        // Java: testRequiredSchemaField.
+        // Write: optional(1, "from", Int); Read: required(1, "to", Int).
+        // Errors: 1, containing "should be required, but is optional".
+    }
+
+    #[test]
+    #[ignore = "feature gap: no compatibility check for missing required column; should flag 'is required, but is missing'"]
+    fn test_readability_checks_missing_schema_field_per_java() {
+        // Java: testMissingSchemaField.
+        // Write: required(0, "other"); Read: required(1, "to").
+        // Errors: 1, containing "is required, but is missing".
+    }
+
+    #[test]
+    #[ignore = "feature gap: no compatibility check for optional->required struct field"]
+    fn test_readability_checks_required_struct_field_per_java() {
+        // Java: testRequiredStructField.
+        // Write struct(optional(1, "from")); Read struct(required(1, "to")).
+        // Errors: 1, containing "should be required, but is optional".
+    }
+
+    #[test]
+    #[ignore = "feature gap: missing required struct child must flag 'is required, but is missing'"]
+    fn test_readability_checks_missing_required_struct_field_per_java() {
+        // Java: testMissingRequiredStructField.
+        // Write struct(optional(2, "from")); Read struct(required(1, "to")).
+        // Errors: 1, containing "is required, but is missing".
+    }
+
+    #[test]
+    #[ignore = "feature gap: a write-side required child that the read schema declares optional must be accepted (no errors)"]
+    fn test_readability_checks_missing_optional_struct_field_per_java() {
+        // Java: testMissingOptionalStructField.
+        // Write struct(required(2, "from")); Read struct(optional(1, "to")).
+        // Errors: empty.
+    }
+
+    #[test]
+    #[ignore = "feature gap: incompatible primitive types inside a struct must flag 'cannot be promoted to <type>'"]
+    fn test_readability_checks_incompatible_struct_field_per_java() {
+        // Java: testIncompatibleStructField.
+        // Write struct(required(1, "from", Int)); Read struct(required(1, "to", Float)).
+        // Errors: 1, containing "cannot be promoted to float".
+    }
+
+    #[test]
+    #[ignore = "feature gap: struct-vs-primitive type mismatch must flag 'struct cannot be read as a string'"]
+    fn test_readability_checks_incompatible_struct_and_primitive_per_java() {
+        // Java: testIncompatibleStructAndPrimitive.
+        // Write struct; Read string.
+        // Errors: 1, containing "struct cannot be read as a string".
+    }
+
+    #[test]
+    #[ignore = "feature gap: must accumulate MULTIPLE errors per check — both nullability and promotion violations in one struct field"]
+    fn test_readability_checks_multiple_errors_per_java() {
+        // Java: testMultipleErrors.
+        // Write struct(optional(1, "from", Int)); Read struct(required(1, "to", Float)).
+        // Errors: 2 — "should be required, but is optional" + "cannot be promoted to float".
+    }
+
+    #[test]
+    #[ignore = "feature gap: map with optional values can't satisfy a read schema requiring required values; flag 'values should be required, but are optional'"]
+    fn test_readability_checks_required_map_value_per_java() {
+        // Java: testRequiredMapValue.
+        // Write Map(string -> optional int); Read Map(string -> required int).
+        // Errors: 1, containing "values should be required, but are optional".
+    }
+
+    #[test]
+    #[ignore = "feature gap: map key type promotion failure flags 'cannot be promoted to <type>'"]
+    fn test_readability_checks_incompatible_map_key_per_java() {
+        // Java: testIncompatibleMapKey.
+        // Write Map(int -> string); Read Map(double -> string).
+        // Errors: 1, containing "cannot be promoted to double".
+    }
+
+    #[test]
+    #[ignore = "feature gap: map value type promotion failure flags 'cannot be promoted to <type>'"]
+    fn test_readability_checks_incompatible_map_value_per_java() {
+        // Java: testIncompatibleMapValue.
+        // Write Map(string -> int); Read Map(string -> double).
+        // Errors: 1, containing "cannot be promoted to double".
+    }
+
+    #[test]
+    #[ignore = "feature gap: map-vs-primitive type mismatch must flag 'map cannot be read as a string'"]
+    fn test_readability_checks_incompatible_map_and_primitive_per_java() {
+        // Java: testIncompatibleMapAndPrimitive.
+        // Write Map; Read string.
+        // Errors: 1, containing "map cannot be read as a string".
+    }
+
+    #[test]
+    #[ignore = "feature gap: list with optional elements can't satisfy a read schema requiring required elements; flag 'elements should be required, but are optional'"]
+    fn test_readability_checks_required_list_element_per_java() {
+        // Java: testRequiredListElement.
+        // Write List(optional int); Read List(required int).
+        // Errors: 1, containing "elements should be required, but are optional".
+    }
+
+    #[test]
+    #[ignore = "feature gap: list element promotion failure flags 'cannot be promoted to <type>'"]
+    fn test_readability_checks_incompatible_list_element_per_java() {
+        // Java: testIncompatibleListElement.
+        // Write List(int); Read List(string).
+        // Errors: 1, containing "cannot be promoted to string".
+    }
+
+    #[test]
+    #[ignore = "feature gap: list-vs-primitive type mismatch must flag 'list cannot be read as a string'"]
+    fn test_readability_checks_incompatible_list_and_primitive_per_java() {
+        // Java: testIncompatibleListAndPrimitive.
+        // Write List; Read string.
+        // Errors: 1, containing "list cannot be read as a string".
+    }
+
+    #[test]
+    #[ignore = "feature gap: write-side field reordering must be accepted when caller opts out of strict ordering (write_compatibility_errors with check_ordering=false)"]
+    fn test_readability_checks_different_field_ordering_per_java() {
+        // Java: testDifferentFieldOrdering.
+        // Read struct(field_a@1, field_b@2); Write struct(field_b@2, field_a@1).
+        // writeCompatibilityErrors(read, write, false) -> zero errors.
+    }
+
+    #[test]
+    #[ignore = "feature gap: write-side field reordering must be REJECTED under strict ordering (the default); error 'field_b is out of order, before field_a'"]
+    fn test_readability_checks_struct_write_reordering_per_java() {
+        // Java: testStructWriteReordering.
+        // Same fixture; writeCompatibilityErrors(read, write) -> 1 error
+        // containing "field_b is out of order, before field_a".
+    }
+
+    #[test]
+    #[ignore = "feature gap: read_compatibility_errors must allow read-side field reordering (zero errors)"]
+    fn test_readability_checks_struct_read_reordering_per_java() {
+        // Java: testStructReadReordering.
+        // Read struct(a, b); Write struct(b, a).
+        // readCompatibilityErrors(read, write) -> zero errors.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Schema::case_insensitive_select(&str) -> Schema; must resolve case-insensitive dotted paths"]
+    fn test_readability_checks_case_insensitive_schema_projection_per_java() {
+        // Java: testCaseInsensitiveSchemaProjection.
+        // Schema with id@0 long, locations@5 map<string, struct(lat@1 float, long@2 float)>.
+        //   caseInsensitiveSelect("ID").findField(0) != null;
+        //   caseInsensitiveSelect("loCATIONs").findField(5) != null;
+        //   caseInsensitiveSelect("LoCaTiOnS.LaT").findField(1) != null;
+        //   caseInsensitiveSelect("locations.LONG").findField(2) != null.
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_compatibility_errors ignores nullability — optional->required must yield ZERO errors when only the type is checked"]
+    fn test_readability_checks_type_only_required_schema_field_per_java() {
+        // Java: testCheckNullabilityRequiredSchemaField.
+        // Write optional(1, "from", Int); Read required(1, "to", Int).
+        // typeCompatibilityErrors(read, write) -> empty.
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_compatibility_errors ignores nullability inside struct fields too"]
+    fn test_readability_checks_type_only_required_struct_field_per_java() {
+        // Java: testCheckNullabilityRequiredStructField.
+        // Write struct(optional(1, "from")); Read struct(required(1, "to")).
+        // typeCompatibilityErrors(read, write) -> empty.
+    }
 }

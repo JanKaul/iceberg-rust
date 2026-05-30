@@ -3659,4 +3659,114 @@ mod tests {
         // Serialize + round-trip. Assert array has 10_000 elements;
         // every element matches by index.
     }
+
+    // --- TestLiteralSerialization port -------------------------------------
+    //
+    // Java's `TestLiteralSerialization.testLiterals` round-trips 16 literal
+    // values through Java Object Serialization. The Rust analog is a
+    // serde-based round-trip; for typed values that's `Value::try_from_json`
+    // (decode) + `Into<JsonValue>` (encode).
+    //
+    // Java exercises 16 literal types in a single iteration; Rust models
+    // 14 of them. The 2 TimestampNano variants have no Rust counterpart
+    // (no `Value::TimestampNano(i64)` enum variant — see cycle H9), so
+    // the iteration is split: 1 passing test covering the 14 supported
+    // variants + 1 #[ignore] documenting the 2 missing scenarios.
+
+    #[test]
+    fn test_literal_serialization_round_trip_all_supported_variants_per_java() {
+        // Java: testLiterals (parametrized iteration over 16 literal types).
+        // Rust port covers the 14 variants the Value enum models;
+        // TimestampNano (with/without zone) is pinned separately as a gap.
+        use crate::spec::types::PrimitiveType as P;
+        let cases: Vec<(Value, Type)> = vec![
+            (Value::Boolean(false), Type::Primitive(P::Boolean)),
+            (Value::Int(34), Type::Primitive(P::Int)),
+            (Value::LongInt(35), Type::Primitive(P::Long)),
+            (
+                Value::Float(OrderedFloat(36.75_f32)),
+                Type::Primitive(P::Float),
+            ),
+            (
+                Value::Double(OrderedFloat(8.75_f64)),
+                Type::Primitive(P::Double),
+            ),
+            (
+                // Date "2017-11-29" -> days from epoch.
+                Value::Date(datetime::date_to_days(
+                    &chrono::NaiveDate::parse_from_str("2017-11-29", "%Y-%m-%d").unwrap(),
+                )),
+                Type::Primitive(P::Date),
+            ),
+            (
+                // Time "11:30:07" -> microseconds from midnight.
+                Value::Time(datetime::time_to_microseconds(
+                    &chrono::NaiveTime::parse_from_str("11:30:07", "%H:%M:%S").unwrap(),
+                )),
+                Type::Primitive(P::Time),
+            ),
+            (
+                // Timestamp "2017-11-29T11:30:07.123456" (withoutZone).
+                Value::Timestamp(datetime::datetime_to_micros(
+                    &chrono::NaiveDateTime::parse_from_str(
+                        "2017-11-29T11:30:07.123456",
+                        "%Y-%m-%dT%H:%M:%S%.f",
+                    )
+                    .unwrap(),
+                )),
+                Type::Primitive(P::Timestamp),
+            ),
+            (
+                // Timestamptz "2017-11-29T11:30:07.123456+00:00" — Rust's
+                // parser hardcodes the literal "+00:00" suffix; Java's
+                // fixture uses +01:00. Substitute the +00:00 form so
+                // try_from_json accepts it (the +01:00 spec gap is
+                // tracked by cycle 9 + H9 separately).
+                Value::TimestampTZ(datetime::datetimetz_to_micros(
+                    &chrono::Utc.from_utc_datetime(
+                        &chrono::NaiveDateTime::parse_from_str(
+                            "2017-11-29T11:30:07.123456+00:00",
+                            "%Y-%m-%dT%H:%M:%S%.f+00:00",
+                        )
+                        .unwrap(),
+                    ),
+                )),
+                Type::Primitive(P::Timestamptz),
+            ),
+            (Value::String("abc".to_string()), Type::Primitive(P::String)),
+            (
+                Value::UUID(Uuid::parse_str("12345678-1234-5678-1234-567812345678").unwrap()),
+                Type::Primitive(P::Uuid),
+            ),
+            (Value::Fixed(3, vec![1, 2, 3]), Type::Primitive(P::Fixed(3))),
+            (Value::Binary(vec![3, 4, 5, 6]), Type::Primitive(P::Binary)),
+            (
+                Value::Decimal(Decimal::from_str_exact("122.50").unwrap()),
+                Type::Primitive(P::Decimal {
+                    precision: 5,
+                    scale: 2,
+                }),
+            ),
+        ];
+        for (v, t) in cases {
+            let json: JsonValue = (&v).into();
+            let back = Value::try_from_json(json.clone(), &t)
+                .expect("try_from_json must succeed")
+                .expect("expected Some(Value), got None");
+            assert_eq!(
+                back, v,
+                "round-trip via JSON must preserve the value for {t:?}",
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "feature gap: no Value::TimestampNano variant; cannot round-trip Java's two TimestampNanoType literals through serde"]
+    fn test_literal_serialization_timestamp_nano_round_trip_per_java() {
+        // Java extends testLiterals to two TimestampNano cases:
+        //   Literal.of("2017-11-29T11:30:07.123456789").to(TimestampNanoType.withoutZone())
+        //   Literal.of("2017-11-29T11:30:07.123456789+01:00").to(TimestampNanoType.withZone())
+        // Both round-trip via Java serialization. Rust has no Value::TimestampNano,
+        // so these scenarios can't be constructed.
+    }
 }
