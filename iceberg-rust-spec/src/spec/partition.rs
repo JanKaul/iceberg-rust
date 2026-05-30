@@ -1433,4 +1433,191 @@ mod tests {
     fn test_partition_spec_builder_hour_target_rejects_exact_duplicate_when_case_sensitive_per_java(
     ) {
     }
+
+    // --- TestPartitionSpecValidation port ---------------------------------
+    //
+    // Java's `PartitionSpec.builderFor(schema)` performs extensive
+    // validation when adding partition fields: rejects duplicate field
+    // names, rejects redundant time-bucket transforms on the same source
+    // column, rejects target names colliding with schema column names,
+    // rejects non-primitive source types, and walks dotted source paths
+    // into nested structs (but not lists or maps).
+    //
+    // Rust's PartitionSpecBuilder (via derive_builder) does NONE of this
+    // validation. Caller supplies source-id directly and there's no
+    // schema-aware resolution. All 20 Java @Test scenarios are pinned
+    // `#[ignore]` here for an eventual `PartitionSpec::builder_for(&Schema)`
+    // surface with these validations.
+
+    #[test]
+    #[ignore = "feature gap: builder must reject 10 redundant time-transform combinations on the same timestamp column ('Cannot use partition name more than once' for exact dupes; 'Cannot add redundant partition' for year/month/day/hour cross-pairs)"]
+    fn test_partition_spec_validation_multiple_timestamp_partitions_per_java() {
+        // Java: testMultipleTimestampPartitions.
+        // Same ts column: year+year, year+month, year+day, year+hour,
+        // month+month, month+day, month+hour, day+day, day+hour,
+        // hour+hour all throw IllegalArgumentException.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must reject 6 redundant time-transform combinations on the same date column"]
+    fn test_partition_spec_validation_multiple_date_partitions_per_java() {
+        // Java: testMultipleDatePartitions.
+        // Same d column: year+year, year+month, year+day, month+month,
+        // month+day, day+day all throw IllegalArgumentException.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must ACCEPT 10 time-transform combinations on DIFFERENT source columns"]
+    fn test_partition_spec_validation_multiple_timestamp_partitions_with_different_source_columns_per_java(
+    ) {
+        // Java: testMultipleTimestampPartitionsWithDifferentSourceColumns.
+        // ts + another_ts: year+year, year+month, ..., hour+hour all build successfully.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must ACCEPT 10 time-transform combinations on different date source columns"]
+    fn test_partition_spec_validation_multiple_date_partitions_with_different_source_columns_per_java(
+    ) {
+        // Java: testMultipleDatePartitionsWithDifferentSourceColumns.
+        // d + another_d: same matrix as timestamp version.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must allow identity-of-multiple-distinct-sources but reject duplicate identity targets (4 sub-assertions)"]
+    fn test_partition_spec_validation_multiple_identity_partitions_per_java() {
+        // Java: testMultipleIdentityPartitions.
+        // year(d).identity(id).identity(d).identity(s) — OK.
+        // identity(id).identity(id) throws ("more than once").
+        // identity(id).identity(id, "test-id") throws ("redundant partition").
+        // identity(id, "test-id").identity(d, "test-id") throws ("more than once").
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must accept custom partition target names for year/month/day/hour/bucket/truncate (6 happy paths verifying spec.fields()[0].name)"]
+    fn test_partition_spec_validation_custom_target_names_per_java() {
+        // Java: testSettingPartitionTransformsWithCustomTargetNames.
+        // year("ts", "custom_year") -> spec.fields[0].name == "custom_year".
+        // Same for month/day/hour/bucket(4)/truncate(1).
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must reject custom target names that collide with an existing schema column name (7 sub-assertions for year/month/day/hour/truncate/bucket/identity)"]
+    fn test_partition_spec_validation_custom_target_names_that_already_exist_per_java() {
+        // Java: testSettingPartitionTransformsWithCustomTargetNamesThatAlreadyExist.
+        // year("ts", "another_ts") -> 'Cannot create partition from name
+        // that exists in schema: another_ts'. Same for month/day/hour/
+        // truncate/bucket. identity has a different message:
+        // 'Cannot create identity partition sourced from different field
+        // in schema: another_ts'.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must support manual add(sourceId, fieldId, name, transform) with a source id NOT present in the current schema (legacy dropped-column case)"]
+    fn test_partition_spec_validation_stale_source_id_with_reused_column_name_per_java() {
+        // Java: testStalePartitionSourceIdWithReusedColumnName.
+        // Schema has only newFieldId=2 "category"; builder adds
+        // alwaysNull on droppedFieldId=1 (same name "category").
+        // spec.fields has 1 entry with sourceId=1, name="category".
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must reject every transform on a missing source column with 'Cannot find source column: missing' (7 sub-assertions)"]
+    fn test_partition_spec_validation_missing_source_column_per_java() {
+        // Java: testMissingSourceColumn.
+        // year/month/day/hour/bucket/truncate/identity on "missing" all
+        // throw IllegalArgumentException with that exact message.
+    }
+
+    #[test]
+    #[ignore = "feature gap: auto field-id assignment starts at 1000 and increments per added field; lastAssignedFieldId() reflects the highest"]
+    fn test_partition_spec_validation_auto_setting_field_ids_per_java() {
+        // Java: testAutoSettingPartitionFieldIds.
+        // 4-field spec via year/bucket/add/truncate -> field ids
+        // 1000, 1001, 1002, 1003. lastAssignedFieldId == 1003.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must accept explicit field-ids on add() and use them verbatim"]
+    fn test_partition_spec_validation_explicit_field_ids_per_java() {
+        // Java: testAddPartitionFieldsWithFieldIds.
+        // add(1, 1005, ...).add(1, 1006, ...).add(1, 1002, ...) ->
+        // ids = [1005, 1006, 1002]; lastAssignedFieldId == 1006.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must mix explicit and auto-assigned field-ids; auto starts after the highest explicit id"]
+    fn test_partition_spec_validation_mixed_explicit_and_auto_field_ids_per_java() {
+        // Java: testAddPartitionFieldsWithAndWithoutFieldIds.
+        // add(1, "id_partition2", bucket(5))         -> field id 1000 (auto).
+        // add(1, 1005, "id_partition1", bucket(4))   -> field id 1005 (explicit).
+        // truncate("s", 1, "custom_truncate")        -> field id 1006 (auto continues from 1005).
+        // lastAssignedFieldId == 1006.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must reject non-primitive source field types — 4 parametrized cases: Variant, Geometry (CRS84), Geography (CRS84), Unknown — each yields a ValidationException with a type-specific message"]
+    fn test_partition_spec_validation_unsupported_source_types_per_java() {
+        // Java: testUnsupported (@ParameterizedTest).
+        // sourceId=7 (variant)  -> 'Cannot partition by non-primitive source field: variant'.
+        // sourceId=8 (geom)     -> 'Invalid source type geometry for transform: bucket[5]'.
+        // sourceId=9 (geog)     -> 'Invalid source type geography for transform: bucket[5]'.
+        // sourceId=10 (unknown) -> 'Invalid source type unknown for transform: bucket[5]'.
+    }
+
+    #[test]
+    #[ignore = "feature gap: add(sourceId, fieldId, name, transform) must reject when sourceId isn't in the schema with 'Cannot find source column for partition field: 1000: Test: identity(99)'"]
+    fn test_partition_spec_validation_source_id_not_found_per_java() {
+        // Java: testSourceIdNotFound.
+        // builderFor(SCHEMA).add(99, 1000, "Test", identity()) throws
+        // ValidationException with the above message.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must walk a dotted source path 'MyStruct.id' into a nested struct"]
+    fn test_partition_spec_validation_partition_field_in_struct_per_java() {
+        // Java: testPartitionFieldInStruct.
+        // Schema with MyStruct: Struct(...); identity("MyStruct.id") builds OK.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must walk 'Outer.Inner.id' through 2 levels of nested struct"]
+    fn test_partition_spec_validation_partition_field_in_struct_in_struct_per_java() {
+        // Java: testPartitionFieldInStructInStruct.
+        // Schema with Outer.Inner.id; identity("Outer.Inner.id") builds OK.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must reject 'MyList.element' with 'Invalid partition field parent: list<int>'"]
+    fn test_partition_spec_validation_partition_field_in_list_per_java() {
+        // Java: testPartitionFieldInList.
+        // Schema with MyList: List<Int>; identity("MyList.element") throws
+        // ValidationException with the above message.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must reject 'MyList.element.Foo' even when the list's element is a struct"]
+    fn test_partition_spec_validation_partition_field_in_struct_in_list_per_java() {
+        // Java: testPartitionFieldInStructInList.
+        // Schema: MyList: List<Struct(Foo: int)>; identity("MyList.element.Foo") throws.
+        // Message: 'Invalid partition field parent: list<struct<1: Foo: optional int>>'.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must reject both 'MyMap.key' and 'MyMap.value' for any map type"]
+    fn test_partition_spec_validation_partition_field_in_map_per_java() {
+        // Java: testPartitionFieldInMap.
+        // Schema with MyMap: Map<int, int>.
+        // identity("MyMap.key")   throws with 'Invalid partition field parent: map<int, int>'.
+        // identity("MyMap.value") throws with same.
+    }
+
+    #[test]
+    #[ignore = "feature gap: builder must reject map.key.field and map.value.field even when the key/value are structs"]
+    fn test_partition_spec_validation_partition_field_in_struct_in_map_per_java() {
+        // Java: testPartitionFieldInStructInMap.
+        // Schema with MyMap: Map<Struct(Foo), Struct(Bar)>.
+        // identity("MyMap.key.Foo")   throws.
+        // identity("MyMap.value.Bar") throws.
+        // Message includes both inner struct types.
+    }
 }
