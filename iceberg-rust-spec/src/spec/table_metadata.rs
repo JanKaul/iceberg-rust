@@ -1105,6 +1105,7 @@ mod tests {
     };
 
     use super::{FormatVersion, SnapshotLog};
+    use crate::spec::snapshot::Snapshot;
 
     fn check_table_metadata_serde(json: &str, expected_type: TableMetadata) {
         let desered_type: TableMetadata = serde_json::from_str(json).unwrap();
@@ -2386,5 +2387,415 @@ mod tests {
             let as_u8: u8 = v.into();
             assert_eq!(FormatVersion::try_from(as_u8).unwrap(), v);
         }
+    }
+
+    // --- Port: TestSnapshotUtil (Apache Iceberg Java, 12 @Test) ------------
+    //
+    // Java's SnapshotUtil is a static helper class (ancestor walks + schema
+    // lookups). Rust has no SnapshotUtil module; the data behind it lives
+    // on `TableMetadata`:
+    //   - `snapshots: HashMap<i64, Snapshot>` with `parent_snapshot_id` chain
+    //   - `refs: HashMap<String, SnapshotReference>` for branches/tags
+    //   - `current_snapshot(branch)`, `schema(snapshot_id)`,
+    //     `current_schema(branch)` methods
+    // The ancestor walks are open-coded inline per test below since Rust has
+    // no equivalent helper functions. Where Rust's behaviour diverges (e.g.
+    // `schema(invalid_id)` returns the current schema rather than erroring),
+    // the divergence is pinned with `#[ignore]`.
+    //
+    // Fixture mirrors Java's TestSnapshotUtil layout:
+    //   base ← main1 ← main2          (main branch)
+    //   base ← branch                 ("b1" branch)
+    //   base ← fork0(expired) ← fork1 ← fork2  ("fork" branch)
+
+    fn snapshot_util_fixture() -> TableMetadata {
+        let schema_v1 = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField::new(
+                1,
+                "id",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ))
+            .build()
+            .unwrap();
+
+        let build_snapshot = |id: i64, parent: Option<i64>, ts: i64, schema_id: i32| {
+            let mut builder = SnapshotBuilder::default();
+            builder
+                .with_snapshot_id(id)
+                .with_sequence_number(id)
+                .with_timestamp_ms(ts)
+                .with_manifest_list(format!("manifest-{id}.avro"))
+                .with_summary(Summary {
+                    operation: Operation::Append,
+                    other: HashMap::new(),
+                })
+                .with_schema_id(schema_id);
+            if let Some(p) = parent {
+                builder.with_parent_snapshot_id(p);
+            }
+            builder.build().unwrap()
+        };
+
+        // Fork0 is "expired" — referenced as parent of fork1 but not present
+        // in the snapshots map. This mirrors Java's expireSnapshotId(fork0).
+        let snapshots: HashMap<i64, Snapshot> = HashMap::from_iter(vec![
+            (10, build_snapshot(10, None, 1_000, 0)),     // base
+            (11, build_snapshot(11, Some(10), 1_100, 0)), // main1
+            (12, build_snapshot(12, Some(11), 1_200, 0)), // main2
+            (20, build_snapshot(20, Some(10), 1_300, 0)), // branch
+            // fork0 (id=30) expired — not in snapshots map
+            (31, build_snapshot(31, Some(30), 1_500, 0)), // fork1 (parent expired)
+            (32, build_snapshot(32, Some(31), 1_600, 0)), // fork2
+        ]);
+
+        let refs: HashMap<String, SnapshotReference> = HashMap::from_iter(vec![
+            (
+                "main".to_string(),
+                SnapshotReference {
+                    snapshot_id: 12,
+                    retention: SnapshotRetention::Branch {
+                        min_snapshots_to_keep: None,
+                        max_snapshot_age_ms: None,
+                        max_ref_age_ms: None,
+                    },
+                },
+            ),
+            (
+                "b1".to_string(),
+                SnapshotReference {
+                    snapshot_id: 20,
+                    retention: SnapshotRetention::Branch {
+                        min_snapshots_to_keep: None,
+                        max_snapshot_age_ms: None,
+                        max_ref_age_ms: None,
+                    },
+                },
+            ),
+            (
+                "fork".to_string(),
+                SnapshotReference {
+                    snapshot_id: 32,
+                    retention: SnapshotRetention::Branch {
+                        min_snapshots_to_keep: None,
+                        max_snapshot_age_ms: None,
+                        max_ref_age_ms: None,
+                    },
+                },
+            ),
+        ]);
+
+        TableMetadataBuilder::default()
+            .location("s3://tests/table".to_string())
+            .current_schema_id(0)
+            .schemas(HashMap::from_iter(vec![(0, schema_v1)]))
+            .snapshots(snapshots)
+            .refs(refs)
+            .current_snapshot_id(Some(12_i64))
+            .build()
+            .unwrap()
+    }
+
+    /// Walk the parent chain from `start` up to (but not including) the root,
+    /// returning a vec of snapshot ids in newest-to-oldest order.
+    fn snapshot_ancestor_ids(metadata: &TableMetadata, start: i64) -> Vec<i64> {
+        let mut out = vec![];
+        let mut cursor = Some(start);
+        while let Some(id) = cursor {
+            let Some(snap) = metadata.snapshots.get(&id) else {
+                break;
+            };
+            out.push(id);
+            cursor = *snap.parent_snapshot_id();
+        }
+        out
+    }
+
+    #[test]
+    fn test_is_parent_ancestor_of_per_java() {
+        // Java: isParentAncestorOf.
+        let metadata = snapshot_util_fixture();
+        // direct parent
+        let parent = metadata
+            .snapshots
+            .get(&11)
+            .and_then(|s| *s.parent_snapshot_id());
+        assert_eq!(parent, Some(10));
+        // not a direct parent (branch is off base, not main1)
+        let parent = metadata
+            .snapshots
+            .get(&20)
+            .and_then(|s| *s.parent_snapshot_id());
+        assert_ne!(parent, Some(11));
+        // direct parent walk even with expired intermediate
+        let parent = metadata
+            .snapshots
+            .get(&32)
+            .and_then(|s| *s.parent_snapshot_id());
+        assert_eq!(parent, Some(31));
+    }
+
+    #[test]
+    fn test_is_ancestor_of_walks_chain_per_java() {
+        // Java: isAncestorOf — base is an ancestor of main1; branch is NOT an
+        // ancestor of main1; fork0 is NOT an ancestor of fork2 because fork0
+        // is expired (gap in the chain).
+        let metadata = snapshot_util_fixture();
+        // base (10) is ancestor of main1 (11): walk parent chain of 11.
+        assert!(snapshot_ancestor_ids(&metadata, 11).contains(&10));
+        // branch (20) is NOT ancestor of main1 (11).
+        assert!(!snapshot_ancestor_ids(&metadata, 11).contains(&20));
+        // fork0 (30) NOT reachable from fork2 (32) because fork0 is expired.
+        assert!(!snapshot_ancestor_ids(&metadata, 32).contains(&30));
+    }
+
+    #[test]
+    fn test_current_ancestors_walks_from_current_snapshot_per_java() {
+        // Java: currentAncestors → [main2, main1, base].
+        let metadata = snapshot_util_fixture();
+        let current = metadata.current_snapshot(None).unwrap().unwrap();
+        let ids = snapshot_ancestor_ids(&metadata, *current.snapshot_id());
+        assert_eq!(ids, vec![12, 11, 10]);
+    }
+
+    #[test]
+    fn test_oldest_ancestor_walks_to_root_per_java() {
+        // Java: oldestAncestor on main → base.
+        let metadata = snapshot_util_fixture();
+        let oldest = snapshot_ancestor_ids(&metadata, 12).last().copied();
+        assert_eq!(oldest, Some(10));
+    }
+
+    #[test]
+    fn test_oldest_ancestor_of_specific_snapshot_per_java() {
+        // Java: oldestAncestorOf(main2) → base.
+        let metadata = snapshot_util_fixture();
+        let oldest = snapshot_ancestor_ids(&metadata, 12).last().copied();
+        assert_eq!(oldest, Some(10));
+    }
+
+    #[test]
+    fn test_oldest_ancestor_after_timestamp_per_java() {
+        // Java: oldestAncestorAfter(baseTimestamp + 1) → main1.
+        let metadata = snapshot_util_fixture();
+        let base_ts = *metadata.snapshots.get(&10).unwrap().timestamp_ms();
+        // Filter ancestor chain to snapshots with timestamp > base_ts.
+        let candidates: Vec<i64> = snapshot_ancestor_ids(&metadata, 12)
+            .into_iter()
+            .filter(|id| *metadata.snapshots.get(id).unwrap().timestamp_ms() > base_ts)
+            .collect();
+        // The newest-to-oldest walk; the oldest still-newer ancestor is the last.
+        assert_eq!(candidates.last().copied(), Some(11));
+    }
+
+    #[test]
+    fn test_snapshot_ids_between_excludes_endpoint_inclusive_start_per_java() {
+        // Java: snapshotIdsBetween(table, base, main2) → [main2, main1].
+        let metadata = snapshot_util_fixture();
+        // Walk from main2 (12) backwards, collect until we hit base (10).
+        let ids: Vec<i64> = snapshot_ancestor_ids(&metadata, 12)
+            .into_iter()
+            .take_while(|id| *id != 10)
+            .collect();
+        assert_eq!(ids, vec![12, 11]);
+    }
+
+    #[test]
+    fn test_ancestors_between_per_java() {
+        // Java: ancestorsBetween(main2, main1) → [main2].
+        let metadata = snapshot_util_fixture();
+        let ids: Vec<i64> = snapshot_ancestor_ids(&metadata, 12)
+            .into_iter()
+            .take_while(|id| *id != 11)
+            .collect();
+        assert_eq!(ids, vec![12]);
+
+        // Java: ancestorsBetween(main2, branchId=20) → [main2, main1, base].
+        // Branch (20) is not in main's ancestor chain, so walk goes to root.
+        let chain = snapshot_ancestor_ids(&metadata, 12);
+        let ids: Vec<i64> = chain.into_iter().take_while(|id| *id != 20).collect();
+        assert_eq!(ids, vec![12, 11, 10]);
+    }
+
+    #[test]
+    fn test_ancestors_of_walks_until_chain_breaks_per_java() {
+        // Java: ancestorsOf(fork2, table::snapshot) → [fork2, fork1] (fork0
+        // expired so the walk stops at fork1).
+        let metadata = snapshot_util_fixture();
+        let ids = snapshot_ancestor_ids(&metadata, 32);
+        assert_eq!(ids, vec![32, 31]);
+    }
+
+    #[test]
+    fn test_schema_for_ref_handles_null_unknown_and_main_per_java() {
+        // Java: schemaFor(table, null) == schemaFor(table, "main") == initial.
+        // Rust's current_schema(None) and current_schema(Some("main")) both
+        // resolve to the current snapshot's schema; the snapshot's
+        // schema_id is 0, which is the initial schema.
+        let metadata = snapshot_util_fixture();
+        let schema_null = *metadata.current_schema(None).unwrap().schema_id();
+        let schema_main = *metadata.current_schema(Some("main")).unwrap().schema_id();
+        // Rust returns the current_schema_id for non-existing refs (since
+        // current_snapshot returns None and current_schema falls back).
+        let schema_unknown = *metadata
+            .current_schema(Some("non-existing-ref"))
+            .unwrap()
+            .schema_id();
+        assert_eq!(schema_null, 0);
+        assert_eq!(schema_main, 0);
+        assert_eq!(schema_unknown, 0);
+    }
+
+    fn schema_evolution_fixture() -> TableMetadata {
+        // Two schemas (id 0 = id-only, id 1 = id+zip). Snapshot 100 references
+        // schema 0; snapshot 200 references schema 1. current_schema_id = 1
+        // and "main" points to 200; "tag" points to 100.
+        let schema_v0 = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField::new(
+                1,
+                "id",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ))
+            .build()
+            .unwrap();
+        let schema_v1 = SchemaBuilder::default()
+            .with_schema_id(1)
+            .with_struct_field(StructField::new(
+                1,
+                "id",
+                true,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            ))
+            .with_struct_field(StructField::new(
+                2,
+                "zip",
+                false,
+                Type::Primitive(PrimitiveType::Int),
+                None,
+            ))
+            .build()
+            .unwrap();
+
+        let snap_at = |id: i64, parent: Option<i64>, ts: i64, schema_id: i32| {
+            let mut b = SnapshotBuilder::default();
+            b.with_snapshot_id(id)
+                .with_sequence_number(id)
+                .with_timestamp_ms(ts)
+                .with_manifest_list(format!("manifest-{id}.avro"))
+                .with_summary(Summary {
+                    operation: Operation::Append,
+                    other: HashMap::new(),
+                })
+                .with_schema_id(schema_id);
+            if let Some(p) = parent {
+                b.with_parent_snapshot_id(p);
+            }
+            b.build().unwrap()
+        };
+
+        let snapshots = HashMap::from_iter(vec![
+            (100_i64, snap_at(100, None, 1_000, 0)),
+            (200_i64, snap_at(200, Some(100), 2_000, 1)),
+        ]);
+
+        let refs = HashMap::from_iter(vec![
+            (
+                "main".to_string(),
+                SnapshotReference {
+                    snapshot_id: 200,
+                    retention: SnapshotRetention::Branch {
+                        min_snapshots_to_keep: None,
+                        max_snapshot_age_ms: None,
+                        max_ref_age_ms: None,
+                    },
+                },
+            ),
+            (
+                "tag".to_string(),
+                SnapshotReference {
+                    snapshot_id: 100,
+                    retention: SnapshotRetention::Tag {
+                        max_ref_age_ms: None,
+                    },
+                },
+            ),
+        ]);
+
+        TableMetadataBuilder::default()
+            .location("s3://tests/table".to_string())
+            .current_schema_id(1)
+            .schemas(HashMap::from_iter(vec![(0, schema_v0), (1, schema_v1)]))
+            .snapshots(snapshots)
+            .refs(refs)
+            .current_snapshot_id(Some(200_i64))
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_schema_for_branch_returns_branch_head_schema_per_java() {
+        // Java: schemaForBranch — after evolving schema, the branch ref's
+        // schema reflects the *evolution* because the branch advances with
+        // the schema update.
+        let metadata = schema_evolution_fixture();
+        // main points at snap 200 which references schema id 1 (with zip).
+        let schema = metadata.current_schema(Some("main")).unwrap();
+        assert_eq!(*schema.schema_id(), 1);
+        // The schema has two fields (id + zip).
+        let mut field_names: Vec<&str> = schema.fields().iter().map(|f| f.name.as_str()).collect();
+        field_names.sort();
+        assert_eq!(field_names, vec!["id", "zip"]);
+    }
+
+    #[test]
+    fn test_schema_for_tag_is_frozen_at_creation_time_per_java() {
+        // Java: schemaForTag — tag was created when only the initial schema
+        // existed, so schemaFor(table, tag) returns the OLD (initial) schema
+        // even after evolution.
+        let metadata = schema_evolution_fixture();
+        // tag points at snap 100 which references schema id 0.
+        let schema = metadata.current_schema(Some("tag")).unwrap();
+        assert_eq!(*schema.schema_id(), 0);
+        let field_names: Vec<&str> = schema.fields().iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(field_names, vec!["id"]);
+    }
+
+    #[test]
+    fn test_schema_for_snapshot_id_returns_that_snapshots_schema_per_java() {
+        // Java: schemaForSnapshotId — schemaFor(table, snapshotId) returns the
+        // schema active when that snapshot was created.
+        let metadata = schema_evolution_fixture();
+        let s100 = metadata.schema(100).unwrap();
+        assert_eq!(*s100.schema_id(), 0);
+        let s200 = metadata.schema(200).unwrap();
+        assert_eq!(*s200.schema_id(), 1);
+    }
+
+    #[test]
+    #[ignore = "behaviour gap: Rust's `schema(invalid_id)` silently falls back to current_schema_id and returns the current schema; Java's SnapshotUtil.schemaFor(table, invalidId) throws IllegalArgumentException(\"Cannot find snapshot with ID {id}\")"]
+    fn test_schema_for_invalid_snapshot_id_errors_per_java() {
+        let metadata = schema_evolution_fixture();
+        let result = metadata.schema(999_999);
+        assert!(
+            result.is_err(),
+            "expected error for invalid snapshot id, got {:?}",
+            result.map(|s| *s.schema_id())
+        );
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust has no MetadataTable abstraction (MetadataTableUtils.createMetadataTableInstance / MetadataTableType.SNAPSHOTS); Java's schemaForSnapshotIdMetadataTable asserts the metadata table's own schema is returned regardless of snapshot id"]
+    fn test_schema_for_snapshot_id_metadata_table_per_java() {
+        let metadata = schema_evolution_fixture();
+        // Rust has no metadata-table layer; this test cannot be expressed.
+        // Pin the gap; once the layer is added, swap to asserting the fixed
+        // metadata-table schema is returned for any snapshot id.
+        let _ = metadata.schema(100);
     }
 }
