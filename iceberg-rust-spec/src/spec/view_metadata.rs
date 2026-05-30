@@ -703,4 +703,357 @@ mod tests {
             ViewRepresentation::sql("select 1", Some("spark"));
         assert_eq!(dialect, "spark");
     }
+
+    // =====================================================================
+    // Cycle L1: TestViewMetadataParser port — Java's view metadata JSON
+    // parser test class. Rust's parser validates required fields via serde,
+    // restricts format-version to V1 via the `VersionNumber<1>` newtype,
+    // and lifts V1-shaped JSON into a `GeneralViewMetadata` with HashMaps
+    // for versions/schemas keyed by id. Tests use distinctive UUIDs and
+    // SQL fixtures (no upstream identifiers).
+    // =====================================================================
+
+    /// Helper: a fully-populated V1 view metadata JSON fixture for L1 tests.
+    /// All required spec fields are present; properties + version-log carry
+    /// non-empty payloads to verify lossless round-trip.
+    fn full_l1_v1_json() -> &'static str {
+        r#"{
+            "view-uuid": "aaaa1111-bbbb-2222-cccc-3333dddd4444",
+            "format-version": 1,
+            "location": "s3://parity/test/views/order_summary",
+            "current-version-id": 7,
+            "properties": {
+                "comment": "L1 fixture",
+                "retention-days": "30"
+            },
+            "schemas": [
+                {
+                    "schema-id": 12,
+                    "type": "struct",
+                    "fields": [
+                        { "id": 1, "name": "order_id", "required": true,  "type": "long" },
+                        { "id": 2, "name": "amount",   "required": false, "type": "double" }
+                    ]
+                }
+            ],
+            "versions": [
+                {
+                    "version-id": 7,
+                    "schema-id": 12,
+                    "timestamp-ms": 1740000000000,
+                    "default-namespace": ["sales", "reporting"],
+                    "default-catalog": "prod",
+                    "summary": {
+                        "operation": "create",
+                        "engine-name": "L1Engine"
+                    },
+                    "representations": [
+                        {
+                            "type": "sql",
+                            "sql": "SELECT order_id, SUM(amount) FROM orders GROUP BY 1",
+                            "dialect": "ansi"
+                        }
+                    ]
+                }
+            ],
+            "version-log": [
+                { "timestamp-ms": 1740000000000, "version-id": 7 }
+            ]
+        }"#
+    }
+
+    /// Valid V1 metadata parses with every required field accessible.
+    #[test]
+    fn test_view_metadata_parser_full_v1_round_trip_per_java() {
+        let metadata: ViewMetadata = serde_json::from_str(full_l1_v1_json()).unwrap();
+        assert_eq!(metadata.current_version_id, 7);
+        assert_eq!(metadata.versions.len(), 1);
+        assert_eq!(metadata.schemas.len(), 1);
+        assert_eq!(metadata.location, "s3://parity/test/views/order_summary");
+        assert_eq!(
+            metadata.properties.get("retention-days"),
+            Some(&"30".to_string()),
+        );
+
+        let again: ViewMetadata =
+            serde_json::from_str(&serde_json::to_string(&metadata).unwrap()).unwrap();
+        assert_eq!(again, metadata);
+    }
+
+    /// Parser rejects JSON missing `format-version`.
+    #[test]
+    fn test_view_metadata_parser_rejects_missing_format_version_per_java() {
+        let json = r#"{
+            "view-uuid": "aaaa1111-bbbb-2222-cccc-3333dddd4444",
+            "location": "s3://x/v",
+            "current-version-id": 1,
+            "schemas": [],
+            "versions": [],
+            "version-log": []
+        }"#;
+        assert!(serde_json::from_str::<ViewMetadata>(json).is_err());
+    }
+
+    /// Parser rejects `format-version` ≠ 1.
+    #[test]
+    fn test_view_metadata_parser_rejects_unsupported_format_version_per_java() {
+        let json = r#"{
+            "view-uuid": "aaaa1111-bbbb-2222-cccc-3333dddd4444",
+            "format-version": 2,
+            "location": "s3://x/v",
+            "current-version-id": 1,
+            "schemas": [],
+            "versions": [],
+            "version-log": []
+        }"#;
+        let err = serde_json::from_str::<ViewMetadata>(json);
+        assert!(
+            err.is_err(),
+            "Rust only supports view format-version 1; got {err:?}",
+        );
+    }
+
+    /// Parser rejects JSON missing `view-uuid`.
+    #[test]
+    fn test_view_metadata_parser_rejects_missing_view_uuid_per_java() {
+        let json = r#"{
+            "format-version": 1,
+            "location": "s3://x/v",
+            "current-version-id": 1,
+            "schemas": [],
+            "versions": [],
+            "version-log": []
+        }"#;
+        assert!(serde_json::from_str::<ViewMetadata>(json).is_err());
+    }
+
+    /// Parser rejects JSON missing `current-version-id`.
+    #[test]
+    fn test_view_metadata_parser_rejects_missing_current_version_id_per_java() {
+        let json = r#"{
+            "view-uuid": "aaaa1111-bbbb-2222-cccc-3333dddd4444",
+            "format-version": 1,
+            "location": "s3://x/v",
+            "schemas": [],
+            "versions": [],
+            "version-log": []
+        }"#;
+        assert!(serde_json::from_str::<ViewMetadata>(json).is_err());
+    }
+
+    /// Parser rejects JSON missing `location`.
+    #[test]
+    fn test_view_metadata_parser_rejects_missing_location_per_java() {
+        let json = r#"{
+            "view-uuid": "aaaa1111-bbbb-2222-cccc-3333dddd4444",
+            "format-version": 1,
+            "current-version-id": 1,
+            "schemas": [],
+            "versions": [],
+            "version-log": []
+        }"#;
+        assert!(serde_json::from_str::<ViewMetadata>(json).is_err());
+    }
+
+    /// `version_log` entries round-trip preserving order and content.
+    #[test]
+    fn test_view_metadata_parser_preserves_version_log_per_java() {
+        let metadata: ViewMetadata = serde_json::from_str(full_l1_v1_json()).unwrap();
+        assert_eq!(metadata.version_log.len(), 1);
+        assert_eq!(metadata.version_log[0].version_id, 7);
+        assert_eq!(metadata.version_log[0].timestamp_ms, 1_740_000_000_000);
+
+        let reserialized = serde_json::to_string(&metadata).unwrap();
+        let back: ViewMetadata = serde_json::from_str(&reserialized).unwrap();
+        assert_eq!(back.version_log, metadata.version_log);
+    }
+
+    /// Empty `properties` map either round-trips as empty or is omitted from
+    /// the serialized output.
+    #[test]
+    fn test_view_metadata_parser_empty_properties_round_trip_per_java() {
+        let json = r#"{
+            "view-uuid": "11112222-3333-4444-5555-666677778888",
+            "format-version": 1,
+            "location": "s3://parity/test/views/empty_props",
+            "current-version-id": 1,
+            "schemas": [
+                {
+                    "schema-id": 1,
+                    "type": "struct",
+                    "fields": [
+                        { "id": 1, "name": "x", "required": true, "type": "int" }
+                    ]
+                }
+            ],
+            "versions": [
+                {
+                    "version-id": 1,
+                    "schema-id": 1,
+                    "timestamp-ms": 1700000000000,
+                    "default-namespace": ["root"],
+                    "summary": { "operation": "create" },
+                    "representations": [
+                        { "type": "sql", "sql": "select 1", "dialect": "ansi" }
+                    ]
+                }
+            ],
+            "version-log": []
+        }"#;
+        let metadata: ViewMetadata = serde_json::from_str(json).unwrap();
+        assert!(metadata.properties.is_empty());
+        let reserialized = serde_json::to_string(&metadata).unwrap();
+        let back: ViewMetadata = serde_json::from_str(&reserialized).unwrap();
+        assert_eq!(back, metadata);
+    }
+
+    /// Multiple representations per version are preserved.
+    #[test]
+    fn test_view_metadata_parser_multiple_representations_per_java() {
+        let json = r#"{
+            "view-uuid": "aaaabbbb-cccc-dddd-eeee-ffff00001111",
+            "format-version": 1,
+            "location": "s3://parity/test/views/multi_repr",
+            "current-version-id": 1,
+            "schemas": [
+                {
+                    "schema-id": 1,
+                    "type": "struct",
+                    "fields": [
+                        { "id": 1, "name": "x", "required": true, "type": "int" }
+                    ]
+                }
+            ],
+            "versions": [
+                {
+                    "version-id": 1,
+                    "schema-id": 1,
+                    "timestamp-ms": 1700000000000,
+                    "default-namespace": ["multi"],
+                    "summary": { "operation": "create" },
+                    "representations": [
+                        { "type": "sql", "sql": "SELECT 1",  "dialect": "ansi" },
+                        { "type": "sql", "sql": "SELECT x FROM t",  "dialect": "trino" }
+                    ]
+                }
+            ],
+            "version-log": []
+        }"#;
+        let metadata: ViewMetadata = serde_json::from_str(json).unwrap();
+        let v = metadata.versions.get(&1).unwrap();
+        assert_eq!(
+            v.representations.len(),
+            2,
+            "all representations must round-trip",
+        );
+
+        let back: ViewMetadata =
+            serde_json::from_str(&serde_json::to_string(&metadata).unwrap()).unwrap();
+        let v2 = back.versions.get(&1).unwrap();
+        assert_eq!(v2.representations, v.representations);
+    }
+
+    /// Round-trip preserves `summary.engine-name`.
+    #[test]
+    fn test_view_metadata_parser_preserves_summary_engine_name_per_java() {
+        let metadata: ViewMetadata = serde_json::from_str(full_l1_v1_json()).unwrap();
+        let v = metadata.versions.get(&7).unwrap();
+        assert_eq!(v.summary.engine_name.as_deref(), Some("L1Engine"));
+
+        let back: ViewMetadata =
+            serde_json::from_str(&serde_json::to_string(&metadata).unwrap()).unwrap();
+        assert_eq!(
+            back.versions
+                .get(&7)
+                .unwrap()
+                .summary
+                .engine_name
+                .as_deref(),
+            Some("L1Engine"),
+        );
+    }
+
+    /// `Operation::Create` and `Operation::Replace` are the only legal
+    /// summary operations for views; unknown ones are rejected.
+    #[test]
+    fn test_view_metadata_summary_operation_strictness_per_java() {
+        assert_eq!(
+            serde_json::from_str::<Operation>("\"create\"").unwrap(),
+            Operation::Create,
+        );
+        assert_eq!(
+            serde_json::from_str::<Operation>("\"replace\"").unwrap(),
+            Operation::Replace,
+        );
+        // Anything else must be rejected.
+        for s in ["\"append\"", "\"drop\"", "\"Create\"", "\"\""] {
+            assert!(
+                serde_json::from_str::<Operation>(s).is_err(),
+                "operation {s} must be rejected",
+            );
+        }
+    }
+
+    /// `default-namespace` accepts multi-segment paths.
+    #[test]
+    fn test_view_metadata_parser_multi_segment_default_namespace_per_java() {
+        let metadata: ViewMetadata = serde_json::from_str(full_l1_v1_json()).unwrap();
+        let v = metadata.versions.get(&7).unwrap();
+        assert_eq!(v.default_namespace, vec!["sales", "reporting"]);
+    }
+
+    /// `default-catalog` survives round-trip.
+    #[test]
+    fn test_view_metadata_parser_preserves_default_catalog_per_java() {
+        let metadata: ViewMetadata = serde_json::from_str(full_l1_v1_json()).unwrap();
+        let v = metadata.versions.get(&7).unwrap();
+        assert_eq!(v.default_catalog, Some("prod".to_string()));
+
+        let back: ViewMetadata =
+            serde_json::from_str(&serde_json::to_string(&metadata).unwrap()).unwrap();
+        assert_eq!(
+            back.versions.get(&7).unwrap().default_catalog,
+            v.default_catalog
+        );
+    }
+
+    /// Display+FromStr round-trip is equivalent to serde_json round-trip.
+    #[test]
+    fn test_view_metadata_display_fromstr_round_trip_per_java() {
+        let metadata: ViewMetadata = serde_json::from_str(full_l1_v1_json()).unwrap();
+        let rendered = metadata.to_string();
+        let parsed: ViewMetadata = rendered.parse().unwrap();
+        assert_eq!(parsed, metadata);
+    }
+
+    // ---------- Gaps pinned as #[ignore] ------------------------------------
+
+    /// Java's parser rejects metadata where two `versions` entries share a
+    /// `version-id`. Rust's parser collapses the Vec into a HashMap keyed by
+    /// `version_id`, so the duplicate silently overwrites the earlier entry
+    /// instead of producing an error.
+    #[test]
+    #[ignore = "feature gap: Rust converts versions Vec to HashMap, silently overwriting duplicate version-id rather than erroring at parse"]
+    fn test_view_metadata_parser_rejects_duplicate_version_id_per_java() {}
+
+    /// Java's parser rejects metadata where two `schemas` entries share a
+    /// `schema-id`. Rust does the same silent collapse via HashMap.
+    #[test]
+    #[ignore = "feature gap: Rust converts schemas Vec to HashMap, silently overwriting duplicate schema-id rather than erroring at parse"]
+    fn test_view_metadata_parser_rejects_duplicate_schema_id_per_java() {}
+
+    /// Java's parser validates that `current-version-id` points to a
+    /// version that actually exists in the `versions` array. Rust defers
+    /// this check to the `current_version()` lookup method, so the parser
+    /// happily accepts a dangling reference.
+    #[test]
+    #[ignore = "feature gap: Rust accepts dangling current-version-id at parse time; validation happens lazily on current_version() lookup"]
+    fn test_view_metadata_parser_rejects_dangling_current_version_id_per_java() {}
+
+    /// Java's parser validates that every version's `schema-id` is present
+    /// in the `schemas` array. Rust defers this check to `schema(version_id)`
+    /// lookup.
+    #[test]
+    #[ignore = "feature gap: Rust accepts dangling schema-id in version at parse time; validation happens lazily on schema() lookup"]
+    fn test_view_metadata_parser_rejects_dangling_schema_id_in_version_per_java() {}
 }
