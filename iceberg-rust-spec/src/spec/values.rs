@@ -2615,4 +2615,167 @@ mod tests {
         .unwrap();
         assert_eq!(parsed, Value::TimestampTZ(1_512_123_175_038_194));
     }
+
+    // --- TestUUIDUtil port -------------------------------------------------
+    //
+    // Java's `org.apache.iceberg.util.UUIDUtil` houses two pieces of behaviour:
+    //   1. Big-endian 16-byte round-trip (`convert(byte[]) <-> convert(UUID)`),
+    //      and an offset-based decode used by manifest readers.
+    //   2. `generateUuidV7()` — a RFC 9562 UUIDv7 (48-bit ms epoch + version
+    //      nibble + RFC 4122 variant) used by snapshot UUID assignment.
+    //
+    // The published Java test file (TestUUIDUtil) only pins (2): that the
+    // generated value reports `.version() == 7` and `.variant() == 2`.
+    //
+    // Rust does not have a `UUIDUtil` module. The `uuid` crate gives
+    // `Uuid::from_bytes` / `Uuid::as_bytes` (both big-endian per RFC 4122)
+    // and `Uuid::new_v4` / `Uuid::new_v1`. The crate's `v7` cargo feature
+    // is NOT enabled by `iceberg-rust-spec/Cargo.toml`, so `Uuid::now_v7`
+    // is unreachable.
+
+    #[test]
+    #[ignore = "feature gap: uuid crate `v7` feature not enabled; no `generate_uuid_v7()` analog in iceberg-rust-spec"]
+    fn test_uuid_v7_reports_version_seven_and_rfc4122_variant() {
+        // When iceberg-rust-spec enables `uuid` feature "v7" and adds a
+        // `generate_uuid_v7()` helper, this asserts the published Java
+        // contract: the produced UUID must self-report version == 7 and
+        // variant == RFC 4122 (encoded as Uuid::Variant::RFC4122).
+        //
+        // Pseudocode for the eventual implementation:
+        //   let u = generate_uuid_v7();
+        //   assert_eq!(u.get_version_num(), 7);
+        //   assert_eq!(u.get_variant(), uuid::Variant::RFC4122);
+    }
+
+    // --- TestDateTimeUtil port ---------------------------------------------
+    //
+    // Java's `org.apache.iceberg.util.DateTimeUtil` exposes both micros- and
+    // nanos-precision helpers. Iceberg-rust-spec only models micros today —
+    // the `Value::Timestamp` and `Value::TimestampTZ` variants both hold
+    // `i64` micros. The nanos-precision helpers therefore have no Rust
+    // analog and the corresponding Java scenarios are pinned `#[ignore]`.
+    //
+    // The reference instant used by the Java tests is the moment
+    // 2017-11-16T22:31:08.000001 (UTC). At nanos precision Java adds the
+    // residual `+001 ns`; at micros precision Rust drops it.
+    //
+    // Rust home for these helpers is the private `mod datetime` in this
+    // file (datetime_to_micros / micros_to_datetime / datetime_to_days /
+    // datetime_to_hours / date_to_years / datetime_to_months).
+
+    /// Reference Java instant `2017-11-16T22:31:08.000001` truncated to micros.
+    const REFERENCE_MICROS_POS: i64 = 1_510_871_468_000_001;
+
+    /// Reference Java instant `1922-02-15T01:28:51.999998` truncated to micros.
+    /// Java's nanos value is `-1510871468000001001L`; `nanosToMicros` floors
+    /// that to `-1510871468000002`. Either truncation lands in the same
+    /// year/month/day/hour bucket as the negative-side fixture below.
+    const REFERENCE_MICROS_NEG: i64 = -1_510_871_468_000_002;
+
+    #[test]
+    #[ignore = "feature gap: iceberg-rust-spec timestamps are micros, no nanos_to_micros() helper"]
+    fn test_datetime_nanos_to_micros_floors_toward_negative_infinity() {
+        // Java: nanosToMicros(1510871468000001001L) == 1510871468000001;
+        // Java: nanosToMicros(-1510871468000001001L) == -1510871468000002.
+        // Rust would need a `nanos_to_micros(i64) -> i64` using floor division.
+    }
+
+    #[test]
+    #[ignore = "feature gap: iceberg-rust-spec timestamps are micros, no micros_to_nanos() helper"]
+    fn test_datetime_micros_to_nanos_multiplies_by_one_thousand() {
+        // Java: microsToNanos(1510871468000001L) == 1510871468000001000;
+        // Java: microsToNanos(-1510871468000001L) == -1510871468000001000.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no iso_timestamp_to_nanos() — iceberg-rust-spec parses via Value::try_from_json at micros precision"]
+    fn test_datetime_iso_timestamp_to_nanos() {
+        // Java: isoTimestampToNanos("2017-11-16T22:31:08.000001001") == 1510871468000001001;
+        // Java: isoTimestampToNanos("1922-02-15T01:28:51.999998999") == -1510871468000001001.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no iso_timestamptz_to_nanos() — iceberg-rust-spec parses via Value::try_from_json at micros precision"]
+    fn test_datetime_iso_timestamptz_to_nanos() {
+        // Java: isoTimestamptzToNanos("2017-11-16T14:31:08.000001001-08:00") == 1510871468000001001;
+        // Java: isoTimestamptzToNanos("1922-02-15T01:28:51.999998999+00:00") == -1510871468000001001.
+    }
+
+    #[test]
+    fn test_datetime_micros_buckets_match_java_nanos_buckets_for_positive_instant() {
+        // Counterpart of Java `convertNanos`: the same wall-clock instant
+        // (2017-11-16T22:31:08) should land in years=47, months=574,
+        // days=17486, hours=419686 regardless of sub-second precision.
+        let nd = datetime::micros_to_datetime(REFERENCE_MICROS_POS);
+        assert_eq!(
+            datetime::date_to_years(&nd.date()),
+            47,
+            "years (2017 - 1970) = 47",
+        );
+        assert_eq!(
+            datetime::datetime_to_months(&nd),
+            574,
+            "months (47 * 12 + 10) = 574",
+        );
+        assert_eq!(
+            datetime::datetime_to_days(&nd),
+            17486,
+            "days from epoch to 2017-11-16 = 17486",
+        );
+        assert_eq!(
+            datetime::datetime_to_hours(&nd),
+            419_686,
+            "hours = 17486 * 24 + 22 = 419686",
+        );
+    }
+
+    #[test]
+    fn test_datetime_micros_buckets_floor_to_lower_bucket_for_pre_epoch_instant() {
+        // Counterpart of Java `convertNanosNegative`: pre-epoch instant
+        // 1922-02-15T01:28:51 lands in years=-48, months=-575,
+        // days=-17487, hours=-419687 under floor (Euclidean) division —
+        // matching Java's `convertNanos(negative)` branch which subtracts
+        // one for non-aligned values.
+        let nd = datetime::micros_to_datetime(REFERENCE_MICROS_NEG);
+        assert_eq!(datetime::date_to_years(&nd.date()), -48, "1922 - 1970");
+        assert_eq!(datetime::datetime_to_months(&nd), -575, "-48 * 12 + 1");
+        assert_eq!(
+            datetime::datetime_to_days(&nd),
+            -17_487,
+            "floor(-1.510871468e15 / 86_400_000_000) = -17487",
+        );
+        assert_eq!(
+            datetime::datetime_to_hours(&nd),
+            -419_687,
+            "floor(-1.510871468e15 / 3_600_000_000) = -419687",
+        );
+    }
+
+    #[test]
+    fn test_datetime_hours_div_24_equals_days_for_positive_instant() {
+        // Counterpart of Java `hourToDaysPositive`: hours-then-days should
+        // agree with going to days directly. Rust uses integer
+        // div_euclid(24) on the total hour count.
+        let nd = datetime::micros_to_datetime(REFERENCE_MICROS_POS);
+        let hours = datetime::datetime_to_hours(&nd);
+        let days = datetime::datetime_to_days(&nd);
+        assert_eq!(hours.div_euclid(24), days);
+    }
+
+    #[test]
+    #[ignore = "feature gap: no timestamp_from_millis() — iceberg-rust-spec stores micros, ingest divides by 1000 externally"]
+    fn test_datetime_timestamp_from_millis() {
+        // Java: timestampFromMillis(1510871468000) == 2017-11-16T22:31:08;
+        // Java: timestampFromMillis(-1510871468000) == 1922-02-15T01:28:52;
+        // Java: timestampFromMillis(0) == 1970-01-01T00:00:00.
+        // The equivalent at micros precision uses micros_to_datetime(millis * 1000).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no millis_from_timestamp() — iceberg-rust-spec emits micros via datetime_to_micros(), caller floors to millis"]
+    fn test_datetime_millis_from_timestamp() {
+        // Java: millisFromTimestamp(2017-11-16T22:31:08) == 1510871468000;
+        // Java: millisFromTimestamp(1922-02-15T01:28:52) == -1510871468000;
+        // Java: millisFromTimestamp(1970-01-01T00:00) == 0.
+    }
 }
