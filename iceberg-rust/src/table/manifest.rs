@@ -163,15 +163,22 @@ pub struct ManifestWriter<'schema, 'metadata> {
     writer: AvroWriter<'schema, Vec<u8>>,
 }
 
+/// Counts of data files / records / bytes filtered out of a manifest
+/// during a rewrite — used to subtract from the manifest list entry's
+/// counters when the rewrite drops some entries.
 #[derive(Default, Debug, Clone, Copy)]
-pub(crate) struct FilteredManifestStats {
+pub struct FilteredManifestStats {
+    /// Number of data files removed by the filter.
     pub removed_data_files: i32,
+    /// Total record count of the removed files.
     pub removed_records: i64,
+    /// Total byte size of the removed files.
     pub removed_file_size_bytes: i64,
 }
 
 impl FilteredManifestStats {
-    pub(crate) fn append(&mut self, stats: FilteredManifestStats) {
+    /// Accumulate another `FilteredManifestStats` into this one.
+    pub fn append(&mut self, stats: FilteredManifestStats) {
         self.removed_file_size_bytes += stats.removed_file_size_bytes;
         self.removed_records += stats.removed_records;
         self.removed_data_files += stats.removed_data_files;
@@ -196,7 +203,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * The Avro writer cannot be created
     /// * Required metadata fields cannot be serialized
     /// * The partition spec ID is not found in table metadata
-    pub(crate) fn new(
+    pub fn new(
         manifest_location: &str,
         snapshot_id: i64,
         schema: &'schema AvroSchema,
@@ -306,7 +313,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * The Avro writer cannot be created
     /// * Required metadata fields cannot be serialized
     /// * The partition spec ID is not found in table metadata
-    pub(crate) fn from_existing(
+    pub fn from_existing(
         manifest_reader: impl Iterator<Item = Result<ManifestEntry, Error>>,
         mut manifest: ManifestListEntry,
         schema: &'schema AvroSchema,
@@ -440,7 +447,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// - Snapshot IDs are updated for entries that don't have them
     /// - The manifest's sequence number is incremented
     /// - File counts are updated to reflect the filtered entries
-    pub(crate) fn from_existing_with_filter(
+    pub fn from_existing_with_filter(
         bytes: &[u8],
         mut manifest: ManifestListEntry,
         filter: &HashSet<String>,
@@ -575,7 +582,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * The entry cannot be serialized
     /// * Partition statistics cannot be updated
     /// * The default partition spec is not found
-    pub(crate) fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
+    pub fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
         let mut added_rows_count = 0;
         let mut deleted_rows_count = 0;
 
@@ -712,7 +719,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// Returns an error if:
     /// - The writer cannot be finalized
     /// - There are issues preparing the upload operation
-    pub(crate) fn finish_concurrently(
+    pub fn finish_concurrently(
         mut self,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<(ManifestListEntry, impl Future<Output = Result<(), Error>>), Error> {
@@ -733,7 +740,11 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         Ok((self.manifest, future))
     }
 
-    pub(crate) fn apply_filtered_stats(&mut self, filtered_stats: &FilteredManifestStats) {
+    /// Subtract a `FilteredManifestStats` from this writer's manifest
+    /// list entry counters (file count, row count, total bytes). Used
+    /// after a filtered rewrite to keep the manifest list metadata in
+    /// sync with what survived.
+    pub fn apply_filtered_stats(&mut self, filtered_stats: &FilteredManifestStats) {
         let removed_files = filtered_stats.removed_data_files;
         if removed_files > 0 {
             self.manifest.deleted_files_count = match self.manifest.deleted_files_count {

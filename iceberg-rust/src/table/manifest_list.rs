@@ -363,7 +363,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     Some("main"),
     /// )?;
     /// ```
-    pub(crate) fn new<'datafiles>(
+    pub fn new<'datafiles>(
         data_files: impl Iterator<Item = &'datafiles DataFile>,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
@@ -438,7 +438,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     Some("main"),
     /// )?;
     /// ```
-    pub(crate) fn from_existing<'datafiles>(
+    pub fn from_existing<'datafiles>(
         bytes: &[u8],
         data_files: impl Iterator<Item = &'datafiles DataFile>,
         schema: &'schema AvroSchema,
@@ -535,7 +535,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     Some("main"),
     /// )?;
     /// ```
-    pub(crate) fn from_existing_without_overwrites<'datafiles>(
+    pub fn from_existing_without_overwrites<'datafiles>(
         bytes: &[u8],
         data_files: impl Iterator<Item = &'datafiles DataFile>,
         manifests_to_overwrite: &HashSet<String>,
@@ -615,7 +615,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// ```ignore
     /// let splits = writer.n_splits(1000); // Calculate splits for 1000 new files
     /// ```
-    pub(crate) fn n_splits(&self, n_data_files: usize, content: Content) -> u32 {
+    pub fn n_splits(&self, n_data_files: usize, content: Content) -> u32 {
         let selected_manifest = match content {
             Content::Data => &self.selected_data_manifest,
             Content::Deletes => &self.selected_delete_manifest,
@@ -1327,7 +1327,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         Ok(removed_stats)
     }
 
-    pub(crate) fn selected_data_manifest(&self) -> Option<&ManifestListEntry> {
+    pub fn selected_data_manifest(&self) -> Option<&ManifestListEntry> {
         self.selected_data_manifest.as_ref()
     }
 
