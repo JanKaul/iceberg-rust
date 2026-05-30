@@ -1620,4 +1620,183 @@ mod tests {
         // identity("MyMap.value.Bar") throws.
         // Message includes both inner struct types.
     }
+
+    // =====================================================================
+    // Cycle K2: TestTransformSerialization port — Java's transform serde
+    // suite asserts that each `Transform` variant has the spec-defined
+    // string form (`identity`, `bucket[N]`, `truncate[N]`, `year`, etc.)
+    // and that the string→Transform round-trip is lossless.
+    // =====================================================================
+
+    /// `Transform::Identity` serializes to the JSON string `"identity"`.
+    #[test]
+    fn test_transform_serialize_identity_per_java() {
+        let s = serde_json::to_string(&Transform::Identity).unwrap();
+        assert_eq!(s, "\"identity\"");
+    }
+
+    /// `Transform::Year/Month/Day/Hour/Void` serialize to their lowercase
+    /// variant names.
+    #[test]
+    fn test_transform_serialize_date_time_variants_per_java() {
+        let cases = [
+            (Transform::Year, "\"year\""),
+            (Transform::Month, "\"month\""),
+            (Transform::Day, "\"day\""),
+            (Transform::Hour, "\"hour\""),
+            (Transform::Void, "\"void\""),
+        ];
+        for (t, expected) in cases {
+            let got = serde_json::to_string(&t).unwrap();
+            assert_eq!(got, expected, "serialize({t:?}) must yield {expected}");
+        }
+    }
+
+    /// `Transform::Bucket(N)` serializes to `"bucket[N]"`.
+    #[test]
+    fn test_transform_serialize_bucket_per_java() {
+        let s = serde_json::to_string(&Transform::Bucket(128)).unwrap();
+        assert_eq!(s, "\"bucket[128]\"");
+    }
+
+    /// `Transform::Truncate(N)` serializes to `"truncate[N]"`.
+    #[test]
+    fn test_transform_serialize_truncate_per_java() {
+        let s = serde_json::to_string(&Transform::Truncate(7)).unwrap();
+        assert_eq!(s, "\"truncate[7]\"");
+    }
+
+    /// `"identity"` deserializes to `Transform::Identity`.
+    #[test]
+    fn test_transform_deserialize_identity_per_java() {
+        let t: Transform = serde_json::from_str("\"identity\"").unwrap();
+        assert_eq!(t, Transform::Identity);
+    }
+
+    /// `"bucket[N]"` deserializes to `Transform::Bucket(N)`.
+    #[test]
+    fn test_transform_deserialize_bucket_per_java() {
+        let t: Transform = serde_json::from_str("\"bucket[256]\"").unwrap();
+        assert_eq!(t, Transform::Bucket(256));
+    }
+
+    /// `"truncate[N]"` deserializes to `Transform::Truncate(N)`.
+    #[test]
+    fn test_transform_deserialize_truncate_per_java() {
+        let t: Transform = serde_json::from_str("\"truncate[42]\"").unwrap();
+        assert_eq!(t, Transform::Truncate(42));
+    }
+
+    /// `"void"` deserializes to `Transform::Void`.
+    #[test]
+    fn test_transform_deserialize_void_per_java() {
+        let t: Transform = serde_json::from_str("\"void\"").unwrap();
+        assert_eq!(t, Transform::Void);
+    }
+
+    /// Every variant survives a JSON round-trip lossless.
+    #[test]
+    fn test_transform_round_trip_all_variants_per_java() {
+        let variants = [
+            Transform::Identity,
+            Transform::Year,
+            Transform::Month,
+            Transform::Day,
+            Transform::Hour,
+            Transform::Void,
+            Transform::Bucket(1),
+            Transform::Bucket(987_654),
+            Transform::Truncate(1),
+            Transform::Truncate(0),
+            Transform::Truncate(u32::MAX),
+        ];
+        for t in variants {
+            let s = serde_json::to_string(&t).unwrap();
+            let back: Transform = serde_json::from_str(&s).unwrap();
+            assert_eq!(
+                back, t,
+                "round-trip must preserve {t:?}, got {back:?} via {s}"
+            );
+        }
+    }
+
+    /// `Display` output matches the JSON string form (without quotes).
+    #[test]
+    fn test_transform_display_matches_spec_per_java() {
+        let cases = [
+            (Transform::Identity, "identity"),
+            (Transform::Year, "year"),
+            (Transform::Month, "month"),
+            (Transform::Day, "day"),
+            (Transform::Hour, "hour"),
+            (Transform::Void, "void"),
+            (Transform::Bucket(8), "bucket[8]"),
+            (Transform::Truncate(64), "truncate[64]"),
+        ];
+        for (t, expected) in cases {
+            assert_eq!(format!("{t}"), expected);
+        }
+    }
+
+    /// `"bucket[abc]"` (non-numeric argument) fails to deserialize.
+    #[test]
+    fn test_transform_deserialize_bucket_non_numeric_returns_error_per_java() {
+        let result: Result<Transform, _> = serde_json::from_str("\"bucket[abc]\"");
+        assert!(result.is_err());
+    }
+
+    /// `"truncate[]"` (missing argument) fails to deserialize.
+    #[test]
+    fn test_transform_deserialize_truncate_empty_arg_returns_error_per_java() {
+        let result: Result<Transform, _> = serde_json::from_str("\"truncate[]\"");
+        assert!(result.is_err());
+    }
+
+    /// Unknown variant string fails to deserialize.
+    #[test]
+    fn test_transform_deserialize_unknown_variant_returns_error_per_java() {
+        let result: Result<Transform, _> = serde_json::from_str("\"definitely_not_a_transform\"");
+        assert!(result.is_err());
+    }
+
+    /// `Transform` deserialization is **case-sensitive** — uppercase variants
+    /// are rejected per Iceberg spec.
+    #[test]
+    fn test_transform_deserialize_case_sensitive_per_java() {
+        let result: Result<Transform, _> = serde_json::from_str("\"Identity\"");
+        assert!(
+            result.is_err(),
+            "uppercase 'Identity' must be rejected; got {result:?}",
+        );
+    }
+
+    /// A `Transform` embedded inside a `PartitionField`'s JSON survives
+    /// a round-trip together with the field's other fields.
+    #[test]
+    fn test_partition_field_with_bucket_transform_round_trip_per_java() {
+        let json = r#"{
+            "source-id": 11,
+            "field-id": 1100,
+            "name": "user_id_bucket",
+            "transform": "bucket[64]"
+        }"#;
+        let field: PartitionField = serde_json::from_str(json).unwrap();
+        assert_eq!(*field.transform(), Transform::Bucket(64));
+        assert_eq!(*field.source_id(), 11);
+        assert_eq!(field.name(), "user_id_bucket");
+
+        let reserialized = serde_json::to_string(&field).unwrap();
+        let back: PartitionField = serde_json::from_str(&reserialized).unwrap();
+        assert_eq!(back, field);
+    }
+
+    /// Bucket and truncate with extremely large `N` (above `i32::MAX` but
+    /// within `u32`) survive a round-trip — the spec uses an unsigned int.
+    #[test]
+    fn test_transform_serialize_u32_max_argument_per_java() {
+        let t = Transform::Bucket(u32::MAX);
+        let s = serde_json::to_string(&t).unwrap();
+        let back: Transform = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, t);
+    }
 }
