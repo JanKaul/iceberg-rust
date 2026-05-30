@@ -993,4 +993,444 @@ mod tests {
         // Expected: table.spec() == newSpec;
         // table.specs() == {0->old_spec, 1->newSpec}.
     }
+
+    // --- TestPartitionSpecBuilderCaseSensitivity port ----------------------
+    //
+    // Java's `PartitionSpec.builderFor(schema).caseSensitive(bool).<transform>(
+    // sourceName, [args,] [targetName])` exhaustively pins how the builder:
+    //   - Resolves source column names against the schema, with a
+    //     case-sensitive (default) and case-insensitive mode.
+    //   - Validates that the same TARGET partition name isn't used twice
+    //     (with the same case-sensitivity rules).
+    //   - Auto-generates a default target name when one isn't supplied
+    //     (e.g. "data_bucket", "data_trunc", "data_year", etc.).
+    //
+    // Rust today has:
+    //   - `PartitionSpecBuilder` (via `derive_builder`), but no
+    //     `case_sensitive(bool)` option and no source-name resolution at
+    //     all — the caller supplies the source-id directly.
+    //   - No `always_null` shorthand.
+    //   - No default target-name generation (caller supplies the name).
+    //   - No name-uniqueness validation across partition fields.
+    //
+    // All 58 Java @Test scenarios are pinned `#[ignore]` here for the
+    // eventual `partition_spec_builder::case_sensitive(bool)` /
+    // `.<transform>(source_name, ..., [target_name])` builder surface.
+    // The pattern across transforms is consistent — pinning all 58 keeps
+    // the spec contract behind every variant on the grid:
+    //
+    //   transforms = { identity, bucket, truncate, year, month, day,
+    //                  hour, always_null (void) }
+    //   axes       = { default target name, default + case-insensitive,
+    //                  source exact duplicate (cs / ci),
+    //                  source inexact duplicate (cs / ci),
+    //                  target exact duplicate (cs / ci),
+    //                  target inexact duplicate (ci),
+    //                  target exact duplicate (cs disallowed) }
+    //
+    // The fixture schemas used by Java are:
+    //   - SCHEMA_WITHOUT_NAME_CONFLICTS: id, data, category, order_date,
+    //     order_time, ship_date, ship_time.
+    //   - SCHEMA_WITH_NAME_CONFLICTS: id, data, DATA, order_date,
+    //     ORDER_DATE, order_time, ORDER_TIME.
+
+    // --- Top-level: column names differing in case ---
+
+    #[test]
+    #[ignore = "feature gap: partition_type() on a spec with identity('data') + identity('DATA') against a schema that has both columns must produce 2 partition fields with ids 1000+1001 named 'data' and 'DATA'"]
+    fn test_partition_spec_builder_column_names_differ_only_in_case_per_java() {
+        // Java: testPartitionTypeWithColumnNamesThatDifferOnlyInLetterCase.
+        // Schema: id, data, DATA, order_date.
+        // Spec: identity("data").identity("DATA").
+        // Expected partition fields: (1000, "data", String), (1001, "DATA", String).
+    }
+
+    #[test]
+    #[ignore = "feature gap: identity('data', 'partition1') should produce a partition field named 'partition1' bound to source id of 'data'"]
+    fn test_partition_spec_builder_identity_target_name_per_java() {
+        // Java: testPartitionTypeWithIdentityTargetName.
+        // Spec: identity("data", "partition1").
+        // Expected: (1000, "partition1", String).
+    }
+
+    // --- bucket() transform: 7 scenarios ---
+
+    #[test]
+    #[ignore = "feature gap: bucket source-name exact duplicates in different target names — case sensitive (default) accepts them when source columns differ only in case ('data' vs 'DATA')"]
+    fn test_partition_spec_builder_bucket_source_allows_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // Spec on SCHEMA_WITH_NAME_CONFLICTS:
+        //   bucket("data", 10, "partition1").bucket("data", 10, "PARTITION1").
+        // Expected: (1000, "partition1", Int), (1001, "PARTITION1", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: bucket('data', 10) with no explicit target name must auto-generate 'data_bucket'"]
+    fn test_partition_spec_builder_bucket_target_name_default_per_java() {
+        // Java: testBucketTargetNameDefaultValue.
+        // bucket("data", 10) -> (1000, "data_bucket", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false).bucket('DATA', 10) resolves DATA to data and auto-generates 'data_bucket'"]
+    fn test_partition_spec_builder_bucket_target_name_default_case_insensitive_per_java() {
+        // Java: testBucketTargetNameDefaultValueCaseInsensitive.
+        // case_sensitive(false).bucket("DATA", 10) -> (1000, "data_bucket", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) allows bucket source name 'data' and 'DATA' with different explicit target names"]
+    fn test_partition_spec_builder_bucket_source_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // Spec: case_sensitive(false).bucket("data", 10, "partition1").bucket("DATA", 10, "PARTITION1").
+        // Expected: (1000, "partition1", Int), (1001, "PARTITION1", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) allows bucket target names that differ only in case"]
+    fn test_partition_spec_builder_bucket_target_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // Spec: case_sensitive(false).bucket("data", 10, "partition1").bucket("category", 10, "PARTITION1").
+        // Expected: (1000, "partition1", Int), (1001, "PARTITION1", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) must reject bucket target name reuse (exact duplicate) with 'Cannot use partition name more than once: partition1'"]
+    fn test_partition_spec_builder_bucket_target_rejects_exact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).bucket("data", 10, "partition1").bucket("category", 10, "partition1")
+        // throws IllegalArgumentException.
+    }
+
+    #[test]
+    #[ignore = "feature gap: even case-sensitive mode must reject exact-duplicate target names"]
+    fn test_partition_spec_builder_bucket_target_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // bucket("data", 10, "partition1").bucket("DATA", 10, "partition1")
+        // throws IllegalArgumentException.
+    }
+
+    // --- truncate() transform: 7 scenarios ---
+
+    #[test]
+    #[ignore = "feature gap: truncate('data', 10) must auto-generate 'data_trunc'"]
+    fn test_partition_spec_builder_truncate_target_name_default_per_java() {
+        // truncate("data", 10) -> (1000, "data_trunc", String).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false).truncate('DATA', 10) -> 'data_trunc'"]
+    fn test_partition_spec_builder_truncate_target_name_default_case_insensitive_per_java() {
+        // case_sensitive(false).truncate("DATA", 10) -> (1000, "data_trunc", String).
+    }
+
+    #[test]
+    #[ignore = "feature gap: truncate source name exact duplicate accepted when case sensitive (default)"]
+    fn test_partition_spec_builder_truncate_source_allows_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // Spec on SCHEMA_WITH_NAME_CONFLICTS:
+        //   truncate("data", 10, "partition1").truncate("data", 10, "PARTITION1").
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) allows truncate('data') and truncate('DATA') as inexact source duplicates"]
+    fn test_partition_spec_builder_truncate_source_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).truncate("data", 10, "partition1").truncate("DATA", 10, "PARTITION1").
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) allows truncate target names that differ only in case"]
+    fn test_partition_spec_builder_truncate_target_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).truncate("data", 10, "partition1").truncate("category", 10, "PARTITION1").
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) must reject exact-duplicate truncate target names"]
+    fn test_partition_spec_builder_truncate_target_rejects_exact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).truncate("data", 10, "partition1").truncate("category", 10, "partition1")
+        // throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive mode must reject exact-duplicate truncate target names"]
+    fn test_partition_spec_builder_truncate_target_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // truncate("data", 10, "partition1").truncate("DATA", 10, "partition1") throws.
+    }
+
+    // --- identity() transform: 7 scenarios ---
+
+    #[test]
+    #[ignore = "feature gap: identity('data') with no explicit target name uses the source name as the target name"]
+    fn test_partition_spec_builder_identity_target_name_default_per_java() {
+        // identity("data") -> (1000, "data", String).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false).identity('DATA') resolves to source 'data' and uses 'data' as the target name"]
+    fn test_partition_spec_builder_identity_target_name_default_case_insensitive_per_java() {
+        // case_sensitive(false).identity("DATA") -> (1000, "data", String).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive mode rejects identity source-name exact duplicates (identity copies the name unless overridden)"]
+    fn test_partition_spec_builder_identity_source_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // identity("data").identity("data") throws — same source means same target.
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) rejects inexact-duplicate identity source names ('data' and 'DATA') because they collapse to the same target"]
+    fn test_partition_spec_builder_identity_source_rejects_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).identity("data").identity("DATA") throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) allows explicit identity target names differing only in case"]
+    fn test_partition_spec_builder_identity_target_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).identity("data", "partition1").identity("category", "PARTITION1").
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) rejects exact-duplicate identity target names"]
+    fn test_partition_spec_builder_identity_target_rejects_exact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).identity("data", "partition1").identity("category", "partition1") throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive mode rejects exact-duplicate identity target names"]
+    fn test_partition_spec_builder_identity_target_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // identity("data", "partition1").identity("DATA", "partition1") throws.
+    }
+
+    // --- always_null() (void) transform: 7 scenarios ---
+
+    #[test]
+    #[ignore = "feature gap: always_null('data') with no explicit target name uses source name 'data' as target"]
+    fn test_partition_spec_builder_always_null_target_name_default_per_java() {
+        // always_null("data") -> (1000, "data", String) with Transform::Void.
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false).always_null('DATA') resolves to source 'data', target 'data'"]
+    fn test_partition_spec_builder_always_null_target_name_default_case_insensitive_per_java() {
+        // case_sensitive(false).always_null("DATA") -> (1000, "data", String).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive always_null accepts exact-duplicate source names with different target names"]
+    fn test_partition_spec_builder_always_null_source_allows_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // always_null("data", "partition1").always_null("data", "PARTITION1").
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) allows always_null inexact-duplicate source names"]
+    fn test_partition_spec_builder_always_null_source_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).always_null("data", "partition1").always_null("DATA", "PARTITION1").
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) allows always_null target names differing only in case"]
+    fn test_partition_spec_builder_always_null_target_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).always_null("data", "partition1").always_null("category", "PARTITION1").
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) rejects exact-duplicate always_null target names"]
+    fn test_partition_spec_builder_always_null_target_rejects_exact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).always_null("data", "partition1").always_null("category", "partition1") throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive mode rejects exact-duplicate always_null target names"]
+    fn test_partition_spec_builder_always_null_target_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // always_null("data", "partition1").always_null("DATA", "partition1") throws.
+    }
+
+    // --- year() transform: 7 scenarios ---
+
+    #[test]
+    #[ignore = "feature gap: year('order_date') must auto-generate 'order_date_year'"]
+    fn test_partition_spec_builder_year_target_name_default_per_java() {
+        // year("order_date") -> (1000, "order_date_year", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false).year('ORDER_DATE') -> 'order_date_year'"]
+    fn test_partition_spec_builder_year_target_name_default_case_insensitive_per_java() {
+        // case_sensitive(false).year("ORDER_DATE") -> (1000, "order_date_year", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive year exact source duplicate rejected (same source -> same default target)"]
+    fn test_partition_spec_builder_year_source_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // year("order_date").year("order_date") throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) rejects year inexact-duplicate source names"]
+    fn test_partition_spec_builder_year_source_rejects_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).year("order_date").year("ORDER_DATE") throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) allows explicit year target names differing only in case"]
+    fn test_partition_spec_builder_year_target_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).year("order_date", "partition1").year("ship_date", "PARTITION1").
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) rejects exact-duplicate year target names"]
+    fn test_partition_spec_builder_year_target_rejects_exact_duplicate_when_case_insensitive_per_java(
+    ) {
+        // case_sensitive(false).year("order_date", "partition1").year("ship_date", "partition1") throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive mode rejects exact-duplicate year target names"]
+    fn test_partition_spec_builder_year_target_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+        // year("order_date", "partition1").year("ORDER_DATE", "partition1") throws.
+    }
+
+    // --- month() transform: 7 scenarios ---
+
+    #[test]
+    #[ignore = "feature gap: month('order_date') -> 'order_date_month'"]
+    fn test_partition_spec_builder_month_target_name_default_per_java() {
+        // month("order_date") -> (1000, "order_date_month", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false).month('ORDER_DATE') -> 'order_date_month'"]
+    fn test_partition_spec_builder_month_target_name_default_case_insensitive_per_java() {}
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive month source exact duplicate rejected"]
+    fn test_partition_spec_builder_month_source_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) month source inexact duplicate rejected"]
+    fn test_partition_spec_builder_month_source_rejects_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) month target allows inexact duplicate"]
+    fn test_partition_spec_builder_month_target_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) month target rejects exact duplicate"]
+    fn test_partition_spec_builder_month_target_rejects_exact_duplicate_when_case_insensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive month target rejects exact duplicate"]
+    fn test_partition_spec_builder_month_target_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+    }
+
+    // --- day() transform: 7 scenarios ---
+
+    #[test]
+    #[ignore = "feature gap: day('order_date') -> 'order_date_day'"]
+    fn test_partition_spec_builder_day_target_name_default_per_java() {
+        // day("order_date") -> (1000, "order_date_day", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false).day('ORDER_DATE') -> 'order_date_day'"]
+    fn test_partition_spec_builder_day_target_name_default_case_insensitive_per_java() {}
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive day source exact duplicate rejected"]
+    fn test_partition_spec_builder_day_source_rejects_exact_duplicate_when_case_sensitive_per_java()
+    {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) day source inexact duplicate rejected"]
+    fn test_partition_spec_builder_day_source_rejects_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) day target allows inexact duplicate"]
+    fn test_partition_spec_builder_day_target_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) day target rejects exact duplicate"]
+    fn test_partition_spec_builder_day_target_rejects_exact_duplicate_when_case_insensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive day target rejects exact duplicate"]
+    fn test_partition_spec_builder_day_target_rejects_exact_duplicate_when_case_sensitive_per_java()
+    {
+    }
+
+    // --- hour() transform: 7 scenarios ---
+
+    #[test]
+    #[ignore = "feature gap: hour('order_time') -> 'order_time_hour'"]
+    fn test_partition_spec_builder_hour_target_name_default_per_java() {
+        // hour("order_time") -> (1000, "order_time_hour", Int).
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false).hour('ORDER_TIME') -> 'order_time_hour'"]
+    fn test_partition_spec_builder_hour_target_name_default_case_insensitive_per_java() {}
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive hour source exact duplicate rejected"]
+    fn test_partition_spec_builder_hour_source_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) hour source inexact duplicate rejected"]
+    fn test_partition_spec_builder_hour_source_rejects_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) hour target allows inexact duplicate"]
+    fn test_partition_spec_builder_hour_target_allows_inexact_duplicate_when_case_insensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case_sensitive(false) hour target rejects exact duplicate"]
+    fn test_partition_spec_builder_hour_target_rejects_exact_duplicate_when_case_insensitive_per_java(
+    ) {
+    }
+
+    #[test]
+    #[ignore = "feature gap: case-sensitive hour target rejects exact duplicate"]
+    fn test_partition_spec_builder_hour_target_rejects_exact_duplicate_when_case_sensitive_per_java(
+    ) {
+    }
 }
