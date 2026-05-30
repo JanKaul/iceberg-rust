@@ -1015,4 +1015,265 @@ mod tests {
         //   variantSchema.field("metadata").schema.type == BYTES;
         //   variantSchema.field("value").schema.type == BYTES.
     }
+
+    // --- TestSchemaUnionByFieldName port -----------------------------------
+    //
+    // Java's `SchemaUpdate(currentSchema, lastColumnId).unionByNameWith(
+    // newSchema).apply()` merges a new schema into the current one by
+    // matching field NAMES (not field ids). Behaviour pinned by the suite:
+    //
+    //   - Missing top-level fields are added (with fresh ids beyond the
+    //     current `lastColumnId`).
+    //   - Nested types (struct, list, map) recurse by name.
+    //   - Type promotion is supported per the Iceberg promotion table:
+    //       int -> long, float -> double, decimal precision growth at
+    //       fixed scale.
+    //   - Disallowed type changes (string -> long, list element type
+    //     change, list -> primitive, map key/value type change) throw
+    //     IllegalArgumentException with message
+    //       "Cannot change column type: <field-path>: <from> -> <to>".
+    //   - Docs are propagated from the new schema; existing initial
+    //     defaults are NOT overwritten (the new initial default is
+    //     ignored for pre-existing columns), but write defaults are.
+    //   - Re-applying a "mirrored" schema with different field ids but
+    //     same names does NOT alter the original (ids are preserved).
+    //
+    // Rust today has no `SchemaUpdate` operation builder and no
+    // `union_by_name_with` reducer. The Schema struct exists, but the
+    // union merge logic is absent. All 27 Java @Test scenarios are
+    // pinned `#[ignore]` here for an eventual `schema_update::union_by_name`
+    // function with the signature:
+    //
+    //   fn union_by_name(
+    //       current: &Schema,
+    //       last_column_id: i32,
+    //       new_schema: &Schema,
+    //   ) -> Result<Schema, Error>;
+
+    #[test]
+    #[ignore = "feature gap: union_by_name onto an empty schema should add every primitive top-level field (covers all V3 type variants)"]
+    fn test_schema_union_add_top_level_primitives_per_java() {
+        // Java: testAddTopLevelPrimitives.
+        // current = empty; new = schema with one optional field per
+        // primitive type in PRIMITIVES list (including V3 types).
+        // applied.struct == new.struct.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must carry over initial+write defaults + doc when ADDING a brand new field"]
+    fn test_schema_union_add_field_with_default_per_java() {
+        // Java: testAddFieldWithDefault.
+        // current = empty; new = schema with optional long@1 "test"
+        // {doc: "description", initial_default: 34, write_default: 35}.
+        // applied.struct == new.struct (all three properties carry over).
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must add a top-level List<primitive> for every primitive variant"]
+    fn test_schema_union_add_top_level_list_of_primitives_per_java() {
+        // Java: testAddTopLevelListOfPrimitives.
+        // For each primitive: schema with optional(1, aList,
+        // ListType.ofOptional(2, primitive)) — applied equals new.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must add a top-level Map<primitive, primitive>; UnknownType excluded because keys must be required"]
+    fn test_schema_union_add_top_level_map_of_primitives_per_java() {
+        // Java: testAddTopLevelMapOfPrimitives.
+        // For each primitive except UnknownType: schema with optional(1,
+        // aMap, MapType.ofOptional(2, 3, primitive, primitive)) —
+        // applied equals new.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must add a top-level Struct(primitive) for every primitive variant"]
+    fn test_schema_union_add_top_level_struct_of_primitives_per_java() {
+        // Java: testAddTopLevelStructOfPrimitives.
+        // For each primitive: schema with optional(1, aStruct,
+        // StructType.of(optional(2, primitive, primitive))) — applied
+        // equals new.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must recurse into an existing struct and add a primitive child"]
+    fn test_schema_union_add_nested_primitive_per_java() {
+        // Java: testAddNestedPrimitive.
+        // current = schema(optional(1, aStruct, StructType.of()));
+        // new = schema(optional(1, aStruct, StructType.of(optional(2,
+        // primitive, primitive)))). Applied == new.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same fixture but adding ALL primitives at once into a nested empty struct"]
+    fn test_schema_union_add_nested_primitives_per_java() {
+        // Java: testAddNestedPrimitives.
+        // current = schema(optional(1, aStruct, StructType.of()));
+        // new = schema(optional(1, aStruct, StructType.of(<all
+        // primitives>))). Applied == new.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name onto empty must produce 9-deep nested Lists"]
+    fn test_schema_union_add_nested_lists_per_java() {
+        // Java: testAddNestedLists.
+        // new = schema with 9 levels of ListType.ofOptional, innermost
+        // is DecimalType(11, 20). Applied == new.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name onto empty must produce 6-deep nested Structs"]
+    fn test_schema_union_add_nested_struct_per_java() {
+        // Java: testAddNestedStruct.
+        // new = schema with 6 levels of StructType.of, innermost is
+        // optional(7, aString, String). Applied == new.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name onto empty must produce 6-deep nested Maps with string keys"]
+    fn test_schema_union_add_nested_maps_per_java() {
+        // Java: testAddNestedMaps.
+        // new = schema with 6 levels of MapType.ofOptional(string ->
+        // ...), innermost value is string. Applied == new.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must reject a list element type change with 'Cannot change column type: aList.element: string -> long'"]
+    fn test_schema_union_detect_invalid_top_level_list_per_java() {
+        // Java: testDetectInvalidTopLevelList.
+        // current = schema(optional(1, aList, List(2, String)));
+        // new = schema(optional(1, aList, List(2, Long))).
+        // unionByNameWith throws IllegalArgumentException.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must reject a map value type change with 'Cannot change column type: aMap.value: string -> long'"]
+    fn test_schema_union_detect_invalid_top_level_map_value_per_java() {
+        // Java: testDetectInvalidTopLevelMapValue.
+        // current/new differ on the map value type. Throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must reject a map key type change with 'Cannot change column type: aMap.key: string -> uuid'"]
+    fn test_schema_union_detect_invalid_top_level_map_key_per_java() {
+        // Java: testDetectInvalidTopLevelMapKey.
+        // current/new differ on the map key type. Throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must propagate a newly-added doc to an existing column"]
+    fn test_schema_union_update_column_doc_per_java() {
+        // Java: testUpdateColumnDoc.
+        // current = schema(required(1, aCol, Integer));
+        // new = schema(required(1, aCol, Integer, "description")).
+        // applied == new (doc carried over).
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must propagate the WRITE default but NOT the initial default for an existing column"]
+    fn test_schema_union_update_column_defaults_per_java() {
+        // Java: testUpdateColumnDefaults.
+        // current has no defaults; new has initial_default=34 +
+        // write_default=35.
+        // expected (applied) keeps write_default=35 but has NO
+        // initial_default — the "default-can-only-be-set-once" rule.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must allow Integer -> Long promotion on an existing column"]
+    fn test_schema_union_type_promote_int_to_long_per_java() {
+        // Java: testTypePromoteIntegerToLong.
+        // current = Integer; new = Long. Applied field type == Long.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must allow Float -> Double promotion on an existing column"]
+    fn test_schema_union_type_promote_float_to_double_per_java() {
+        // Java: testTypePromoteFloatToDouble.
+        // current = Float; new = Double. Applied field type == Double.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must IGNORE a Double -> Float narrowing (keeps existing Double)"]
+    fn test_schema_union_ignore_type_promote_double_to_float_per_java() {
+        // Java: testIgnoreTypePromoteDoubleToFloat.
+        // current = Double; new = Float. Applied field type == Double.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must IGNORE a Long -> Integer narrowing (keeps existing Long)"]
+    fn test_schema_union_ignore_type_promote_long_to_int_per_java() {
+        // Java: testIgnoreTypePromoteLongToInt.
+        // current = Long; new = Integer. Applied field type == Long.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must IGNORE a Decimal precision narrowing (keeps existing wider precision)"]
+    fn test_schema_union_ignore_type_promote_decimal_to_narrower_precision_per_java() {
+        // Java: testIgnoreTypePromoteDecimalToNarrowerPrecision.
+        // current = Decimal(20, 1); new = Decimal(10, 1).
+        // Applied keeps Decimal(20, 1).
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must allow Decimal precision growth at the same scale"]
+    fn test_schema_union_type_promote_decimal_precision_per_java() {
+        // Java: testTypePromoteDecimalToFixedScaleWithWiderPrecision.
+        // current = Decimal(20, 1); new = Decimal(22, 1).
+        // Applied == new (precision widened to 22).
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must add a primitive to a deeply nested struct inside a list-of-structs"]
+    fn test_schema_union_add_primitive_to_nested_struct_per_java() {
+        // Java: testAddPrimitiveToNestedStruct.
+        // current ends in list-of-struct(value: string).
+        // new ends in list-of-struct(time: time).
+        // expected ends in list-of-struct(value: string, time: time)
+        // with the new time field id = 6.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must reject collapsing a list down to a primitive"]
+    fn test_schema_union_replace_list_with_primitive_per_java() {
+        // Java: testReplaceListWithPrimitive.
+        // current = List<String>; new = String.
+        // Throws with 'Cannot change column type: aColumn: list<string> -> string'.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name with a 'mirrored' schema (same names, reverse-ordered field ids) must leave the original schema unchanged"]
+    fn test_schema_union_mirrored_schemas_per_java() {
+        // Java: testMirroredSchemas.
+        // aSchema field ids 9, 6, 5, 4, 3, 2, 1; mirrored has 1..9.
+        // union(aSchema, mirrored) == aSchema (original ids preserved).
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name onto a non-empty schema must add a brand-new top-level Struct, assigning fresh ids"]
+    fn test_schema_union_add_new_top_level_struct_per_java() {
+        // Java: addNewTopLevelStruct.
+        // current = schema(map<string, list<struct(string1)>>).
+        // observed adds a 2nd top-level field struct1{d1{d2: string}}.
+        // union(current, observed) == observed.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must append a brand-new sibling field inside a 3-deep nested struct"]
+    fn test_schema_union_append_nested_struct_per_java() {
+        // Java: testAppendNestedStruct.
+        // current = s1.s2.s3.s4 (string at 4).
+        // observed adds a sibling 'repeat' struct at s2 level, 6 deep.
+        // union(current, observed) == observed.
+    }
+
+    #[test]
+    #[ignore = "feature gap: union_by_name must append a sibling List inside a deeply nested struct, assigning fresh ids for both the list and its element"]
+    fn test_schema_union_append_nested_lists_per_java() {
+        // Java: testAppendNestedLists.
+        // current ends in s3.list1 (List<String>).
+        // observed has the same s3 but with list2 (List<String>) at the
+        // SAME id reused.
+        // union: applied keeps list1 with original ids (4, 5) and adds
+        // list2 with fresh ids (6, 7).
+    }
 }
