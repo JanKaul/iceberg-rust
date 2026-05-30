@@ -29,8 +29,10 @@ use arrow::{
 };
 use futures::stream;
 use iceberg_rust::{
-    arrow::write::write_parquet_partitioned, catalog::Catalog, object_store::ObjectStoreBuilder,
-    table::Table,
+    arrow::write::write_parquet_partitioned,
+    catalog::Catalog,
+    object_store::ObjectStoreBuilder,
+    table::{manifest::ManifestReader, Table},
 };
 use iceberg_rust_spec::spec::{
     partition::{PartitionField, PartitionSpec, Transform},
@@ -38,7 +40,9 @@ use iceberg_rust_spec::spec::{
     types::{PrimitiveType, StructField, Type},
     values::Value,
 };
+use iceberg_rust_spec::util::strip_prefix;
 use iceberg_sql_catalog::SqlCatalog;
+use object_store::{path::Path as ObjectStorePath, ObjectStoreExt};
 
 // --- Shared test fixtures --------------------------------------------------
 
@@ -367,10 +371,74 @@ async fn test_manifest_reader_with_empty_inheritable_metadata_per_java() {
     // Java: testManifestReaderWithEmptyInheritableMetadata.
 }
 
+/// Java: `testInvalidUsage` — ManifestReader::new with garbage input
+/// must error rather than panic or produce a broken iterator.
 #[tokio::test]
-#[ignore = "feature gap: ManifestReader::new with mismatched args (no schema, etc.) is not exposed publicly"]
 async fn test_manifest_reader_invalid_usage_per_java() {
-    // Java: testInvalidUsage.
+    // Pass non-Avro bytes; reader construction must fail.
+    let garbage = b"not an avro manifest file at all".to_vec();
+    let result = ManifestReader::new(&garbage[..]);
+    assert!(
+        result.is_err(),
+        "ManifestReader::new on garbage bytes must error",
+    );
+}
+
+/// Use the now-public `ManifestReader::new` to read the manifest a
+/// table commit wrote, and verify the entries' file paths match the
+/// data files we appended. This exercises the V2-default Rust path.
+#[tokio::test]
+async fn test_manifest_reader_round_trip_via_public_reader_per_java() {
+    let mut table = fresh_table("manifest_reader_public").await;
+    let files = write_parquet_partitioned(
+        &table,
+        stream::iter(vec![Ok(batch(&[(1, "us-east"), (2, "us-west")]))]),
+        None,
+    )
+    .await
+    .expect("write");
+    let written_paths: Vec<String> = files.iter().map(|f| f.file_path().to_owned()).collect();
+    table
+        .new_transaction(None)
+        .append_data(files)
+        .commit()
+        .await
+        .expect("commit");
+
+    // Get the manifest path from the snapshot's manifest list.
+    let manifests = table.manifests(None, None).await.expect("manifests");
+    assert!(!manifests.is_empty());
+    let manifest_path = manifests[0].manifest_path.clone();
+
+    // Fetch the manifest bytes via object_store.
+    let object_store = table.object_store();
+    let stripped = strip_prefix(&manifest_path);
+    let bytes = object_store
+        .get(&ObjectStorePath::from(stripped))
+        .await
+        .expect("fetch manifest bytes")
+        .bytes()
+        .await
+        .expect("read bytes")
+        .to_vec();
+
+    // Use the now-public ManifestReader to iterate entries.
+    let reader = ManifestReader::new(&bytes[..]).expect("ManifestReader::new");
+    let mut paths_from_reader = Vec::new();
+    for entry in reader {
+        let entry = entry.expect("manifest entry");
+        paths_from_reader.push(entry.data_file().file_path().to_owned());
+    }
+    assert!(
+        !paths_from_reader.is_empty(),
+        "manifest must have at least one entry",
+    );
+    for p in &written_paths {
+        assert!(
+            paths_from_reader.iter().any(|r| r == p),
+            "every written file must appear in the manifest; got {paths_from_reader:?}",
+        );
+    }
 }
 
 #[tokio::test]

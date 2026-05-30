@@ -60,7 +60,7 @@ type ReaderMap<'a, R> = Map<
 /// # Type Parameters
 /// * `'a` - The lifetime of the underlying reader
 /// * `R` - The type implementing `Read` that provides the manifest data
-pub(crate) struct ManifestReader<'a, R: Read> {
+pub struct ManifestReader<'a, R: Read> {
     reader: ReaderMap<'a, R>,
 }
 
@@ -89,7 +89,7 @@ impl<R: Read> ManifestReader<'_, R> {
     /// * Required metadata fields are missing
     /// * Format version is invalid
     /// * Schema or partition spec information cannot be parsed
-    pub(crate) fn new(reader: R) -> Result<Self, Error> {
+    pub fn new(reader: R) -> Result<Self, Error> {
         let reader = AvroReader::new(reader)?;
         let metadata = reader.user_metadata();
 
@@ -157,7 +157,7 @@ impl<R: Read> ManifestReader<'_, R> {
 /// * `table_metadata` - Reference to the table's metadata containing schema and partition information
 /// * `manifest` - The manifest list entry being built or modified
 /// * `writer` - The underlying Avro writer for serializing manifest entries
-pub(crate) struct ManifestWriter<'schema, 'metadata> {
+pub struct ManifestWriter<'schema, 'metadata> {
     table_metadata: &'metadata TableMetadata,
     manifest: ManifestListEntry,
     writer: AvroWriter<'schema, Vec<u8>>,

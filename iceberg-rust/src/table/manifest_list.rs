@@ -66,7 +66,7 @@ type ReaderMap<'a, 'metadata, R> = Map<
 /// * `'a` - The lifetime of the underlying Avro reader
 /// * `'metadata` - The lifetime of the table metadata reference
 /// * `R` - The type implementing `Read` that provides the manifest list data
-pub(crate) struct ManifestListReader<'a, 'metadata, R: Read> {
+pub struct ManifestListReader<'a, 'metadata, R: Read> {
     reader: ReaderMap<'a, 'metadata, R>,
 }
 
@@ -95,7 +95,7 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
     /// Returns an error if:
     /// * The Avro reader cannot be created with the schema
     /// * The manifest list format is invalid
-    pub(crate) fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
+    pub fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
         let schema: &AvroSchema = match table_metadata.format_version {
             FormatVersion::V1 => manifest_list_schema_v1(),
             FormatVersion::V2 => manifest_list_schema_v2(),
