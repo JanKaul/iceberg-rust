@@ -32,11 +32,17 @@ use iceberg_rust::{
     arrow::write::write_parquet_partitioned,
     catalog::Catalog,
     object_store::ObjectStoreBuilder,
-    table::{manifest::ManifestReader, Table},
+    table::{
+        manifest::{ManifestReader, ManifestWriter},
+        Table,
+    },
 };
 use iceberg_rust_spec::spec::{
+    manifest::{partition_value_schema, ManifestEntry, Status},
+    manifest_list::Content as ManifestListContent,
     partition::{PartitionField, PartitionSpec, Transform},
     schema::Schema,
+    table_metadata::FormatVersion,
     types::{PrimitiveType, StructField, Type},
     values::Value,
 };
@@ -510,19 +516,115 @@ async fn test_manifest_reader_deprecated_read_without_specs_by_id_per_java() {
 // TestManifestWriter scenarios (subset reachable via public API)
 
 #[tokio::test]
-#[ignore = "feature gap: ManifestWriter is pub(crate); writing a manifest directly (without going through a transaction) isn't exposed"]
+#[ignore = "feature gap: CreateTableBuilder hardcodes V2 — no `with_format_version` setter to create a V1 table for direct writer testing"]
 async fn test_manifest_writer_write_v1_per_java() {
     // Java: testV1Write.
 }
 
+/// Java: `testV2Write` — direct ManifestWriter access for the V2 manifest
+/// schema. Uses the now-public `ManifestWriter::new` + `append` + `finish`
+/// chain to write a manifest, then `ManifestReader::new` to read it back.
 #[tokio::test]
-#[ignore = "feature gap: same — V2 direct write"]
 async fn test_manifest_writer_write_v2_per_java() {
-    // Java: testV2Write.
+    let mut table = fresh_table("manifest_writer_v2").await;
+
+    // First commit some real DataFiles via the table path so we have
+    // valid DataFile structs (with metrics, partition values, etc.) to
+    // feed into our direct ManifestWriter.
+    let files = write_parquet_partitioned(
+        &table,
+        stream::iter(vec![Ok(batch(&[
+            (1, "us-east"),
+            (2, "us-east"),
+            (3, "us-west"),
+        ]))]),
+        None,
+    )
+    .await
+    .expect("write");
+    let expected_count = files.len();
+    table
+        .new_transaction(None)
+        .append_data(files.clone())
+        .commit()
+        .await
+        .expect("commit");
+
+    // Build the Avro schema for V2 manifest entries using the table's
+    // current partition fields.
+    let metadata = table.metadata();
+    let partition_fields = metadata
+        .current_partition_fields(None)
+        .expect("partition fields");
+    let part_schema = partition_value_schema(&partition_fields).expect("partition value schema");
+    let avro_schema =
+        ManifestEntry::schema(&part_schema, &FormatVersion::V2).expect("manifest entry schema");
+
+    // Construct a fresh ManifestWriter pointed at a new manifest path.
+    let manifest_path = format!("{}/metadata/direct-manifest-v2.avro", metadata.location);
+    let snapshot_id = 9876_5432_1098_7654_i64;
+    let mut writer = ManifestWriter::new(
+        &manifest_path,
+        snapshot_id,
+        &avro_schema,
+        metadata,
+        ManifestListContent::Data,
+        None,
+    )
+    .expect("ManifestWriter::new");
+
+    // Append manifest entries for each data file.
+    for data_file in &files {
+        let entry = ManifestEntry::builder()
+            .with_format_version(FormatVersion::V2)
+            .with_status(Status::Added)
+            .with_snapshot_id(snapshot_id)
+            .with_sequence_number(1)
+            .with_data_file(data_file.clone())
+            .build()
+            .expect("manifest entry build");
+        writer.append(entry).expect("append");
+    }
+
+    // Finish writes the file to the object store and returns the
+    // ManifestListEntry.
+    let object_store = table.object_store();
+    let manifest_list_entry = writer.finish(object_store.clone()).await.expect("finish");
+    assert_eq!(
+        manifest_list_entry.added_snapshot_id, snapshot_id,
+        "manifest list entry must record the snapshot id we wrote with",
+    );
+    assert!(manifest_list_entry.manifest_length > 0);
+
+    // Read the manifest back via ManifestReader and verify entries.
+    let bytes = object_store
+        .get(&ObjectStorePath::from(strip_prefix(&manifest_path)))
+        .await
+        .expect("fetch")
+        .bytes()
+        .await
+        .expect("bytes")
+        .to_vec();
+    let reader = ManifestReader::new(&bytes[..]).expect("ManifestReader::new");
+    let read_paths: Vec<String> = reader
+        .map(|r| r.expect("entry").data_file().file_path().to_owned())
+        .collect();
+    assert_eq!(
+        read_paths.len(),
+        expected_count,
+        "every entry written must read back",
+    );
+    for file in &files {
+        assert!(
+            read_paths.iter().any(|p| p == file.file_path()),
+            "written file {} must appear in the manifest read-back",
+            file.file_path(),
+        );
+    }
 }
 
 #[tokio::test]
-#[ignore = "feature gap: same — V3 direct write"]
+#[ignore = "feature gap: CreateTableBuilder hardcodes V2 — V3 table creation not exposed"]
 async fn test_manifest_writer_write_v3_per_java() {
     // Java: testV3Write.
 }
@@ -557,8 +659,44 @@ async fn test_manifest_writer_without_row_stats_per_java() {
     // Java: testManifestsWithoutRowStats.
 }
 
+/// Java: `testManifestsPartitionSummary` — the manifest list entry
+/// carries `partitions: Vec<FieldSummary>` summarising the partition
+/// values of the contained data files. Rust models this as
+/// `ManifestListEntry.partitions: Option<Vec<FieldSummary>>`.
 #[tokio::test]
-#[ignore = "feature gap: partition summary field on manifest list entries"]
 async fn test_manifest_writer_partition_summary_per_java() {
-    // Java: testManifestsPartitionSummary.
+    let mut table = fresh_table("manifest_writer_partition_summary").await;
+    let files = write_parquet_partitioned(
+        &table,
+        stream::iter(vec![Ok(batch(&[
+            (1, "us-east"),
+            (2, "us-west"),
+            (3, "eu-central"),
+        ]))]),
+        None,
+    )
+    .await
+    .expect("write");
+    table
+        .new_transaction(None)
+        .append_data(files)
+        .commit()
+        .await
+        .expect("commit");
+
+    // The manifest list entry must carry partition summaries because
+    // the table has partition fields.
+    let manifests = table.manifests(None, None).await.expect("manifests");
+    let any_with_summary = manifests
+        .iter()
+        .any(|m| m.partitions.as_ref().is_some_and(|p| !p.is_empty()));
+    assert!(
+        any_with_summary,
+        "partitioned table must produce at least one manifest list entry \
+         with a non-empty partitions summary; got: {:?}",
+        manifests
+            .iter()
+            .map(|m| m.partitions.as_ref().map(|p| p.len()))
+            .collect::<Vec<_>>(),
+    );
 }

@@ -678,7 +678,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// Returns an error if:
     /// * The writer cannot be finalized
     /// * The manifest file cannot be written to storage
-    pub(crate) async fn finish(
+    pub async fn finish(
         mut self,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<ManifestListEntry, Error> {

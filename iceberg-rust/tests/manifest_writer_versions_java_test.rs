@@ -3,17 +3,21 @@
 //! compression configuration.
 //!
 //! Mirrors `org.apache.iceberg.TestManifestWriterVersions` (20 @Test).
-//! Java uses a direct `ManifestWriter` test fixture; Rust's
-//! `ManifestWriter` is `pub(crate)` and inaccessible from integration
-//! tests. `CreateTableBuilder` also hardcodes V2 with no public
-//! `with_format_version` setter, so V1/V3/V4 paths can't be exercised.
+//! Java uses a direct `ManifestWriter` test fixture. Rust's
+//! `ManifestWriter` is now `pub` (cycle J5), but `CreateTableBuilder`
+//! still hardcodes V2 with no public `with_format_version` setter, so
+//! V1/V3/V4 paths can't be exercised from an integration test.
 //!
-//! Every Java scenario in this class is therefore `#[ignore]`. The
-//! V2-write observable behaviour IS already covered indirectly by
-//! cycles J1 / J2 (table.manifests() round-trip).
+//! V2-write direct-API parity lives in cycle J1
+//! (`test_manifest_writer_write_v2_per_java` exercises
+//! `ManifestWriter::new` → `append` → `finish` and reads back via
+//! `ManifestReader::new`). The scenarios in this file are the V1/V3/V4
+//! variants and the inheritance/rewrite/compression behaviours that
+//! still need either a format-version-aware table builder or compression
+//! observability hooks.
 
 #[tokio::test]
-#[ignore = "feature gap: ManifestWriter is pub(crate); CreateTableBuilder hardcodes V2 format. V1 direct write unreachable"]
+#[ignore = "feature gap: CreateTableBuilder hardcodes V2 — V1 table creation isn't exposed"]
 async fn test_manifest_writer_v1_write_per_java() {
     // Java: testV1Write.
 }
@@ -31,7 +35,7 @@ async fn test_manifest_writer_v1_write_with_inheritance_per_java() {
 }
 
 #[tokio::test]
-#[ignore = "feature gap: ManifestWriter is pub(crate); V2 direct write not exposed (observable behaviour covered indirectly by cycles J1/J2 through table.manifests())"]
+#[ignore = "covered by cycle J1 `test_manifest_writer_write_v2_per_java` (direct ManifestWriter::new → append → finish + ManifestReader::new round-trip)"]
 async fn test_manifest_writer_v2_write_per_java() {
     // Java: testV2Write.
 }
