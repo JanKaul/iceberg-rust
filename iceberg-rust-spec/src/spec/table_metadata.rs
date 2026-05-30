@@ -2981,4 +2981,195 @@ mod tests {
         // Append (file1 + file2). Delete (file1).
         // changes.removed_data_files() (1st) == (2nd) by identity.
     }
+
+    // --- TestMetricsModes port ---------------------------------------------
+    //
+    // Java's `org.apache.iceberg.MetricsModes` is an enum hierarchy
+    // (None / Counts / Truncate(N) / Full) plus a parser
+    // (`fromString(name)`) for the table-property string form. The
+    // companion `MetricsConfig.forTable(table)` reads
+    // `write.metadata.metrics.default` + per-column overrides and applies
+    // these rules:
+    //   - Invalid per-column modes default to the table default mode.
+    //   - Invalid default mode falls back to `Truncate(16)` (library default).
+    //   - Sort-key columns default to `Truncate(16)` even when the table
+    //     default is `none`/`counts`.
+    //   - `write.metadata.metrics.max-inferred-column-defaults` caps how
+    //     many columns get the inferred default; the rest default to `None`.
+    //   - V3 VariantType supports metrics modes; nested struct fields
+    //     each get their own mode entry.
+    //
+    // Rust has NO `MetricsModes` / `MetricsConfig` / table-property
+    // parser for this surface (grep finds zero matches). All 9 Java
+    // @TestTemplate scenarios are pinned `#[ignore]` for an eventual
+    // `metrics_modes::{from_string, MetricsConfig}` API.
+
+    #[test]
+    #[ignore = "feature gap: no MetricsModes::from_string; case-insensitive parse 'none'/'counts'/'truncate(N)'/'full' (8 sub-assertions covering mixed case)"]
+    fn test_metrics_modes_parsing_per_java() {
+        // Java: testMetricsModeParsing. 8 inputs all parse to expected variant.
+    }
+
+    #[test]
+    #[ignore = "feature gap: MetricsModes::from_string('truncate(0)') must error 'Truncate length should be positive'"]
+    fn test_metrics_modes_invalid_truncation_length_per_java() {
+        // Java: testInvalidTruncationLength.
+    }
+
+    #[test]
+    #[ignore = "feature gap: MetricsConfig must silently fall back invalid per-column mode to the table default (e.g. 'full')"]
+    fn test_metrics_modes_invalid_column_mode_value_per_java() {
+        // Java: testInvalidColumnModeValue.
+        // default-mode=full, col=troncate(5). config.columnMode(col) == Full.
+    }
+
+    #[test]
+    #[ignore = "feature gap: invalid default mode falls back to library default Truncate(16)"]
+    fn test_metrics_modes_invalid_default_column_mode_value_per_java() {
+        // Java: testInvalidDefaultColumnModeValue.
+        // default-mode=fuull (sic). config.columnMode(*) == Truncate(16).
+    }
+
+    #[test]
+    #[ignore = "feature gap: sort-key columns default to Truncate(16) when the table default is counts; per-column user override is respected (None) ignoring sort-key default"]
+    fn test_metrics_modes_config_sorted_cols_default_per_java() {
+        // Java: testMetricsConfigSortedColsDefault.
+        // Schema (col1..col4). Sort: asc(col2).asc(col3). Properties:
+        // default=counts; col1=counts; col2=none.
+        // Expected: col1=Counts, col2=None (user override),
+        //           col3=Truncate(16) (sort-default), col4=Counts.
+    }
+
+    #[test]
+    #[ignore = "feature gap: invalid mode on a sort-key column falls back to the table default rather than the sort-key default Truncate(16)"]
+    fn test_metrics_modes_config_sorted_cols_default_by_invalid_per_java() {
+        // Java: testMetricsConfigSortedColsDefaultByInvalid.
+        // Sort: asc(col2).asc(col3). Properties: default=counts;
+        // col1=full; col2=invalid.
+        // Expected: col1=Full, col2=Counts (fall back to table default).
+    }
+
+    #[test]
+    #[ignore = "feature gap: METRICS_MAX_INFERRED_COLUMN_DEFAULTS caps how many columns get the inferred default; the rest default to None"]
+    fn test_metrics_modes_config_inferred_default_mode_limit_per_java() {
+        // Java: testMetricsConfigInferredDefaultModeLimit.
+        // 3 columns; max-inferred=2. col1+col2=Truncate(16), col3=None.
+    }
+
+    #[test]
+    #[ignore = "feature gap: V3 VariantType columns support metrics modes; assumes formatVersion >= 3"]
+    fn test_metrics_modes_variant_supported_per_java() {
+        // Java: testMetricsVariantSupported.
+        // Schema (variant, int). max-inferred=1.
+        // Expected: variant=Truncate(16), int=None.
+    }
+
+    #[test]
+    #[ignore = "feature gap: nested struct fields get per-leaf entries in the MetricsConfig (col_struct, col_struct.a, col_struct.b, top)"]
+    fn test_metrics_modes_config_nested_types_structs_per_java() {
+        // Java: testMetricsConfigNestedTypesStructs.
+        // Schema with col_struct(a, b) + top. max-inferred=2.
+        // Expected: col_struct.a=Truncate(16), col_struct.b=None,
+        //           top=Truncate(16).
+    }
+
+    // --- TestRowLineageMetadata port (V3 row-lineage) ----------------------
+    //
+    // Iceberg V3 adds row-lineage tracking: each Snapshot carries
+    // `first_row_id` and `added_rows` fields, and TableMetadata tracks
+    // `next_row_id` that increments by the snapshot's `added_rows` on
+    // each new snapshot. Java's `BaseSnapshot` constructor performs
+    // tight validation of these new fields.
+    //
+    // Rust state:
+    //   - TableMetadata.next_row_id IS modelled (line 150 in this file).
+    //   - Snapshot does NOT carry first_row_id / added_rows fields.
+    //   - The TableMetadata builder does NOT auto-increment next_row_id
+    //     when adding a snapshot; the constructor takes the value
+    //     verbatim.
+    //   - The validation rules Java pins on (first_row_id, added_rows)
+    //     are not enforced.
+    //
+    // All 11 Java @Test/@TestTemplate scenarios are pinned `#[ignore]`
+    // for an eventual extension of `Snapshot` with row-lineage fields
+    // plus the matching validation in the constructor and a builder
+    // step that increments TableMetadata::next_row_id on snapshot add.
+
+    #[test]
+    #[ignore = "feature gap: Snapshot has no first_row_id/added_rows fields. Java's BaseSnapshot constructor validates these (null first_row_id forces null added_rows; both can be 0; null added_rows with non-null first_row_id rejected; negative added_rows or first_row_id rejected with specific messages)"]
+    fn test_row_lineage_snapshot_row_id_validation_per_java() {
+        // Java: testSnapshotRowIDValidation. 6 sub-assertions:
+        //   - first_row_id=null, added_rows=null -> both null.
+        //   - first_row_id=null, added_rows=10 -> both null (added cleared).
+        //   - first_row_id=0, added_rows=0 -> kept.
+        //   - first_row_id=10, added_rows=null -> throws.
+        //   - first_row_id=0, added_rows=-1 -> throws.
+        //   - first_row_id=-1, added_rows=1 -> throws.
+    }
+
+    #[test]
+    #[ignore = "feature gap: TableMetadata.addSnapshot must auto-increment next_row_id by the snapshot's added_rows; today the builder takes next_row_id verbatim"]
+    fn test_row_lineage_snapshot_addition_per_java() {
+        // Java: testSnapshotAddition.
+        // base.next_row_id = 0; add snapshot(added_rows=30) ->
+        //   first.next_row_id == 30.
+        // add another (added_rows=30) -> second.next_row_id == 60.
+    }
+
+    #[test]
+    #[ignore = "feature gap: TableMetadata.addSnapshot must reject snapshots whose first_row_id doesn't equal base.next_row_id, or whose first_row_id/added_rows are missing on a V3 table"]
+    fn test_row_lineage_invalid_snapshot_addition_per_java() {
+        // Java: testInvalidSnapshotAddition. Multiple sub-assertions
+        // covering mismatch scenarios (first_row_id < base.next_row_id;
+        // first_row_id > base.next_row_id; null added_rows on V3).
+    }
+
+    #[test]
+    #[ignore = "feature gap: newFastAppend() must assign first_row_id = current next_row_id and added_rows from the data files"]
+    fn test_row_lineage_fast_append_per_java() {
+        // Java: testFastAppend. table.newFastAppend.appendFile(...).commit();
+        // snapshot.first_row_id == 0 (initial); next_row_id == added.
+    }
+
+    #[test]
+    #[ignore = "feature gap: newAppend() must assign first_row_id + added_rows"]
+    fn test_row_lineage_append_per_java() {
+        // Java: testAppend. Same flow with newAppend.
+    }
+
+    #[test]
+    #[ignore = "feature gap: newAppend on a branch reference must still update next_row_id at the table level"]
+    fn test_row_lineage_append_branch_per_java() {
+        // Java: testAppendBranch. table.newAppend.toBranch("other").commit().
+    }
+
+    #[test]
+    #[ignore = "feature gap: newDelete must NOT touch first_row_id/added_rows (deletes don't add rows)"]
+    fn test_row_lineage_deletes_per_java() {
+        // Java: testDeletes. delete-snapshot.added_rows == 0 (or null per spec).
+    }
+
+    #[test]
+    #[ignore = "feature gap: position-delete files don't add rows; row-lineage stays unchanged"]
+    fn test_row_lineage_position_deletes_per_java() {
+        // Java: testPositionDeletes.
+    }
+
+    #[test]
+    #[ignore = "feature gap: equality-delete files don't add rows; row-lineage stays unchanged"]
+    fn test_row_lineage_equality_deletes_per_java() {
+        // Java: testEqualityDeletes.
+    }
+
+    #[test]
+    #[ignore = "feature gap: newReplace (overwrite/replacePartitions) must set first_row_id + added_rows for the replacement files"]
+    fn test_row_lineage_replace_per_java() {
+        // Java: testReplace.
+    }
+
+    #[test]
+    #[ignore = "feature gap: rewriteManifests (metadata-only rewrite) must NOT touch first_row_id/added_rows or next_row_id"]
+    fn test_row_lineage_metadata_rewrite_per_java() {
+        // Java: testMetadataRewrite.
+    }
 }
