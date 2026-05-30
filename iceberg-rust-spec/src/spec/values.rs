@@ -2921,4 +2921,131 @@ mod tests {
         //   "a\\b"   -> "a\\\\b"
         //   "a\\b'"  -> "a\\\\b\\'"
     }
+
+    // --- TestTimestampLiteralConversions port ------------------------------
+    //
+    // Java's `TestTimestampLiteralConversions` exercises the
+    // `Literal.of(...).to(targetType)` cast chain across all four timestamp
+    // type variants (TimestampType ± zone, TimestampNanoType ± zone) plus
+    // conversion to DateType. It pins:
+    //
+    //   - ISO-string parsing at both micros (".000001") and nanos
+    //     (".000000001") precision.
+    //   - Cross-precision lossy conversion: nanos -> micros truncates;
+    //     micros -> nanos multiplies by 1000.
+    //   - Timestamp -> Date conversion uses floor division (negative
+    //     sub-day values map to day -1).
+    //   - Offset-bearing strings (`...+00:00`) cast to `withZone` targets;
+    //     casting to `withoutZone` throws DateTimeParseException.
+    //   - Offset-less strings cast to `withoutZone` targets; casting to
+    //     `withZone` throws DateTimeParseException.
+    //
+    // Rust has NO `Value::TimestampNano(i64)` enum variant (the
+    // `PrimitiveType::TimestampNs` type tag exists, but the Value enum
+    // can't carry a nanos payload). `Value::cast` covers a narrow set
+    // (Int->Date, LongInt->Timestamp/TimestampTZ/Time) and does NOT
+    // implement Timestamp -> Date, Timestamp <-> TimestampTZ, or any
+    // nanos conversion. `Value::try_from_json` for `Timestamptz` parses
+    // only the exact literal `+00:00` offset (separate spec gap already
+    // pinned). All 9 Java scenarios are therefore Rust feature gaps.
+
+    #[test]
+    #[ignore = "feature gap: no Value::TimestampNano enum variant; cannot represent the nanos target of timestamp -> timestamp_nanos casts"]
+    fn test_timestamp_to_timestamp_nano_conversion_per_java() {
+        // Java: testTimestampToTimestampNanoConversion.
+        //   "2017-11-16T14:31:08.000000001" -> Timestamp(1510842668000000)
+        //                                   -> TimestampNano(1510842668000000000)
+        //   "1970-01-01T00:00:00.000000001" -> Timestamp(0) -> TimestampNano(0)
+        //   "1969-12-31T23:59:59.999999999" -> Timestamp(0) -> TimestampNano(0)
+        //   "1969-12-31T23:59:59.999999000" -> Timestamp(-1) -> TimestampNano(-1000)
+    }
+
+    #[test]
+    #[ignore = "feature gap: Value::cast does not implement Timestamp -> Date; would need to floor-divide micros by 86_400_000_000 (matching Java's floor semantics)"]
+    fn test_timestamp_to_date_conversion_per_java() {
+        // Java: testTimestampToDateConversion.
+        // Each input parsed as Timestamp(withoutZone) then cast to Date.
+        //   "2017-11-16T14:31:08.000001"    -> Date(2017-11-16 ordinal)
+        //   "1970-01-01T00:00:00.000001"    -> Date(0)
+        //   "1969-12-31T23:59:59.999999"    -> Date(-1)
+        //   "2017-11-16T14:31:08.000000001" -> Date(2017-11-16 ordinal)
+        //   "1970-01-01T00:00:00.000000001" -> Date(0)
+        //   "1969-12-31T23:59:59.999999999" -> Date(0)
+        //   "1969-12-31T23:59:59.999999000" -> Date(-1)
+    }
+
+    #[test]
+    #[ignore = "feature gap: Value::cast does not implement Timestamp -> Date; same scenarios as the previous test but emphasising micros precision"]
+    fn test_timestamp_micros_to_date_conversion_per_java() {
+        // Java: testTimestampMicrosToDateConversion.
+        // Same expected day ordinals as testTimestampToDateConversion
+        // but the Java method exists separately to pin the micros code
+        // path (vs nanos -> micros -> days double-step).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no Value::TimestampNano(i64) variant; nanos -> micros conversion is unrepresentable"]
+    fn test_timestamp_nano_to_timestamp_conversion_per_java() {
+        // Java: testTimestampNanoToTimestampConversion.
+        //   "2017-11-16T14:31:08.000000001" -> TimestampNano(1510842668000000001)
+        //                                   -> Timestamp(1510842668000000)
+        //   "1970-01-01T00:00:00.000000001" -> TimestampNano(1) -> Timestamp(0)
+        //   "1969-12-31T23:59:59.999999999" -> TimestampNano(-1) -> Timestamp(-1)
+        //   "1969-12-31T23:59:59.999999000" -> TimestampNano(-1000) -> Timestamp(-1)
+        // Nanos -> micros uses floor division by 1000.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no Value::TimestampNano variant; cannot exercise nanos -> Date floor division"]
+    fn test_timestamp_nanos_to_date_conversion_per_java() {
+        // Java: testTimestampNanosToDateConversion.
+        //   "2017-11-16T14:31:08.000000001" -> TimestampNano(...) -> Date(2017-11-16)
+        //   "1970-01-01T00:00:00.000000001" -> Date(0)
+        //   "1969-12-31T23:59:59.999999999" -> Date(-1)
+        //   "1969-12-31T23:59:59.999999000" -> Date(-1)
+    }
+
+    #[test]
+    #[ignore = "feature gap: Value::try_from_json for Timestamp does not reject inputs with explicit '+00:00' offset; Java throws DateTimeParseException for offset-bearing strings against withoutZone targets"]
+    fn test_timestamp_nanos_with_zone_conversion_per_java() {
+        // Java: testTimestampNanosWithZoneConversion.
+        // Input: "2017-11-16T14:31:08.000000001+00:00".
+        //   .to(Timestamp(withoutZone))    -> DateTimeParseException
+        //   .to(TimestampNano(withoutZone))-> DateTimeParseException
+        //   .to(Timestamp(withZone))       -> 1510842668000000 (TimestampTZ)
+        //   .to(TimestampNano(withZone))   -> 1510842668000000001
+    }
+
+    #[test]
+    #[ignore = "feature gap: same withZone/withoutZone offset gating but at micros precision; also blocks because Rust's Timestamptz parser hardcodes '+00:00'"]
+    fn test_timestamp_micros_with_zone_conversion_per_java() {
+        // Java: testTimestampMicrosWithZoneConversion.
+        // Input: "2017-11-16T14:31:08.000001+00:00".
+        //   .to(Timestamp(withoutZone))    -> DateTimeParseException
+        //   .to(TimestampNano(withoutZone))-> DateTimeParseException
+        //   .to(Timestamp(withZone))       -> 1510842668000001 (TimestampTZ)
+        //   .to(TimestampNano(withZone))   -> 1510842668000001000
+    }
+
+    #[test]
+    #[ignore = "feature gap: Value::try_from_json for Timestamptz does not reject offset-less strings; Java throws DateTimeParseException for inputs without an offset against withZone targets"]
+    fn test_timestamp_nanos_without_zone_conversion_per_java() {
+        // Java: testTimestampNanosWithoutZoneConversion.
+        // Input: "2017-11-16T14:31:08.000000001".
+        //   .to(Timestamp(withZone))       -> DateTimeParseException
+        //   .to(TimestampNano(withZone))   -> DateTimeParseException
+        //   .to(Timestamp(withoutZone))    -> 1510842668000000
+        //   .to(TimestampNano(withoutZone))-> 1510842668000000001
+    }
+
+    #[test]
+    #[ignore = "feature gap: same offset gating at micros precision — Rust's Timestamptz parser hardcodes '+00:00' and Timestamp parser doesn't reject offsets"]
+    fn test_timestamp_micros_without_zone_conversion_per_java() {
+        // Java: testTimestampMicrosWithoutZoneConversion.
+        // Input: "2017-11-16T14:31:08.000001".
+        //   .to(Timestamp(withZone))       -> DateTimeParseException
+        //   .to(TimestampNano(withZone))   -> DateTimeParseException
+        //   .to(Timestamp(withoutZone))    -> 1510842668000001
+        //   .to(TimestampNano(withoutZone))-> 1510842668000001000
+    }
 }
