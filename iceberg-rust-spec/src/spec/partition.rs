@@ -891,4 +891,106 @@ mod tests {
     fn test_delete_file_after_deleting_one_partition_field_per_java() {
         // Java: deleteFileAfterDeletingOnePartitionField.
     }
+
+    // --- TestPartitionSpecInfo port ---------------------------------------
+    //
+    // Java's `TestPartitionSpecInfo` has 7 @TestTemplate methods, each
+    // parametrised over format versions {V1, V2, V3}. The tests exercise:
+    //
+    //   - `PartitionSpec.unpartitioned()` factory + `isUnpartitioned()`
+    //   - `PartitionSpec.builderFor(schema).alwaysNull(name)` (void
+    //     transform shorthand) that still reports `isUnpartitioned`
+    //   - `builderFor(schema).caseSensitive(bool).identity(...)` —
+    //     case-insensitive name resolution + case-sensitive failure mode
+    //   - `PartitionSpec.lastAssignedFieldId()` accessor
+    //   - `table.spec()` / `table.specs()` map of historical specs
+    //   - `table.ops().commit(base, base.updatePartitionSpec(newSpec))`
+    //     spec-evolution path
+    //   - `updateSchema().deleteColumn("id")` schema-evolution path
+    //
+    // Rust today has:
+    //   - PartitionSpec data struct + builder, but NO `unpartitioned()`
+    //     factory and NO `is_unpartitioned()` predicate.
+    //   - NO `always_null` shorthand (void transform must be wired in
+    //     manually as `Transform::Void` on a PartitionField).
+    //   - NO `case_sensitive(bool)` builder setting. The builder doesn't
+    //     resolve source names against a schema at all — caller supplies
+    //     source-id directly.
+    //   - NO `last_assigned_field_id()` accessor on PartitionSpec.
+    //   - TableMetadata has `partition_specs` (the map) but NO
+    //     `update_partition_spec()` op and NO `update_schema().delete_column()`.
+    //
+    // Each Java @TestTemplate is pinned as 1 Rust `#[ignore]` test
+    // (format-version parametrisation isn't observable in the assertions —
+    // the same body runs unchanged across V1/V2/V3).
+
+    #[test]
+    #[ignore = "feature gap: PartitionSpec::is_unpartitioned() not implemented; all-void-transform spec should still report unpartitioned=true"]
+    fn test_partition_spec_info_void_only_spec_is_unpartitioned_per_java() {
+        // Java: testSpecIsUnpartitionedForVoidTranforms.
+        // builderFor(schema).alwaysNull("id").alwaysNull("data").build()
+        // -> spec.is_unpartitioned() == true.
+    }
+
+    #[test]
+    #[ignore = "feature gap: PartitionSpec::unpartitioned() factory not implemented; no Table::spec()/specs() map accessor on Rust TableMetadata"]
+    fn test_partition_spec_info_unpartitioned_table_pins_spec_map_per_java() {
+        // Java: testSpecInfoUnpartitionedTable.
+        // spec = PartitionSpec.unpartitioned();
+        // spec.is_unpartitioned() == true;
+        // table.spec() == spec;
+        // table.spec().last_assigned_field_id() == spec.last_assigned_field_id();
+        // table.specs() == { spec.spec_id() -> spec }.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same accessors on a partitioned table — table.spec()/specs() not exposed in Rust"]
+    fn test_partition_spec_info_partitioned_table_pins_spec_map_per_java() {
+        // Java: testSpecInfoPartitionedTable.
+        // spec = builderFor(schema).identity("data").build();
+        // table.spec() == spec;
+        // table.spec().last_assigned_field_id() == spec.last_assigned_field_id();
+        // table.specs() == { spec.spec_id() -> spec }.
+    }
+
+    #[test]
+    #[ignore = "feature gap: PartitionSpec builder has no case_sensitive(bool) option; case-insensitive name resolution unimplemented"]
+    fn test_partition_spec_info_partitioned_case_insensitive_per_java() {
+        // Java: testSpecInfoPartitionedTableCaseInsensitive.
+        // builderFor(schema).caseSensitive(false).identity("DATA").build()
+        // resolves "DATA" against "data" successfully.
+        // Resulting spec, when applied to a table, matches table.spec()
+        // and last_assigned_field_id.
+    }
+
+    #[test]
+    #[ignore = "feature gap: PartitionSpec builder has no case_sensitive(bool); the case-sensitive failure path 'Cannot find source column: DATA' is not pinned in Rust"]
+    fn test_partition_spec_info_partitioned_case_sensitive_fails_per_java() {
+        // Java: testSpecInfoPartitionedTableCaseSensitiveFails.
+        // builderFor(schema).caseSensitive(true).identity("DATA").build()
+        // -> IllegalArgumentException "Cannot find source column: DATA".
+    }
+
+    #[test]
+    #[ignore = "feature gap: no table-level updateSchema().deleteColumn() op and no PartitionSpec update_partition_spec(newSpec) reducer"]
+    fn test_partition_spec_info_column_drop_with_spec_evolution_per_java() {
+        // Java: testColumnDropWithPartitionSpecEvolution.
+        // Start: spec.identity("id"); table created.
+        // Commit a new spec (identity("data"), spec_id=1) via
+        // base.updatePartitionSpec.
+        // Then updateSchema().deleteColumn("id").commit().
+        // Expected: table.spec() == newSpec;
+        // table.specs() == {old_spec_id->old_spec, 1->newSpec};
+        // table.schema() == Schema { data:string (id=2) }.
+    }
+
+    #[test]
+    #[ignore = "feature gap: spec-evolution path (bucket(data,4) -> bucket(data,10)) requires update_partition_spec, not implemented in Rust"]
+    fn test_partition_spec_info_v1_spec_evolution_per_java() {
+        // Java: testSpecInfoPartitionSpecEvolutionForV1Table.
+        // Start: spec.bucket("data", 4); table created.
+        // Commit a new spec (bucket("data", 10), spec_id=1).
+        // Expected: table.spec() == newSpec;
+        // table.specs() == {0->old_spec, 1->newSpec}.
+    }
 }

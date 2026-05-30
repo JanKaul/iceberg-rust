@@ -2798,4 +2798,73 @@ mod tests {
         // metadata-table schema is returned for any snapshot id.
         let _ = metadata.schema(100);
     }
+
+    // --- TestSchemaID port -------------------------------------------------
+    //
+    // Java's `TestSchemaID` has 2 @TestTemplate methods, each parametrised
+    // over format versions {V1, V2, V3}. They pin the contract that:
+    //
+    //   1. `table.schema().schema_id()` and `table.snapshots[*].schema_id`
+    //      stay in lockstep when no schema update occurs (append, delete,
+    //      fast-append all retain the table's current schema_id).
+    //   2. After `updateSchema().addColumn(name, type).commit()`:
+    //        - `table.schema()` reflects the new fields,
+    //        - `table.schema().schema_id()` is incremented,
+    //        - the schema-update commit does NOT itself create a snapshot,
+    //          so `table.current_snapshot().schema_id` still reads the
+    //          old id until the NEXT data commit,
+    //        - `table.schemas()` keeps BOTH the original and the updated
+    //          schema entries.
+    //
+    // Rust has the data structures (`TableMetadata.schemas` map,
+    // `Snapshot.schema_id` field, `Schema.schema_id` field) but no
+    // operational API: there is no `updateSchema().addColumn(...).commit()`
+    // builder reaching back into TableMetadata, and no `newAppend` /
+    // `newDelete` / `newFastAppend` transaction-producer surface that
+    // ties freshly committed snapshots to the current schema id.
+    //
+    // Both @TestTemplate scenarios are pinned as 1 Rust #[ignore] each.
+    // Format-version parametrisation isn't observable in the assertions —
+    // the same body runs unchanged across V1/V2/V3.
+
+    #[test]
+    #[ignore = "feature gap: no transaction-level newAppend/newDelete/newFastAppend; cannot assert that snapshots[*].schema_id stays equal to current schema_id across data-only ops"]
+    fn test_schema_id_no_change_after_data_only_ops_per_java() {
+        // Java: testNoChange. With no updateSchema():
+        //   - initial schema_id S0.
+        //   - newAppend(FILE_A, FILE_B).commit():
+        //       table.current_snapshot().schema_id == S0;
+        //       table.snapshots[*].schema_id == [S0].
+        //   - newDelete(FILE_A).commit():
+        //       table.current_snapshot().schema_id == S0;
+        //       table.snapshots[*].schema_id == [S0, S0].
+        //   - newFastAppend(FILE_A2).commit():
+        //       table.current_snapshot().schema_id == S0;
+        //       table.snapshots[*].schema_id == [S0, S0, S0].
+        //   - throughout: table.schemas() == { S0 -> initial_schema }.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no updateSchema().addColumn(...).commit() flow; cannot assert that schema_id increments while current_snapshot's schema_id lags until the next data commit"]
+    fn test_schema_id_change_after_schema_update_per_java() {
+        // Java: testSchemaIdChangeInSchemaUpdate.
+        //   - initial schema S0 with schema_id 0.
+        //   - newAppend(FILE_A, FILE_B).commit():
+        //       table.current_snapshot().schema_id == 0;
+        //       table.schemas() == { 0 -> S0 }.
+        //   - updateSchema().addColumn("data2", string).commit():
+        //       table.schema() reflects new field;
+        //       table.schema().schema_id() == 1;
+        //       table.current_snapshot().schema_id == 0  // unchanged
+        //                                                  (no snapshot
+        //                                                  created by
+        //                                                  schema update);
+        //       table.schemas() == { 0 -> S0, 1 -> S1 }.
+        //   - newDelete(FILE_A).commit():
+        //       table.current_snapshot().schema_id == 1;
+        //       table.snapshots[*].schema_id == [0, 1].
+        //   - newAppend(FILE_A2).commit():
+        //       table.current_snapshot().schema_id == 1;
+        //       table.snapshots[*].schema_id == [0, 1, 1].
+    }
 }
