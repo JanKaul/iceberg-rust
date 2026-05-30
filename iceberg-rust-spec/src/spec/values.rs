@@ -3048,4 +3048,479 @@ mod tests {
         //   .to(Timestamp(withoutZone))    -> 1510842668000001
         //   .to(TimestampNano(withoutZone))-> 1510842668000001000
     }
+
+    // --- TestMiscLiteralConversions port -----------------------------------
+    //
+    // Java's `TestMiscLiteralConversions` covers two things:
+    //
+    //   1. `Literal.to(sameType)` is an identity (returns the SAME object).
+    //   2. Negative listings: per source Value variant, the set of target
+    //      types whose `Literal.to(target)` MUST return null. Java models
+    //      "no conversion exists" as null; Rust's `Value::cast` returns
+    //      `Err(NotSupported("cast"))` for the same shape.
+    //
+    // Rust gaps relative to Java's cross-type conversions:
+    //   - No Binary <-> Fixed cast (Java allows when sizes match).
+    //   - No String -> Fixed / String -> Binary hex-decode cast.
+    //   - No Timestamp -> Date cast (Java floors micros to days).
+    //   - No `Value::TimestampNano(i64)` enum variant.
+    //
+    // Where Java's negative listing is a SUPERSET of Rust's cast match
+    // arms (Rust rejects more conversions than Java), porting the
+    // disallowed list as `Value::cast(src, &t).is_err()` is sound because
+    // every Java-rejected target is also Rust-rejected.
+
+    fn assert_invalid_casts(value: Value, invalid_types: &[Type]) {
+        for t in invalid_types {
+            let result = value.clone().cast(t);
+            assert!(
+                result.is_err(),
+                "expected cast({value:?} -> {t:?}) to error; got Ok",
+            );
+        }
+    }
+
+    #[test]
+    fn test_identity_conversions_return_value_unchanged_for_supported_types() {
+        // Java: testIdentityConversions.
+        // Rust's `Value::cast(self, &same_type)` returns Ok(self) for any
+        // matching datatype. Exercise every primitive Rust models.
+        use crate::spec::types::PrimitiveType as P;
+        let pairs: Vec<(Value, Type)> = vec![
+            (Value::Boolean(true), Type::Primitive(P::Boolean)),
+            (Value::Int(34), Type::Primitive(P::Int)),
+            (Value::LongInt(34), Type::Primitive(P::Long)),
+            (
+                Value::Float(OrderedFloat(34.11_f32)),
+                Type::Primitive(P::Float),
+            ),
+            (
+                Value::Double(OrderedFloat(34.55_f64)),
+                Type::Primitive(P::Double),
+            ),
+            // Value::Decimal::datatype() hardcodes precision=38 (Rust
+            // does not model per-literal precision), so the identity
+            // target must use 38 to match — pinning current behaviour.
+            (
+                Value::Decimal(Decimal::from_str_exact("34.55").unwrap()),
+                Type::Primitive(P::Decimal {
+                    precision: 38,
+                    scale: 2,
+                }),
+            ),
+            (Value::Date(17_396), Type::Primitive(P::Date)),
+            (Value::Time(51_661_919_000), Type::Primitive(P::Time)),
+            (
+                Value::Timestamp(1_503_066_061_919_432),
+                Type::Primitive(P::Timestamp),
+            ),
+            (Value::String("abc".to_string()), Type::Primitive(P::String)),
+            (
+                Value::UUID(Uuid::parse_str("12345678-1234-5678-1234-567812345678").unwrap()),
+                Type::Primitive(P::Uuid),
+            ),
+            (Value::Fixed(3, vec![0, 1, 2]), Type::Primitive(P::Fixed(3))),
+            (Value::Binary(vec![0, 1, 2]), Type::Primitive(P::Binary)),
+        ];
+        for (v, t) in pairs {
+            let out = v.clone().cast(&t).expect("identity cast must succeed");
+            assert_eq!(
+                out, v,
+                "identity cast for {t:?} must round-trip the input value",
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "feature gap: Value::cast does not implement Timestamp -> Date; would need micros.div_euclid(86_400_000_000) to match Java's floor"]
+    fn test_timestamp_micros_to_date_via_cast_per_java() {
+        // Java: testTimestampWithMicrosecondsToDate.
+        //   Literal("2017-08-18T14:21:01.919432").to(Timestamp).to(Date)
+        //   should equal Literal("2017-08-18").to(Date).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no Value::TimestampNano variant; nanos -> Date pathway unreachable"]
+    fn test_timestamp_nanos_to_date_via_cast_per_java() {
+        // Java: testTimestampWithNanosecondsToDate.
+        //   Literal("2017-08-18T14:21:01.919432755").to(TimestampNano)
+        //   .to(Date) == Literal("2017-08-18").to(Date).
+    }
+
+    #[test]
+    #[ignore = "feature gap: Value::cast does not implement Binary -> Fixed; Java returns the Fixed value when input size matches, null otherwise"]
+    fn test_binary_to_fixed_cast_size_check_per_java() {
+        // Java: testBinaryToFixed.
+        //   Binary([0,1,2]).to(Fixed(3)) -> Fixed value, bytes unchanged.
+        //   Binary([0,1,2]).to(Fixed(4)) -> null.
+        //   Binary([0,1,2]).to(Fixed(2)) -> null.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Value::cast does not implement Fixed -> Binary; Java always allows (size-agnostic)"]
+    fn test_fixed_to_binary_cast_always_allowed_per_java() {
+        // Java: testFixedToBinary.
+        //   Fixed([0,1,2]).to(Binary) -> Binary value, bytes unchanged.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Value::cast does not implement String -> Fixed; Java decodes hex (case-insensitive); wrong size or invalid hex returns null"]
+    fn test_string_to_fixed_hex_decode_per_java() {
+        // Java: testStringToFixed.
+        //   "000102".to(Fixed(3)) -> bytes [0,1,2].
+        //   "0a0b0c".to(Fixed(3)) -> bytes [10,11,12].
+        //   "0001".to(Fixed(3))   -> null (wrong length).
+        //   "GGHHII".to(Fixed(3)) -> null (invalid hex).
+    }
+
+    #[test]
+    #[ignore = "feature gap: Value::cast does not implement String -> Binary; Java decodes hex; invalid hex returns null"]
+    fn test_string_to_binary_hex_decode_per_java() {
+        // Java: testStringToBinary.
+        //   "000102".to(Binary) -> bytes [0,1,2].
+        //   "0a0b0c".to(Binary) -> bytes [10,11,12].
+        //   "GGHHII".to(Binary) -> null (invalid hex).
+    }
+
+    #[test]
+    fn test_invalid_boolean_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        // Java listed targets that must reject a Boolean source.
+        // Rust's cast has no match arm from Boolean to any non-Boolean
+        // target, so every listed target errors out — matching Java's
+        // null-return contract.
+        let invalid: Vec<Type> = [
+            P::Int,
+            P::Long,
+            P::Float,
+            P::Double,
+            P::Date,
+            P::Time,
+            P::Timestamp,
+            P::Timestamptz,
+            P::Decimal {
+                precision: 9,
+                scale: 2,
+            },
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::Boolean(true), &invalid);
+    }
+
+    #[test]
+    fn test_invalid_integer_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        // Java lets Int -> {Long, Date} succeed; everything else returns null.
+        // Rust's Int has cast arms only for Long + Date; matches.
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Time,
+            P::Timestamp,
+            P::Timestamptz,
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::Int(34), &invalid);
+    }
+
+    #[test]
+    fn test_invalid_long_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        // Java's negative list: {Boolean, String, UUID, Fixed, Binary}.
+        // Rust's Long only casts to Time/Timestamp/Timestamptz; the Java
+        // negative list is a subset of what Rust rejects, so each
+        // assertion holds.
+        let invalid: Vec<Type> = [P::Boolean, P::String, P::Uuid, P::Fixed(1), P::Binary]
+            .into_iter()
+            .map(Type::Primitive)
+            .collect();
+        assert_invalid_casts(Value::LongInt(34), &invalid);
+    }
+
+    #[test]
+    fn test_invalid_float_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        // Java: Float -> {Double, Decimal} allowed; everything else null.
+        // Rust: no Float cast arms; rejects all targets.
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Date,
+            P::Time,
+            P::Timestamp,
+            P::Timestamptz,
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::Float(OrderedFloat(34.11_f32)), &invalid);
+    }
+
+    #[test]
+    fn test_invalid_double_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Date,
+            P::Time,
+            P::Timestamp,
+            P::Timestamptz,
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::Double(OrderedFloat(34.11_f64)), &invalid);
+    }
+
+    #[test]
+    fn test_invalid_date_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        // Java: Date -> {Timestamp, Timestamptz, TimestampNs, TimestamptzNs}
+        // allowed; everything else null. Rust: no Date cast arms; all targets err.
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Float,
+            P::Double,
+            P::Time,
+            P::Timestamp,
+            P::Timestamptz,
+            P::Decimal {
+                precision: 9,
+                scale: 4,
+            },
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::Date(17_396), &invalid);
+    }
+
+    #[test]
+    fn test_invalid_time_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Float,
+            P::Double,
+            P::Date,
+            P::Timestamp,
+            P::Timestamptz,
+            P::Decimal {
+                precision: 9,
+                scale: 4,
+            },
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::Time(51_661_919_000), &invalid);
+    }
+
+    #[test]
+    fn test_invalid_timestamp_micros_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        // Java: Timestamp -> {Date, Timestamptz, TimestampNs} allowed.
+        // Rust: no Timestamp cast arms; every listed target errors.
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Float,
+            P::Double,
+            P::Time,
+            P::Decimal {
+                precision: 9,
+                scale: 4,
+            },
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::Timestamp(1_503_066_061_919_123), &invalid);
+    }
+
+    #[test]
+    #[ignore = "feature gap: no Value::TimestampNano variant; cannot construct the source value to exercise its negative list"]
+    fn test_invalid_timestamp_nanos_conversions_via_cast_per_java() {
+        // Java: testInvalidTimestampNanosConversions.
+        // Source value: TimestampNano(...). Disallowed targets: Boolean,
+        // Int, Long, Float, Double, Time, Decimal, String, UUID, Fixed,
+        // Binary. Rust can't construct the source, so this is gated on
+        // adding Value::TimestampNano.
+    }
+
+    #[test]
+    fn test_invalid_decimal_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Float,
+            P::Double,
+            P::Date,
+            P::Time,
+            P::Timestamp,
+            P::Timestamptz,
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(
+            Value::Decimal(Decimal::from_str_exact("34.11").unwrap()),
+            &invalid,
+        );
+    }
+
+    #[test]
+    fn test_invalid_string_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        // Java: strings can be cast to many types via parsing
+        // (Decimal/Timestamp/Time/Date/UUID); the negative list pins the
+        // ones it deliberately refuses.
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Float,
+            P::Double,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::String("abc".to_string()), &invalid);
+    }
+
+    #[test]
+    fn test_invalid_uuid_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Float,
+            P::Double,
+            P::Date,
+            P::Time,
+            P::Timestamp,
+            P::Timestamptz,
+            P::Decimal {
+                precision: 9,
+                scale: 2,
+            },
+            P::String,
+            P::Fixed(1),
+            P::Binary,
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(
+            Value::UUID(Uuid::parse_str("12345678-1234-5678-1234-567812345678").unwrap()),
+            &invalid,
+        );
+    }
+
+    #[test]
+    fn test_invalid_fixed_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        // Java allows Fixed -> Binary; everything else null.
+        // Rust has no Fixed cast arms; every listed target (including
+        // the wrong-length Fixed(1) target) errors out.
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Float,
+            P::Double,
+            P::Date,
+            P::Time,
+            P::Timestamp,
+            P::Timestamptz,
+            P::Decimal {
+                precision: 9,
+                scale: 2,
+            },
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::Fixed(3, vec![0, 1, 2]), &invalid);
+    }
+
+    #[test]
+    fn test_invalid_binary_conversions_via_cast_per_java() {
+        use crate::spec::types::PrimitiveType as P;
+        // Java allows Binary -> Fixed(sameLen); everything else null.
+        // Rust rejects every target (Fixed(1) is wrong length anyway).
+        let invalid: Vec<Type> = [
+            P::Boolean,
+            P::Int,
+            P::Long,
+            P::Float,
+            P::Double,
+            P::Date,
+            P::Time,
+            P::Timestamptz,
+            P::Timestamp,
+            P::Decimal {
+                precision: 9,
+                scale: 2,
+            },
+            P::String,
+            P::Uuid,
+            P::Fixed(1),
+        ]
+        .into_iter()
+        .map(Type::Primitive)
+        .collect();
+        assert_invalid_casts(Value::Binary(vec![0, 1, 2]), &invalid);
+    }
 }
