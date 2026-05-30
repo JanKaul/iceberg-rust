@@ -839,4 +839,180 @@ mod tests {
         // union[1] -> fields[1]) to have field-id 1.
         // has_ids(result) == true.
     }
+
+    // --- TestSchemaConversions port ----------------------------------------
+    //
+    // Java's `AvroSchemaUtil.convert(...)` is the bidirectional bridge
+    // between Iceberg's type system and Avro's schema model. It's
+    // overloaded:
+    //
+    //   - `AvroSchemaUtil.convert(avroSchema) -> Type` (Avro -> Iceberg).
+    //   - `AvroSchemaUtil.convert(type, recordName) -> Schema`
+    //   - `AvroSchemaUtil.convert(struct, recordName)` (top-level)
+    //   - `AvroSchemaUtil.toIceberg(avroSchema) -> Schema` (Avro -> Iceberg
+    //     top-level).
+    //
+    // Conversion rules pinned by the Java suite:
+    //   - Avro primitive types map 1:1 to Iceberg primitives.
+    //   - Avro logical types: date->Date, time-micros->Time,
+    //     timestamp-micros + adjust-to-utc=true -> Timestamptz,
+    //     timestamp-micros + adjust-to-utc=false -> Timestamp,
+    //     timestamp-micros (no adjust-to-utc) -> Timestamp (lossy
+    //     decode-only; cannot encode).
+    //   - Avro uuid (fixed[16] + logical type) -> Iceberg Uuid.
+    //   - Avro decimal (fixed) -> Iceberg Decimal.
+    //   - Avro `variant` record (metadata: bytes, value: bytes) ->
+    //     Iceberg VariantType.
+    //   - Iceberg `Map<non-string-key, V>` -> Avro array-of-pair record
+    //     (because Avro maps require string keys); Iceberg
+    //     `Map<string, V>` -> native Avro map with key/value-id props.
+    //   - Iceberg names that aren't valid Avro identifiers are sanitized
+    //     (`9x` -> `_9x`, `a.b` -> `a_x2Eb`, ☃ -> `_x2603`, `a#b` ->
+    //     `a_x23b`); original name preserved in
+    //     `iceberg-field-name` prop.
+    //   - Field docs round-trip preserved.
+    //   - Iceberg `VariantType` -> Avro record `rN` (id-named) with
+    //     metadata + value bytes fields.
+    //
+    // Rust has NO `avro::AvroSchemaUtil` analog (grep finds zero
+    // matches). Manifest read/write uses `apache_avro` directly with
+    // hand-rolled type mapping inside `iceberg-rust/src/table/manifest.rs`.
+    // All 13 Java @Test scenarios are pinned `#[ignore]` here for an
+    // eventual `avro::schema_convert::{to_avro, from_avro}` module.
+
+    #[test]
+    #[ignore = "feature gap: no avro::schema_convert; 15 primitives must round-trip Iceberg <-> Avro (Boolean/Int/Long/Float/Double/Date/Time/TimestamptzMicros/TimestampMicros/String/Uuid/Fixed/Binary/Decimal/Variant)"]
+    fn test_avro_schema_conversion_primitive_types_per_java() {
+        // Java: testPrimitiveTypes (15 primitives, both directions).
+        //   bool -> BOOLEAN
+        //   int  -> INT
+        //   long -> LONG
+        //   float -> FLOAT
+        //   double -> DOUBLE
+        //   Date -> INT + logicalType=date
+        //   Time -> LONG + logicalType=time-micros
+        //   Timestamptz -> LONG + logicalType=timestamp-micros + adjust-to-utc=true
+        //   Timestamp   -> LONG + logicalType=timestamp-micros + adjust-to-utc=false
+        //   String -> STRING
+        //   Uuid -> FIXED[16] + logicalType=uuid
+        //   Fixed(12) -> FIXED[12]
+        //   Binary -> BYTES
+        //   Decimal(9,4) -> FIXED + logicalType=decimal(9,4)
+        //   Variant -> record(metadata: bytes, value: bytes).
+    }
+
+    #[test]
+    #[ignore = "feature gap: timestamp-micros without an adjust-to-utc Avro prop must decode to Timestamp (withoutZone); reverse direction is lossy and not supported"]
+    fn test_avro_schema_conversion_timestamp_without_adjust_to_utc_per_java() {
+        // Java: testAvroToIcebergTimestampTypeWithoutAdjustToUTC.
+        // Avro: LONG + timestamp-micros logicalType, NO adjust-to-utc prop.
+        // -> Iceberg Timestamp.withoutZone() (matches the absent flag).
+        // Iceberg's encoded variants always carry adjust-to-utc=true/false,
+        // so the reverse direction is intentionally absent from the test.
+    }
+
+    #[test]
+    #[ignore = "feature gap: top-level struct with all 15 primitives must round-trip Iceberg <-> Avro (named record `primitives`)"]
+    fn test_avro_schema_conversion_struct_and_primitive_types_per_java() {
+        // Java: testStructAndPrimitiveTypes.
+        // Iceberg struct with 15 optional fields named bool/int/long/.../variant
+        // -> Avro record('primitives') with field-id props on each field.
+    }
+
+    #[test]
+    #[ignore = "feature gap: List<Uuid> with element-id prop must round-trip Iceberg <-> Avro"]
+    fn test_avro_schema_conversion_list_per_java() {
+        // Java: testList. Iceberg ListType.ofRequired(34, Uuid)
+        // <-> Avro array with element-id=34 + uuid logical type on items.
+    }
+
+    #[test]
+    #[ignore = "feature gap: List<Struct(lat, long)> with element-id prop must round-trip via a named inner record `r34`"]
+    fn test_avro_schema_conversion_list_of_structs_per_java() {
+        // Java: testListOfStructs.
+        // Iceberg ListType.ofRequired(34, Struct(lat@35, long@36))
+        // <-> Avro array(record('r34', lat: float, long: float)) with
+        //     element-id=34, field-ids on inner fields.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Map<Long, Binary> uses Avro array-of-pair encoding because Avro maps require string keys"]
+    fn test_avro_schema_conversion_map_of_long_to_bytes_per_java() {
+        // Java: testMapOfLongToBytes.
+        // Iceberg MapType.ofRequired(33, 34, Long, Binary)
+        // <-> Avro array-of-pair via AvroSchemaUtil.createMap(long, bytes).
+    }
+
+    #[test]
+    #[ignore = "feature gap: Map<String, Binary> uses native Avro map with key-id + value-id props"]
+    fn test_avro_schema_conversion_map_of_string_to_bytes_per_java() {
+        // Java: testMapOfStringToBytes.
+        // Iceberg MapType.ofRequired(33, 34, String, Binary)
+        // <-> Avro map(values: bytes) with key-id=33 + value-id=34 props.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Map<List<Int>, Struct> requires the non-string-key array-of-pair encoding combined with nested types"]
+    fn test_avro_schema_conversion_map_of_list_to_structs_per_java() {
+        // Java: testMapOfListToStructs.
+        // Iceberg MapType(33, 34, List(35, Int), Struct(a@36, b@37))
+        // <-> Avro array-of-pair where key=array(int) (with element-id=35)
+        //     and value=record('r34', a: int, b: int|null).
+    }
+
+    #[test]
+    #[ignore = "feature gap: Map<String, Struct(a, b)> uses native Avro map with the value being a named inner record"]
+    fn test_avro_schema_conversion_map_of_string_to_structs_per_java() {
+        // Java: testMapOfStringToStructs.
+        // Iceberg MapType(33, 34, String, Struct(a@35, b@36))
+        // <-> Avro map(values: record('r34', a: int, b: int|null))
+        //     with key-id=33 + value-id=34 props.
+    }
+
+    #[test]
+    #[ignore = "feature gap: arbitrarily nested schema (struct + map<struct, struct> + list<struct> + map<string, string>) must produce a printable Avro schema via AvroSchemaUtil.convert"]
+    fn test_avro_schema_conversion_complex_schema_per_java() {
+        // Java: testComplexSchema.
+        // Schema with id, data, preferences{feature1, feature2},
+        // locations: Map<Struct(address, city, state, zip),
+        //                Struct(lat, long)>,
+        // points: List<Struct(x, y)>,
+        // doubles: List<Double>,
+        // properties: Map<String, String>.
+        // -> AvroSchemaUtil.convert(schema, "newTableName") produces
+        //    a printable Avro schema via SchemaFormatter("json/pretty").
+    }
+
+    #[test]
+    #[ignore = "feature gap: Iceberg field names that aren't valid Avro identifiers are sanitized; original preserved in `iceberg-field-name` prop"]
+    fn test_avro_schema_conversion_special_chars_per_java() {
+        // Java: testSpecialChars.
+        // Iceberg fields ["9x", "x_", "a.b", "☃", "a#b"] sanitize to
+        // ["_9x", "x_", "a_x2Eb", "_x2603", "a_x23b"].
+        // For each sanitized field, the original Iceberg name is preserved
+        // in the iceberg-field-name Avro prop (except "x_" which is valid
+        // Avro and thus has no prop set).
+    }
+
+    #[test]
+    #[ignore = "feature gap: per-field doc strings must survive Iceberg -> Avro -> Iceberg round-trip"]
+    fn test_avro_schema_conversion_field_docs_preserved_per_java() {
+        // Java: testFieldDocsArePreserved.
+        // Iceberg schema with fieldDocs [null, "iceberg originating field doc"]
+        // round-trips through AvroSchemaUtil.convert + AvroSchemaUtil.toIceberg
+        // preserving the doc list unchanged.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Variant fields encode as Avro record `rN` (named after the field id) with metadata: bytes + value: bytes children"]
+    fn test_avro_schema_conversion_variant_record_layout_per_java() {
+        // Java: testVariantConversion.
+        // Schema with two Variant fields variantCol1@1, variantCol2@2.
+        // For each id ∈ {1, 2}:
+        //   variantSchema.name == "r" + id;
+        //   variantSchema.type == RECORD;
+        //   variantSchema.fields.size == 2;
+        //   variantSchema.field("metadata").schema.type == BYTES;
+        //   variantSchema.field("value").schema.type == BYTES.
+    }
 }
