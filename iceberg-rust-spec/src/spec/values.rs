@@ -3769,4 +3769,369 @@ mod tests {
         // Both round-trip via Java serialization. Rust has no Value::TimestampNano,
         // so these scenarios can't be constructed.
     }
+
+    // =====================================================================
+    // Cycle K1: TestTransforms port — Java's `org.apache.iceberg.transforms`
+    // suite covers identity / bucket / truncate / year / month / day / hour
+    // applied to all primitive types, plus type-mismatch error paths and
+    // void. Rust exposes the same surface via `Value::transform(&Transform)`.
+    // Tests are rewritten with distinctive inputs (no upstream identifiers).
+    // =====================================================================
+
+    /// Identity transform on `Int` returns the value unchanged.
+    #[test]
+    fn test_transform_identity_int_per_java() {
+        let v = Value::Int(7919);
+        let out = v.transform(&Transform::Identity).expect("identity ok");
+        assert_eq!(out, Value::Int(7919));
+    }
+
+    /// Identity transform on `LongInt`.
+    #[test]
+    fn test_transform_identity_long_per_java() {
+        let v = Value::LongInt(2_147_483_650_i64);
+        let out = v.transform(&Transform::Identity).expect("identity ok");
+        assert_eq!(out, Value::LongInt(2_147_483_650));
+    }
+
+    /// Identity transform on `String`.
+    #[test]
+    fn test_transform_identity_string_per_java() {
+        let v = Value::String("rüschelberg".to_owned());
+        let out = v.transform(&Transform::Identity).expect("identity ok");
+        assert_eq!(out, Value::String("rüschelberg".to_owned()));
+    }
+
+    /// Identity transform on `Decimal` preserves both mantissa and scale.
+    #[test]
+    fn test_transform_identity_decimal_per_java() {
+        let d = Decimal::from_i128_with_scale(987_654, 3);
+        let out = Value::Decimal(d).transform(&Transform::Identity).unwrap();
+        assert_eq!(
+            out,
+            Value::Decimal(Decimal::from_i128_with_scale(987_654, 3))
+        );
+    }
+
+    /// Identity transform on `Date`.
+    #[test]
+    fn test_transform_identity_date_per_java() {
+        let out = Value::Date(469).transform(&Transform::Identity).unwrap();
+        assert_eq!(out, Value::Date(469));
+    }
+
+    /// Identity transform on `Timestamp`.
+    #[test]
+    fn test_transform_identity_timestamp_per_java() {
+        let out = Value::Timestamp(123_456_789_000)
+            .transform(&Transform::Identity)
+            .unwrap();
+        assert_eq!(out, Value::Timestamp(123_456_789_000));
+    }
+
+    /// Identity transform on `Boolean`.
+    #[test]
+    fn test_transform_identity_boolean_per_java() {
+        let out = Value::Boolean(true)
+            .transform(&Transform::Identity)
+            .unwrap();
+        assert_eq!(out, Value::Boolean(true));
+    }
+
+    /// Bucket transform always produces an `Int` in `[0, N)`.
+    #[test]
+    fn test_transform_bucket_int_in_range_per_java() {
+        let n: u32 = 32;
+        for raw in [-9999_i32, -1, 0, 1, 17, 8_388_607] {
+            let out = Value::Int(raw).transform(&Transform::Bucket(n)).unwrap();
+            match out {
+                Value::Int(b) => {
+                    assert!(
+                        (0..n as i32).contains(&b),
+                        "bucket({raw}, {n}) = {b} must be in [0, {n})",
+                    );
+                }
+                _ => unreachable!("bucket must return Value::Int"),
+            }
+        }
+    }
+
+    /// Bucket transform on `String` always produces an `Int` in `[0, N)`.
+    #[test]
+    fn test_transform_bucket_string_in_range_per_java() {
+        let n: u32 = 16;
+        for s in ["", "a", "iceberg-rust", "Mütze", "🦀🦀🦀"] {
+            let out = Value::String(s.to_owned())
+                .transform(&Transform::Bucket(n))
+                .unwrap();
+            match out {
+                Value::Int(b) => assert!((0..n as i32).contains(&b)),
+                _ => unreachable!("bucket must return Value::Int"),
+            }
+        }
+    }
+
+    /// Bucket transform is deterministic — repeated application yields the
+    /// same result.
+    #[test]
+    fn test_transform_bucket_is_deterministic_per_java() {
+        let v = Value::LongInt(987_654_321_000);
+        let n = 64_u32;
+        let a = v.transform(&Transform::Bucket(n)).unwrap();
+        let b = v.transform(&Transform::Bucket(n)).unwrap();
+        assert_eq!(a, b);
+    }
+
+    /// Bucket on `Float(-0.0)` and `Float(0.0)` produce the same hash —
+    /// the spec mandates canonicalising signed zero before hashing.
+    #[test]
+    fn test_transform_bucket_canonicalises_signed_zero_per_java() {
+        let pos = Value::Float(OrderedFloat(0.0_f32))
+            .transform(&Transform::Bucket(31))
+            .unwrap();
+        let neg = Value::Float(OrderedFloat(-0.0_f32))
+            .transform(&Transform::Bucket(31))
+            .unwrap();
+        assert_eq!(
+            pos, neg,
+            "+0.0 and -0.0 must hash to the same bucket per Iceberg spec",
+        );
+    }
+
+    /// Truncate `Int` to width 10 — positive value rounds down to a
+    /// multiple of the width.
+    #[test]
+    fn test_transform_truncate_int_positive_per_java() {
+        let out = Value::Int(127).transform(&Transform::Truncate(10)).unwrap();
+        assert_eq!(out, Value::Int(120));
+    }
+
+    /// Truncate `Int` to width 10 — negative value rounds **down toward
+    /// negative infinity** (Iceberg uses Euclidean remainder).
+    #[test]
+    fn test_transform_truncate_int_negative_per_java() {
+        // -127 rem_euclid 10 == 3, so truncate is -127 - 3 = -130.
+        let out = Value::Int(-127)
+            .transform(&Transform::Truncate(10))
+            .unwrap();
+        assert_eq!(out, Value::Int(-130));
+    }
+
+    /// Truncate `LongInt`.
+    #[test]
+    fn test_transform_truncate_long_per_java() {
+        let out = Value::LongInt(12_345_678_901)
+            .transform(&Transform::Truncate(1_000))
+            .unwrap();
+        assert_eq!(out, Value::LongInt(12_345_678_000));
+    }
+
+    /// Truncate `String` keeps the first N bytes (Rust's `String::truncate`
+    /// semantics — Java uses code points, see divergence pin below).
+    #[test]
+    fn test_transform_truncate_string_ascii_per_java() {
+        let out = Value::String("hello world".to_owned())
+            .transform(&Transform::Truncate(5))
+            .unwrap();
+        assert_eq!(out, Value::String("hello".to_owned()));
+    }
+
+    /// Truncate `Binary` keeps the first N bytes.
+    #[test]
+    fn test_transform_truncate_binary_per_java() {
+        let out = Value::Binary(vec![1, 2, 3, 4, 5, 6, 7, 8])
+            .transform(&Transform::Truncate(3))
+            .unwrap();
+        assert_eq!(out, Value::Binary(vec![1, 2, 3]));
+    }
+
+    /// Truncate `Decimal` truncates the unscaled mantissa, preserving the
+    /// scale.
+    #[test]
+    fn test_transform_truncate_decimal_per_java() {
+        // 12.345 has unscaled=12_345, scale=3. Truncate to width 100 ⇒
+        // unscaled 12_300, scale 3 ⇒ value 12.300.
+        let d = Decimal::from_i128_with_scale(12_345, 3);
+        let out = Value::Decimal(d)
+            .transform(&Transform::Truncate(100))
+            .unwrap();
+        match out {
+            Value::Decimal(r) => {
+                assert_eq!(r.mantissa(), 12_300);
+                assert_eq!(r.scale(), 3);
+            }
+            _ => unreachable!("decimal truncate must return Value::Decimal"),
+        }
+    }
+
+    /// Year transform on `Date(0)` (1970-01-01) returns 0 years from
+    /// epoch.
+    #[test]
+    fn test_transform_year_date_epoch_per_java() {
+        let out = Value::Date(0).transform(&Transform::Year).unwrap();
+        assert_eq!(out, Value::Int(0));
+    }
+
+    /// Year transform on `Date(365)` (1971-01-01) returns 1 year from
+    /// epoch.
+    #[test]
+    fn test_transform_year_date_one_year_after_epoch_per_java() {
+        let out = Value::Date(365).transform(&Transform::Year).unwrap();
+        assert_eq!(out, Value::Int(1));
+    }
+
+    /// Year transform on `Date(-1)` (1969-12-31) returns -1.
+    #[test]
+    fn test_transform_year_date_pre_epoch_per_java() {
+        let out = Value::Date(-1).transform(&Transform::Year).unwrap();
+        assert_eq!(out, Value::Int(-1));
+    }
+
+    /// Year transform on a `Timestamp` works the same way.
+    #[test]
+    fn test_transform_year_timestamp_per_java() {
+        // 1971-01-01T00:00:00Z = 365 days * 86400 sec * 1e6 us.
+        let micros: i64 = 365 * 86_400 * 1_000_000;
+        let out = Value::Timestamp(micros)
+            .transform(&Transform::Year)
+            .unwrap();
+        assert_eq!(out, Value::Int(1));
+    }
+
+    /// Month transform on `Date(0)` returns 0.
+    #[test]
+    fn test_transform_month_date_epoch_per_java() {
+        let out = Value::Date(0).transform(&Transform::Month).unwrap();
+        assert_eq!(out, Value::Int(0));
+    }
+
+    /// Month transform on `Date(365)` (1971-01-01) returns 12 months.
+    #[test]
+    fn test_transform_month_date_one_year_after_epoch_per_java() {
+        let out = Value::Date(365).transform(&Transform::Month).unwrap();
+        assert_eq!(out, Value::Int(12));
+    }
+
+    /// Month transform on a `Timestamp`.
+    #[test]
+    fn test_transform_month_timestamp_per_java() {
+        // 1970-02-01T00:00:00Z = 31 days into epoch.
+        let micros: i64 = 31 * 86_400 * 1_000_000;
+        let out = Value::Timestamp(micros)
+            .transform(&Transform::Month)
+            .unwrap();
+        assert_eq!(out, Value::Int(1));
+    }
+
+    /// Day transform on `Date` returns the underlying day count.
+    #[test]
+    fn test_transform_day_date_per_java() {
+        let out = Value::Date(469).transform(&Transform::Day).unwrap();
+        assert_eq!(out, Value::Int(469));
+    }
+
+    /// Day transform on a `Timestamp` returns days since epoch.
+    #[test]
+    fn test_transform_day_timestamp_per_java() {
+        let micros: i64 = 5 * 86_400 * 1_000_000 + 123_456_789; // 5 days + a bit
+        let out = Value::Timestamp(micros).transform(&Transform::Day).unwrap();
+        assert_eq!(out, Value::Int(5));
+    }
+
+    /// Hour transform on `Timestamp(0)` returns 0.
+    #[test]
+    fn test_transform_hour_timestamp_epoch_per_java() {
+        let out = Value::Timestamp(0).transform(&Transform::Hour).unwrap();
+        assert_eq!(out, Value::Int(0));
+    }
+
+    /// Hour transform on a one-day-plus-three-hours timestamp returns 27.
+    #[test]
+    fn test_transform_hour_timestamp_per_java() {
+        let micros: i64 = (24 + 3) * 3_600 * 1_000_000; // 27 hours
+        let out = Value::Timestamp(micros)
+            .transform(&Transform::Hour)
+            .unwrap();
+        assert_eq!(out, Value::Int(27));
+    }
+
+    /// `Year` applied to a non-date type returns `Err`.
+    #[test]
+    fn test_transform_year_on_int_returns_error_per_java() {
+        let result = Value::Int(42).transform(&Transform::Year);
+        assert!(
+            result.is_err(),
+            "Year on Int must be rejected; got {result:?}",
+        );
+    }
+
+    /// `Month` applied to a `String` returns `Err`.
+    #[test]
+    fn test_transform_month_on_string_returns_error_per_java() {
+        let result = Value::String("not-a-date".to_owned()).transform(&Transform::Month);
+        assert!(result.is_err());
+    }
+
+    /// `Hour` does not accept `Date` (only `Timestamp`/`TimestampTZ`).
+    #[test]
+    fn test_transform_hour_on_date_returns_error_per_java() {
+        let result = Value::Date(100).transform(&Transform::Hour);
+        assert!(
+            result.is_err(),
+            "Hour on Date must be rejected — Date has no sub-day resolution",
+        );
+    }
+
+    /// `Truncate` rejects `Boolean`.
+    #[test]
+    fn test_transform_truncate_on_boolean_returns_error_per_java() {
+        let result = Value::Boolean(true).transform(&Transform::Truncate(2));
+        assert!(result.is_err());
+    }
+
+    /// `Day` rejects `Int`.
+    #[test]
+    fn test_transform_day_on_int_returns_error_per_java() {
+        let result = Value::Int(20240101).transform(&Transform::Day);
+        assert!(result.is_err());
+    }
+
+    // ---------- Gaps pinned as #[ignore] ------------------------------------
+
+    /// Java's `void` transform applied to anything returns `null`. Rust's
+    /// `transform()` catches `Transform::Void` in the catch-all and
+    /// returns `NotSupported`. The `Transform::Void` variant exists at
+    /// the type level but has no implementation in `Value::transform`.
+    #[test]
+    #[ignore = "feature gap: Transform::Void variant exists but Value::transform returns NotSupported (the spec says it must produce null)"]
+    fn test_transform_void_returns_null_per_java() {}
+
+    /// Java tests `Transforms.apply(null)` → `null` for every transform.
+    /// Rust has no `Value::Null` — nullability is modeled as `Option<Value>`
+    /// at containers (manifest entries, partition struct slots, JSON
+    /// fields). The `transform(&Transform)` method is defined on `Value`
+    /// directly so there is nowhere to express the "null in → null out"
+    /// rule at this layer.
+    #[test]
+    #[ignore = "divergence: Rust models null as Option<Value> at container level; Value::transform has no null arm"]
+    fn test_transform_on_null_input_returns_null_per_java() {}
+
+    /// Java's `truncate(string, N)` truncates to **N code points**, so
+    /// `truncate("café", 4)` keeps all 4 characters (the `é` survives
+    /// even though it's 2 bytes in UTF-8). Rust's `String::truncate(N)`
+    /// is **N bytes**, which mid-codepoint would panic; for safe inputs
+    /// it can produce shorter strings than Java. This is a known
+    /// divergence from the spec.
+    #[test]
+    #[ignore = "divergence: Rust truncates strings by byte count; spec requires code-point count"]
+    fn test_transform_truncate_string_unicode_per_java() {}
+
+    /// Java tests `Transforms.bucket(value, N)` with very small N (1, 2)
+    /// and asserts uniform distribution properties over a large
+    /// population. Rust's implementation passes for individual values
+    /// (covered above) but no statistical-distribution test is included
+    /// here — that's an open-ended property test, not a spec check.
+    #[test]
+    #[ignore = "divergence: Java includes statistical-distribution assertions over large populations; out of scope for a unit test port"]
+    fn test_transform_bucket_distribution_statistics_per_java() {}
 }
