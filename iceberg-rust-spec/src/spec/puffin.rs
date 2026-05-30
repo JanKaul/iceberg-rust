@@ -575,4 +575,285 @@ mod tests {
         let parsed: FileMetadata = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, original);
     }
+
+    // --- TestPuffinReader port (Java parity) -------------------------------
+    //
+    // Java's `Puffin.read(inputFile).withFileSize(len).withFooterSize(n)`
+    // is a streaming reader that supports an optional caller-supplied
+    // footer-size hint. Rust's `FileMetadata::read_footer(&[u8])` takes
+    // the whole file as a slice and locates the footer from the trailing
+    // magic + size, with no separate footer-size hint API. Several Java
+    // scenarios test the hint path (wrong-size rejection, validation),
+    // which is unreachable in Rust today.
+
+    #[test]
+    fn test_puffin_reader_empty_footer_uncompressed_per_java() {
+        // Java: testEmptyFooterUncompressed.
+        let bytes = read_fixture("empty-puffin-uncompressed.bin");
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+        assert!(
+            meta.properties.is_empty(),
+            "empty fixture must have no file properties",
+        );
+        assert!(meta.blobs.is_empty(), "empty fixture must have no blobs");
+    }
+
+    #[test]
+    fn test_puffin_reader_empty_with_unknown_footer_size_per_java() {
+        // Java: testEmptyWithUnknownFooterSize (footerSize hint = null).
+        // Rust's read_footer never needs the hint — it always finds the
+        // footer via the trailing magic + size header. Mirror the Java
+        // scenario by parsing the same fixture without any extra setup.
+        let bytes = read_fixture("empty-puffin-uncompressed.bin");
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+        assert!(meta.properties.is_empty());
+        assert!(meta.blobs.is_empty());
+    }
+
+    #[test]
+    #[ignore = "feature gap: no Puffin.read().withFooterSize(n) hint API; Rust always derives the footer size from the trailing magic+size header. Java tests six wrong-size combinations against expected error prefixes ('Invalid file: expected magic at offset', 'Invalid footer size')."]
+    fn test_puffin_reader_wrong_footer_size_per_java() {
+        // Java: testWrongFooterSize.
+        // For the zstd-compressed fixture, Java supplies a deliberately
+        // wrong footerSize (±1, ±10, ±10000) and asserts the parser
+        // errors with one of the two prefixes above. Rust has no
+        // analogous configurable read-footer API.
+    }
+
+    #[test]
+    fn test_puffin_reader_metric_data_uncompressed_per_java() {
+        // Java: testReadMetricDataUncompressed.
+        let bytes = read_fixture("sample-metric-data-uncompressed.bin");
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+        assert_eq!(
+            meta.properties.get("created-by").map(String::as_str),
+            Some("Test 1234"),
+            "file properties must include the Java fixture's created-by value",
+        );
+        assert_eq!(meta.blobs.len(), 2);
+
+        let first = &meta.blobs[0];
+        assert_eq!(first.blob_type, "some-blob");
+        assert_eq!(first.fields, vec![1]);
+        assert_eq!(first.offset, 4);
+        assert_eq!(first.compression_codec, None);
+
+        let second = &meta.blobs[1];
+        assert_eq!(second.blob_type, "some-other-blob");
+        assert_eq!(second.fields, vec![2]);
+        assert_eq!(second.offset, first.offset + first.length);
+        assert_eq!(second.compression_codec, None);
+
+        // Read the actual blob payloads and verify them byte-for-byte
+        // against the Java fixture's expected contents.
+        let first_payload = first.read_from(&bytes).unwrap();
+        assert_eq!(first_payload.as_ref(), b"abcdefghi");
+        let second_payload = second.read_from(&bytes).unwrap();
+        assert_eq!(
+            second_payload.as_ref(),
+            "some blob \u{0000} binary data 🤯 that is not very very very very very very long, is it?".as_bytes(),
+        );
+    }
+
+    #[test]
+    fn test_puffin_reader_metric_data_compressed_zstd_per_java() {
+        // Java: testReadMetricDataCompressedZstd.
+        let bytes = read_fixture("sample-metric-data-compressed-zstd.bin");
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+        assert_eq!(
+            meta.properties.get("created-by").map(String::as_str),
+            Some("Test 1234"),
+        );
+        assert_eq!(meta.blobs.len(), 2);
+
+        let first = &meta.blobs[0];
+        assert_eq!(first.blob_type, "some-blob");
+        assert_eq!(first.fields, vec![1]);
+        assert_eq!(first.offset, 4);
+        assert_eq!(first.compression_codec, Some(PuffinCompressionCodec::Zstd));
+
+        let second = &meta.blobs[1];
+        assert_eq!(second.blob_type, "some-other-blob");
+        assert_eq!(second.fields, vec![2]);
+        assert_eq!(second.offset, first.offset + first.length);
+        assert_eq!(second.compression_codec, Some(PuffinCompressionCodec::Zstd));
+
+        // Decompressed payloads must match the uncompressed fixture's bytes.
+        assert_eq!(first.read_from(&bytes).unwrap().as_ref(), b"abcdefghi");
+        assert_eq!(
+            second.read_from(&bytes).unwrap().as_ref(),
+            "some blob \u{0000} binary data 🤯 that is not very very very very very very long, is it?".as_bytes(),
+        );
+    }
+
+    #[test]
+    #[ignore = "feature gap: no Puffin.read().withFooterSize(n) API; Java's testValidateFooterSizeValue confirms that supplying the correct SAMPLE_METRIC_DATA_COMPRESSED_ZSTD_FOOTER_SIZE constant also yields a valid parse. Rust's read_footer always derives the size."]
+    fn test_puffin_reader_validate_footer_size_value_per_java() {
+        // Java: testValidateFooterSizeValue.
+        // Supplies the constant SAMPLE_METRIC_DATA_COMPRESSED_ZSTD_FOOTER_SIZE
+        // and verifies the file properties parse as expected.
+    }
+
+    // --- TestPuffinWriter port (Java parity) -------------------------------
+    //
+    // Java's `PuffinWriter` exposes `finish()` and `close()` as separate
+    // calls (close() implicitly invokes finish() if not already done),
+    // plus `length()`, `footerSize()`, and `writtenBlobsMetadata()` post-
+    // close. Rust's `PuffinWriter::finish(self) -> Result<Vec<u8>>`
+    // consumes self and returns the full byte buffer; there's no
+    // separate close()/length() surface. Rust also has no
+    // `.compressFooter()` (LZ4 footer compression) and no encrypted
+    // output file integration.
+
+    #[test]
+    fn test_puffin_writer_empty_footer_uncompressed_per_java() {
+        // Java: testEmptyFooterUncompressed.
+        // PuffinWriter::new().finish() must produce the exact bytes of
+        // the v1/empty-puffin-uncompressed.bin fixture.
+        let writer = PuffinWriter::new();
+        let bytes = writer.finish().unwrap();
+        let fixture = read_fixture("empty-puffin-uncompressed.bin");
+        assert_eq!(bytes, fixture);
+        assert_eq!(
+            bytes.len(),
+            32,
+            "spec: empty puffin footer is exactly 32 bytes",
+        );
+    }
+
+    #[test]
+    #[ignore = "feature gap: PuffinWriter::finish consumes self; there is no separate close() and no implicit-finish-on-drop path. Java tests that writer.close() before finish() still produces the empty-footer fixture."]
+    fn test_puffin_writer_implicit_finish_on_close_per_java() {
+        // Java: testImplicitFinish.
+        // PuffinWriter w = Puffin.write(out).build();
+        // w.close(); // no explicit finish()
+        // assertEquals(empty-fixture, out.toByteArray());
+        // assertEquals(EMPTY_FOOTER_SIZE, w.footerSize()).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no PuffinWriter.compressFooter() builder option; Java uses it as the entry point for LZ4 footer compression, which Rust rejects at write time. The Java test asserts that .footerSize() / .finish() / .close() each throw 'Unsupported codec: LZ4'."]
+    fn test_puffin_writer_empty_footer_compressed_rejects_lz4_per_java() {
+        // Java: testEmptyFooterCompressed.
+        // Puffin.write(out).compressFooter().build() ->
+        // writer.footerSize()   -> IllegalStateException "Footer not written yet"
+        // writer.finish()       -> UnsupportedOperationException "Unsupported codec: LZ4"
+        // writer.close()        -> UnsupportedOperationException "Unsupported codec: LZ4"
+    }
+
+    #[test]
+    fn test_puffin_writer_metric_data_uncompressed_per_java() {
+        // Java: testWriteMetricDataUncompressed.
+        // Two blobs ("some-blob" id=1, payload "abcdefghi") + ("some-other-blob"
+        // id=2, payload "some blob ... is it?") with no compression, plus
+        // created-by="Test 1234". Round-trip via read_footer + read_from
+        // must yield the same blobs (we don't compare bytes against the
+        // Java reference fixture because byte-equality requires identical
+        // map iteration order on properties; we DO assert that what we
+        // write parses back to the original logical content).
+        let mut writer = PuffinWriter::new();
+        writer.set_property("created-by", "Test 1234");
+        writer
+            .write_blob(Blob {
+                blob_type: "some-blob".to_string(),
+                fields: vec![1],
+                snapshot_id: 2,
+                sequence_number: 1,
+                compression_codec: None,
+                properties: HashMap::new(),
+                payload: b"abcdefghi",
+            })
+            .unwrap();
+        let long_payload = "some blob \u{0000} binary data 🤯 that is not very very very very very very long, is it?";
+        writer
+            .write_blob(Blob {
+                blob_type: "some-other-blob".to_string(),
+                fields: vec![2],
+                snapshot_id: 2,
+                sequence_number: 1,
+                compression_codec: None,
+                properties: HashMap::new(),
+                payload: long_payload.as_bytes(),
+            })
+            .unwrap();
+        let bytes = writer.finish().unwrap();
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+
+        assert_eq!(
+            meta.properties.get("created-by").map(String::as_str),
+            Some("Test 1234"),
+        );
+        assert_eq!(meta.blobs.len(), 2);
+        assert_eq!(meta.blobs[0].blob_type, "some-blob");
+        assert_eq!(meta.blobs[0].fields, vec![1]);
+        assert_eq!(meta.blobs[0].compression_codec, None);
+        assert_eq!(
+            meta.blobs[0].read_from(&bytes).unwrap().as_ref(),
+            b"abcdefghi"
+        );
+        assert_eq!(meta.blobs[1].blob_type, "some-other-blob");
+        assert_eq!(meta.blobs[1].fields, vec![2]);
+        assert_eq!(
+            meta.blobs[1].read_from(&bytes).unwrap().as_ref(),
+            long_payload.as_bytes(),
+        );
+    }
+
+    #[test]
+    fn test_puffin_writer_metric_data_compressed_zstd_per_java() {
+        // Java: testWriteMetricDataCompressedZstd.
+        // Same fixture but with PuffinCompressionCodec::Zstd applied to
+        // each blob. Round-trip must yield the same uncompressed payload.
+        let mut writer = PuffinWriter::new();
+        writer.set_property("created-by", "Test 1234");
+        writer
+            .write_blob(Blob {
+                blob_type: "some-blob".to_string(),
+                fields: vec![1],
+                snapshot_id: 2,
+                sequence_number: 1,
+                compression_codec: Some(PuffinCompressionCodec::Zstd),
+                properties: HashMap::new(),
+                payload: b"abcdefghi",
+            })
+            .unwrap();
+        let long_payload = "some blob \u{0000} binary data 🤯 that is not very very very very very very long, is it?";
+        writer
+            .write_blob(Blob {
+                blob_type: "some-other-blob".to_string(),
+                fields: vec![2],
+                snapshot_id: 2,
+                sequence_number: 1,
+                compression_codec: Some(PuffinCompressionCodec::Zstd),
+                properties: HashMap::new(),
+                payload: long_payload.as_bytes(),
+            })
+            .unwrap();
+        let bytes = writer.finish().unwrap();
+        let meta = FileMetadata::read_footer(&bytes).unwrap();
+
+        assert_eq!(meta.blobs.len(), 2);
+        for blob in &meta.blobs {
+            assert_eq!(blob.compression_codec, Some(PuffinCompressionCodec::Zstd));
+        }
+        assert_eq!(
+            meta.blobs[0].read_from(&bytes).unwrap().as_ref(),
+            b"abcdefghi"
+        );
+        assert_eq!(
+            meta.blobs[1].read_from(&bytes).unwrap().as_ref(),
+            long_payload.as_bytes(),
+        );
+    }
+
+    #[test]
+    #[ignore = "feature gap: PuffinWriter has no length() accessor and no encrypted output integration (AesGcmOutputFile). Java's testFileSizeCalculation pins length() == 158 for encrypted output, 122 for plain output."]
+    fn test_puffin_writer_file_size_calculation_per_java() {
+        // Java: testFileSizeCalculation (parametrized over encrypted/plain).
+        // Writes a single blob "blob" with payload "blob"; after close(),
+        // writer.length() must equal 158 for AesGcm-encrypted output,
+        // 122 for InMemoryOutputFile. Rust's PuffinWriter::finish returns
+        // the buffer directly; there is no incremental length() accessor
+        // and no encrypted-output adapter.
+    }
 }
