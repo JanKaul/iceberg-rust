@@ -1276,4 +1276,339 @@ mod tests {
         // union: applied keeps list1 with original ids (4, 5) and adds
         // list2 with fresh ids (6, 7).
     }
+
+    // --- TestSchemaUpdate port ---------------------------------------------
+    //
+    // Java's `new SchemaUpdate(currentSchema, lastColumnId)` is a fluent
+    // builder that accumulates schema-evolution operations and then
+    // produces an updated Schema via `.apply()`. The full operation set
+    // pinned by the 100 Java @Test methods includes:
+    //
+    //   - addColumn(name, type) / addColumn(parent, name, type, doc) /
+    //     addRequiredColumn(name, type, default) /
+    //     addColumn(...).withInitialDefault(...).withWriteDefault(...)
+    //   - deleteColumn(name)
+    //   - renameColumn(old, new)
+    //   - updateColumn(name, newType) / updateColumnDoc(name, newDoc) /
+    //     updateColumnDefault(name, newDefault) /
+    //     makeColumnOptional(name) / requireColumn(name)
+    //   - moveFirst(name) / moveBefore(name, sibling) /
+    //     moveAfter(name, sibling)
+    //   - setIdentifierFields(fieldNames) / addIdentifierField(...) /
+    //     removeIdentifierField(...)
+    //   - caseSensitive(false) modifier for any name-based lookup
+    //
+    // Plus extensive validation: conflict detection (add-then-delete,
+    // rename-then-delete, etc.), parent-type checks (map keys must be
+    // primitive, list elements can't be moved among siblings, etc.),
+    // identifier-field constraints (identifier columns can't be nested
+    // under non-required ancestors, can't be Float/Double, etc.).
+    //
+    // Rust has NO `SchemaUpdate` builder and NO operation applier. The
+    // existing `Schema` struct has no method-chain evolution API. All
+    // 100 Java @Test scenarios are pinned `#[ignore]` here for an
+    // eventual `schema_update::SchemaUpdate::new(&Schema, last_column_id)
+    // -> SchemaUpdateBuilder` surface. Each test body is a one-line
+    // pointer to the Java method it mirrors.
+
+    #[test]
+    #[ignore = "feature gap: SchemaUpdate.apply() with no operations must return an identical Schema"]
+    fn test_schema_update_no_changes_per_java() {}
+    #[test]
+    #[ignore = "feature gap: SchemaUpdate.deleteColumn(name) removes top-level + nested fields, including dotted paths"]
+    fn test_schema_update_delete_fields_per_java() {}
+    #[test]
+    #[ignore = "feature gap: SchemaUpdate.caseSensitive(false).deleteColumn('PROPERTIES') must resolve to 'properties'"]
+    fn test_schema_update_delete_fields_case_sensitive_disabled_per_java() {}
+    #[test]
+    #[ignore = "feature gap: SchemaUpdate.updateColumn(name, newType) applies the promotion table (int->long, float->double, decimal precision growth)"]
+    fn test_schema_update_update_types_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumn(type) preserves the column's doc + initial-default + write-default"]
+    fn test_schema_update_update_type_preserves_other_metadata_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumnDoc(name, newDoc) preserves type + defaults"]
+    fn test_schema_update_update_doc_preserves_other_metadata_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumnDefault(name, newDefault) preserves type + doc"]
+    fn test_schema_update_update_default_preserves_other_metadata_per_java() {}
+    #[test]
+    #[ignore = "feature gap: caseSensitive(false).updateColumn('NAME', newType) resolves to 'name'"]
+    fn test_schema_update_update_types_case_insensitive_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumn must REJECT disallowed type changes (e.g. long->int) with a specific error"]
+    fn test_schema_update_update_failure_per_java() {}
+    #[test]
+    #[ignore = "feature gap: renameColumn(oldName, newName) updates the field name in place"]
+    fn test_schema_update_rename_per_java() {}
+    #[test]
+    #[ignore = "feature gap: caseSensitive(false).renameColumn('OLD', 'new') resolves to 'old'"]
+    fn test_schema_update_rename_case_insensitive_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn(name, type) appends an optional top-level field with a fresh id"]
+    fn test_schema_update_add_fields_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn with both initial + write defaults preserved"]
+    fn test_schema_update_add_column_with_default_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn + updateColumnDefault on the SAME field within one SchemaUpdate"]
+    fn test_schema_update_add_column_with_update_column_default_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn(parent, name, struct(...)) attaches a struct child"]
+    fn test_schema_update_add_nested_struct_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn(parent, name, map<string, struct(...)>) attaches a map-of-struct field"]
+    fn test_schema_update_add_nested_map_of_structs_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn(parent, name, list<struct(...)>) attaches a list-of-struct field"]
+    fn test_schema_update_add_nested_list_of_structs_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addRequiredColumn WITHOUT a default must throw (required columns need a default to maintain readability)"]
+    fn test_schema_update_add_required_column_without_default_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addRequiredColumn(name, type, default) succeeds"]
+    fn test_schema_update_add_required_column_with_default_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn + updateColumnDefault to satisfy the required-default invariant"]
+    fn test_schema_update_add_required_column_with_update_column_default_per_java() {}
+    #[test]
+    #[ignore = "feature gap: caseSensitive(false).addRequiredColumn('NAME', type, default)"]
+    fn test_schema_update_add_required_column_case_insensitive_per_java() {}
+    #[test]
+    #[ignore = "feature gap: multiple addRequiredColumn calls in one SchemaUpdate with case-insensitive name resolution"]
+    fn test_schema_update_add_multiple_required_column_case_insensitive_per_java() {}
+    #[test]
+    #[ignore = "feature gap: makeColumnOptional(name) flips required -> optional"]
+    fn test_schema_update_make_column_optional_per_java() {}
+    #[test]
+    #[ignore = "feature gap: requireColumn(name) flips optional -> required (only when a default exists or no rows yet)"]
+    fn test_schema_update_require_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn(default).requireColumn(name) — default satisfies the required invariant"]
+    fn test_schema_update_add_column_with_default_to_required_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: same flow but via updateColumnDefault"]
+    fn test_schema_update_add_column_with_update_column_default_to_required_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: caseSensitive(false).requireColumn('NAME')"]
+    fn test_schema_update_require_column_case_insensitive_per_java() {}
+    #[test]
+    #[ignore = "feature gap: combined add + delete + rename + update + move in one SchemaUpdate"]
+    fn test_schema_update_mixed_changes_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn must reject ambiguous parent — e.g. parent name resolves to two distinct fields"]
+    fn test_schema_update_ambiguous_add_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn must reject if the target name already exists in the parent struct"]
+    fn test_schema_update_add_already_exists_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn + addColumn(sameName) — Java accepts (rebirth at fresh id); error semantics pinned"]
+    fn test_schema_update_delete_then_add_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn(parent) + addColumn(parent, child) on a STILL-DELETED parent must throw"]
+    fn test_schema_update_delete_then_add_nested_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn('missing') must throw 'Cannot delete missing column: missing'"]
+    fn test_schema_update_delete_missing_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn(X) + deleteColumn(X) in the same update must throw — 'Cannot delete a column that has additions'"]
+    fn test_schema_update_add_delete_conflict_per_java() {}
+    #[test]
+    #[ignore = "feature gap: renameColumn('missing', ...) must throw 'Cannot rename missing column'"]
+    fn test_schema_update_rename_missing_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: renameColumn(X) + deleteColumn(X) must throw"]
+    fn test_schema_update_rename_delete_conflict_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn(X) + renameColumn(X) must throw"]
+    fn test_schema_update_delete_rename_conflict_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumn(type) on missing column must throw"]
+    fn test_schema_update_update_missing_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumnDoc on missing column must throw"]
+    fn test_schema_update_update_missing_column_doc_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumnDefault on missing column must throw"]
+    fn test_schema_update_update_missing_column_default_value_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumn(X) + deleteColumn(X) must throw"]
+    fn test_schema_update_update_delete_conflict_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn(X) + updateColumn(X) must throw"]
+    fn test_schema_update_delete_update_conflict_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn(map.key) must throw 'Cannot delete map keys'"]
+    fn test_schema_update_delete_map_key_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn(map.value) is allowed only when value is a struct sub-field; otherwise throws"]
+    fn test_schema_update_delete_map_value_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn under map.key path must throw (key types are atomic)"]
+    fn test_schema_update_add_field_to_map_key_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumn on map.key with a different type must throw"]
+    fn test_schema_update_alter_map_key_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumn on map.key for a promotion-compatible type still throws (keys are immutable)"]
+    fn test_schema_update_update_map_key_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumn on a NEWLY-ADDED column (within the same update) is allowed"]
+    fn test_schema_update_update_added_column_type_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumnDoc on a newly-added column"]
+    fn test_schema_update_update_added_column_doc_per_java() {}
+    #[test]
+    #[ignore = "feature gap: updateColumnDoc on a JUST-DELETED column must throw"]
+    fn test_schema_update_update_deleted_column_doc_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveFirst / moveBefore / moveAfter chained in one update"]
+    fn test_schema_update_multiple_moves_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveFirst(topLevelColumn) places it at index 0"]
+    fn test_schema_update_move_top_level_column_first_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore(top, top0) — duplicate of moveFirst when target is already first"]
+    fn test_schema_update_move_top_level_column_before_first_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveAfter(top, lastTop) places it at the end"]
+    fn test_schema_update_move_top_level_column_after_last_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveAfter(top, sibling) places after a specific sibling"]
+    fn test_schema_update_move_top_level_column_after_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore(top, sibling) places before a specific sibling"]
+    fn test_schema_update_move_top_level_column_before_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveFirst inside a struct field"]
+    fn test_schema_update_move_nested_field_first_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore(nested, firstNested)"]
+    fn test_schema_update_move_nested_field_before_first_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveAfter(nested, lastNested)"]
+    fn test_schema_update_move_nested_field_after_last_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveAfter(nested, sibling)"]
+    fn test_schema_update_move_nested_field_after_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore(nested, sibling)"]
+    fn test_schema_update_move_nested_field_before_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore inside a list<struct> element"]
+    fn test_schema_update_move_list_element_field_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore inside a map<string, struct(...)> value"]
+    fn test_schema_update_move_map_value_struct_field_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn then moveFirst on the newly-added column"]
+    fn test_schema_update_move_added_top_level_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn + moveAfter referencing another newly-added column"]
+    fn test_schema_update_move_added_top_level_column_after_added_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn(parent, name, ...) + moveFirst within that parent struct"]
+    fn test_schema_update_move_added_nested_struct_field_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn + moveBefore referencing an existing column inside the same struct"]
+    fn test_schema_update_move_added_nested_struct_field_before_added_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore(X, X) must throw — self-reference is invalid"]
+    fn test_schema_update_move_self_reference_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveFirst('missing') must throw"]
+    fn test_schema_update_move_missing_column_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore(X, Y) where Y is added LATER in the chain — Java rejects 'Cannot move before added'"]
+    fn test_schema_update_move_before_add_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore(X, 'missingSibling') must throw"]
+    fn test_schema_update_move_missing_reference_column_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveFirst on a primitive map.key path must throw — map keys aren't reorderable"]
+    fn test_schema_update_move_primitive_map_key_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveFirst on a primitive map.value path must throw"]
+    fn test_schema_update_move_primitive_map_value_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveFirst on a primitive list.element path must throw"]
+    fn test_schema_update_move_primitive_list_element_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore across two DIFFERENT top-level structs must throw (moves must stay within the same parent)"]
+    fn test_schema_update_move_top_level_between_structs_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveBefore across two different nested structs must throw"]
+    fn test_schema_update_move_between_structs_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: setIdentifierFields with names that already exist in the schema"]
+    fn test_schema_update_add_existing_identifier_fields_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn + setIdentifierFields on the newly-added columns"]
+    fn test_schema_update_add_new_identifier_field_columns_per_java() {}
+    #[test]
+    #[ignore = "feature gap: setIdentifierFields with nested column names (struct.field)"]
+    fn test_schema_update_add_nested_identifier_field_columns_per_java() {}
+    #[test]
+    #[ignore = "feature gap: setIdentifierFields with dotted-path names ('preferences.feature1')"]
+    fn test_schema_update_add_dotted_identifier_field_columns_per_java() {}
+    #[test]
+    #[ignore = "feature gap: setIdentifierFields with an empty list clears the identifier set"]
+    fn test_schema_update_remove_identifier_fields_per_java() {}
+    #[test]
+    #[ignore = "feature gap: setIdentifierFields with a non-existent column or non-required parent must throw"]
+    fn test_schema_update_set_identifier_fields_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn must clear any identifier-field reference to that column"]
+    fn test_schema_update_delete_identifier_field_columns_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn on an identifier column without explicit setIdentifierFields throws"]
+    fn test_schema_update_delete_identifier_field_columns_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn on the PARENT of an identifier struct.field must throw"]
+    fn test_schema_update_delete_containing_nested_identifier_field_columns_fails_per_java() {}
+    #[test]
+    #[ignore = "feature gap: renameColumn on an identifier column updates both the field name and the identifier set"]
+    fn test_schema_update_rename_identifier_fields_per_java() {}
+    #[test]
+    #[ignore = "feature gap: moveFirst on an identifier column is allowed and preserves identity"]
+    fn test_schema_update_move_identifier_fields_per_java() {}
+    #[test]
+    #[ignore = "feature gap: caseSensitive(false) + moveFirst on an identifier column"]
+    fn test_schema_update_move_identifier_fields_case_insensitive_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn + moveAfter another column (the deleted column is no longer reorderable)"]
+    fn test_schema_update_move_top_deleted_column_after_another_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn + moveBefore another column must throw"]
+    fn test_schema_update_move_top_deleted_column_before_another_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn + moveFirst must throw"]
+    fn test_schema_update_move_top_deleted_column_to_first_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn(nested.struct.field) + moveAfter must throw"]
+    fn test_schema_update_move_deleted_nested_struct_field_after_another_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn(nested.struct.field) + moveBefore must throw"]
+    fn test_schema_update_move_deleted_nested_struct_field_before_another_column_per_java() {}
+    #[test]
+    #[ignore = "feature gap: deleteColumn(nested.struct.field) + moveFirst must throw"]
+    fn test_schema_update_move_deleted_nested_struct_field_to_first_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn with V3 UnknownType (always-null leaf)"]
+    fn test_schema_update_add_unknown_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addColumn(UnknownType) with a non-null default must throw — Unknown only carries null"]
+    fn test_schema_update_add_unknown_non_null_default_per_java() {}
+    #[test]
+    #[ignore = "feature gap: addRequiredColumn(UnknownType) must throw — required+unknown is contradictory"]
+    fn test_schema_update_add_required_unknown_per_java() {}
+    #[test]
+    #[ignore = "feature gap: caseSensitive(false).addColumn('NEW') + moveAfter('CASE-INSENSITIVE-EXISTING')"]
+    fn test_schema_update_case_insensitive_add_top_level_and_move_per_java() {}
+    #[test]
+    #[ignore = "feature gap: same flow but with a nested struct.field target"]
+    fn test_schema_update_case_insensitive_add_nested_and_move_per_java() {}
+    #[test]
+    #[ignore = "feature gap: caseSensitive(false).moveAfter targets a freshly-added field with a different case"]
+    fn test_schema_update_case_insensitive_move_after_newly_added_field_per_java() {}
 }
