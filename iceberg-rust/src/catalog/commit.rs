@@ -893,6 +893,123 @@ mod tests {
         .unwrap();
     }
 
+    // --- Port: TestFormatVersions (Apache Iceberg Java, 5 @TestTemplate) ---
+    //
+    // Java parametrises by formatVersion (V1, V2 — V3 excluded as latest).
+    // The Rust port is non-parametrised and runs one test per scenario per
+    // version. Default-version assertions pass; the upgrade-rule scenarios
+    // are #[ignore] because Rust's apply_table_updates panics with
+    // `unimplemented!("Table format upgrade")` for any non-no-op upgrade
+    // and has no equivalent of Java's `upgradeToFormatVersion` validator
+    // that distinguishes downgrade / unsupported-version / valid-upgrade.
+
+    use iceberg_rust_spec::spec::table_metadata::FormatVersion;
+
+    fn fixture_with_format_version(version: FormatVersion) -> TableMetadata {
+        let schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        TableMetadataBuilder::default()
+            .format_version(version)
+            .table_uuid(Uuid::nil())
+            .location("s3://tests/table".to_owned())
+            .current_schema_id(0)
+            .schemas(HashMap::from_iter(vec![(0, schema)]))
+            .partition_specs(HashMap::from_iter(vec![(0, PartitionSpec::default())]))
+            .default_spec_id(0)
+            .last_partition_id(999)
+            .last_column_id(7)
+            .default_sort_order_id(0)
+            .refs(HashMap::new())
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn test_default_format_version_v1_per_java() {
+        // Java: testDefaultFormatVersion @ formatVersion = 1.
+        let metadata = fixture_with_format_version(FormatVersion::V1);
+        assert_eq!(metadata.format_version, FormatVersion::V1);
+    }
+
+    #[test]
+    fn test_default_format_version_v2_per_java() {
+        // Java: testDefaultFormatVersion @ formatVersion = 2.
+        let metadata = fixture_with_format_version(FormatVersion::V2);
+        assert_eq!(metadata.format_version, FormatVersion::V2);
+    }
+
+    #[test]
+    fn test_default_format_version_v3_per_java() {
+        // Java's parametrisation excludes the latest supported version, so V3
+        // isn't directly covered there; included here for completeness since
+        // Rust's FormatVersion exposes V3 the same way.
+        let metadata = fixture_with_format_version(FormatVersion::V3);
+        assert_eq!(metadata.format_version, FormatVersion::V3);
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust's apply_table_updates panics on any non-no-op UpgradeFormatVersion (no upgradeToFormatVersion validator); Java's testFormatVersionUpgrade asserts v -> v+1 succeeds and the changes() log records exactly one UpgradeFormatVersion(v+1)"]
+    fn test_format_version_upgrade_to_next_per_java() {
+        let mut metadata = fixture_with_format_version(FormatVersion::V1);
+        apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::UpgradeFormatVersion { format_version: 2 }],
+        )
+        .unwrap();
+        assert_eq!(metadata.format_version, FormatVersion::V2);
+    }
+
+    #[test]
+    #[ignore = "feature gap: same upgrade-rule gap as test_format_version_upgrade_to_next_per_java; Java's testFormatVersionUpgradeToLatest asserts a v1 table can upgrade directly to SUPPORTED_TABLE_FORMAT_VERSION (v3)"]
+    fn test_format_version_upgrade_to_latest_supported_per_java() {
+        let mut metadata = fixture_with_format_version(FormatVersion::V1);
+        apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::UpgradeFormatVersion { format_version: 3 }],
+        )
+        .unwrap();
+        assert_eq!(metadata.format_version, FormatVersion::V3);
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust's apply_table_updates panics with `Table format upgrade` for any version mismatch; Java's testFormatVersionDowngrade asserts a specific IllegalArgumentException with message `Cannot downgrade v{N} table to v{M}`"]
+    fn test_format_version_downgrade_rejected_per_java() {
+        let mut metadata = fixture_with_format_version(FormatVersion::V2);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            apply_table_updates(
+                &mut metadata,
+                vec![TableUpdate::UpgradeFormatVersion { format_version: 1 }],
+            )
+        }));
+        // Java pins the exact error message; Rust's panic includes only
+        // `Table format upgrade` regardless of direction.
+        assert!(result.is_err(), "expected downgrade to be rejected");
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust has no SUPPORTED_TABLE_FORMAT_VERSION ceiling check; Java's testFormatVersionUpgradeNotSupported asserts upgrade to vmax+1 is rejected with message `Cannot upgrade table to unsupported format version: v{N} (supported: v{M})`"]
+    fn test_format_version_upgrade_to_unsupported_rejected_per_java() {
+        let mut metadata = fixture_with_format_version(FormatVersion::V3);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            apply_table_updates(
+                &mut metadata,
+                vec![TableUpdate::UpgradeFormatVersion { format_version: 4 }],
+            )
+        }));
+        assert!(result.is_err(), "expected v4 to be rejected as unsupported");
+    }
+
     #[test]
     #[ignore = "feature gap: AssertCreate is always satisfied; Java's AssertTableDoesNotExist.validate(metadata) fails when the metadata exists"]
     fn test_check_table_requirements_assert_create_fails_when_metadata_exists_per_java() {
