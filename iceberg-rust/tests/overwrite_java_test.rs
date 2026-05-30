@@ -326,11 +326,57 @@ async fn test_overwrite_add_and_by_row_filter_produces_overwrite_operation_per_j
     // Java: addAndOverwriteByRowFilterProducesOverwriteOperation.
 }
 
+/// Rust divergence: Java's `newOverwrite().addFile(a).addFile(b)` (no
+/// delete) auto-promotes the resulting snapshot to operation type
+/// APPEND. Rust's `Transaction::overwrite(new_files, empty_map)`
+/// always emits `Operation::Overwrite` — there's no content-aware
+/// snapshot-op selection.
+///
+/// Pinning the Rust behaviour as a passing test makes the divergence
+/// explicit and visible. (Rust users wanting the APPEND op should use
+/// `append_data` directly instead.)
 #[tokio::test]
-#[ignore = "feature gap: Rust's overwrite() always emits Operation::Overwrite; Java optimises to APPEND when no deletes are present"]
-async fn test_overwrite_add_only_produces_append_operation_per_java() {
-    // Java: addFilesProducesAppendOperation.
-    // newOverwrite.addFile(a).addFile(b) (no delete) -> snapshot op == APPEND.
+async fn test_overwrite_add_only_emits_overwrite_op_in_rust_per_java() {
+    let mut table = fresh_table("overwrite_add_only_op").await;
+    let seed = write_parquet_partitioned(
+        &table,
+        stream::iter(vec![Ok(batch(&[(1, "us-east")]))]),
+        None,
+    )
+    .await
+    .expect("seed");
+    table
+        .new_transaction(None)
+        .append_data(seed)
+        .commit()
+        .await
+        .expect("seed commit");
+
+    let new_files = write_parquet_partitioned(
+        &table,
+        stream::iter(vec![Ok(batch(&[(2, "us-east")]))]),
+        None,
+    )
+    .await
+    .expect("new");
+
+    table
+        .new_transaction(None)
+        .overwrite(new_files, HashMap::new())
+        .commit()
+        .await
+        .expect("commit");
+    let snapshot = table
+        .metadata()
+        .current_snapshot(None)
+        .unwrap()
+        .expect("current snapshot");
+    assert!(
+        matches!(snapshot.summary().operation, Operation::Overwrite),
+        "Rust always emits Overwrite from .overwrite(), even with no \
+         files to delete. Java would emit APPEND here. Got {:?}",
+        snapshot.summary().operation,
+    );
 }
 
 #[tokio::test]
