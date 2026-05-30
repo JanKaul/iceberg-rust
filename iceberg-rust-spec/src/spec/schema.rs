@@ -787,4 +787,56 @@ mod tests {
         // -> [MappedField(1, "id"), MappedField(2, "data")] — no nested
         // mapping under data because Variant is a leaf type.
     }
+
+    // --- TestHasIds port ---------------------------------------------------
+    //
+    // Java's `org.apache.iceberg.avro.AvroSchemaUtil.hasIds(avroSchema)`
+    // walks an Avro schema and returns true if ANY field carries a
+    // `"field-id"` Avro property. Paired with `RemoveIds.removeIds(schema)`
+    // it lets readers detect whether an Avro file was written with
+    // Iceberg-style ids or needs a NameMapping fallback.
+    //
+    // Rust handles Avro for manifest reads/writes via the `apache_avro`
+    // crate, but does NOT expose an `iceberg::avro::AvroSchemaUtil`
+    // facade. There is no `has_ids(avro_schema)` helper anywhere in the
+    // workspace (grep finds zero matches).
+    //
+    // The single Java @Test (`testRemoveIdsHasIds`) exercises three
+    // observable scenarios on the same fixture (long id@0, optional
+    // map@5 over struct(lat@1, long@2), required list@8 of string@9,
+    // required variant@10):
+    //
+    //   1. After `RemoveIds.removeIds(schema)`, hasIds(result) == false.
+    //   2. Adding a field-id prop to the FIRST top-level field flips
+    //      hasIds to true.
+    //   3. Adding a field-id prop deep inside (the inner struct's "long"
+    //      field, reached via union[1] -> valueType -> union[1] ->
+    //      field(1)) also flips hasIds to true — so the walk visits the
+    //      full tree, not just top-level fields.
+
+    #[test]
+    #[ignore = "feature gap: no avro::AvroSchemaUtil::has_ids() / remove_ids(); freshly removed Avro schema should report no ids"]
+    fn test_avro_schema_util_has_ids_returns_false_after_remove_ids() {
+        // Build the iceberg schema (id@0 long, location@5 map<string,
+        // struct(lat@1 float, long@2 float optional)>, types@8 list of
+        // required string@9, data@10 variant).
+        // remove_ids(schema) -> avro schema with no `field-id` props.
+        // has_ids(result) == false.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no avro::AvroSchemaUtil::has_ids(); adding `field-id` to the FIRST top-level avro field flips has_ids to true"]
+    fn test_avro_schema_util_has_ids_returns_true_for_top_level_id() {
+        // Take the no-id schema; set fields[0].prop("field-id") = 1.
+        // has_ids(result) == true.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no avro::AvroSchemaUtil::has_ids(); deeply nested field-id (inside map of struct) must also flip has_ids to true"]
+    fn test_avro_schema_util_has_ids_walks_into_nested_types() {
+        // Take the no-id schema; set the `long` field inside the inner
+        // struct (reachable via fields[1] -> union[1] -> valueType ->
+        // union[1] -> fields[1]) to have field-id 1.
+        // has_ids(result) == true.
+    }
 }

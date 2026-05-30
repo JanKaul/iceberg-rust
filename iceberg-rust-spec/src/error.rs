@@ -139,4 +139,71 @@ mod tests {
         let err: Error = serde_err.into();
         assert_eq!(err.to_string(), inner_message);
     }
+
+    // --- TestExceptionUtil port --------------------------------------------
+    //
+    // Java's `ExceptionUtil.runSafely(block, catch_handler, finally_handler,
+    //                                  exception_classes...)` is a
+    // try/catch/finally wrapper that:
+    //
+    //   1. Runs `block`.
+    //   2. If `block` throws, calls `catch_handler(primary)` and lets that
+    //      handler optionally throw a SECONDARY exception.
+    //   3. Always runs `finally_handler`, which may throw a TERTIARY
+    //      exception.
+    //   4. Re-throws the PRIMARY exception (or, if there was none, the
+    //      tertiary). Secondary and tertiary exceptions, if present, are
+    //      attached to the primary via `Throwable.addSuppressed()` — a
+    //      Java mechanism that lets a single propagated exception carry a
+    //      LIST of other exceptions that happened while unwinding.
+    //
+    // Rust has no equivalent:
+    //   - `?` short-circuits on the first error; later errors that happen
+    //     during cleanup are typically lost.
+    //   - `Drop` is the finally analog (RAII) but a panicking `Drop` is
+    //     undefined behaviour if it happens during an active unwind.
+    //   - `std::error::Error::source()` is a SINGLE-link cause chain, not
+    //     a list. There is no built-in "suppressed exceptions" list type.
+    //
+    // The 4 Java scenarios pin observable behaviour the Rust port would
+    // need to match if it ever grows an analog (e.g. an `error_util` module
+    // returning `Result<T, MultiError>` where MultiError carries a primary
+    // plus a Vec of suppressed errors).
+
+    #[test]
+    #[ignore = "feature gap: no run_safely(block, catch, finally) wrapper; Java tracks suppressed exceptions on the primary, Rust has no equivalent"]
+    fn test_exception_util_run_safely_preserves_primary_attaches_two_suppressed() {
+        // Java: block throws CustomCheckedException; catch handler throws
+        // Exception; finally handler throws RuntimeException.
+        // Result: primary == CustomCheckedException; suppressed list
+        // exactly [Exception, RuntimeException], in that order.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same wrapper but with two declared checked exception types"]
+    fn test_exception_util_run_safely_two_exception_types_propagates_primary() {
+        // Java: runSafely declares CustomCheckedException + IOException.
+        // Block throws CustomCheckedException; catch + finally each throw.
+        // Result: primary == CustomCheckedException; suppressed list
+        // exactly [catchEx, finallyEx].
+    }
+
+    #[test]
+    #[ignore = "feature gap: same wrapper with three declared checked exception types"]
+    fn test_exception_util_run_safely_three_exception_types_propagates_primary() {
+        // Java: runSafely declares CustomCheckedException + IOException
+        // + ClassNotFoundException. Block throws CustomCheckedException;
+        // catch + finally each throw.
+        // Result: primary == CustomCheckedException; suppressed list
+        // exactly [catchEx, finallyEx].
+    }
+
+    #[test]
+    #[ignore = "feature gap: run_safely overload taking only RuntimeException (no checked exception type list); same suppressed-list semantics"]
+    fn test_exception_util_run_safely_runtime_only_overload_attaches_suppressed() {
+        // Java: block throws RuntimeException; catch handler throws
+        // Exception; finally handler throws CustomCheckedException.
+        // Result: primary == RuntimeException; suppressed list exactly
+        // [Exception, CustomCheckedException].
+    }
 }
