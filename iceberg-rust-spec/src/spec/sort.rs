@@ -437,4 +437,177 @@ mod tests {
         // find_table_sort_order returns SortOrder::default() (order-id 0,
         // empty fields).
     }
+
+    // --- TestSortOrderComparators port -------------------------------------
+    //
+    // Java's `SortOrderComparators.forSchema(schema, sortOrder) ->
+    // Comparator<StructLike>` produces a row comparator that walks the
+    // sort fields, applies the configured transform to each row's value
+    // for that field, then compares pairwise honouring direction (asc/desc)
+    // and null ordering (NULLS_FIRST/NULLS_LAST).
+    //
+    // Rust has no `SortOrderComparators` analog (`grep` across the
+    // workspace finds zero matches) and no `StructLike` row abstraction
+    // — rows live in arrow batches in the implementation layer. All 20
+    // Java @Test scenarios are pinned `#[ignore]` here so an eventual
+    // `sort_order_comparator::for_schema(&Schema, &SortOrder)` reducer
+    // has a ready spec.
+    //
+    // Expected eventual Rust API (mirroring Java's surface):
+    //   fn for_schema(&Schema, &SortOrder) -> impl Fn(&Struct, &Struct) -> std::cmp::Ordering;
+    //
+    // Shared contract pinned by every Java test:
+    //   compare(less, less)           == Equal
+    //   compare(greater, greater)     == Equal
+    //   compare(less, lessCopy)       == Equal  (same sort-key bucket)
+    //   ASC + NULLS_FIRST: less < greater; nullValue < less
+    //   DESC + NULLS_LAST: less > greater; nullValue > greater
+    //
+    // Each Java test exercises the contract on a different value type
+    // and/or transform.
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Boolean asc/desc + null-first / null-last sort"]
+    fn test_sort_order_comparator_boolean_per_java() {
+        // less = (id3, false); greater = (id2, true); lessCopy = (id1, false).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Integer asc/desc"]
+    fn test_sort_order_comparator_int_per_java() {
+        // less = (id3, 111); greater = (id2, 222); lessCopy = (id1, 111).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Long asc/desc"]
+    fn test_sort_order_comparator_long_per_java() {
+        // less = (id3, 111L); greater = (id2, 222L); lessCopy = (id1, 111L).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Float asc/desc"]
+    fn test_sort_order_comparator_float_per_java() {
+        // less = (id3, 1.11f); greater = (id1, 2.22f); lessCopy = (id1, 1.11f).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Double asc/desc"]
+    fn test_sort_order_comparator_double_per_java() {
+        // less = (id3, 1.11d); greater = (id2, 2.22d); lessCopy = (id1, 1.11d).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Date (i32 days) asc/desc"]
+    fn test_sort_order_comparator_date_per_java() {
+        // less = (id3, Date(111)); greater = (id2, Date(222)); lessCopy = (id1, Date(111)).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Time (i64 micros) asc/desc"]
+    fn test_sort_order_comparator_time_per_java() {
+        // less = (id3, Time(111L)); greater = (id2, Time(222L)); lessCopy = (id1, Time(111L)).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Timestamp (with/without zone, i64 micros) asc/desc"]
+    fn test_sort_order_comparator_timestamp_per_java() {
+        // less = (id3, ts(2022-01-10T00:00:00)); greater = (id2, ts(2022-01-10T01:00:00));
+        // lessCopy = (id1, ts(2022-01-10T00:00:00)). Both withZone and withoutZone schemas.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; sort by day(timestamp) transform — values at 00:00 and 01:00 same day compare equal"]
+    fn test_sort_order_comparator_timestamp_day_transform_per_java() {
+        // less = (id3, ts(2022-01-10T00:00:00)); greater = (id2, ts(2022-01-11T00:00:00));
+        // lessCopy = (id1, ts(2022-01-10T01:00:00)) — same day as less under day() transform.
+        // Sort: sortBy(day('field'), ASC, NULLS_FIRST).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; String asc/desc"]
+    fn test_sort_order_comparator_string_per_java() {
+        // less = (id3, 'aaa'); greater = (id2, 'bbb'); lessCopy = (id1, 'aaa').
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; sort by bucket('field', 4) — bucket('bbb')<bucket('aaa'), bucket('bbb')==bucket('cca')"]
+    fn test_sort_order_comparator_string_bucket_transform_per_java() {
+        // less = (id3, 'bbb'); greater = (id2, 'aaa'); lessCopy = (id1, 'cca').
+        // Sort: sortBy(bucket('field', 4), ASC, NULLS_FIRST).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; UUID asc/desc (lexicographic on byte representation)"]
+    fn test_sort_order_comparator_uuid_per_java() {
+        // less = (id3, uuid '81873e7d-...'); greater = (id2, uuid 'fd02441d-...');
+        // lessCopy = (id1, same as less).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; sort by bucket(uuid, 4) — bucket('fd...')<bucket('86...'), bucket('fd...')==bucket('81...')"]
+    fn test_sort_order_comparator_uuid_bucket_transform_per_java() {
+        // less = (id3, uuid 'fd02441d-...'); greater = (id2, uuid '86873e7d-...');
+        // lessCopy = (id1, uuid '81873e7d-...') (same bucket as less).
+        // Sort: sortBy(bucket('field', 4), ASC, NULLS_FIRST).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Fixed-length byte array asc/desc"]
+    fn test_sort_order_comparator_fixed_per_java() {
+        // less = (id3, Fixed([1,2,3])); greater = (id2, Fixed([3,2,1]));
+        // lessCopy = (id1, Fixed([1,2,3])).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Binary asc/desc — shorter prefix is less than longer prefix-extended"]
+    fn test_sort_order_comparator_binary_per_java() {
+        // less = (id3, Binary([1,1])); greater = (id2, Binary([1,1,1]));
+        // lessCopy = (id1, Binary([1,1])).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; sort by truncate(binary, 2) — first 2 bytes [1,2] < [1,3], and [1,2,3] equals [1,2,5,6] under truncate"]
+    fn test_sort_order_comparator_binary_truncate_transform_per_java() {
+        // less = (id3, Binary([1,2,3])); greater = (id2, Binary([1,3,1]));
+        // lessCopy = (id1, Binary([1,2,5,6])).
+        // Sort: sortBy(truncate('field', 2), ASC, NULLS_FIRST).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; Decimal asc/desc"]
+    fn test_sort_order_comparator_decimal_per_java() {
+        // less = (id3, 0.1); greater = (id2, 0.2); lessCopy = (id1, 0.1).
+        // Sort schema: Decimal(9, 5).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; sort on nested struct field 'location.lat' — null lat sorts first under ASC, last under DESC"]
+    fn test_sort_order_comparator_struct_per_java() {
+        // Schema with location: {lat, long}. Tests 3 sort orders against
+        // a fixture that varies which field is null:
+        //   asc('location.lat')  — null lat fixture
+        //   desc('location.long', NULLS_LAST) — null long fixture
+        //   asc('location.lat').asc('location.long') — null lat / null
+        //     long / both null fixtures, each compared against a different
+        //     'greater' row that differs by the relevant field(s).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; multi-field sort with truncate transform on each inner field of a nested struct"]
+    fn test_sort_order_comparator_struct_with_transforms_per_java() {
+        // Schema with struct: {left: binary, right: binary}.
+        // Sort: sortBy(truncate('struct.left', 2), ASC, NULLS_FIRST)
+        //        .sortBy(truncate('struct.right', 2), ASC, NULLS_FIRST).
+        // less.right = [2,3,4]; greater.right = [9,3,4]; lessCopy.right = [2,3,9];
+        // nullRight = right is null.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no sort_order_comparator; sort on 3-level nested user.location.lat/long with multiple null-field fixtures"]
+    fn test_sort_order_comparator_nested_struct_per_java() {
+        // Schema with user: {name, location: {lat, long}}.
+        // Sort: asc('user.location.lat').asc('user.location.long').
+        // Fixtures cover greater-lat, greater-long, greater-both,
+        // and null-lat, null-long, null-both.
+    }
 }
