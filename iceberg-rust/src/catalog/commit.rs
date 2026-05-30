@@ -3106,4 +3106,280 @@ mod tests {
         let value = serde_json::to_value(&parsed).unwrap();
         assert_eq!(value["action"], "remove-encryption-key");
     }
+
+    // --- Port: TestUpdateRequirements (Apache Iceberg Java, 41 @Test) ------
+    //
+    // Java's `UpdateRequirements` is a static helper with four entry points:
+    //   - `forCreateTable(updates) -> List<UpdateRequirement>`
+    //   - `forUpdateTable(metadata, updates) -> List<UpdateRequirement>`
+    //   - `forReplaceTable(metadata, updates) -> List<UpdateRequirement>`
+    //   - `forReplaceView(viewMetadata, updates) -> List<UpdateRequirement>`
+    // Each entry point walks the proposed `MetadataUpdate` list and derives
+    // the preconditions a client must include in its commit body so the
+    // server can detect concurrent modification. This is the CLIENT-side
+    // generator that pairs with Rust's existing `check_table_requirements`
+    // (the server-side validator).
+    //
+    // Rust has no centralised generator. Per-operation requirement creation
+    // is scattered across `iceberg-rust/src/table/transaction/operation.rs`
+    // (e.g. `Operation::NewSnapshot` emits `AssertRefSnapshotId`) but no
+    // function reduces an arbitrary `Vec<TableUpdate>` into the matching
+    // `Vec<TableRequirement>`. Each Java `@Test` below is pinned with
+    // `#[ignore]` documenting:
+    //   - The Java scenario
+    //   - The expected requirement-list shape (the contract that the
+    //     missing Rust `update_requirements::for_update_table(...)` etc.
+    //     must satisfy to make the test pass).
+
+    #[test]
+    #[ignore = "feature gap: Rust has no UpdateRequirements::for_{create,update,replace}_table / for_replace_view generators; Java's nullCheck asserts each of the 4 entry points throws NullPointerException when given a null metadata or null updates argument (7 assertions in one test)"]
+    fn test_update_requirements_null_check_per_java() {
+        // Java: nullCheck.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust has no UpdateRequirements::for_create_table; Java's emptyUpdatesForCreateTable asserts forCreateTable([]) yields a single [AssertTableDoesNotExist] requirement"]
+    fn test_update_requirements_for_create_table_empty_updates_per_java() {
+        // Java: emptyUpdatesForCreateTable.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust has no UpdateRequirements::for_{update,replace}_table; Java's emptyUpdatesForUpdateAndReplaceTable asserts forReplaceTable([]) and forUpdateTable([]) yield [AssertTableUUID(metadata.uuid)]"]
+    fn test_update_requirements_for_update_and_replace_table_empty_updates_per_java() {
+        // Java: emptyUpdatesForUpdateAndReplaceTable.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust has no UpdateRequirements::for_replace_view; Java's emptyUpdatesForReplaceView asserts forReplaceView([]) yields [AssertViewUUID(viewMetadata.uuid)]"]
+    fn test_update_requirements_for_replace_view_empty_updates_per_java() {
+        // Java: emptyUpdatesForReplaceView.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's tableAlreadyExists asserts forCreateTable([AssignUUID(...), UpgradeFormatVersion(2)]) emits exactly one AssertTableDoesNotExist (no duplicate even though the schema/format-version paths would normally add their own assertions)"]
+    fn test_update_requirements_table_already_exists_per_java() {
+        // Java: tableAlreadyExists.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's assignUUID asserts forUpdateTable(meta, [AssignUUID(meta.uuid)]) emits only [AssertTableUUID(meta.uuid)] (no extra AssignUUID requirement) when the action matches existing UUID"]
+    fn test_update_requirements_assign_uuid_success_per_java() {
+        // Java: assignUUID.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's assignUUIDFailure asserts forUpdateTable(meta, [AssignUUID(other-uuid)]) throws CommitFailedException(\"Cannot reassign uuid\") when the proposed uuid differs from metadata.uuid"]
+    fn test_update_requirements_assign_uuid_failure_per_java() {
+        // Java: assignUUIDFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's assignUUIDToView mirrors assignUUID for forReplaceView with the same matching-UUID precondition"]
+    fn test_update_requirements_assign_uuid_to_view_success_per_java() {
+        // Java: assignUUIDToView.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's assignUUIDToViewFailure mirrors assignUUIDFailure for forReplaceView"]
+    fn test_update_requirements_assign_uuid_to_view_failure_per_java() {
+        // Java: assignUUIDToViewFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's upgradeFormatVersion(2) and (3) ValueSource cases assert forUpdateTable(meta, [UpgradeFormatVersion(N)]) emits [AssertTableUUID(meta.uuid)] only (no per-version requirement)"]
+    fn test_update_requirements_upgrade_format_version_per_java() {
+        // Java: upgradeFormatVersion @ ValueSource(ints = {2, 3}).
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's upgradeFormatVersionForView mirrors upgradeFormatVersion for forReplaceView"]
+    fn test_update_requirements_upgrade_format_version_for_view_per_java() {
+        // Java: upgradeFormatVersionForView.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's addSchema asserts forUpdateTable(meta, [AddSchema(schema)]) emits [AssertTableUUID, AssertLastAssignedFieldId(meta.last_column_id)]"]
+    fn test_update_requirements_add_schema_per_java() {
+        // Java: addSchema.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's addSchemaFailure simulates concurrent last_column_id drift and asserts forUpdateTable still emits the AssertLastAssignedFieldId(orig) requirement so the commit fails server-side"]
+    fn test_update_requirements_add_schema_failure_per_java() {
+        // Java: addSchemaFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's addSchemaForView mirrors addSchema for forReplaceView; result is [AssertViewUUID, AssertLastAssignedFieldId(meta.last_column_id)]"]
+    fn test_update_requirements_add_schema_for_view_per_java() {
+        // Java: addSchemaForView.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setCurrentSchema asserts forUpdateTable(meta, [SetCurrentSchema(id)]) emits [AssertTableUUID, AssertCurrentSchemaID(meta.current_schema_id)]"]
+    fn test_update_requirements_set_current_schema_per_java() {
+        // Java: setCurrentSchema.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setCurrentSchemaFailure pins concurrent schema drift; the requirement list must include the AssertCurrentSchemaID precondition that fails on the diverged state"]
+    fn test_update_requirements_set_current_schema_failure_per_java() {
+        // Java: setCurrentSchemaFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's addPartitionSpec asserts forUpdateTable(meta, [AddPartitionSpec(spec)]) emits [AssertTableUUID, AssertLastAssignedPartitionId(meta.last_partition_id)]"]
+    fn test_update_requirements_add_partition_spec_per_java() {
+        // Java: addPartitionSpec.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's addPartitionSpecFailure pins concurrent last_partition_id drift; the AssertLastAssignedPartitionId precondition must trigger commit failure"]
+    fn test_update_requirements_add_partition_spec_failure_per_java() {
+        // Java: addPartitionSpecFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setDefaultPartitionSpec asserts forUpdateTable(meta, [SetDefaultPartitionSpec(id)]) emits [AssertTableUUID, AssertDefaultSpecID(meta.default_spec_id)]"]
+    fn test_update_requirements_set_default_partition_spec_per_java() {
+        // Java: setDefaultPartitionSpec.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setDefaultPartitionSpecFailure pins concurrent default_spec_id drift"]
+    fn test_update_requirements_set_default_partition_spec_failure_per_java() {
+        // Java: setDefaultPartitionSpecFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's removePartitionSpec asserts forUpdateTable(meta, [RemovePartitionSpecs(spec_ids)]) emits [AssertTableUUID, AssertDefaultSpecID, AssertLastAssignedPartitionId]"]
+    fn test_update_requirements_remove_partition_specs_per_java() {
+        // Java: removePartitionSpec.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testRemovePartitionSpecsWithBranch pins the branch-aware variant; an AssertRefSnapshotId is added for each branch the removed spec was referenced from"]
+    fn test_update_requirements_remove_partition_specs_with_branch_per_java() {
+        // Java: testRemovePartitionSpecsWithBranch.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testRemovePartitionSpecsWithSpecChangedFailure pins concurrent default_spec_id drift while RemovePartitionSpecs is in flight"]
+    fn test_update_requirements_remove_partition_specs_spec_changed_failure_per_java() {
+        // Java: testRemovePartitionSpecsWithSpecChangedFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testRemovePartitionSpecsWithBranchChangedFailure pins concurrent branch head drift while RemovePartitionSpecs is in flight"]
+    fn test_update_requirements_remove_partition_specs_branch_changed_failure_per_java() {
+        // Java: testRemovePartitionSpecsWithBranchChangedFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's removeSchemas asserts forUpdateTable(meta, [RemoveSchemas(ids)]) emits [AssertTableUUID, AssertCurrentSchemaID, AssertLastAssignedFieldId]"]
+    fn test_update_requirements_remove_schemas_per_java() {
+        // Java: removeSchemas.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testRemoveSchemasWithBranch pins the branch-aware variant for RemoveSchemas"]
+    fn test_update_requirements_remove_schemas_with_branch_per_java() {
+        // Java: testRemoveSchemasWithBranch.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testRemoveSchemasWithSchemaChangedFailure pins concurrent current_schema_id drift while RemoveSchemas is in flight"]
+    fn test_update_requirements_remove_schemas_schema_changed_failure_per_java() {
+        // Java: testRemoveSchemasWithSchemaChangedFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testRemoveSchemasWithBranchChangedFailure pins concurrent branch head drift while RemoveSchemas is in flight"]
+    fn test_update_requirements_remove_schemas_branch_changed_failure_per_java() {
+        // Java: testRemoveSchemasWithBranchChangedFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's addSortOrder asserts forUpdateTable(meta, [AddSortOrder(...)]) emits [AssertTableUUID] (sort order adds no extra precondition since sort_order_id is server-assigned)"]
+    fn test_update_requirements_add_sort_order_per_java() {
+        // Java: addSortOrder.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setDefaultSortOrder asserts forUpdateTable(meta, [SetDefaultSortOrder(id)]) emits [AssertTableUUID, AssertDefaultSortOrderID(meta.default_sort_order_id)]"]
+    fn test_update_requirements_set_default_sort_order_per_java() {
+        // Java: setDefaultSortOrder.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setDefaultSortOrderFailure pins concurrent default_sort_order_id drift"]
+    fn test_update_requirements_set_default_sort_order_failure_per_java() {
+        // Java: setDefaultSortOrderFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setAndRemoveStatistics asserts forUpdateTable(meta, [SetStatistics, RemoveStatistics]) emits [AssertTableUUID]; the statistics actions don't add per-snapshot preconditions"]
+    fn test_update_requirements_set_and_remove_statistics_per_java() {
+        // Java: setAndRemoveStatistics.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's addAndRemoveSnapshot asserts forUpdateTable(meta, [AddSnapshot, RemoveSnapshots([id])]) emits [AssertTableUUID, AssertRefSnapshotId(\"main\", current)]"]
+    fn test_update_requirements_add_and_remove_snapshot_per_java() {
+        // Java: addAndRemoveSnapshot.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's addAndRemoveSnapshots pins the bulk variant with multiple snapshot ids; same AssertRefSnapshotId precondition for the affected refs"]
+    fn test_update_requirements_add_and_remove_snapshots_bulk_per_java() {
+        // Java: addAndRemoveSnapshots.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setAndRemoveSnapshotRef asserts forUpdateTable(meta, [SetSnapshotRef(ref,...), RemoveSnapshotRef(ref)]) emits [AssertTableUUID, AssertRefSnapshotId(ref, ...)]"]
+    fn test_update_requirements_set_and_remove_snapshot_ref_per_java() {
+        // Java: setAndRemoveSnapshotRef.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setSnapshotRefFailure pins concurrent ref drift; the AssertRefSnapshotId precondition must trigger commit failure"]
+    fn test_update_requirements_set_snapshot_ref_failure_per_java() {
+        // Java: setSnapshotRefFailure.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setAndRemoveProperties asserts forUpdateTable(meta, [SetProperties, RemoveProperties]) emits [AssertTableUUID] only — property changes have no extra precondition"]
+    fn test_update_requirements_set_and_remove_properties_per_java() {
+        // Java: setAndRemoveProperties.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setAndRemovePropertiesForView mirrors setAndRemoveProperties for forReplaceView with [AssertViewUUID]"]
+    fn test_update_requirements_set_and_remove_properties_for_view_per_java() {
+        // Java: setAndRemovePropertiesForView.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setLocation asserts forUpdateTable(meta, [SetLocation(path)]) emits [AssertTableUUID]"]
+    fn test_update_requirements_set_location_per_java() {
+        // Java: setLocation.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setLocationForView mirrors setLocation for forReplaceView with [AssertViewUUID]"]
+    fn test_update_requirements_set_location_for_view_per_java() {
+        // Java: setLocationForView.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's addViewVersion asserts forReplaceView(viewMeta, [AddViewVersion(...)]) emits [AssertViewUUID]"]
+    fn test_update_requirements_add_view_version_per_java() {
+        // Java: addViewVersion.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's setCurrentViewVersion asserts forReplaceView(viewMeta, [SetCurrentViewVersion(id)]) emits [AssertViewUUID]"]
+    fn test_update_requirements_set_current_view_version_per_java() {
+        // Java: setCurrentViewVersion.
+    }
 }

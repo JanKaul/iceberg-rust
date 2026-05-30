@@ -755,4 +755,82 @@ mod tests {
             other => panic!("expected Azure DFS, got {other:?}"),
         }
     }
+
+    // --- Port: TestFileURI (Apache Iceberg Java, 10 @Test) -----------------
+    //
+    // Java's `FileURI` lives under the `actions` package and powers the
+    // `RemoveOrphanFiles` action: each candidate file URI is wrapped in a
+    // FileURI together with a scheme- and authority-mapping table, and
+    // `schemeMatch` / `authorityMatch` compare URIs after applying those
+    // mappings (with explicit null/empty handling rules).
+    //
+    // Rust has no `FileURI` struct and no `RemoveOrphanFiles` action. The
+    // only nearby behaviour is `Bucket::from_path`, which parses a small
+    // set of cloud-storage schemes (s3, gcs, gs, abfs[s], az, adl, azure,
+    // https://*.dfs.core.windows.net). The Java scheme/authority match
+    // predicates and the mapping tables have no Rust equivalent — every
+    // Java scenario is pinned `#[ignore]` below. When Rust grows a
+    // `FileUri::scheme_match(&Self, &Self) -> bool` predicate, removing
+    // `#[ignore]` and replacing the bodies with the real call will flip
+    // these to passing tests.
+
+    #[test]
+    #[ignore = "feature gap: Rust has no FileURI::scheme_match predicate; Java's testSchemeMatchWithSameScheme constructs two hdfs:// FileURIs with empty mapping tables and asserts schemeMatch == true"]
+    fn test_scheme_match_with_same_scheme_per_java() {
+        // Java: testSchemeMatchWithSameScheme.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same scheme_match predicate absent; Java's testSchemeMatchWithDifferentScheme compares hdfs:// vs file:// and expects false"]
+    fn test_scheme_match_with_different_scheme_per_java() {
+        // Java: testSchemeMatchWithDifferentScheme.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same scheme_match predicate absent; Java's testSchemeMatchWithEmptyScheme compares hdfs:// vs path-only `/path` and expects false (empty scheme is not a wildcard)"]
+    fn test_scheme_match_with_empty_scheme_per_java() {
+        // Java: testSchemeMatchWithEmptyScheme.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same scheme_match predicate absent; Java's testSchemeMatchWithNullScheme constructs two no-arg FileURIs, sets one scheme = null, the other = \"hdfs\", and expects true (null is treated as wildcard)"]
+    fn test_scheme_match_with_null_scheme_per_java() {
+        // Java: testSchemeMatchWithNullScheme.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust has no FileURI::authority_match predicate; Java's testAuthorityMatchWithSameAuthority asserts hdfs://namenode/path matches itself"]
+    fn test_authority_match_with_same_authority_per_java() {
+        // Java: testAuthorityMatchWithSameAuthority.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same authority_match predicate absent; Java's testAuthorityMatchWithDifferentAuthority distinguishes hdfs://namenode1 vs hdfs://namenode2"]
+    fn test_authority_match_with_different_authority_per_java() {
+        // Java: testAuthorityMatchWithDifferentAuthority.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same authority_match predicate absent; Java's testAuthorityMatchWithEmptyAuthority compares hdfs://namenode vs file:/// and expects false"]
+    fn test_authority_match_with_empty_authority_per_java() {
+        // Java: testAuthorityMatchWithEmptyAuthority.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same authority_match predicate absent; Java's testAuthorityMatchWithNullAuthority sets one authority = null and expects match (null is wildcard)"]
+    fn test_authority_match_with_null_authority_per_java() {
+        // Java: testAuthorityMatchWithNullAuthority.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust has no scheme mapping table; Java's testSchemeMapping passes {HDFS->hdfs} and expects FileURI(HDFS://namenode/path).schemeMatch(FileURI(hdfs://namenode/path)) == true"]
+    fn test_scheme_mapping_per_java() {
+        // Java: testSchemeMapping.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Rust has no authority mapping table; Java's testAuthorityMapping passes {OLD-NODE->new-node} and expects FileURI(hdfs://OLD-NODE/path).authorityMatch(FileURI(hdfs://new-node/path)) == true"]
+    fn test_authority_mapping_per_java() {
+        // Java: testAuthorityMapping.
+    }
 }
