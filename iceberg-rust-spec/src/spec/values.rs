@@ -3523,4 +3523,140 @@ mod tests {
         .collect();
         assert_invalid_casts(Value::Binary(vec![0, 1, 2]), &invalid);
     }
+
+    // --- TestPrimitiveWrapper port (V3 Variant) ---------------------------
+    //
+    // Java's `VariantPrimitive<T>` is the wrapper around a single
+    // primitive value embedded in a V3 Variant. `Variants.of(value)`
+    // / `Variants.ofNull()` / `Variants.ofIsoDate(...)` /
+    // `Variants.ofIsoTimestamptz(...)` / `Variants.ofIsoTimestampntz(...)`
+    // construct the wrappers. `primitive.writeTo(buffer, offset)`
+    // serializes; `Variants.value(metadata, buffer)` deserializes;
+    // `Conversions.toByteBuffer(VariantType, variant)` /
+    // `Conversions.fromByteBuffer(VariantType, buffer)` round-trip a
+    // full Variant (metadata + value).
+    //
+    // Rust today has only the type tag `PrimitiveType::Variant` in
+    // `types.rs` — no `Variant` value enum variant, no `VariantPrimitive`
+    // wrapper, no serializer. The two Java @ParameterizedTest methods,
+    // each invoked once per the 30-element PRIMITIVES list, are pinned
+    // as 2 Rust `#[ignore]` tests; each test body documents the
+    // PRIMITIVES list inline so a future `spec::variant::Primitive`
+    // module has a ready spec.
+
+    #[test]
+    #[ignore = "feature gap: no spec::variant::Primitive::write_to / Variants::value; round-trip via low-level byte buffer is unreachable"]
+    fn test_variant_primitive_value_serialization_per_java() {
+        // Java: testPrimitiveValueSerialization (parametrized over PRIMITIVES).
+        // For each primitive p:
+        //   - allocate ByteBuffer of size = p.sizeInBytes() + 1000, LE.
+        //   - p.writeTo(buffer, 300).
+        //   - slice the buffer to [300, 300 + p.sizeInBytes()).
+        //   - actual = Variants.value(EMPTY_METADATA, slice).
+        //   - assert: actual.type() == p.type();
+        //             actual is VariantPrimitive;
+        //             actual.asPrimitive().get() == p.get().
+        //
+        // PRIMITIVES (30 values):
+        //   null, true, false, byte(±34), short(±1234), int(±12345),
+        //   long(±9876543210), float(±10.11), double(±14.3),
+        //   ISO date "2024-11-07" + "1957-11-07",
+        //   ISO timestamptz "2024-11-07T12:33:54.123456+00:00" + 1957 mirror,
+        //   ISO timestampntz "2024-11-07T12:33:54.123456" + 1957 mirror,
+        //   Decimal4 (±12345.6789), Decimal8 (±123456789.987654321),
+        //   Decimal16 (±9876543210.123456789),
+        //   ByteBuffer([0x0a, 0x0b, 0x0c, 0x0d]),
+        //   short string 63 chars (9 * "iceberg"),
+        //   string 64 chars (RandomUtil.generateString(64, Random(1))).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no spec::variant::Variant + Conversions::to_byte_buffer / from_byte_buffer for VariantType"]
+    fn test_variant_primitive_byte_buffer_conversion_per_java() {
+        // Java: testByteBufferConversion (parametrized over PRIMITIVES).
+        // For each primitive p:
+        //   - metadata = Variants.metadata("$['primitive']").
+        //   - expected = Variant.of(metadata, p).
+        //   - bytes = Conversions.toByteBuffer(VariantType, expected).
+        //   - read = Conversions.fromByteBuffer(VariantType, bytes).
+        //   - assert metadata bytes match; value bytes match.
+    }
+
+    // --- TestValueArray port (V3 Variant array) ----------------------------
+    //
+    // Java's `ValueArray` is the V3 Variant array writer. Public API:
+    //   - `ValueArray::new()` + `arr.add(VariantValue)`
+    //   - `arr.num_elements() -> int`
+    //   - `arr.get(idx) -> VariantValue` (untyped accessor; assert via
+    //      `.as_primitive()` or VariantTestUtil::assertVariantString)
+    //   - `arr.write_to(buffer, offset)` serializes
+    //   - On read, `Variants.value(metadata, slice)` returns a
+    //     SerializedArray whose `get(idx)` matches the original element
+    //   - Multi-byte offset sizes (2/3/4 bytes) selected by the writer
+    //     based on the maximum element size; tested by appending a
+    //     string longer than 255 / 65535 / 16M bytes.
+    //
+    // Rust has no Variant value type, no array writer, no serialization
+    // format implementation. 6 Java methods → 6 Rust #[ignore] tests.
+
+    #[test]
+    #[ignore = "feature gap: no ValueArray writer; cannot exercise indexed element access"]
+    fn test_variant_value_array_element_access_per_java() {
+        // Java: testElementAccess.
+        // ELEMENTS = [Int(34), String("iceberg"), Decimal("12.21")].
+        // arr.num_elements() == 3;
+        // arr.get(0).as_primitive().get() == 34;
+        // arr.get(1).as_primitive().get() == "iceberg";
+        // arr.get(2).as_primitive().get() == Decimal("12.21").
+    }
+
+    #[test]
+    #[ignore = "feature gap: no ValueArray::write_to / SerializedArray reader; minimal-buffer round-trip unreachable"]
+    fn test_variant_value_array_serialization_minimal_buffer_per_java() {
+        // Java: testSerializationMinimalBuffer.
+        // Serialize ELEMENTS into a buffer of exactly arr.sizeInBytes(),
+        // read back; assert num_elements + per-index get() matches.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no ValueArray::write_to / SerializedArray reader; large-buffer (offset=300) round-trip unreachable"]
+    fn test_variant_value_array_serialization_large_buffer_per_java() {
+        // Java: testSerializationLargeBuffer.
+        // Serialize ELEMENTS into a buffer of size 1000 + arr.sizeInBytes(),
+        // writing at offset 300. Read back via slice [300, 300+size).
+        // Same assertions as the minimal-buffer test.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no Variant::of + Conversions::to_byte_buffer / from_byte_buffer for an array-valued variant"]
+    fn test_variant_value_array_byte_buffer_conversion_per_java() {
+        // Java: testByteBufferConversion.
+        // metadata = Variants.metadata("$['arr']");
+        // expected = Variant.of(metadata, arr);
+        // bytes = Conversions.toByteBuffer(VariantType, expected);
+        // read = Conversions.fromByteBuffer(VariantType, bytes);
+        // assert metadata + value bytes match.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no ValueArray multi-byte offset sizing; the writer must auto-select 1/2/3/4-byte offsets based on the largest element"]
+    fn test_variant_value_array_multi_byte_offsets_per_java() {
+        // Java: testMultiByteOffsets (parametrized over len = {300,
+        // 70_000, 16_777_300}).
+        // For each len:
+        //   - bigString = random string of `len` chars.
+        //   - data = ELEMENTS + [bigString].
+        //   - serialize with offset=300; round-trip.
+        //   - assert array has 4 elements; per-index types + values
+        //     match (INT32, string "iceberg", DECIMAL4, big string).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no ValueArray; cannot exercise the 10_000-element fan-out path"]
+    fn test_variant_value_array_large_array_per_java() {
+        // Java: testLargeArray.
+        // elements = [random 10-char string × 10_000].
+        // Serialize + round-trip. Assert array has 10_000 elements;
+        // every element matches by index.
+    }
 }
