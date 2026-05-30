@@ -38,7 +38,7 @@ use iceberg_rust::{
     },
 };
 use iceberg_rust_spec::spec::{
-    manifest::{partition_value_schema, ManifestEntry, Status},
+    manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::Content as ManifestListContent,
     partition::{PartitionField, PartitionSpec, Transform},
     schema::Schema,
@@ -653,10 +653,140 @@ async fn test_manifest_writer_v2_forward_compatibility_per_java() {
     // Java: testV2ForwardCompatibility.
 }
 
+/// Java: `testManifestsWithoutRowStats` — a manifest entry's `DataFile`
+/// is allowed to omit the per-column statistics maps (`column_sizes`,
+/// `value_counts`, `null_value_counts`, `nan_value_counts`,
+/// `distinct_counts`, `lower_bounds`, `upper_bounds`). Required fields
+/// (`record_count`, `file_size_in_bytes`) must still be present. This
+/// test writes a manifest whose entries carry None for every optional
+/// stats field, then verifies they round-trip back through
+/// `ManifestReader::new` as None.
 #[tokio::test]
-#[ignore = "feature gap: manifests-without-row-stats handling"]
 async fn test_manifest_writer_without_row_stats_per_java() {
-    // Java: testManifestsWithoutRowStats.
+    let table = fresh_table("manifest_writer_without_row_stats").await;
+
+    // Generate real DataFiles so we have valid partition values + paths
+    // to copy over into the stripped-stats entries.
+    let original_files = write_parquet_partitioned(
+        &table,
+        stream::iter(vec![Ok(batch(&[
+            (10, "us-east"),
+            (20, "us-east"),
+            (30, "us-west"),
+        ]))]),
+        None,
+    )
+    .await
+    .expect("write");
+    assert!(!original_files.is_empty());
+
+    // Build a "no stats" twin of each DataFile: required fields preserved,
+    // every optional stats map set to None.
+    let stripped_files: Vec<DataFile> = original_files
+        .iter()
+        .map(|df| {
+            DataFile::builder()
+                .with_content(df.content().clone())
+                .with_file_path(df.file_path().clone())
+                .with_file_format(df.file_format().clone())
+                .with_partition(df.partition().clone())
+                .with_record_count(*df.record_count())
+                .with_file_size_in_bytes(*df.file_size_in_bytes())
+                .with_column_sizes(None)
+                .with_value_counts(None)
+                .with_null_value_counts(None)
+                .with_nan_value_counts(None)
+                .with_distinct_counts(None)
+                .with_lower_bounds(None)
+                .with_upper_bounds(None)
+                .build()
+                .expect("strip-stats DataFile build")
+        })
+        .collect();
+
+    let metadata = table.metadata();
+    let partition_fields = metadata
+        .current_partition_fields(None)
+        .expect("partition fields");
+    let part_schema = partition_value_schema(&partition_fields).expect("partition value schema");
+    let avro_schema =
+        ManifestEntry::schema(&part_schema, &FormatVersion::V2).expect("manifest entry schema");
+
+    let manifest_path = format!("{}/metadata/no-row-stats-manifest.avro", metadata.location);
+    let snapshot_id = 1357_2468_9999_0001_i64;
+    let mut writer = ManifestWriter::new(
+        &manifest_path,
+        snapshot_id,
+        &avro_schema,
+        metadata,
+        ManifestListContent::Data,
+        None,
+    )
+    .expect("ManifestWriter::new");
+
+    for data_file in &stripped_files {
+        let entry = ManifestEntry::builder()
+            .with_format_version(FormatVersion::V2)
+            .with_status(Status::Added)
+            .with_snapshot_id(snapshot_id)
+            .with_sequence_number(1)
+            .with_data_file(data_file.clone())
+            .build()
+            .expect("manifest entry build");
+        writer.append(entry).expect("append");
+    }
+
+    let object_store = table.object_store();
+    let manifest_list_entry = writer.finish(object_store.clone()).await.expect("finish");
+    assert_eq!(manifest_list_entry.added_snapshot_id, snapshot_id);
+
+    let bytes = object_store
+        .get(&ObjectStorePath::from(strip_prefix(&manifest_path)))
+        .await
+        .expect("fetch")
+        .bytes()
+        .await
+        .expect("bytes")
+        .to_vec();
+
+    let reader = ManifestReader::new(&bytes[..]).expect("ManifestReader::new");
+    let mut entry_count = 0;
+    for r in reader {
+        let entry = r.expect("entry");
+        let df = entry.data_file();
+        assert!(
+            df.column_sizes().is_none(),
+            "column_sizes must read back as None for stats-less manifest, got {:?}",
+            df.column_sizes(),
+        );
+        assert!(df.value_counts().is_none(), "value_counts must be None");
+        assert!(
+            df.null_value_counts().is_none(),
+            "null_value_counts must be None",
+        );
+        assert!(
+            df.nan_value_counts().is_none(),
+            "nan_value_counts must be None",
+        );
+        assert!(
+            df.distinct_counts().is_none(),
+            "distinct_counts must be None",
+        );
+        assert!(df.lower_bounds().is_none(), "lower_bounds must be None");
+        assert!(df.upper_bounds().is_none(), "upper_bounds must be None");
+        // Required fields must still be present and non-zero.
+        assert!(
+            *df.record_count() > 0,
+            "record_count must round-trip as the original value",
+        );
+        assert!(*df.file_size_in_bytes() > 0, "file_size_in_bytes must > 0");
+        entry_count += 1;
+    }
+    assert_eq!(
+        entry_count,
+        stripped_files.len(),
+        "every stats-less entry must read back",
+    );
 }
 
 /// Java: `testManifestsPartitionSummary` — the manifest list entry
