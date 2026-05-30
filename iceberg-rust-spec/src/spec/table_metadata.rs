@@ -2867,4 +2867,118 @@ mod tests {
         //       table.current_snapshot().schema_id == 1;
         //       table.snapshots[*].schema_id == [0, 1, 1].
     }
+
+    // --- TestTableMetadataParserCodec port ---------------------------------
+    //
+    // Java's `TableMetadataParser.Codec` enum tags the on-disk compression
+    // applied to a `*.metadata.json` file. Static methods:
+    //   - `Codec.fromName(name)` — case-insensitive lookup ("gzip" | "none");
+    //     rejects unknown names with 'Invalid codec name: <name>'.
+    //   - `Codec.fromFileName(path)` — detects the codec from the file
+    //     suffix; rejects non-metadata filenames with
+    //     '<path> is not a valid metadata file'.
+    //
+    // Supported filename patterns:
+    //   v3.metadata.json                                  -> NONE
+    //   v3-<uuid>.metadata.json                           -> NONE
+    //   v3.gz.metadata.json                               -> GZIP
+    //   v3-<uuid>.gz.metadata.json                        -> GZIP
+    //   v3-<uuid>.metadata.json.gz                        -> GZIP
+    //
+    // Rust has NO `MetadataCodec` enum and no gzip-detection helper.
+    // `TableMetadata` reads/writes JSON directly without an encoding
+    // pre-pass. All 3 Java @Test scenarios are pinned `#[ignore]` for an
+    // eventual `metadata::Codec::{from_name, from_file_name}` API.
+
+    #[test]
+    #[ignore = "feature gap: no metadata::Codec enum; Codec::from_name should be case-insensitive ('gzip'/'gZiP' -> Gzip, 'none'/'nOnE' -> None); from_file_name should detect codec from path suffix"]
+    fn test_table_metadata_parser_codec_compression_codec_per_java() {
+        // Java: testCompressionCodec.
+        // 9 sub-assertions covering name lookup (4 cases incl. mixed-case)
+        // and filename detection (5 cases for both Gzip and None patterns).
+    }
+
+    #[test]
+    #[ignore = "feature gap: Codec::from_name('invalid') must error with 'Invalid codec name: invalid'"]
+    fn test_table_metadata_parser_codec_invalid_codec_name_per_java() {
+        // Java: testInvalidCodecName.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Codec::from_file_name('path/to/file.parquet') must error with '<path> is not a valid metadata file'"]
+    fn test_table_metadata_parser_codec_invalid_file_name_per_java() {
+        // Java: testInvalidFileName.
+    }
+
+    // --- TestCreateSnapshotEvent port --------------------------------------
+    //
+    // Java's `Listeners.register(listener, CreateSnapshotEvent.class)` wires
+    // a callback that receives a `CreateSnapshotEvent { summary: Map<String,
+    // String>, ... }` every time `table.newAppend()/newDelete()/etc.commit()`
+    // produces a new snapshot. The event's `summary()` exposes the same
+    // canonical metric keys that get written to the snapshot's summary:
+    // added-records/added-data-files/total-records/total-data-files and
+    // deleted-records/deleted-data-files on a delete commit.
+    //
+    // Rust has NO events module, no Listeners registry, and no commit-time
+    // notification hook. Both @TestTemplate scenarios are pinned for an
+    // eventual `events::Listener<CreateSnapshotEvent>` trait.
+
+    #[test]
+    #[ignore = "feature gap: no events::Listeners::register / CreateSnapshotEvent; append commit must notify listener with summary {added-records, added-data-files, total-records, total-data-files}"]
+    fn test_create_snapshot_event_append_commit_event_per_java() {
+        // Java: testAppendCommitEvent.
+        // After 1st append(FILE_A): summary has added-records=1,
+        // added-data-files=1, total-records=1, total-data-files=1.
+        // After 2nd append(FILE_A): added-records=1, added-data-files=1,
+        // total-records=2, total-data-files=2.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same listener flow but delete commit must also fire with deleted-records / deleted-data-files / total-records / total-data-files keys"]
+    fn test_create_snapshot_event_append_and_delete_commit_event_per_java() {
+        // Java: testAppendAndDeleteCommitEvent.
+        // append(FILE_A, FILE_B) -> {added-records:2, added-data-files:2,
+        //                            total-records:2, total-data-files:2}.
+        // delete(FILE_A)         -> {deleted-records:1, deleted-data-files:1,
+        //                            total-records:1, total-data-files:1}.
+    }
+
+    // --- TestSnapshotChanges port ------------------------------------------
+    //
+    // Java's `SnapshotChanges.builderFor(table).snapshot(s).build()` is a
+    // diff-accessor over a snapshot that exposes:
+    //   - `.addedDataFiles()` — Iterable<DataFile> added in `s`.
+    //   - `.removedDataFiles()` — Iterable<DataFile> removed in `s`.
+    // Both calls are cached (`isSameAs` equality on the second invocation).
+    //
+    // Rust has NO SnapshotChanges struct and no per-snapshot file diff
+    // accessor (the data is implicit in manifest read paths but isn't
+    // exposed as a builder-style API). All 3 @Test scenarios are pinned
+    // for an eventual `snapshot_changes::SnapshotChanges` builder.
+
+    #[test]
+    #[ignore = "feature gap: no SnapshotChanges::builder_for(table).snapshot(s).build().added_data_files(); should return Iterable<DataFile> for the snapshot's additions"]
+    fn test_snapshot_changes_added_data_files_per_java() {
+        // Java: testAddedDataFiles.
+        // newFastAppend.appendFile('/path/to/test-data.parquet').commit();
+        // SnapshotChanges.added_data_files has 1 entry whose path matches.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no SnapshotChanges; .removed_data_files() must return Iterable<DataFile> for the snapshot's removals AND cache the iterable across repeated calls (isSameAs equality)"]
+    fn test_snapshot_changes_removed_data_files_per_java() {
+        // Java: testRemovedDataFiles.
+        // Append (fileToRemove + fileToKeep). Delete (fileToRemove).
+        // SnapshotChanges.removed_data_files has 1 entry matching
+        // fileToRemove; two calls return the SAME Iterable reference.
+    }
+
+    #[test]
+    #[ignore = "feature gap: SnapshotChanges must cache results — first and second calls to .removed_data_files() return the same Iterable reference"]
+    fn test_snapshot_changes_caching_per_java() {
+        // Java: testSnapshotChangesCaching.
+        // Append (file1 + file2). Delete (file1).
+        // changes.removed_data_files() (1st) == (2nd) by identity.
+    }
 }
