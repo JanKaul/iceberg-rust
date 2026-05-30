@@ -702,4 +702,193 @@ mod tests {
         assert_eq!(spec.spec_id(), &0);
         assert!(spec.fields().is_empty());
     }
+
+    // --- Port: TestPartitioning (Apache Iceberg Java, 26 @Test) ----------
+    //
+    // Java's `Partitioning` is a static helper that synthesises a single
+    // `StructType` from a table's multi-spec history (`Partitioning
+    // ::partitionType(table)`) and projects a subset based on a query schema
+    // (`Partitioning::groupingKeyType(table, projectedSchema, deletedFields)`).
+    // Both functions reconcile field names, IDs, transforms across the
+    // partition_specs map plus the schemas map to honour rename / drop /
+    // re-add / void-transform rules that differ between v1 and v2.
+    //
+    // Rust has no analogue. The data the helpers reduce over IS present —
+    // `metadata.partition_specs` holds every spec the table has ever had —
+    // but there is no reducer. `PartitionSpec::data_types(schema)` exposes
+    // the SINGLE-SPEC view of partition field types (already tested in
+    // cycle 20 via `metadata.partition_fields(snapshot_id)`).
+    //
+    // Each Java scenario below is pinned as a single `#[ignore]` Rust test
+    // documenting the input setup and the unified `StructType` Java expects.
+    // When Rust grows `Partitioning::partition_type(&TableMetadata) ->
+    // Result<StructType, Error>` and `Partitioning::grouping_key_type(...)`,
+    // these tests can be wired up by removing the `#[ignore]` and replacing
+    // the stub call with the real helper. The leading `partitioning_*` doc
+    // comment names each helper.
+
+    // ---- partitionType scenarios (8 Java @Test) -----------------------------
+
+    #[test]
+    #[ignore = "feature gap: Rust has no Partitioning::partition_type(&TableMetadata) reducer over partition_specs; Java pins V1 spec evolution (add bucket then remove fields) and asserts the unified type is StructType.of(optional 1000 data:string, optional 1001 category_bucket_8:int)"]
+    fn test_partition_type_v1_spec_evolution_per_java() {
+        // Java: testPartitionTypeWithSpecEvolutionInV1Tables.
+        // Initial spec: identity("data"); evolved: + bucket("category", 8).
+        // Java's Partitioning.partitionType yields 1000 data:string + 1001
+        // category_bucket_8:int (both optional).
+    }
+
+    #[test]
+    #[ignore = "feature gap: same gap as above; Java's testPartitionTypeWithSpecEvolutionInV2Tables expects {1000 data:string, 1001 category:string} when v2 removes `data` and adds `category` — v2 drops removed fields rather than retaining as void transforms"]
+    fn test_partition_type_v2_spec_evolution_per_java() {
+        // Java: testPartitionTypeWithSpecEvolutionInV2Tables.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testPartitionTypeWithRenamesInV1Table asserts that after renaming p1 -> p2 the unified type reports the new name {1000 p2:string, 1001 category:string}; Rust has no rename evolution helper on PartitionSpec"]
+    fn test_partition_type_v1_renames_per_java() {
+        // Java: testPartitionTypeWithRenamesInV1Table.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testPartitionTypeWithRenamesInV1TableCaseInsensitive asserts case-insensitive identity(\"DATA\") in the initial spec round-trips and the rename {p1 -> p2} still applies; Rust PartitionSpec name matching is strictly case-sensitive"]
+    fn test_partition_type_v1_renames_case_insensitive_per_java() {
+        // Java: testPartitionTypeWithRenamesInV1TableCaseInsensitive.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testPartitionTypeWithAddingBackSamePartitionFieldInV1Table asserts v1 retains the removed `data` slot as void(data_1000:string) and the re-added `data` gets a new column 1001; Rust has no void-transform retention logic across specs"]
+    fn test_partition_type_v1_adding_back_same_field_per_java() {
+        // Java: testPartitionTypeWithAddingBackSamePartitionFieldInV1Table.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testPartitionTypeWithAddingBackSamePartitionFieldInV2Table asserts v2 reuses the original spec when the same field is re-added — the unified type is a single {1000 data:string}; Rust has no spec-reuse logic"]
+    fn test_partition_type_v2_adding_back_same_field_per_java() {
+        // Java: testPartitionTypeWithAddingBackSamePartitionFieldInV2Table.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testPartitionTypeWithIncompatibleSpecEvolution swaps the spec without going through updateSpec; Partitioning.partitionType throws ValidationException(\"Conflicting partition fields\"); Rust has no validator that detects conflicting fields across specs"]
+    fn test_partition_type_incompatible_spec_evolution_rejected_per_java() {
+        // Java: testPartitionTypeWithIncompatibleSpecEvolution.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Java's testPartitionTypeIgnoreInactiveFields drops a partition field + the underlying schema column, then asserts the unified type omits the inactive field; Rust has no inactive-field filtering across specs"]
+    fn test_partition_type_ignores_inactive_fields_per_java() {
+        // Java: testPartitionTypeIgnoreInactiveFields.
+    }
+
+    // ---- groupingKeyType scenarios (15 Java @Test) --------------------------
+
+    #[test]
+    #[ignore = "feature gap: Rust has no Partitioning::grouping_key_type(&TableMetadata, &Schema, &Set<i32>) that projects the unified partition type onto the query schema; Java's testGroupingKeyTypeWithSpecEvolutionInV1Tables pins the v1 evolution case"]
+    fn test_grouping_key_type_v1_spec_evolution_per_java() {
+        // Java: testGroupingKeyTypeWithSpecEvolutionInV1Tables.
+    }
+
+    #[test]
+    #[ignore = "feature gap: same as above; testGroupingKeyTypeWithSpecEvolutionInV2Tables pins v2 spec evolution (drop-then-add)"]
+    fn test_grouping_key_type_v2_spec_evolution_per_java() {
+        // Java: testGroupingKeyTypeWithSpecEvolutionInV2Tables.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithDroppedPartitionFieldInV1Tables pins v1 where a dropped field still appears (as void) in the grouping key"]
+    fn test_grouping_key_type_v1_dropped_field_per_java() {
+        // Java: testGroupingKeyTypeWithDroppedPartitionFieldInV1Tables.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithDroppedPartitionFieldInV2Tables pins v2 where a dropped field is absent from the grouping key"]
+    fn test_grouping_key_type_v2_dropped_field_per_java() {
+        // Java: testGroupingKeyTypeWithDroppedPartitionFieldInV2Tables.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithRenamesInV1Table pins that the grouping key uses the latest field names after a rename in v1"]
+    fn test_grouping_key_type_v1_renames_per_java() {
+        // Java: testGroupingKeyTypeWithRenamesInV1Table.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithRenamesInV1TableCaseInsensitive pins case-insensitive identity field references work in v1"]
+    fn test_grouping_key_type_v1_renames_case_insensitive_per_java() {
+        // Java: testGroupingKeyTypeWithRenamesInV1TableCaseInsensitive.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithRenamesInV2Table pins v2 rename behaviour for the grouping key"]
+    fn test_grouping_key_type_v2_renames_per_java() {
+        // Java: testGroupingKeyTypeWithRenamesInV2Table.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithEvolvedIntoUnpartitionedSpecV1Table pins v1 case where the latest spec is unpartitioned but historical partitioned data still groups by void(prev_field)"]
+    fn test_grouping_key_type_v1_evolved_to_unpartitioned_per_java() {
+        // Java: testGroupingKeyTypeWithEvolvedIntoUnpartitionedSpecV1Table.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithEvolvedIntoUnpartitionedSpecV2Table pins v2 case where evolving into unpartitioned yields an empty grouping key (no void retention)"]
+    fn test_grouping_key_type_v2_evolved_to_unpartitioned_per_java() {
+        // Java: testGroupingKeyTypeWithEvolvedIntoUnpartitionedSpecV2Table.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithAddingBackSamePartitionFieldInV1Table pins v1 where the re-added field gets a new id and the original slot is void-retained"]
+    fn test_grouping_key_type_v1_adding_back_same_field_per_java() {
+        // Java: testGroupingKeyTypeWithAddingBackSamePartitionFieldInV1Table.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithAddingBackSamePartitionFieldInV2Table pins v2 where re-adding the same field reuses the original spec / id"]
+    fn test_grouping_key_type_v2_adding_back_same_field_per_java() {
+        // Java: testGroupingKeyTypeWithAddingBackSamePartitionFieldInV2Table.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithOnlyUnpartitionedSpec pins that an unpartitioned-only table has an empty grouping key"]
+    fn test_grouping_key_type_only_unpartitioned_spec_per_java() {
+        // Java: testGroupingKeyTypeWithOnlyUnpartitionedSpec.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithEvolvedUnpartitionedSpec pins that historically-unpartitioned-then-still-unpartitioned tables yield an empty grouping key"]
+    fn test_grouping_key_type_evolved_unpartitioned_spec_per_java() {
+        // Java: testGroupingKeyTypeWithEvolvedUnpartitionedSpec.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithProjectedSchema pins that the grouping key is filtered to only fields whose source column is in the projected schema"]
+    fn test_grouping_key_type_projected_schema_per_java() {
+        // Java: testGroupingKeyTypeWithProjectedSchema.
+    }
+
+    #[test]
+    #[ignore = "feature gap: testGroupingKeyTypeWithIncompatibleSpecEvolution mirrors the partitionType conflict path and throws ValidationException"]
+    fn test_grouping_key_type_incompatible_spec_evolution_rejected_per_java() {
+        // Java: testGroupingKeyTypeWithIncompatibleSpecEvolution.
+    }
+
+    // ---- spec evolution side effects (3 Java @Test) -------------------------
+
+    #[test]
+    #[ignore = "feature gap: testDeletingPartitionField pins that after `updateSpec().removeField(\"data\")` + `updateSchema().deleteColumn(\"data\")` + `updateSpec().addField(\"id\")` the resulting spec has alwaysNull(\"data\",\"data\") + identity(\"id\"); Rust has no schema-column-delete operation"]
+    fn test_deleting_partition_field_yields_always_null_per_java() {
+        // Java: testDeletingPartitionField.
+    }
+
+    #[test]
+    #[ignore = "feature gap: deleteFileAfterDeletingAllPartitionFields exercises append-then-evolve-then-delete-file flow and asserts the delete-summary key `deleted-data-files=1`; Rust transaction logic for schema-delete-column doesn't exist"]
+    fn test_delete_file_after_deleting_all_partition_fields_per_java() {
+        // Java: deleteFileAfterDeletingAllPartitionFields.
+    }
+
+    #[test]
+    #[ignore = "feature gap: deleteFileAfterDeletingOnePartitionField same pattern but with multi-field spec; deletes the partitioned data file after one field is dropped"]
+    fn test_delete_file_after_deleting_one_partition_field_per_java() {
+        // Java: deleteFileAfterDeletingOnePartitionField.
+    }
 }
