@@ -1007,4 +1007,267 @@ mod tests {
         assert_eq!(found.id, 102);
         assert_eq!(found.name, "city");
     }
+
+    // --- TestTypeUtil port -------------------------------------------------
+    //
+    // Java's `org.apache.iceberg.types.TypeUtil` is the central toolbox for
+    // schema/struct manipulation: project / select / select_not / assign_ids
+    // family / reassign_ids family / index_by_* / ancestor_fields /
+    // reassign_doc / get_projected_ids.
+    //
+    // Rust today exposes only `Schema::project(&[i32]) -> Schema`, which is
+    // flat (no nested recursion, no list/map rejection). Everything else is
+    // a Rust feature gap. Each #[ignore] below names the expected Rust API
+    // (signature inline) so a future `type_util` module has a ready spec.
+    //
+    // Fixture: column-id ordering on both sides is by spec convention; the
+    // test bodies stay descriptive (no executable Rust calls) because the
+    // helpers do not exist yet.
+
+    #[test]
+    #[ignore = "feature gap: type_util::reassign_ids(&Schema, &Schema) -> Schema not implemented; should map field ids by name lookup"]
+    fn test_type_util_reassign_ids_remaps_field_ids_by_name() {
+        // Source: required(1, "a"), required(2, "A").
+        // Target: required(0, "a"), required(1, "A").
+        // After reassign_ids(target, source): target.struct == source.struct
+        // (target's ids replaced with source's ids matched by name).
+    }
+
+    #[test]
+    #[ignore = "feature gap: reassign_ids must preserve identifier-field-ids, remapping them through the name map"]
+    fn test_type_util_reassign_ids_preserves_identifier_field_ids() {
+        // Target identifier {0} maps to source identifier {1} via the
+        // remap derived from "a" -> id 1.
+    }
+
+    #[test]
+    #[ignore = "feature gap: assign_increasing_fresh_ids(&Schema) -> Schema not implemented; identifier-field-ids must follow the new ids"]
+    fn test_type_util_assign_increasing_fresh_ids_preserves_identifier() {
+        // Target ids 10, 11 -> 1, 2 (fresh increasing). Identifier {10} -> {1}.
+    }
+
+    #[test]
+    #[ignore = "feature gap: reassign_ids when source omits identifier-field-ids must keep the target's identifier remapped through the name map"]
+    fn test_type_util_reassign_ids_with_source_missing_identifier_remaps_existing() {
+        // Source has no identifier set. Target identifier {10 -> "a"}.
+        // Result identifier = { source.field("a").id }.
+    }
+
+    #[test]
+    #[ignore = "feature gap: Schema::project is flat; Java's TypeUtil.project recurses into nested structs"]
+    fn test_type_util_project_recurses_into_nested_structs() {
+        // schema with someStruct(b, B, anotherStruct(c, C)).
+        // project({11}) -> {A}; project({10, 12, 13}) -> {a, someStruct(b)};
+        // project({11, 12, 15, 17}) -> {A, someStruct(anotherStruct(C))};
+        // project({11, 17}) auto-includes parents -> same as above.
+    }
+
+    #[test]
+    #[ignore = "feature gap: TypeUtil.project preserves naturally-empty nested structs when selecting their parent ids"]
+    fn test_type_util_project_preserves_naturally_empty_nested_structs() {
+        // schema: someStruct(anotherStruct(empty struct)).
+        // project({12}) -> someStruct(empty); project({12, 15}) -> someStruct(anotherStruct(empty));
+        // project({20}) auto-includes parents; project({12, 15, 20}) -> full chain.
+    }
+
+    #[test]
+    #[ignore = "feature gap: TypeUtil.project with only-parent ids drops all primitive fields of that parent struct"]
+    fn test_type_util_project_with_only_parent_id_drops_primitive_children() {
+        // schema with id, A, someStruct(b, B, anotherStruct(c, C)).
+        // project({12}) -> someStruct(empty);
+        // project({12, 15}) -> someStruct(anotherStruct(empty)).
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_util::select(&Schema, &HashSet<i32>) -> Schema not implemented; auto-includes children when a parent is selected"]
+    fn test_type_util_select_auto_includes_children_of_selected_parent() {
+        // schema with id, A, someStruct(b, B, anotherStruct(c, C)).
+        // select({11}) -> {A};
+        // select({10, 12}) -> {a, someStruct(b, B, anotherStruct(c, C))};
+        // select({11, 17}) -> {A, someStruct(anotherStruct(C))}.
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_util::select_in_id_order(&Schema, &HashSet<i32>) -> Schema sorts top-level columns by field id"]
+    fn test_type_util_select_in_id_order_returns_columns_sorted_by_id() {
+        // schema: id=1 "id", id=3 "b", id=2 "a"; select_in_id_order({2,3})
+        // -> columns ordered by id: "a" (id=2), then "b" (id=3). Same
+        // result regardless of input schema's column order.
+    }
+
+    #[test]
+    #[ignore = "feature gap: TypeUtil.project must reject explicit projection of List or Map types"]
+    fn test_type_util_project_rejects_explicit_list_or_map_id() {
+        // schema with map(13->14: struct(...) -> struct(..., innerMap)).
+        // project({12}) and project({201}) must throw with
+        // "Cannot explicitly project List or Map types".
+        // Selecting only descendant ids (e.g. {10}) is fine.
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_util::get_projected_ids(&Schema) -> HashSet<i32> not implemented; should return every field id including empty struct ids"]
+    fn test_type_util_get_projected_ids_returns_every_field_id() {
+        // schema with id, A, emptyStruct, someStruct(b, B, anotherStruct(c, C)).
+        // get_projected_ids -> {10, 11, 35, 12, 13, 14, 15, 16, 17}.
+    }
+
+    #[test]
+    #[ignore = "feature gap: project must recurse through nested lists rejecting explicit list ids"]
+    fn test_type_util_project_nested_list_descends_to_struct() {
+        // list(13 -> list(14 -> map(15,16 -> int, struct(x, y)))).
+        // project({12}), project({13}), project({14}) must throw.
+        // project({16}) -> list of list of map of struct(empty).
+    }
+
+    #[test]
+    #[ignore = "feature gap: project must recurse through nested maps rejecting explicit map ids"]
+    fn test_type_util_project_nested_map_descends_to_struct() {
+        // map(13,14 -> int, map(15,16 -> int, list(17 -> struct(x, y)))).
+        // project({12}), project({14}), project({16}) must throw.
+        // project({17}) -> map of map of list of struct(empty).
+    }
+
+    #[test]
+    #[ignore = "feature gap: reassign_ids must throw when target field is missing from source"]
+    fn test_type_util_reassign_ids_throws_when_field_missing_from_source() {
+        // Target: required(1, "a"), required(2, "b").
+        // Source: required(1, "a") (no "b").
+        // reassign_ids -> error: 'Field b not found in source schema'.
+    }
+
+    #[test]
+    #[ignore = "feature gap: index_by_name must reject schemas where two distinct dotted paths produce the same name"]
+    fn test_type_util_index_by_name_rejects_ambiguous_dotted_paths() {
+        // Struct with nested a.b.c AND a top-level "b.c" sibling under "a"
+        // produces an ambiguous "a.b.c" lookup. Should error with
+        // 'multiple fields for name a.b.c'.
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_util::select_not(&Schema, &HashSet<i32>) -> Schema removes only the ids requested; collapses empty structs; ignores struct ids"]
+    fn test_type_util_select_not_removes_primitive_collapses_empty_struct_ignores_struct_id() {
+        // schema: id (id=1), location struct(lat=3, long=4) at id=2.
+        // select_not({1}) -> still has location struct intact.
+        // select_not({3, 4}) -> drops location struct (collapsed to empty
+        //   and removed); schema is just {id}.
+        // select_not({2}) -> ignored, returns original schema.
+    }
+
+    #[test]
+    #[ignore = "feature gap: reassign_or_refresh_ids must reuse source ids for matched fields and assign next-fresh ids for unmatched ones"]
+    fn test_type_util_reassign_or_refresh_ids_combines_reuse_and_fresh() {
+        // Target: a@10, c@11 (with defaults), B@12, identifier {10}.
+        // Source: a@1, B@15.
+        // Result: a@1 (from source), c@16 (fresh, next id after source max),
+        //   B@15 (from source). Defaults preserved on c.
+    }
+
+    #[test]
+    #[ignore = "feature gap: reassign_or_refresh_ids must support case-insensitive name lookup when flag is false"]
+    fn test_type_util_reassign_or_refresh_ids_case_insensitive_lookup() {
+        // Target: FIELD1@1, FIELD2@2.
+        // Source: field1@1, field2@2.
+        // reassign_or_refresh_ids(target, source, case_sensitive=false)
+        //   -> target field names retained (FIELD1, FIELD2), ids retained.
+    }
+
+    #[test]
+    #[ignore = "feature gap: assign_ids(&Type, impl Fn(i32) -> i32) -> Type applies a remap function to every field id, preserving defaults"]
+    fn test_type_util_assign_ids_applies_remap_function() {
+        // Apply oldId -> oldId + 10 to schema {a@0, c@1 with defaults, B@2}.
+        // Result: {a@10, c@11 with defaults preserved, B@12}.
+    }
+
+    #[test]
+    #[ignore = "feature gap: assign_fresh_ids must walk fields in pre-order assigning next id; preserves defaults; identifier-field-ids follow"]
+    fn test_type_util_assign_fresh_ids_walks_preorder_and_preserves_defaults() {
+        // Schema {a@0, c@1 with defaults, B@2} with id supplier starting
+        // from 11. Result: {a@11, c@12 (defaults preserved), B@13}.
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_util::reassign_doc(&Schema, &Schema) -> Schema copies docs from source onto matched target fields by id"]
+    fn test_type_util_reassign_doc_overlays_doc_from_source() {
+        // Schema fields lack docs; doc source has docs on every field.
+        // After reassign_doc: every field has the doc from source.
+        // Defaults on field c are preserved.
+    }
+
+    #[test]
+    #[ignore = "feature gap: assign_ids must round-trip V3 type variants (Unknown, Variant, TimestampNano, Geometry, Geography) unchanged"]
+    fn test_type_util_assign_ids_with_v3_type_round_trips_type() {
+        // For each V3 type T, struct(id: int, data: T) -> after
+        // assign_ids(remap +10) -> struct(id+10: int, data+10: T).
+        // T must come back identical (parameters preserved).
+    }
+
+    #[test]
+    #[ignore = "feature gap: assign_fresh_ids must round-trip V3 type variants in nested positions"]
+    fn test_type_util_assign_fresh_ids_with_v3_type_round_trips_type() {
+        // Same fixture as above but exercising the fresh-id supplier path.
+    }
+
+    #[test]
+    #[ignore = "feature gap: reassign_ids must round-trip V3 type variants when matched by name"]
+    fn test_type_util_reassign_ids_with_v3_type_round_trips_type() {
+        // Source (data: T@2) and target (data: T@1) should produce a
+        // result whose struct equals the source's struct. T preserved.
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_util::index_by_id(&StructType) -> HashMap<i32, &NestedField> must round-trip V3 type variants in nested positions"]
+    fn test_type_util_index_by_id_with_v3_type_returns_field_with_type() {
+        // Schema with data: T@1. index_by_id(struct).get(1).type == T.
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_util::index_name_by_id(&StructType) -> HashMap<i32, String> must round-trip V3 typed fields"]
+    fn test_type_util_index_name_by_id_with_v3_type_returns_field_name() {
+        // Schema with data: T@1. index_name_by_id(struct).get(1) == "data".
+    }
+
+    #[test]
+    #[ignore = "feature gap: project must produce a schema whose data field of V3 type is preserved unchanged"]
+    fn test_type_util_project_with_v3_type_preserves_field_type() {
+        // Schema {id: int, data: T}. project({1}) -> {data: T}.
+    }
+
+    #[test]
+    #[ignore = "feature gap: get_projected_ids must enumerate all field ids even when nested types are V3"]
+    fn test_type_util_get_projected_ids_with_v3_type_includes_all() {
+        // Schema {id@0, data@1: T}. get_projected_ids -> {0, 1}.
+    }
+
+    #[test]
+    #[ignore = "feature gap: reassign_doc with V3 types must overlay docs on the V3-typed field"]
+    fn test_type_util_reassign_doc_with_v3_type_overlays_doc() {
+        // Both schemas have {id, data: T}; only the source has docs.
+        // After reassign_doc: both fields have docs.
+    }
+
+    #[test]
+    #[ignore = "feature gap: type_util::ancestor_fields(&Schema, i32) -> Vec<NestedField> returns the parent chain, nearest first; empty for unknown / top-level / empty schema"]
+    fn test_type_util_ancestor_fields_in_empty_schema_is_empty() {
+        // ancestor_fields(empty schema, -1) and (empty schema, 1) -> [].
+    }
+
+    #[test]
+    #[ignore = "feature gap: ancestor_fields on a flat schema returns empty for every top-level field id"]
+    fn test_type_util_ancestor_fields_in_non_nested_schema_is_empty() {
+        // schema {a@0, A@1}; ancestor_fields(schema, 0) == [];
+        // ancestor_fields(schema, 1) == [].
+    }
+
+    #[test]
+    #[ignore = "feature gap: ancestor_fields walks parent chain from nearest-first through structs, lists, and maps"]
+    fn test_type_util_ancestor_fields_in_nested_schema_returns_nearest_first_chain() {
+        // Mixed schema with preferences (struct of struct), locations (map
+        // of struct), points (list of struct). ancestor_fields returns:
+        //   - [] for top-level ids
+        //   - [preferences] for direct children of preferences
+        //   - [innerPreferences, preferences] for inner-inner ids
+        //   - [locationsKey, locations] / [locationsValue, locations] for
+        //     map key / value descendants
+        //   - [pointsElement, points] for list element descendants.
+    }
 }
