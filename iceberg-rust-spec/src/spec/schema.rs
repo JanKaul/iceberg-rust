@@ -646,4 +646,145 @@ mod tests {
         }"#;
         assert!(serde_json::from_str::<Schema>(json).is_err());
     }
+
+    // --- TestNameMapping port ----------------------------------------------
+    //
+    // Java's `org.apache.iceberg.mapping.NameMapping` is the bidirectional
+    // bridge between schema field-ids and the human-readable column names
+    // used by external file formats (Parquet name-based projection,
+    // mapping-driven reads of files written without Iceberg ids).
+    //
+    // Public API in Java:
+    //   - `MappingUtil.create(schema) -> NameMapping`
+    //   - `NameMapping.asMappedFields() -> MappedFields`
+    //   - `NameMapping(MappedFields)` ctor rejects duplicate top-level names
+    //   - `NameMapping.find(int id) -> MappedField | null`
+    //   - `NameMapping.find(String... names) -> MappedField | null`
+    //     (multi-arg form walks the path; single-arg looks up TOP-LEVEL
+    //     names only — nested names like "key" / "element" return null)
+    //   - Map types add synthetic "key" / "value" mapped fields under the
+    //     map field id.
+    //   - List types add a synthetic "element" mapped field under the
+    //     list field id.
+    //   - Variant types map as a leaf (no nested mapping introspection).
+    //
+    // Rust has NO `NameMapping` / `MappedField` / `MappingUtil` analog at
+    // all (grep across the whole workspace finds zero references). All 12
+    // Java scenarios are pinned `#[ignore]` here so an eventual
+    // `mapping::NameMapping` module has a ready spec.
+    //
+    // Expected eventual Rust API (mirroring Java's NameMapping):
+    //   - `mapping::MappedField { id: i32, names: Vec<String>, nested: Option<MappedFields> }`
+    //   - `mapping::MappedFields(Vec<MappedField>)` (rejects duplicate
+    //     top-level names at construction; rejects duplicate top-level ids)
+    //   - `mapping::NameMapping::create(&Schema) -> NameMapping`
+    //   - `NameMapping::find(id: i32) -> Option<&MappedField>`
+    //   - `NameMapping::find_path(path: &[&str]) -> Option<&MappedField>`
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping / MappingUtil::create; should produce {1:'id', 2:'data'} for a flat schema"]
+    fn test_name_mapping_creates_from_flat_schema() {
+        // schema(long id@1, string data@2) -> [MappedField(1, "id"),
+        //                                       MappedField(2, "data")].
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; nested struct must yield nested MappedFields under the struct field"]
+    fn test_name_mapping_creates_from_nested_struct_schema() {
+        // schema(id@1, data@2, location@3 { latitude@4, longitude@5 })
+        // -> [MappedField(1, "id"),
+        //     MappedField(2, "data"),
+        //     MappedField(3, "location", [MappedField(4, "latitude"),
+        //                                  MappedField(5, "longitude")])].
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; map type must add synthetic 'key' and 'value' mapped fields under the map field id"]
+    fn test_name_mapping_creates_from_map_schema_with_synthetic_key_value() {
+        // schema(..., map@3 (string@4 -> double@5))
+        // -> MappedField(3, "map", [MappedField(4, "key"),
+        //                            MappedField(5, "value")]).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; map with complex key carries the struct's nested mapping under the synthetic 'key' field"]
+    fn test_name_mapping_creates_from_complex_key_map_schema() {
+        // schema(..., map@3 (struct@4(x@6, y@7) -> double@5))
+        // -> MappedField(3, "map", [MappedField(4, "key",
+        //                              [MappedField(6, "x"),
+        //                               MappedField(7, "y")]),
+        //                            MappedField(5, "value")]).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; map with complex value carries the struct's nested mapping under the synthetic 'value' field"]
+    fn test_name_mapping_creates_from_complex_value_map_schema() {
+        // schema(..., map@3 (double@4 -> struct@5(x@6, y@7)))
+        // -> MappedField(3, "map", [MappedField(4, "key"),
+        //                            MappedField(5, "value",
+        //                              [MappedField(6, "x"),
+        //                               MappedField(7, "y")])]).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; list type must add a synthetic 'element' mapped field under the list field id"]
+    fn test_name_mapping_creates_from_list_schema_with_synthetic_element() {
+        // schema(..., list@3 (string@4))
+        // -> MappedField(3, "list", [MappedField(4, "element")]).
+    }
+
+    #[test]
+    #[ignore = "spec contract: Schema constructor must reject duplicate field ids — currently exists as `test_schema_parser_rejects_duplicate_field_ids` (also #[ignore]); duplicate Java port"]
+    fn test_name_mapping_schema_construction_rejects_duplicate_field_id() {
+        // Java: `new Schema(required(1, "id", LongType), required(1, "data", StringType))`
+        // -> IllegalArgumentException 'Multiple entries with same key: 1=id and 1=data'.
+        // Rust counterpart: `Schema::builder().with_struct_field(StructField::new(1,"id",...))
+        // .with_struct_field(StructField::new(1,"data",...)).build()` must error.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; MappedFields constructor must reject duplicate top-level names"]
+    fn test_name_mapping_construction_rejects_duplicate_top_level_name() {
+        // MappedFields::new(vec![MappedField(1, "x"), MappedField(2, "x")])
+        // -> error 'Multiple entries with same key: x=2 and x=1'.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; duplicate names in DIFFERENT contexts (nested under different parents) are allowed"]
+    fn test_name_mapping_allows_duplicate_names_across_separate_contexts() {
+        // NameMapping([MappedField(1, "x", [MappedField(3, "x")]),
+        //              MappedField(2, "y", [MappedField(4, "x")])])
+        // -> OK; each "x" is namespaced by its parent.
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; find(id) walks the full tree; missing id returns None; struct/map/list parents return their nested MappedFields"]
+    fn test_name_mapping_find_by_id_descends_through_nested_types() {
+        // schema with id@1, data@2, map@3(double key@4 -> struct@5(x@6, y@7)),
+        //          list@8(string@9), location@10(latitude@11, longitude@12).
+        // find(100) -> None; find(2) -> MappedField(2,"data");
+        // find(6) -> MappedField(6,"x"); find(9) -> MappedField(9,"element");
+        // find(11) -> MappedField(11,"latitude");
+        // find(10) -> MappedField(10,"location", [(11,"latitude"),(12,"longitude")]).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; find(name) is TOP-LEVEL only — nested synthetic names ('element','x','key','value') return None unless a path is supplied"]
+    fn test_name_mapping_find_by_name_is_top_level_unless_path_supplied() {
+        // Same fixture.
+        // find("element") -> None; find("x") -> None; find("key") -> None;
+        // find("value") -> None; find("data") -> MappedField(2,"data");
+        // find(["map","value","x"]) -> MappedField(6,"x");
+        // find(["list","element"]) -> MappedField(9,"element");
+        // find(["location","latitude"]) -> MappedField(11,"latitude");
+        // find("location") -> MappedField(10,"location", [...]).
+    }
+
+    #[test]
+    #[ignore = "feature gap: no NameMapping; V3 VariantType must be mapped as a leaf (no nested MappedFields)"]
+    fn test_name_mapping_creates_from_variant_typed_field_as_leaf() {
+        // schema(id@1: long, data@2: variant)
+        // -> [MappedField(1, "id"), MappedField(2, "data")] — no nested
+        // mapping under data because Variant is a leaf type.
+    }
 }
