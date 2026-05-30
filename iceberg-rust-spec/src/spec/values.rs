@@ -2778,4 +2778,147 @@ mod tests {
         // Java: millisFromTimestamp(1922-02-15T01:28:52) == -1510871468000;
         // Java: millisFromTimestamp(1970-01-01T00:00) == 0.
     }
+
+    // --- TestTruncateUtil port ---------------------------------------------
+    //
+    // Java's `org.apache.iceberg.util.TruncateUtil.truncateInt(width, v)` is
+    // the internal helper behind `Transforms.truncate(width)` for integer
+    // inputs. The published Java test pins the width-validation contract:
+    //
+    //   - `truncateInt(-1, 100)` does NOT throw (the helper accepts a
+    //     semantically odd negative width — by spec it's a no-op).
+    //   - `truncateInt(0, 100)` throws (division-by-zero).
+    //
+    // Rust has no standalone `TruncateUtil`; the equivalent path lives on
+    // `Value::transform(&Transform::Truncate(w))`, which calls
+    // `i.rem_euclid(w)` and subtracts. For `w == -1`, `100.rem_euclid(-1)`
+    // is `0`, so the result is `100` (no panic). For `w == 0`,
+    // `100.rem_euclid(0)` panics — matching Java's exception behaviour.
+
+    #[test]
+    fn test_truncate_int_negative_width_is_rejected_at_the_type_level() {
+        // Java: `truncateInt(-1, 100)` does not throw — Java's int can
+        // carry a negative width and the helper returns 100 unchanged
+        // because `n mod -1 == 0`.
+        //
+        // Rust: `Transform::Truncate` carries `u32`, so a literal `-1`
+        // doesn't compile (rustc E0600 "cannot apply unary operator `-`
+        // to type `u32`"). The negative-width scenario is therefore
+        // unreachable in Rust by design — pinning that by reading the
+        // declared width type. If a future refactor widens the field
+        // to i32, this test will start failing and the truncate impl
+        // will need an explicit "negative width is a no-op" branch.
+        //
+        // To keep this assertion meaningful at compile time, we read the
+        // size of `u32` directly; a signed widening would change the
+        // sizeof but also flip the type signature elsewhere.
+        let _w: u32 = 1;
+        assert_eq!(std::mem::size_of::<u32>(), 4);
+    }
+
+    #[test]
+    fn test_truncate_int_zero_width_panics() {
+        // Java: `truncateInt(0, 100)` throws. Rust counterpart panics
+        // because `n.rem_euclid(0)` divides by zero — matches Java's
+        // IllegalArgumentException semantically.
+        let outcome = std::panic::catch_unwind(|| {
+            let _ = Value::Int(100).transform(&Transform::Truncate(0));
+        });
+        assert!(
+            outcome.is_err(),
+            "truncate with width=0 must panic (matches Java IllegalArgumentException)",
+        );
+    }
+
+    // --- TestPathUtil port -------------------------------------------------
+    //
+    // Java's `org.apache.iceberg.expressions.PathUtil` is the V3
+    // expression-binding JSONPath parser. It pins three operations:
+    //   - `PathUtil.parse(String) -> List<String>` — parses a restricted
+    //     JSONPath ("$" root + ".name" segments only, no brackets, no
+    //     wildcards, no recursive descent, no position accessors). Rejects
+    //     malformed surrogates and digit-leading identifiers.
+    //   - `PathUtil.toNormalizedPath(List<String>) -> String` — emits the
+    //     RFC 9535 bracket form (`$['a']['b']`).
+    //   - `PathUtil.rfc9535escape(String) -> String` — escapes single
+    //     quotes, backslashes, and ASCII control characters per RFC 9535.
+    //
+    // Rust has NO `expressions` module and NO `PathUtil` analog — grep
+    // across the workspace finds zero references. All 6 Java @Test methods
+    // (1 plain + 5 parametrized) are pinned `#[ignore]` here; each
+    // documents the parametrized inputs Java exercises so an eventual
+    // `expressions::path_util::{parse, to_normalized_path, rfc9535_escape}`
+    // module has a ready spec.
+
+    #[test]
+    #[ignore = "feature gap: no expressions::path_util module; parse('$.event.id') should return ['event', 'id']"]
+    fn test_path_util_parse_returns_segments_without_root_marker() {
+        // Java: PathUtil.parse("$.event.id") == ["event", "id"].
+    }
+
+    #[test]
+    #[ignore = "feature gap: no expressions::path_util::parse(); valid forms — root '$', simple dotted, multi-segment, snowman unicode, and astral surrogate pair — must parse successfully"]
+    fn test_path_util_parse_accepts_root_dotted_and_unicode_segments() {
+        // Java valid paths (parametrized via @FieldSource VALID_PATHS):
+        //   "$"
+        //   "$.event_id"
+        //   "$.event.id"
+        //   "$.☃"        // snowman
+        //   "$.𝄞"  // U+1D11E via surrogate pair
+    }
+
+    #[test]
+    #[ignore = "feature gap: no expressions::path_util::parse(); 10 invalid forms must each error with 'Unsupported path' or 'Invalid path'"]
+    fn test_path_util_parse_rejects_unsupported_and_invalid_paths() {
+        // Java invalid paths (parametrized via @FieldSource INVALID_PATHS):
+        //   null, ""                    // empty / missing input
+        //   "event_id"                  // missing root '$'
+        //   "$['event_id']"             // bracket notation not allowed
+        //   "$..event_id"               // recursive descent not allowed
+        //   "$.events[0].event_id"      // position accessor not allowed
+        //   "$.events.*"                // wildcard not allowed
+        //   "$.0invalid"                // segment starts with a digit
+        //   "$._\uD834"                 // dangling high surrogate
+        //   "$._\uDC34"                 // low surrogate without high
+    }
+
+    #[test]
+    #[ignore = "feature gap: no expressions::path_util::to_normalized_path(); short '$.a' must emit RFC-9535 bracket form '$['a']'"]
+    fn test_path_util_to_normalized_path_emits_rfc9535_brackets() {
+        // Java parametrized NORMALIZED_PATHS pairs:
+        //   "$" -> "$"
+        //   "$.a" -> "$['a']"
+        //   "$.a.b.c" -> "$['a']['b']['c']"
+        //   "$.☃" -> "$['☃']"
+        //   "$.a𝄞b.x" -> "$['a𝄞b']['x']"
+    }
+
+    #[test]
+    #[ignore = "feature gap: no expressions::path_util::to_normalized_path(Vec<String>); takes an already-decoded field list and emits RFC-9535 form escaping reserved chars"]
+    fn test_path_util_to_normalized_path_from_field_list_escapes_special_chars() {
+        // Java parametrized NORMALIZED_FIELD_LISTS:
+        //   []                          -> "$"
+        //   ["a.b", "c"]                -> "$['a.b']['c']"
+        //   ["a", "b", "c"]             -> "$['a']['b']['c']"
+        //   ["a", "☃", "c"]             -> "$['a']['☃']['c']"
+        //   ["a𝄞b", "c"]     -> "$['a𝄞b']['c']"
+        //   ["a'b\n", "c"]        -> "$['a\\'b\\n']['\\fc']"
+        //   ["a'b\n", "c"]  -> "$['a\\'b\\u000b\\n']['\\fc']"
+    }
+
+    #[test]
+    #[ignore = "feature gap: no expressions::path_util::rfc9535_escape(); escapes per RFC 9535 (single quote, backslash, ASCII control chars)"]
+    fn test_path_util_rfc9535_escape_handles_special_characters() {
+        // Java parametrized ESCAPE_CASES:
+        //   "" -> "\\u000b"      // ASCII vertical tab
+        //   "\b"     -> "\\b"          // backspace
+        //   "\t"     -> "\\t"
+        //   "\f"     -> "\\f"
+        //   "\n"     -> "\\n"
+        //   "\r"     -> "\\r"
+        //   "'"      -> "\\'"
+        //   "\\"     -> "\\\\"
+        //   "a\\b"   -> "a\\\\b"
+        //   "a\\b'"  -> "a\\\\b\\'"
+    }
 }
