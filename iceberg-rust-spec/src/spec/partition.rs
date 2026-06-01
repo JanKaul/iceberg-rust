@@ -710,4 +710,72 @@ mod tests {
     fn test_hour_target_exact_duplicate_rejected_under_case_sensitive() {
         unimplemented!("{SPEC_BUILDER_GAP}");
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for PartitionSpec accessors + evolution.
+    //
+    // Rust gaps: no `PartitionSpec::unpartitioned()` factory, no
+    // `is_unpartitioned()` predicate, no `always_null` shorthand, no
+    // `last_assigned_field_id()` accessor, no schema-aware case-sensitivity
+    // builder option, no `update_partition_spec()` table-level op, and no
+    // `update_schema().delete_column()` builder. Each test below pins one
+    // observable scenario for the eventual surface.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no PartitionSpec::is_unpartitioned predicate"]
+    fn test_partition_spec_with_only_void_transforms_reports_unpartitioned() {
+        // A PartitionSpec whose every field uses Transform::Void / always_null reports
+        // is_unpartitioned() == true.
+        unimplemented!("PartitionSpec::is_unpartitioned");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::unpartitioned factory + table.spec() accessors"]
+    fn test_unpartitioned_table_reports_empty_default_partition_spec() {
+        // PartitionSpec::unpartitioned() returns spec with 0 fields and the default spec_id.
+        // table.spec() / table.specs() reflect this; last_assigned_field_id is 999 (one before
+        // the first partition field id).
+        unimplemented!("PartitionSpec::unpartitioned + table accessors");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::is_unpartitioned, no table-level accessors"]
+    fn test_partitioned_table_exposes_spec_accessors_and_last_assigned_field_id() {
+        // table.spec().spec_id() / table.specs() map / last_assigned_field_id() report
+        // the values set by the builder.
+        unimplemented!("PartitionSpec table accessors");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema).case_sensitive(false)"]
+    fn test_partitioned_table_builder_resolves_source_column_case_insensitively() {
+        // `case_sensitive(false).identity("DATA")` resolves to the lower-case "data" column.
+        unimplemented!("PartitionSpec case-insensitive name resolution");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema).case_sensitive(true) name lookup error"]
+    fn test_partitioned_table_builder_rejects_unknown_column_under_case_sensitive() {
+        // `case_sensitive(true).identity("DATA")` against a schema that only has "data" rejects
+        // with `Cannot find source column: DATA`.
+        unimplemented!("PartitionSpec case-sensitive name lookup");
+    }
+
+    #[test]
+    #[ignore = "no table-level update_partition_spec + update_schema().delete_column() builders"]
+    fn test_dropping_partition_source_column_preserves_historical_specs() {
+        // Start with spec A. `update_partition_spec(newSpec)` introduces spec B. Then
+        // `update_schema().delete_column("id")` drops the column that A's fields reference.
+        // table.specs() keeps both A and B entries; the dropped column doesn't appear in B.
+        unimplemented!("partition spec + schema evolution");
+    }
+
+    #[test]
+    #[ignore = "no table-level update_partition_spec evolution"]
+    fn test_partition_spec_evolution_introduces_new_spec_for_v1_table() {
+        // `bucket("data", 4)` then `update_partition_spec(bucket("data", 10))` produces
+        // a V1 table whose specs map carries both entries with distinct spec ids.
+        unimplemented!("partition spec evolution v1");
+    }
 }
