@@ -891,4 +891,835 @@ mod tests {
         let parsed: PrimitiveType = serde_json::from_str(&serialized).unwrap();
         assert_eq!(parsed, value);
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for a future `type_util` module.
+    //
+    // iceberg-rust-spec exposes only `Schema::project(&[i32])`, which filters
+    // top-level fields without recursing into structs/maps/lists and without
+    // rejecting explicit list/map ids. The remaining helpers (assign_ids,
+    // reassign_ids, select, select_not, select_in_id_order, get_projected_ids,
+    // index_by_id, index_name_by_id, index_by_name, reassign_or_refresh_ids,
+    // reassign_doc, ancestor_fields) have no Rust analog. Each test below pins
+    // the behaviour the eventual implementation must satisfy.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_remaps_target_to_source_ids_when_columns_differ_only_by_case() {
+        // Target has ids 0,1 for case-distinct columns "a","A". Source has 1,2.
+        // reassign_ids(target, source) returns a schema whose struct equals source's struct
+        // (target's column names ride source's ids).
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_propagates_identifier_field_ids_from_source() {
+        // Both schemas mark one identifier field; after reassignment the result
+        // carries the source's identifier_field_ids set.
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::assign_increasing_fresh_ids"]
+    fn test_assign_increasing_fresh_ids_remaps_identifier_field_id_to_new_ids() {
+        // Source ids 10,11 with identifier {10} → fresh ids 1,2 with identifier {1}.
+        unimplemented!("type_util::assign_increasing_fresh_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_with_source_missing_identifier_promotes_first_match() {
+        // Source has no identifier field; reassign_ids derives the identifier id
+        // from the source field whose name matches the target's identifier field.
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[test]
+    #[ignore = "Schema::project is flat: no recursion into nested structs"]
+    fn test_project_recurses_into_nested_structs_and_auto_includes_parents() {
+        // Build 3-level nested struct (top → someStruct → anotherStruct).
+        // project(schema, [11]) → only top field A.
+        // project(schema, [10,12,13]) → a (10) + someStruct keeping only b (13).
+        // project(schema, [11,12,15,17]) ≡ project(schema, [11,17])
+        //   → A + someStruct.anotherStruct.C (parents auto-included).
+        unimplemented!("recursive type_util::project");
+    }
+
+    #[test]
+    #[ignore = "Schema::project is flat: no recursion"]
+    fn test_project_preserves_naturally_empty_struct_chain() {
+        // Nested struct chain ending in an already-empty struct.
+        // Selecting any ancestor id keeps the chain down to (and including) that ancestor;
+        // descendants below the selected id collapse into empty struct shells.
+        unimplemented!("recursive type_util::project");
+    }
+
+    #[test]
+    #[ignore = "Schema::project is flat: no recursion"]
+    fn test_project_with_parent_only_yields_empty_struct_subtree() {
+        // Selecting only a parent id (without any child id) returns a struct whose body is empty.
+        unimplemented!("recursive type_util::project");
+    }
+
+    #[test]
+    #[ignore = "no type_util::select (auto-includes whole subtree when parent is selected)"]
+    fn test_select_returns_whole_subtree_when_parent_id_present() {
+        // select(schema, [10,12]) on a 3-level nested schema returns a (10) + the entire
+        // someStruct subtree (including its children).
+        // select(schema, [11,17]) auto-includes ancestors and returns A + someStruct →
+        // anotherStruct → C only, similar to project's parent auto-inclusion.
+        unimplemented!("type_util::select");
+    }
+
+    #[test]
+    #[ignore = "no type_util::select_in_id_order"]
+    fn test_select_in_id_order_emits_columns_in_ascending_id_regardless_of_input_order() {
+        // Schema with field order id=1,3,2 → select_in_id_order(schema, {2,3}) returns
+        // columns in [id=2, id=3] order. The result struct is the same regardless of
+        // whether the input schema's field order is normal or reversed.
+        unimplemented!("type_util::select_in_id_order");
+    }
+
+    #[test]
+    #[ignore = "Schema::project does not reject explicit map ids"]
+    fn test_project_rejects_explicit_map_id_but_accepts_keys_and_values() {
+        // For a Map<Struct, Struct> field with id 12 (key id 13, value id 14):
+        //   project([12]) and project([201]) (inner map id) raise IllegalArgument
+        //     "Cannot explicitly project List or Map types".
+        //   project([10,13,14,100,101]) projects only the map's key struct; value collapses to empty.
+        //   project([10,13,14]) (no key ids) yields the same result.
+        //   project([10,13,14,100,101,200,202,203]) keeps both key + nested map shells.
+        unimplemented!("type_util::project map handling");
+    }
+
+    #[test]
+    #[ignore = "no type_util::get_projected_ids"]
+    fn test_get_projected_ids_walks_every_nested_field() {
+        // For a schema with top fields a (10), A (11), emptyStruct (35), someStruct (12) →
+        //   b (13), B (14), anotherStruct (15) → c (16), C (17),
+        // get_projected_ids returns exactly {10,11,12,13,14,15,16,17,35}.
+        unimplemented!("type_util::get_projected_ids");
+    }
+
+    #[test]
+    #[ignore = "Schema::project does not reject explicit list/map ids at any depth"]
+    fn test_project_rejects_explicit_list_or_map_id_at_any_nesting_depth() {
+        // Schema = List<List<Map<Int, Struct>>>.
+        // project on any of the container ids (12 outer list, 13 inner list, 14 map) throws.
+        // project([16]) (struct id inside map value) succeeds and walks back up, leaving
+        // an empty struct shell as the deepest body.
+        unimplemented!("type_util::project list/map rejection");
+    }
+
+    #[test]
+    #[ignore = "Schema::project does not reject map ids at any depth"]
+    fn test_project_rejects_explicit_map_id_at_any_nesting_depth() {
+        // Schema = Map<Int, Map<Int, List<Struct>>>.
+        // project on container ids 12 (outer map), 14 (inner map value), 16 (innermost map value)
+        // all throw "Cannot explicitly project List or Map types".
+        // project([17]) (list element struct id) walks back up and yields the chain with an
+        // empty struct shell at the leaf.
+        unimplemented!("type_util::project map rejection");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_throws_when_target_field_missing_from_source() {
+        // Target has field b not present in source → reassign_ids errors with
+        // "Field b not found in source schema".
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::index_by_name"]
+    fn test_index_by_name_rejects_ambiguous_dotted_path_collision() {
+        // Struct with both nested path a.b.c (via two nested structs) and a flat name "a.b.c"
+        // as a sibling field → index_by_name errors with
+        // "Invalid schema: multiple fields for name a.b.c".
+        unimplemented!("type_util::index_by_name");
+    }
+
+    #[test]
+    #[ignore = "no type_util::select_not"]
+    fn test_select_not_drops_specified_fields_and_removes_empty_structs() {
+        // Schema = id (1, Long) + location (2, Struct{lat (3), long (4)}).
+        // select_not({1}) drops id → keeps location with both children.
+        // select_not({3,4}) drops both children of location → drops location too
+        //   (struct left with no fields is removed; result keeps only id).
+        // select_not({2}) on a struct id is a no-op (legacy behaviour) → result equals input.
+        unimplemented!("type_util::select_not");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_or_refresh_ids"]
+    fn test_reassign_or_refresh_ids_keeps_defaults_and_uses_source_or_fresh_ids() {
+        // Target has fields a (10), c (11 with initial/write defaults), B (12) and identifier {10}.
+        // Source has a (1), B (15).
+        // reassign_or_refresh_ids(target, source) yields a (1), c (16 fresh) preserving its
+        // defaults, B (15). New ids for unmatched-target-only fields continue from last source id.
+        unimplemented!("type_util::reassign_or_refresh_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_or_refresh_ids (case-insensitive variant)"]
+    fn test_reassign_or_refresh_ids_resolves_field_match_case_insensitive() {
+        // Target FIELD1,FIELD2; source field1,field2. With case_sensitive=false the
+        // result keeps target's original casing while inheriting source's ids 1,2.
+        unimplemented!("type_util::reassign_or_refresh_ids case-insensitive");
+    }
+
+    #[test]
+    #[ignore = "no type_util::assign_ids"]
+    fn test_assign_ids_applies_custom_remap_function() {
+        // assign_ids(struct, |old| old + 10) shifts every field id by 10
+        // while preserving initial_default / write_default on the column with defaults.
+        unimplemented!("type_util::assign_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::assign_fresh_ids"]
+    fn test_assign_fresh_ids_uses_supplier_to_allocate_each_field_id() {
+        // assign_fresh_ids(schema, counter starting at 10 with pre-increment) yields fresh
+        // ids 11,12,13 over the three top-level fields, preserving the column's defaults.
+        unimplemented!("type_util::assign_fresh_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_doc"]
+    fn test_reassign_doc_copies_docs_without_overwriting_defaults() {
+        // Target schema with one field carrying initial/write defaults. Source carries docs
+        // for every field. reassign_doc(target, source) leaves ids unchanged, copies docs
+        // onto each target field, and preserves defaults on the column that has them.
+        unimplemented!("type_util::reassign_doc");
+    }
+
+    #[test]
+    #[ignore = "no type_util::ancestor_fields"]
+    fn test_ancestor_fields_returns_empty_for_unknown_id_in_empty_schema() {
+        // ancestor_fields(empty_schema, -1) and ancestor_fields(empty_schema, 1) are both empty.
+        unimplemented!("type_util::ancestor_fields");
+    }
+
+    #[test]
+    #[ignore = "no type_util::ancestor_fields"]
+    fn test_ancestor_fields_returns_empty_for_top_level_fields() {
+        // For a flat schema with two top-level fields, ancestor_fields(schema, id) is empty
+        // for every top-level id.
+        unimplemented!("type_util::ancestor_fields");
+    }
+
+    #[test]
+    #[ignore = "no type_util::ancestor_fields"]
+    fn test_ancestor_fields_returns_parents_outermost_to_innermost_for_deeply_nested_id() {
+        // Schema with: id (1), data (2), preferences (3) → feature1 (6), feature2 (7),
+        //   inner_preferences (8) → feature3 (12), feature4 (13);
+        // locations (4) MapType → key=struct{address,city,state,zip}, value=struct{lat,long};
+        // points (5) ListType<struct{x,y}>.
+        //
+        // ancestor_fields for top-level ids is empty.
+        // For preferences subtree: ids 6,7 → [preferences]; 12,13 → [inner_preferences, preferences].
+        // For locations subtree: key (9)/value (10) → [locations]; 20-23 → [key, locations];
+        //   14,15 → [value, locations].
+        // For points subtree: element (11) → [points]; 16,17 → [element, points].
+        unimplemented!("type_util::ancestor_fields");
+    }
+
+    // 8 V3 type variants exercised by every @ParameterizedTest below:
+    //   Unknown, Variant, TimestampNs, TimestamptzNs,
+    //   Geometry(default-crs), Geometry(srid:3857),
+    //   Geography(default-crs, default-algo), Geography(srid:4269, Karney).
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::assign_ids"]
+    fn test_assign_ids_preserves_v3_primitive_payload(#[case] _payload: PrimitiveType) {
+        // Source struct = required(id=0,"id",Int) + optional(id=1,"data",payload).
+        // assign_ids(source, |old| old + 10) yields ids 10,11 with the payload unchanged.
+        unimplemented!("type_util::assign_ids");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::assign_fresh_ids"]
+    fn test_assign_fresh_ids_preserves_v3_primitive_payload(#[case] _payload: PrimitiveType) {
+        // assign_fresh_ids(schema, counter starting at 10 with pre-increment) yields ids 11,12
+        // over (id, data) with the V3 payload unchanged.
+        unimplemented!("type_util::assign_fresh_ids");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_preserves_v3_primitive_payload(#[case] _payload: PrimitiveType) {
+        // Target ids 0,1; source ids 1,2 over (id, data:payload). reassign_ids returns a struct
+        // equal to source's struct, payload unchanged.
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::index_by_id"]
+    fn test_index_by_id_returns_v3_primitive_field_type(#[case] _payload: PrimitiveType) {
+        // index_by_id(struct{id (0), data (1, payload)})[1].type == payload.
+        unimplemented!("type_util::index_by_id");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::index_name_by_id"]
+    fn test_index_name_by_id_returns_field_name_for_v3_primitive(#[case] _payload: PrimitiveType) {
+        // index_name_by_id(struct{id (0), data (1, payload)})[1] == "data".
+        unimplemented!("type_util::index_name_by_id");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "Schema::project is flat: handling V3 payloads to be pinned by recursive project"]
+    fn test_project_returns_v3_primitive_field(#[case] _payload: PrimitiveType) {
+        // project(schema(id 0, data 1:payload), {1}) returns just the data field with payload intact.
+        unimplemented!("type_util::project");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::get_projected_ids"]
+    fn test_get_projected_ids_includes_v3_primitive(#[case] _payload: PrimitiveType) {
+        // get_projected_ids(schema(id 0, data 1:payload)) returns {0, 1}.
+        unimplemented!("type_util::get_projected_ids");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::reassign_doc"]
+    fn test_reassign_doc_works_through_v3_primitive_field(#[case] _payload: PrimitiveType) {
+        // Target schema id (0), data (1, payload). Doc source has same ids/types with docs "id","data".
+        // reassign_doc(target, doc_source) returns a struct equal to doc_source's struct.
+        unimplemented!("type_util::reassign_doc");
+    }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for a future `compatibility::check` module.
+    //
+    // Eventual surface:
+    //   compatibility::write_compatibility_errors(&Schema, &Schema) -> Vec<String>
+    //   compatibility::read_compatibility_errors(&Schema, &Schema)  -> Vec<String>
+    //   compatibility::type_compatibility_errors(&Schema, &Schema)  -> Vec<String>
+    // Plus supporting helpers `type_util::is_promotion_allowed(&Type, &Type) -> bool`
+    // and `Schema::case_insensitive_select(&str) -> Schema`.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors over the primitive promotion matrix"]
+    fn test_write_compatibility_pins_primitive_promotion_matrix() {
+        // For every (from, to) pair in the 24-primitive list, write_compatibility_errors
+        // returns an empty list iff the promotion is allowed by the spec; otherwise it
+        // returns a single error describing the disallowed promotion.
+        unimplemented!("compatibility primitive matrix");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for Variant"]
+    fn test_write_compatibility_variant_to_variant_succeeds() {
+        // Variant on both sides → no errors.
+        unimplemented!("compatibility variant-to-variant");
+    }
+
+    #[rstest::rstest]
+    #[case(Type::Struct(StructType::new(vec![StructField::new(
+        1, "from", true, Type::Primitive(PrimitiveType::Int), None,
+    )])))]
+    #[case(Type::Map(MapType {
+        key_id: 1,
+        key: Box::new(Type::Primitive(PrimitiveType::String)),
+        value_id: 2,
+        value_required: true,
+        value: Box::new(Type::Primitive(PrimitiveType::Int)),
+    }))]
+    #[case(Type::List(ListType {
+        element_id: 1,
+        element_required: true,
+        element: Box::new(Type::Primitive(PrimitiveType::String)),
+    }))]
+    #[case(Type::Primitive(PrimitiveType::Boolean))]
+    #[case(Type::Primitive(PrimitiveType::Int))]
+    #[case(Type::Primitive(PrimitiveType::Long))]
+    #[case(Type::Primitive(PrimitiveType::Float))]
+    #[case(Type::Primitive(PrimitiveType::Double))]
+    #[case(Type::Primitive(PrimitiveType::Date))]
+    #[case(Type::Primitive(PrimitiveType::Time))]
+    #[case(Type::Primitive(PrimitiveType::Timestamp))]
+    #[case(Type::Primitive(PrimitiveType::Timestamptz))]
+    #[case(Type::Primitive(PrimitiveType::TimestampNs))]
+    #[case(Type::Primitive(PrimitiveType::TimestamptzNs))]
+    #[case(Type::Primitive(PrimitiveType::String))]
+    #[case(Type::Primitive(PrimitiveType::Uuid))]
+    #[case(Type::Primitive(PrimitiveType::Fixed(3)))]
+    #[case(Type::Primitive(PrimitiveType::Fixed(4)))]
+    #[case(Type::Primitive(PrimitiveType::Binary))]
+    #[case(Type::Primitive(PrimitiveType::Decimal { precision: 9, scale: 2 }))]
+    #[case(Type::Primitive(PrimitiveType::Decimal { precision: 11, scale: 2 }))]
+    #[case(Type::Primitive(PrimitiveType::Decimal { precision: 9, scale: 3 }))]
+    #[case(Type::Primitive(PrimitiveType::Geometry(None)))]
+    #[case(Type::Primitive(PrimitiveType::Geometry(Some(String::from("srid:3857")))))]
+    #[case(Type::Primitive(PrimitiveType::Geography(None, None)))]
+    #[case(Type::Primitive(PrimitiveType::Geography(Some(String::from("srid:4269")), None)))]
+    #[case(Type::Primitive(PrimitiveType::Geography(
+        Some(String::from("srid:4269")),
+        Some(EdgeAlgorithm::Karney)
+    )))]
+    #[ignore = "no compatibility::write_compatibility_errors for to-Variant"]
+    fn test_write_compatibility_non_variant_to_variant_is_rejected(#[case] _from: Type) {
+        // Any non-Variant `from` type written to a Variant `to` type produces exactly one
+        // error containing the phrase "cannot be read as a variant".
+        unimplemented!("compatibility to-variant rejection");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for required-vs-optional"]
+    fn test_write_compatibility_required_to_field_rejects_optional_from_field() {
+        // Writing optional field into a required schema field → one error.
+        unimplemented!("compatibility required");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for missing top-level field"]
+    fn test_write_compatibility_missing_required_field_produces_one_error() {
+        // Read schema has a required field with no counterpart in write schema → one error.
+        unimplemented!("compatibility missing");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors inside struct"]
+    fn test_write_compatibility_required_nested_field_rejects_optional_nested_field() {
+        // Inside a struct: required field on read, optional on write → one error.
+        unimplemented!("compatibility required nested");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors inside struct"]
+    fn test_write_compatibility_missing_required_nested_field_produces_one_error() {
+        // Required nested field missing in write schema → one error.
+        unimplemented!("compatibility missing required nested");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for optional nested-field"]
+    fn test_write_compatibility_missing_optional_nested_field_is_ok() {
+        // Optional nested field missing on write side → no errors.
+        unimplemented!("compatibility missing optional nested");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for nested-type incompatibility"]
+    fn test_write_compatibility_incompatible_nested_struct_field_produces_one_error() {
+        // Nested field types differ in an incompatible way (e.g. long vs string) → one error.
+        unimplemented!("compatibility incompatible nested struct field");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for struct-vs-primitive shape"]
+    fn test_write_compatibility_incompatible_struct_and_primitive_produces_one_error() {
+        // Struct on read, primitive on write at the same field id → one error.
+        unimplemented!("compatibility struct-vs-primitive");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors with multi-error accumulation"]
+    fn test_write_compatibility_accumulates_multiple_errors_in_one_call() {
+        // A single check reports BOTH a nullability violation and a promotion violation.
+        unimplemented!("compatibility multi-error");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for map value required"]
+    fn test_write_compatibility_required_map_value_rejects_optional_write() {
+        // Map<K, required V> on read, optional V on write → one error.
+        unimplemented!("compatibility required map value");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for map key promotion"]
+    fn test_write_compatibility_incompatible_map_key_produces_one_error() {
+        // Map<int, V> on read, Map<string, V> on write → one error on the key type.
+        unimplemented!("compatibility incompatible map key");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for map value promotion"]
+    fn test_write_compatibility_incompatible_map_value_produces_one_error() {
+        // Map<K, int> read, Map<K, string> write → one error on the value type.
+        unimplemented!("compatibility incompatible map value");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for map-vs-primitive"]
+    fn test_write_compatibility_incompatible_map_and_primitive_produces_one_error() {
+        // Map on read, primitive on write at the same field id → one error.
+        unimplemented!("compatibility map-vs-primitive");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for required list element"]
+    fn test_write_compatibility_required_list_element_rejects_optional_write_element() {
+        // List<required E> on read, List<optional E> on write → one error.
+        unimplemented!("compatibility required list element");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for incompatible list element"]
+    fn test_write_compatibility_incompatible_list_element_produces_one_error() {
+        // List<int> read, List<string> write → one error on the element type.
+        unimplemented!("compatibility incompatible list element");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for list-vs-primitive"]
+    fn test_write_compatibility_incompatible_list_and_primitive_produces_one_error() {
+        // List on read, primitive on write at the same field id → one error.
+        unimplemented!("compatibility list-vs-primitive");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for differing field order"]
+    fn test_write_compatibility_different_field_ordering_produces_one_error() {
+        // Same fields, different orders between read and write schemas → one error
+        // (write-side reordering rejected by default).
+        unimplemented!("compatibility field ordering");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors check_ordering=false"]
+    fn test_write_compatibility_struct_write_reordering_with_check_ordering_false_succeeds() {
+        // With check_ordering=false, write-side struct reordering is accepted.
+        unimplemented!("compatibility check_ordering=false");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::read_compatibility_errors"]
+    fn test_read_compatibility_accepts_struct_field_reordering_unconditionally() {
+        // read_compatibility_errors accepts reordering even when write_compatibility_errors rejects it.
+        unimplemented!("compatibility read-side reordering");
+    }
+
+    #[test]
+    #[ignore = "no Schema::case_insensitive_select"]
+    fn test_case_insensitive_select_resolves_dotted_path_ignoring_case() {
+        // case_insensitive_select("Location.Lat") resolves to the lower-case nested field.
+        unimplemented!("Schema::case_insensitive_select");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::type_compatibility_errors"]
+    fn test_type_compatibility_ignores_required_optional_at_top_level() {
+        // type_compatibility_errors does not flag a required-vs-optional mismatch at the top level.
+        unimplemented!("compatibility type-only top-level");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::type_compatibility_errors"]
+    fn test_type_compatibility_ignores_required_optional_inside_struct() {
+        // type_compatibility_errors does not flag a required-vs-optional mismatch inside a struct.
+        unimplemented!("compatibility type-only nested");
+    }
+
+    // -----------------------------------------------------------------------
+    // Serde round-trip parity for primitive + nested types.
+    //
+    // These cover the same observable behaviour as Java's serialization test:
+    // the type survives a serialize-then-deserialize trip and compares equal
+    // to the original, with id-based lookup preserved across the trip.
+    // -----------------------------------------------------------------------
+
+    fn roundtrip<T>(value: &T) -> T
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned,
+    {
+        let json = serde_json::to_string(value).expect("serialize");
+        serde_json::from_str(&json).unwrap_or_else(|e| panic!("deserialize {json}: {e}"))
+    }
+
+    #[test]
+    fn test_singleton_primitive_types_round_trip_through_json_for_every_variant() {
+        // Boolean / Int / Long / Float / Double / Date / Time / Timestamp / Timestamptz /
+        // TimestampNs / TimestamptzNs / String / Uuid / Binary / Unknown / Variant survive serde.
+        let identity = [
+            PrimitiveType::Boolean,
+            PrimitiveType::Int,
+            PrimitiveType::Long,
+            PrimitiveType::Float,
+            PrimitiveType::Double,
+            PrimitiveType::Date,
+            PrimitiveType::Time,
+            PrimitiveType::Timestamp,
+            PrimitiveType::Timestamptz,
+            PrimitiveType::TimestampNs,
+            PrimitiveType::TimestamptzNs,
+            PrimitiveType::String,
+            PrimitiveType::Uuid,
+            PrimitiveType::Binary,
+            PrimitiveType::Unknown,
+            PrimitiveType::Variant,
+        ];
+        for t in identity {
+            assert_eq!(roundtrip(&t), t);
+        }
+    }
+
+    #[test]
+    fn test_parametrised_primitive_types_round_trip_through_json_with_equal_payload() {
+        // Decimal(p,s), Fixed(n), Geometry(crs?), Geography(crs?, algo?) — payload survives.
+        let parametrised = vec![
+            PrimitiveType::Decimal {
+                precision: 9,
+                scale: 3,
+            },
+            PrimitiveType::Decimal {
+                precision: 11,
+                scale: 0,
+            },
+            PrimitiveType::Fixed(4),
+            PrimitiveType::Fixed(34),
+            PrimitiveType::Geometry(None),
+            PrimitiveType::Geometry(Some(String::from("srid:3857"))),
+            PrimitiveType::Geography(None, None),
+            PrimitiveType::Geography(Some(String::from("srid:4269")), None),
+            PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)),
+        ];
+        for t in parametrised {
+            assert_eq!(roundtrip(&t), t);
+        }
+    }
+
+    #[test]
+    #[ignore = "StructType custom Deserialize swallows the inner `type` key without consuming its value; only round-trips when flattened inside a Schema wrapper"]
+    fn test_struct_type_round_trips_with_id_lookup_preserved() {
+        // StructType with named + numbered fields survives serde and supports field-id lookup.
+        let struct_type = StructType::new(vec![
+            StructField::new(
+                34,
+                "Name!",
+                true,
+                Type::Primitive(PrimitiveType::String),
+                None,
+            ),
+            StructField::new(
+                35,
+                "col",
+                false,
+                Type::Primitive(PrimitiveType::Decimal {
+                    precision: 38,
+                    scale: 2,
+                }),
+                None,
+            ),
+        ]);
+
+        let copy = roundtrip(&struct_type);
+        assert_eq!(copy, struct_type);
+
+        let by_id = copy.get(35).expect("field 35 should resolve");
+        assert_eq!(
+            by_id.field_type,
+            Type::Primitive(PrimitiveType::Decimal {
+                precision: 38,
+                scale: 2,
+            })
+        );
+        let by_name = copy.get_name("Name!").expect("Name! should resolve");
+        assert_eq!(by_name.field_type, Type::Primitive(PrimitiveType::String));
+    }
+
+    #[test]
+    fn test_map_type_round_trips_preserving_value_required_flag_for_optional_and_required() {
+        let optional_value = MapType {
+            key_id: 1,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value_id: 2,
+            value_required: false,
+            value: Box::new(Type::Primitive(PrimitiveType::Long)),
+        };
+        let required_value = MapType {
+            key_id: 4,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value_id: 5,
+            value_required: true,
+            value: Box::new(Type::Primitive(PrimitiveType::Long)),
+        };
+        for m in [optional_value, required_value] {
+            assert_eq!(roundtrip(&m), m);
+        }
+    }
+
+    #[test]
+    fn test_list_type_round_trips_preserving_element_required_flag_for_optional_and_required() {
+        let optional_element = ListType {
+            element_id: 2,
+            element_required: false,
+            element: Box::new(Type::Primitive(PrimitiveType::Double)),
+        };
+        let required_element = ListType {
+            element_id: 5,
+            element_required: true,
+            element: Box::new(Type::Primitive(PrimitiveType::Double)),
+        };
+        for l in [optional_element, required_element] {
+            assert_eq!(roundtrip(&l), l);
+        }
+    }
+
+    #[test]
+    #[ignore = "StructType custom Deserialize swallows the inner `type` key without consuming its value; only round-trips when flattened inside a Schema wrapper"]
+    fn test_deeply_nested_struct_with_map_and_list_round_trips_through_json() {
+        // Top-level struct mixing nested struct, map of struct, list of struct, map with
+        // complex (struct-typed) key, and primitive list. Cover the same shape as the
+        // Schema fixture: 8 top-level fields, 6+ levels of nesting.
+        let preferences = StructType::new(vec![
+            StructField::new(
+                8,
+                "feature1",
+                true,
+                Type::Primitive(PrimitiveType::Boolean),
+                None,
+            ),
+            StructField::new(
+                9,
+                "feature2",
+                false,
+                Type::Primitive(PrimitiveType::Boolean),
+                None,
+            ),
+        ]);
+        let locations_value = StructType::new(vec![
+            StructField::new(12, "lat", true, Type::Primitive(PrimitiveType::Float), None),
+            StructField::new(
+                13,
+                "long",
+                true,
+                Type::Primitive(PrimitiveType::Float),
+                None,
+            ),
+        ]);
+        let locations = MapType {
+            key_id: 10,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value_id: 11,
+            value_required: true,
+            value: Box::new(Type::Struct(locations_value)),
+        };
+        let points_element = StructType::new(vec![
+            StructField::new(15, "x", true, Type::Primitive(PrimitiveType::Long), None),
+            StructField::new(16, "y", true, Type::Primitive(PrimitiveType::Long), None),
+        ]);
+        let points = ListType {
+            element_id: 14,
+            element_required: false,
+            element: Box::new(Type::Struct(points_element)),
+        };
+        let doubles = ListType {
+            element_id: 17,
+            element_required: true,
+            element: Box::new(Type::Primitive(PrimitiveType::Double)),
+        };
+        let properties = MapType {
+            key_id: 18,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value_id: 19,
+            value_required: false,
+            value: Box::new(Type::Primitive(PrimitiveType::String)),
+        };
+        let complex_key_struct = StructType::new(vec![
+            StructField::new(23, "x", true, Type::Primitive(PrimitiveType::Long), None),
+            StructField::new(24, "y", false, Type::Primitive(PrimitiveType::Long), None),
+        ]);
+        let complex_key_map = MapType {
+            key_id: 21,
+            key: Box::new(Type::Struct(complex_key_struct)),
+            value_id: 22,
+            value_required: false,
+            value: Box::new(Type::Primitive(PrimitiveType::String)),
+        };
+
+        let top = StructType::new(vec![
+            StructField::new(1, "id", true, Type::Primitive(PrimitiveType::Int), None),
+            StructField::new(
+                2,
+                "data",
+                false,
+                Type::Primitive(PrimitiveType::String),
+                None,
+            ),
+            StructField::new(3, "preferences", false, Type::Struct(preferences), None),
+            StructField::new(4, "locations", true, Type::Map(locations), None),
+            StructField::new(5, "points", false, Type::List(points), None),
+            StructField::new(6, "doubles", true, Type::List(doubles), None),
+            StructField::new(7, "properties", false, Type::Map(properties), None),
+            StructField::new(
+                20,
+                "complex_key_map",
+                true,
+                Type::Map(complex_key_map),
+                None,
+            ),
+        ]);
+
+        assert_eq!(roundtrip(&top), top);
+    }
 }

@@ -322,4 +322,876 @@ mod tests {
         assert_eq!("id_truncate", partition_spec.fields[2].name);
         assert_eq!(Transform::Truncate(4), partition_spec.fields[2].transform);
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for a schema-aware PartitionSpec builder with case-sensitivity.
+    //
+    // Rust's `PartitionSpecBuilder` (via derive_builder) requires the caller to
+    // pass source_id directly: it has no schema-aware name resolution, no
+    // `case_sensitive(bool)` opt-in, no `always_null` shorthand, no default
+    // target-name generator, and no name-uniqueness validation. Each test below
+    // pins one cell of the upstream {transform x case-sensitivity x duplicate-class}
+    // grid.
+    // -----------------------------------------------------------------------
+
+    const SPEC_BUILDER_GAP: &str = "no PartitionSpec::builder_for(schema) + case_sensitive setter";
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) + case_sensitive setter"]
+    fn test_partition_spec_with_two_columns_differing_only_in_case_succeeds() {
+        // Schema with both "data" and "DATA" supports `identity("data")` + `identity("DATA")`
+        // under default case_sensitive=true.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) + identity target-name override"]
+    fn test_identity_target_name_override_succeeds() {
+        // `identity("data", "data_partition")` emits a partition field with target_name="data_partition".
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- bucket transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket exact-duplicate source"]
+    fn test_bucket_source_name_exact_duplicate_allowed_when_case_sensitive() {
+        // case_sensitive(true): two bucket(...) calls naming the same source column (with
+        // different target names) succeed.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket default target name"]
+    fn test_bucket_target_name_defaults_to_source_bucket() {
+        // `bucket("data", 16)` defaults the target name to "data_bucket".
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket default target name (case-insensitive)"]
+    fn test_bucket_target_name_default_under_case_insensitive() {
+        // case_sensitive(false).bucket("DATA", 16) defaults target name to "data_bucket".
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket inexact-duplicate source (case-insensitive)"]
+    fn test_bucket_source_inexact_duplicate_allowed_under_case_insensitive() {
+        // case_sensitive(false).bucket("DATA", 16).bucket("data", 32) succeeds.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket inexact target duplicate (case-insensitive)"]
+    fn test_bucket_target_inexact_duplicate_allowed_under_case_insensitive() {
+        // case_sensitive(false): two bucket targets that differ only in case both accepted.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket exact target duplicate (case-insensitive)"]
+    fn test_bucket_target_exact_duplicate_rejected_under_case_insensitive() {
+        // case_sensitive(false): two bucket targets sharing an identical lower-cased name → reject.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket exact target duplicate (case-sensitive)"]
+    fn test_bucket_target_exact_duplicate_rejected_under_case_sensitive() {
+        // case_sensitive(true): two bucket targets sharing the exact same target name → reject.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- truncate transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate default target name"]
+    fn test_truncate_target_name_defaults_to_source_trunc() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate default target name (case-insensitive)"]
+    fn test_truncate_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate exact-duplicate source"]
+    fn test_truncate_source_name_exact_duplicate_allowed_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate inexact-duplicate source (case-insensitive)"]
+    fn test_truncate_source_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate inexact target duplicate (case-insensitive)"]
+    fn test_truncate_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate exact target duplicate (case-insensitive)"]
+    fn test_truncate_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate exact target duplicate (case-sensitive)"]
+    fn test_truncate_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- identity transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity default target name"]
+    fn test_identity_target_name_defaults_to_source_name() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity default target name (case-insensitive)"]
+    fn test_identity_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity exact-duplicate source rejected"]
+    fn test_identity_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity inexact-duplicate source rejected (case-insensitive)"]
+    fn test_identity_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity inexact target duplicate (case-insensitive)"]
+    fn test_identity_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity exact target duplicate (case-insensitive)"]
+    fn test_identity_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity exact target duplicate (case-sensitive)"]
+    fn test_identity_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- always_null (void) transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null default target name"]
+    fn test_always_null_target_name_defaults_to_source_null() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null default target name (case-insensitive)"]
+    fn test_always_null_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null exact-duplicate source"]
+    fn test_always_null_source_name_exact_duplicate_allowed_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null inexact-duplicate source (case-insensitive)"]
+    fn test_always_null_source_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null inexact target duplicate (case-insensitive)"]
+    fn test_always_null_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null exact target duplicate (case-insensitive)"]
+    fn test_always_null_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null exact target duplicate (case-sensitive)"]
+    fn test_always_null_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- year transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year default target name"]
+    fn test_year_target_name_defaults_to_source_year() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year default target name (case-insensitive)"]
+    fn test_year_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year exact-duplicate source rejected"]
+    fn test_year_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year inexact-duplicate source rejected (case-insensitive)"]
+    fn test_year_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year inexact target duplicate (case-insensitive)"]
+    fn test_year_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year exact target duplicate (case-insensitive)"]
+    fn test_year_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year exact target duplicate (case-sensitive)"]
+    fn test_year_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- month transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month default target name"]
+    fn test_month_target_name_defaults_to_source_month() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month default target name (case-insensitive)"]
+    fn test_month_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month exact-duplicate source rejected"]
+    fn test_month_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month inexact-duplicate source rejected (case-insensitive)"]
+    fn test_month_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month inexact target duplicate (case-insensitive)"]
+    fn test_month_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month exact target duplicate (case-insensitive)"]
+    fn test_month_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month exact target duplicate (case-sensitive)"]
+    fn test_month_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- day transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day default target name"]
+    fn test_day_target_name_defaults_to_source_day() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day default target name (case-insensitive)"]
+    fn test_day_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day exact-duplicate source rejected"]
+    fn test_day_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day inexact-duplicate source rejected (case-insensitive)"]
+    fn test_day_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day inexact target duplicate (case-insensitive)"]
+    fn test_day_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day exact target duplicate (case-insensitive)"]
+    fn test_day_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day exact target duplicate (case-sensitive)"]
+    fn test_day_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- hour transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour default target name"]
+    fn test_hour_target_name_defaults_to_source_hour() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour default target name (case-insensitive)"]
+    fn test_hour_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour exact-duplicate source rejected"]
+    fn test_hour_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour inexact-duplicate source rejected (case-insensitive)"]
+    fn test_hour_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour inexact target duplicate (case-insensitive)"]
+    fn test_hour_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour exact target duplicate (case-insensitive)"]
+    fn test_hour_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour exact target duplicate (case-sensitive)"]
+    fn test_hour_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for PartitionSpec accessors + evolution.
+    //
+    // Rust gaps: no `PartitionSpec::unpartitioned()` factory, no
+    // `is_unpartitioned()` predicate, no `always_null` shorthand, no
+    // `last_assigned_field_id()` accessor, no schema-aware case-sensitivity
+    // builder option, no `update_partition_spec()` table-level op, and no
+    // `update_schema().delete_column()` builder. Each test below pins one
+    // observable scenario for the eventual surface.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no PartitionSpec::is_unpartitioned predicate"]
+    fn test_partition_spec_with_only_void_transforms_reports_unpartitioned() {
+        // A PartitionSpec whose every field uses Transform::Void / always_null reports
+        // is_unpartitioned() == true.
+        unimplemented!("PartitionSpec::is_unpartitioned");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::unpartitioned factory + table.spec() accessors"]
+    fn test_unpartitioned_table_reports_empty_default_partition_spec() {
+        // PartitionSpec::unpartitioned() returns spec with 0 fields and the default spec_id.
+        // table.spec() / table.specs() reflect this; last_assigned_field_id is 999 (one before
+        // the first partition field id).
+        unimplemented!("PartitionSpec::unpartitioned + table accessors");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::is_unpartitioned, no table-level accessors"]
+    fn test_partitioned_table_exposes_spec_accessors_and_last_assigned_field_id() {
+        // table.spec().spec_id() / table.specs() map / last_assigned_field_id() report
+        // the values set by the builder.
+        unimplemented!("PartitionSpec table accessors");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema).case_sensitive(false)"]
+    fn test_partitioned_table_builder_resolves_source_column_case_insensitively() {
+        // `case_sensitive(false).identity("DATA")` resolves to the lower-case "data" column.
+        unimplemented!("PartitionSpec case-insensitive name resolution");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema).case_sensitive(true) name lookup error"]
+    fn test_partitioned_table_builder_rejects_unknown_column_under_case_sensitive() {
+        // `case_sensitive(true).identity("DATA")` against a schema that only has "data" rejects
+        // with `Cannot find source column: DATA`.
+        unimplemented!("PartitionSpec case-sensitive name lookup");
+    }
+
+    #[test]
+    #[ignore = "no table-level update_partition_spec + update_schema().delete_column() builders"]
+    fn test_dropping_partition_source_column_preserves_historical_specs() {
+        // Start with spec A. `update_partition_spec(newSpec)` introduces spec B. Then
+        // `update_schema().delete_column("id")` drops the column that A's fields reference.
+        // table.specs() keeps both A and B entries; the dropped column doesn't appear in B.
+        unimplemented!("partition spec + schema evolution");
+    }
+
+    #[test]
+    #[ignore = "no table-level update_partition_spec evolution"]
+    fn test_partition_spec_evolution_introduces_new_spec_for_v1_table() {
+        // `bucket("data", 4)` then `update_partition_spec(bucket("data", 10))` produces
+        // a V1 table whose specs map carries both entries with distinct spec ids.
+        unimplemented!("partition spec evolution v1");
+    }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for strict + inclusive Transform projection and residual
+    // rewriting. Rust today only exposes the forward `Value::transform` path
+    // for bucket / truncate / year / month / day / hour; projection of an
+    // arbitrary BoundPredicate through the transform (strict for upper/lower
+    // bounds; inclusive for membership) and the resulting residual expression
+    // after partition pruning are not modelled.
+    // -----------------------------------------------------------------------
+
+    const PROJECTION_GAP: &str = "no Transform::project_strict / project_inclusive / Residuals";
+
+    // --- TestBucketingProjection (12) ---
+
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(int)"]
+    fn test_bucket_projection_int_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(int)"]
+    fn test_bucket_projection_int_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(long)"]
+    fn test_bucket_projection_long_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(long)"]
+    fn test_bucket_projection_long_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(decimal)"]
+    fn test_bucket_projection_decimal_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(decimal)"]
+    fn test_bucket_projection_decimal_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(string)"]
+    fn test_bucket_projection_string_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(string)"]
+    fn test_bucket_projection_string_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(binary)"]
+    fn test_bucket_projection_byte_buffer_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(binary)"]
+    fn test_bucket_projection_byte_buffer_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(uuid)"]
+    fn test_bucket_projection_uuid_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(uuid)"]
+    fn test_bucket_projection_uuid_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+
+    // --- TestTruncatesProjection (16) ---
+
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(int) lower bound"]
+    fn test_truncate_projection_int_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(int) upper bound"]
+    fn test_truncate_projection_int_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(int) lower bound"]
+    fn test_truncate_projection_int_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(int) upper bound"]
+    fn test_truncate_projection_int_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(long) lower bound"]
+    fn test_truncate_projection_long_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(long) upper bound"]
+    fn test_truncate_projection_long_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(long) lower bound"]
+    fn test_truncate_projection_long_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(long) upper bound"]
+    fn test_truncate_projection_long_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(decimal) lower bound"]
+    fn test_truncate_projection_decimal_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(decimal) upper bound"]
+    fn test_truncate_projection_decimal_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(decimal) lower bound"]
+    fn test_truncate_projection_decimal_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(decimal) upper bound"]
+    fn test_truncate_projection_decimal_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(string)"]
+    fn test_truncate_projection_string_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(string)"]
+    fn test_truncate_projection_string_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(binary)"]
+    fn test_truncate_projection_binary_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(binary)"]
+    fn test_truncate_projection_binary_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+
+    // --- TestTruncatesResiduals (2) ---
+
+    #[test]
+    #[ignore = "no Transform::residual for truncate(int)"]
+    fn test_truncate_residual_int_pushes_through_known_partition_value() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::residual for truncate(string)"]
+    fn test_truncate_residual_string_pushes_through_known_partition_value() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+
+    // --- TestDatesProjection (22) ---
+
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) at epoch"]
+    fn test_dates_projection_month_strict_epoch() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) at epoch"]
+    fn test_dates_projection_month_inclusive_epoch() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) post-epoch lower bound"]
+    fn test_dates_projection_month_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) pre-epoch lower bound"]
+    fn test_dates_projection_negative_month_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) post-epoch upper bound"]
+    fn test_dates_projection_month_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) pre-epoch upper bound"]
+    fn test_dates_projection_negative_month_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) post-epoch lower bound"]
+    fn test_dates_projection_month_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) pre-epoch lower bound"]
+    fn test_dates_projection_negative_month_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) post-epoch upper bound"]
+    fn test_dates_projection_month_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) pre-epoch upper bound"]
+    fn test_dates_projection_negative_month_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(date) post-epoch"]
+    fn test_dates_projection_day_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(date) pre-epoch"]
+    fn test_dates_projection_negative_day_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(date) post-epoch"]
+    fn test_dates_projection_day_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(date) pre-epoch"]
+    fn test_dates_projection_negative_day_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(date) post-epoch lower bound"]
+    fn test_dates_projection_year_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(date) pre-epoch lower bound"]
+    fn test_dates_projection_negative_year_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(date) post-epoch upper bound"]
+    fn test_dates_projection_year_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(date) pre-epoch upper bound"]
+    fn test_dates_projection_negative_year_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(date) post-epoch lower bound"]
+    fn test_dates_projection_year_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(date) pre-epoch lower bound"]
+    fn test_dates_projection_negative_year_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(date) post-epoch upper bound"]
+    fn test_dates_projection_year_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(date) pre-epoch upper bound"]
+    fn test_dates_projection_negative_year_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+
+    // --- TestTimestampsProjection (26) ---
+
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) at epoch"]
+    fn test_timestamps_projection_day_strict_epoch() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) at epoch"]
+    fn test_timestamps_projection_day_inclusive_epoch() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(timestamp) post-epoch lower bound"]
+    fn test_timestamps_projection_month_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(timestamp) pre-epoch lower bound"]
+    fn test_timestamps_projection_negative_month_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(timestamp) post-epoch upper bound"]
+    fn test_timestamps_projection_month_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(timestamp) pre-epoch upper bound"]
+    fn test_timestamps_projection_negative_month_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(timestamp) post-epoch lower bound"]
+    fn test_timestamps_projection_month_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(timestamp) pre-epoch lower bound"]
+    fn test_timestamps_projection_negative_month_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(timestamp) post-epoch upper bound"]
+    fn test_timestamps_projection_month_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(timestamp) pre-epoch upper bound"]
+    fn test_timestamps_projection_negative_month_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) post-epoch lower bound"]
+    fn test_timestamps_projection_day_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) pre-epoch lower bound"]
+    fn test_timestamps_projection_negative_day_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) post-epoch upper bound"]
+    fn test_timestamps_projection_day_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) pre-epoch upper bound"]
+    fn test_timestamps_projection_negative_day_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) post-epoch lower bound"]
+    fn test_timestamps_projection_day_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) pre-epoch lower bound"]
+    fn test_timestamps_projection_negative_day_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) post-epoch upper bound"]
+    fn test_timestamps_projection_day_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) pre-epoch upper bound"]
+    fn test_timestamps_projection_negative_day_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(timestamp) lower bound"]
+    fn test_timestamps_projection_year_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(timestamp) upper bound"]
+    fn test_timestamps_projection_year_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(timestamp) lower bound"]
+    fn test_timestamps_projection_year_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(timestamp) upper bound"]
+    fn test_timestamps_projection_year_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for hour(timestamp) lower bound"]
+    fn test_timestamps_projection_hour_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for hour(timestamp) upper bound"]
+    fn test_timestamps_projection_hour_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for hour(timestamp) lower bound"]
+    fn test_timestamps_projection_hour_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for hour(timestamp) upper bound"]
+    fn test_timestamps_projection_hour_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
 }

@@ -143,4 +143,202 @@ mod tests {
         assert_eq!(SortDirection::Descending, order.fields[1].direction);
         assert_eq!(NullOrder::Last, order.fields[1].null_order);
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for `sort_order_util` and `sort_order_comparator`.
+    //
+    // Eventual API surface:
+    //   sort_order_util::build_sort_order(&Schema, &PartitionSpec, &SortOrder) -> SortOrder
+    //       Prepends partition-spec fields as clustering columns, skipping any that the
+    //       existing sort order already satisfies.
+    //   sort_order_util::find_table_sort_order(&TableMetadata, &SortOrder) -> SortOrder
+    //       Matches a user-supplied sort order against the table's historical sort_orders;
+    //       returns SortOrder::default() (id=0, empty fields) when no match.
+    //   sort_order_comparator::for_schema(&Schema, &SortOrder)
+    //       -> impl Fn(&Struct, &Struct) -> std::cmp::Ordering
+    //       Row comparator honouring asc/desc direction and NULLS_FIRST/NULLS_LAST.
+    // -----------------------------------------------------------------------
+
+    // --- TestSortOrderUtil (15) ---
+
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_unpartitioned_v1_returns_order_unchanged() {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_unpartitioned_v2_returns_order_unchanged() {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_prepends_partition_fields_when_none_overlap() {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_keeps_order_when_existing_sort_covers_spec_in_spec_order() {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_keeps_order_when_existing_sort_covers_spec_in_different_order() {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_prepends_only_missing_partition_fields() {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_recognises_bare_source_at_tail_as_satisfying_transformed_partition() {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_recognises_bare_source_at_head_as_satisfying_transformed_partition() {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_recognises_bare_source_as_satisfying_multiple_transformed_partitions()
+    {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_with_redundant_partition_fields_keeps_order_unchanged() {
+        unimplemented!("build_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::build_sort_order"]
+    fn test_build_sort_order_with_void_transform_skips_inactive_partition_fields() {
+        unimplemented!("build_sort_order");
+    }
+
+    #[test]
+    #[ignore = "no sort_order_util::find_table_sort_order"]
+    fn test_find_table_sort_order_returns_current_when_user_supplied_matches() {
+        unimplemented!("find_table_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::find_table_sort_order"]
+    fn test_find_table_sort_order_matches_by_shape_when_order_id_is_missing() {
+        unimplemented!("find_table_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::find_table_sort_order"]
+    fn test_find_table_sort_order_matches_historical_order_not_just_current() {
+        unimplemented!("find_table_sort_order");
+    }
+    #[test]
+    #[ignore = "no sort_order_util::find_table_sort_order"]
+    fn test_find_table_sort_order_returns_unsorted_default_when_no_match() {
+        unimplemented!("find_table_sort_order");
+    }
+
+    // --- TestSortOrderComparators (20) ---
+
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_boolean_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_int_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_long_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_float_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_double_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_date_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_time_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_timestamp_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator with day(timestamp) transform"]
+    fn test_sort_order_comparator_for_day_of_timestamp_transform() {
+        unimplemented!("sort_order_comparator transform");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_string_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator with bucket(string) transform"]
+    fn test_sort_order_comparator_for_bucket_of_string_transform() {
+        unimplemented!("sort_order_comparator transform");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_uuid_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator with bucket(uuid) transform"]
+    fn test_sort_order_comparator_for_bucket_of_uuid_transform() {
+        unimplemented!("sort_order_comparator transform");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_fixed_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_binary_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator with truncate(binary, 2) transform"]
+    fn test_sort_order_comparator_for_truncate_of_binary_transform() {
+        unimplemented!("sort_order_comparator transform");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator"]
+    fn test_sort_order_comparator_for_decimal_identity_sort() {
+        unimplemented!("sort_order_comparator");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator over struct row"]
+    fn test_sort_order_comparator_for_nested_struct_single_field_sort() {
+        unimplemented!("sort_order_comparator struct");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator over struct row with multi-field transform"]
+    fn test_sort_order_comparator_for_nested_struct_with_truncate_transform_on_both_fields() {
+        unimplemented!("sort_order_comparator struct transform");
+    }
+    #[test]
+    #[ignore = "no sort_order_comparator over deeply nested struct row"]
+    fn test_sort_order_comparator_for_three_level_nested_struct_with_two_fields() {
+        unimplemented!("sort_order_comparator deeply nested");
+    }
 }

@@ -1581,4 +1581,698 @@ mod tests {
             5354
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for V3 Variant value wrapper + serialization.
+    //
+    // Rust has `PrimitiveType::Variant` in types.rs but no value-level Variant
+    // implementation: no `Variant` / `VariantPrimitive` / `VariantMetadata`
+    // value types, no LE little-endian byte writer, no Conversions::to_byte_buffer
+    // for variants. The 30-element case list mirrors the spec's primitive variants
+    // covered by `Variants::ofXxx` factory methods.
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Placeholders for timestamp/date literal conversion gaps in Value::cast +
+    // Value::try_from_json. Rust has no Value::TimestampNano variant, the
+    // Timestamptz JSON parser hardcodes +00:00, neither timestamp variant
+    // rejects offset-vs-no-offset mismatches when casting between types.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; Value::cast Timestamp->TimestampNano unimplemented"]
+    fn test_timestamp_micros_promotes_to_timestamp_nanos_by_multiplying_by_one_thousand() {
+        // Value::Timestamp(micros).cast(TimestampNs) yields Value::TimestampNano(micros * 1000).
+        unimplemented!("Timestamp->TimestampNano cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast Timestamp->Date unimplemented"]
+    fn test_timestamp_micros_casts_to_date_with_floor_for_negative_sub_day_values() {
+        // Value::Timestamp(micros).cast(Date) returns days-since-epoch using floor division
+        // (negative sub-day micros round down to the previous day).
+        unimplemented!("Timestamp->Date cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast Timestamp->Date unimplemented (micros precision branch)"]
+    fn test_timestamp_micros_to_date_repeats_the_floor_rule_at_micros_precision() {
+        // Same as above but explicit micros-precision contract.
+        unimplemented!("Timestamp->Date cast micros");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; Value::cast TimestampNano->Timestamp unimplemented"]
+    fn test_timestamp_nanos_narrows_to_timestamp_micros_by_floor_division_by_one_thousand() {
+        // Value::TimestampNano(nanos).cast(Timestamp) yields Value::Timestamp(nanos.div_euclid(1000)).
+        unimplemented!("TimestampNano->Timestamp cast");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; Value::cast TimestampNano->Date unimplemented"]
+    fn test_timestamp_nanos_casts_to_date_using_floor_division() {
+        // Value::TimestampNano(nanos).cast(Date) returns days-since-epoch with floor semantics.
+        unimplemented!("TimestampNano->Date cast");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; offset-bearing string rejected for without-zone"]
+    fn test_timestamp_nanos_with_zone_strings_rejected_for_without_zone_targets() {
+        // `try_from_json` of `"2024-11-07T12:33:54.123456789+00:00"` is accepted for
+        // TimestampTzNs but rejected for TimestampNs (and similarly for TimestampTz/Timestamp).
+        unimplemented!("TimestampNano zone parsing");
+    }
+
+    #[test]
+    #[ignore = "Timestamptz parser hardcodes +00:00; offset-bearing string rejected for without-zone"]
+    fn test_timestamp_micros_with_zone_strings_rejected_for_without_zone_targets() {
+        // Same shape at micros precision: offset-bearing input is accepted for Timestamptz
+        // but rejected for Timestamp (without zone).
+        unimplemented!("Timestamptz zone parsing");
+    }
+
+    #[test]
+    #[ignore = "Timestamptz parser hardcodes +00:00; offset-less string rejected for with-zone"]
+    fn test_timestamp_nanos_without_zone_strings_rejected_for_with_zone_targets() {
+        // `try_from_json` of `"2024-11-07T12:33:54.123456789"` accepted for TimestampNs but
+        // rejected for TimestampTzNs.
+        unimplemented!("TimestampNano no-zone parsing");
+    }
+
+    #[test]
+    #[ignore = "Timestamptz parser hardcodes +00:00; offset-less string rejected for with-zone"]
+    fn test_timestamp_micros_without_zone_strings_rejected_for_with_zone_targets() {
+        // Same shape at micros: offset-less input accepted for Timestamp but rejected for Timestamptz.
+        unimplemented!("Timestamp no-zone parsing");
+    }
+
+    // -----------------------------------------------------------------------
+    // Cast misc + invalid-cast coverage for Value::cast.
+    //
+    // Rust's Value::cast is intentionally strict: only same-type identity and
+    // {Int->Long, Int->Date, Long->Time/Timestamp/Timestamptz} succeed.
+    // Everything else returns Err(NotSupported). The invalid-cast tests can
+    // therefore pass today by iterating over the disallowed-target list.
+    // -----------------------------------------------------------------------
+
+    fn assert_invalid_casts(value: &Value, targets: &[Type]) {
+        for target in targets {
+            assert!(
+                value.clone().cast(target).is_err(),
+                "expected cast {:?} -> {:?} to error",
+                value,
+                target
+            );
+        }
+    }
+
+    fn all_other_primitive_types(excluded: &[PrimitiveType]) -> Vec<Type> {
+        let candidates = [
+            PrimitiveType::Boolean,
+            PrimitiveType::Int,
+            PrimitiveType::Long,
+            PrimitiveType::Float,
+            PrimitiveType::Double,
+            PrimitiveType::Date,
+            PrimitiveType::Time,
+            PrimitiveType::Timestamp,
+            PrimitiveType::Timestamptz,
+            PrimitiveType::String,
+            PrimitiveType::Uuid,
+            PrimitiveType::Fixed(1),
+            PrimitiveType::Binary,
+            PrimitiveType::Decimal {
+                precision: 9,
+                scale: 2,
+            },
+        ];
+        candidates
+            .into_iter()
+            .filter(|c| !excluded.contains(c))
+            .map(Type::Primitive)
+            .collect()
+    }
+
+    #[test]
+    fn test_identity_cast_returns_same_value_for_every_supported_primitive_variant() {
+        // Same-type Value::cast is a no-op. Decimal datatype() hardcodes precision=38, so
+        // the identity cast must target precision=38 too.
+        let dec_38_2 = Decimal::from_i128_with_scale(1234, 2);
+        let cases = vec![
+            Value::Boolean(true),
+            Value::Int(123),
+            Value::LongInt(12345),
+            Value::Float(OrderedFloat(1.5_f32)),
+            Value::Double(OrderedFloat(1.5_f64)),
+            Value::Date(19700),
+            Value::Time(60_000_000),
+            Value::Timestamp(1_700_000_000_000_000),
+            Value::TimestampTZ(1_700_000_000_000_000),
+            Value::String(String::from("hello")),
+            Value::UUID(uuid::Uuid::nil()),
+            Value::Fixed(3, vec![1, 2, 3]),
+            Value::Binary(vec![1, 2, 3]),
+            Value::Decimal(dec_38_2),
+        ];
+        for v in cases {
+            let target = v.datatype();
+            assert_eq!(v.clone().cast(&target).unwrap(), v);
+        }
+    }
+
+    #[test]
+    #[ignore = "Value::cast Timestamp->Date unimplemented"]
+    fn test_timestamp_with_microseconds_casts_to_date_via_floor_division() {
+        // Timestamp(micros).cast(Date) returns days-since-epoch with floor semantics.
+        unimplemented!("Timestamp->Date cast");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant"]
+    fn test_timestamp_with_nanoseconds_casts_to_date_via_floor_division() {
+        // TimestampNano(nanos).cast(Date) returns days-since-epoch with floor semantics.
+        unimplemented!("TimestampNano->Date cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast Binary->Fixed size-check unimplemented"]
+    fn test_binary_with_matching_length_casts_to_fixed() {
+        // Binary(bytes).cast(Fixed(n)) succeeds when bytes.len() == n; rejects when length mismatches.
+        unimplemented!("Binary->Fixed cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast Fixed->Binary unimplemented"]
+    fn test_fixed_casts_to_binary_unconditionally() {
+        // Fixed(_, bytes).cast(Binary) yields Binary(bytes) without size check.
+        unimplemented!("Fixed->Binary cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast String->Fixed (hex decode + length check) unimplemented"]
+    fn test_string_hex_casts_to_fixed_with_length_check() {
+        // String("0A0B0C").cast(Fixed(3)) decodes the hex string and yields Fixed(3, [10,11,12]).
+        unimplemented!("String->Fixed cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast String->Binary (hex decode) unimplemented"]
+    fn test_string_hex_casts_to_binary() {
+        // String("0A0B0C").cast(Binary) decodes the hex string and yields Binary([10,11,12]).
+        unimplemented!("String->Binary cast");
+    }
+
+    #[test]
+    fn test_boolean_value_rejects_every_non_boolean_target_type() {
+        let value = Value::Boolean(true);
+        let targets = all_other_primitive_types(&[PrimitiveType::Boolean]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_int_value_rejects_targets_outside_long_and_date() {
+        let value = Value::Int(34);
+        // Rust's cast allows Int->Long, Int->Date; reject everything else.
+        let targets = all_other_primitive_types(&[
+            PrimitiveType::Int,
+            PrimitiveType::Long,
+            PrimitiveType::Date,
+        ]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_long_value_rejects_targets_outside_time_timestamp_and_timestamptz() {
+        let value = Value::LongInt(34);
+        // Rust's cast allows Long->Time/Timestamp/Timestamptz; reject everything else.
+        let targets = all_other_primitive_types(&[
+            PrimitiveType::Long,
+            PrimitiveType::Time,
+            PrimitiveType::Timestamp,
+            PrimitiveType::Timestamptz,
+        ]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_float_value_rejects_every_non_float_target_type() {
+        let value = Value::Float(OrderedFloat(34.11_f32));
+        let targets = all_other_primitive_types(&[PrimitiveType::Float]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_double_value_rejects_every_non_double_target_type() {
+        let value = Value::Double(OrderedFloat(34.11_f64));
+        let targets = all_other_primitive_types(&[PrimitiveType::Double]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_date_value_rejects_every_non_date_target_type() {
+        let value = Value::Date(17396); // 2017-08-18
+        let targets = all_other_primitive_types(&[PrimitiveType::Date]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_time_value_rejects_every_non_time_target_type() {
+        let value = Value::Time(51_661_919_000);
+        let targets = all_other_primitive_types(&[PrimitiveType::Time]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_timestamp_micros_value_rejects_every_non_timestamp_target_type() {
+        let value = Value::Timestamp(1_503_065_561_919_123);
+        let targets = all_other_primitive_types(&[PrimitiveType::Timestamp]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant"]
+    fn test_timestamp_nanos_value_rejects_every_non_timestamp_target_type() {
+        // Once Value::TimestampNano lands, iterating its invalid-target list mirrors the
+        // Timestamp invalid-cast contract.
+        unimplemented!("TimestampNano variant");
+    }
+
+    #[test]
+    fn test_decimal_value_rejects_every_non_decimal_target_type() {
+        let value = Value::Decimal(Decimal::from_i128_with_scale(3411, 2));
+        // Decimal datatype() hardcodes precision=38 so identity uses precision=38; any other
+        // decimal precision/scale variant is therefore "not the same type" but still allowed.
+        let targets = all_other_primitive_types(&[PrimitiveType::Decimal {
+            precision: 9,
+            scale: 2,
+        }]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_string_value_rejects_every_non_string_target_type() {
+        let value = Value::String(String::from("abc"));
+        let targets = all_other_primitive_types(&[PrimitiveType::String]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_uuid_value_rejects_every_non_uuid_target_type() {
+        let value = Value::UUID(uuid::Uuid::nil());
+        let targets = all_other_primitive_types(&[PrimitiveType::Uuid]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_fixed_value_rejects_every_non_fixed_target_type() {
+        let value = Value::Fixed(1, vec![10]);
+        let targets = all_other_primitive_types(&[PrimitiveType::Fixed(1)]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_binary_value_rejects_every_non_binary_target_type() {
+        let value = Value::Binary(vec![10, 11, 12]);
+        let targets = all_other_primitive_types(&[PrimitiveType::Binary]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    // -----------------------------------------------------------------------
+    // Literal serde JSON round-trip across every supported Value variant.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_literal_round_trips_via_try_from_json_for_every_decoder_supported_variant() {
+        // Iterates the 12 Value variants whose `Value::try_from_json` decoder is implemented.
+        // Fixed and Binary are todo!() on the decode side (covered separately below). The
+        // Timestamptz example uses +00:00 because Rust's parser hardcodes that offset.
+        let cases: Vec<(Value, Type, JsonValue)> = vec![
+            (
+                Value::Boolean(false),
+                Type::Primitive(PrimitiveType::Boolean),
+                JsonValue::Bool(false),
+            ),
+            (
+                Value::Int(34),
+                Type::Primitive(PrimitiveType::Int),
+                JsonValue::Number(34.into()),
+            ),
+            (
+                Value::LongInt(35),
+                Type::Primitive(PrimitiveType::Long),
+                JsonValue::Number(35_i64.into()),
+            ),
+            (
+                Value::Float(OrderedFloat(36.75_f32)),
+                Type::Primitive(PrimitiveType::Float),
+                JsonValue::Number(Number::from_f64(36.75).unwrap()),
+            ),
+            (
+                Value::Double(OrderedFloat(8.75_f64)),
+                Type::Primitive(PrimitiveType::Double),
+                JsonValue::Number(Number::from_f64(8.75).unwrap()),
+            ),
+            (
+                Value::Date(17499), // 2017-11-29
+                Type::Primitive(PrimitiveType::Date),
+                JsonValue::String(String::from("2017-11-29")),
+            ),
+            (
+                Value::Time(41_407_000_000),
+                Type::Primitive(PrimitiveType::Time),
+                JsonValue::String(String::from("11:30:07")),
+            ),
+            (
+                Value::Timestamp(1_511_955_007_123_456),
+                Type::Primitive(PrimitiveType::Timestamp),
+                JsonValue::String(String::from("2017-11-29T11:30:07.123456")),
+            ),
+            (
+                Value::TimestampTZ(1_511_955_007_123_456),
+                Type::Primitive(PrimitiveType::Timestamptz),
+                JsonValue::String(String::from("2017-11-29T11:30:07.123456+00:00")),
+            ),
+            (
+                Value::String(String::from("abc")),
+                Type::Primitive(PrimitiveType::String),
+                JsonValue::String(String::from("abc")),
+            ),
+            (
+                Value::UUID(uuid::Uuid::nil()),
+                Type::Primitive(PrimitiveType::Uuid),
+                JsonValue::String(uuid::Uuid::nil().to_string()),
+            ),
+        ];
+
+        for (value, ty, json) in cases {
+            let parsed = Value::try_from_json(json.clone(), &ty)
+                .expect("try_from_json should not error for supported variants");
+            assert_eq!(parsed.as_ref(), Some(&value), "decoded {json}");
+
+            let emitted: JsonValue = (&value).into();
+            assert_eq!(emitted, json, "encoded {value:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "Value::try_from_json hits todo!() for Fixed and Binary on the JSON-string decode path"]
+    fn test_literal_round_trips_via_json_for_fixed_and_binary_variants() {
+        // Fixed(3, [1,2,3]) <-> "010203" and Binary([3,4,5,6]) <-> "03040506" should round-trip
+        // via hex encoding. Encode path works; decode path is todo!() in values.rs.
+        unimplemented!("Fixed/Binary JSON decode");
+    }
+
+    #[test]
+    #[ignore = "Value::try_from_json and From<&Value> for JsonValue both todo!() for Decimal"]
+    fn test_literal_round_trips_via_json_for_decimal_variant() {
+        // Decimal("122.50") <-> "122.50" should round-trip via canonical string; both encode
+        // and decode are todo!() today.
+        unimplemented!("Decimal JSON round-trip");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; try_from_json for timestamp_ns / timestamptz_ns absent"]
+    fn test_literal_round_trips_via_json_for_timestamp_nano_variants() {
+        // Once Value::TimestampNano lands, two more cases extend the round-trip set:
+        //   ("2017-11-29T11:30:07.123456789", TimestampNs, no-offset string)
+        //   ("2017-11-29T11:30:07.123456789+00:00", TimestamptzNs, +00:00 offset)
+        unimplemented!("TimestampNano literal serde");
+    }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for a future V3 Variant array (`ValueArray`) value model.
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Edge-case width behaviour for Truncate(int).
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Datetime helper math for micros-precision timestamps.
+    //
+    // Rust models timestamps at micros precision only; nanos counterparts +
+    // millis/ISO helpers are gaps. The micros-precision bucket helpers
+    // (year/month/day/hour) reuse the same chrono routines as the production
+    // transform path, so a positive and a pre-epoch instant exercise the
+    // floor / zero-indexed contracts.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "datetime_to_months is off-by-one (1-indexed month vs spec's 0-indexed); year/day/hour pass but the whole convertNanos counterpart aborts on the month assertion"]
+    fn test_datetime_micros_year_month_day_hour_helpers_for_positive_instant() {
+        // Instant 2017-11-16T22:31:08.000001 (micros = 1_510_871_468_000_001).
+        // Bucket helpers should match the spec values for the same wall-clock instant:
+        // years=47, months=574, days=17486, hours=419686.
+        let micros: i64 = 1_510_871_468_000_001;
+        let dt = datetime::micros_to_datetime(micros);
+        assert_eq!(datetime::date_to_years(&dt.date()), 47);
+        assert_eq!(datetime::datetime_to_months(&dt), 574);
+        assert_eq!(datetime::datetime_to_days(&dt), 17486);
+        assert_eq!(datetime::datetime_to_hours(&dt), 419686);
+    }
+
+    #[test]
+    #[ignore = "datetime_to_months is off-by-one for the negative branch too"]
+    fn test_datetime_micros_year_month_day_hour_helpers_floor_for_pre_epoch_instant() {
+        // Pre-epoch instant 1922-02-15T01:28:51.999999 (micros = -1_510_871_468_000_001).
+        // Floor (Euclidean) division produces the lower bucket for non-aligned negatives:
+        // years=-48, months=-575, days=-17487, hours=-419687.
+        let micros: i64 = -1_510_871_468_000_001;
+        let dt = datetime::micros_to_datetime(micros);
+        assert_eq!(datetime::date_to_years(&dt.date()), -48);
+        assert_eq!(datetime::datetime_to_months(&dt), -575);
+        assert_eq!(datetime::datetime_to_days(&dt), -17487);
+        assert_eq!(datetime::datetime_to_hours(&dt), -419687);
+    }
+
+    #[test]
+    fn test_datetime_micros_hours_div_24_equals_days_for_positive_instant() {
+        // For any positive instant, the hour-bucket divided by 24 yields the day-bucket.
+        let dt = datetime::micros_to_datetime(1_750_000_500_000_001);
+        assert_eq!(
+            datetime::datetime_to_hours(&dt).div_euclid(24),
+            datetime::datetime_to_days(&dt)
+        );
+    }
+
+    #[test]
+    #[ignore = "no nanos_to_micros helper in iceberg-rust-spec datetime module"]
+    fn test_datetime_nanos_to_micros_floors_toward_negative_infinity() {
+        // nanos_to_micros(1234567890) = 1234567; nanos_to_micros(-1234567890) = -1234568.
+        unimplemented!("datetime::nanos_to_micros");
+    }
+
+    #[test]
+    #[ignore = "no micros_to_nanos helper"]
+    fn test_datetime_micros_to_nanos_multiplies_by_one_thousand() {
+        // micros_to_nanos(123456) = 123_456_000.
+        unimplemented!("datetime::micros_to_nanos");
+    }
+
+    #[test]
+    #[ignore = "no iso_timestamp_to_nanos helper"]
+    fn test_datetime_iso_timestamp_string_decodes_to_nanos_since_epoch() {
+        // iso_timestamp_to_nanos("2017-11-16T22:31:08.000001001") = 1_510_871_468_000_001_001.
+        unimplemented!("datetime::iso_timestamp_to_nanos");
+    }
+
+    #[test]
+    #[ignore = "no iso_timestamptz_to_nanos helper"]
+    fn test_datetime_iso_timestamptz_string_decodes_to_nanos_since_epoch() {
+        // iso_timestamptz_to_nanos("2017-11-16T22:31:08.000001001+00:00") = 1_510_871_468_000_001_001.
+        unimplemented!("datetime::iso_timestamptz_to_nanos");
+    }
+
+    #[test]
+    #[ignore = "no timestamp_from_millis helper"]
+    fn test_datetime_timestamp_from_millis_round_trips_known_wall_clock_instants() {
+        // timestamp_from_millis(1510871468000) = 2017-11-16T22:31:08; pre-epoch + zero too.
+        unimplemented!("datetime::timestamp_from_millis");
+    }
+
+    #[test]
+    #[ignore = "no millis_from_timestamp helper"]
+    fn test_datetime_millis_from_timestamp_emits_known_millis_values() {
+        // millis_from_timestamp(2017-11-16T22:31:08) = 1510871468000.
+        unimplemented!("datetime::millis_from_timestamp");
+    }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for UUID v7 + Variant-helper LE byte reading.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "uuid crate v7 feature not enabled in iceberg-rust-spec/Cargo.toml; no generate_uuid_v7 helper"]
+    fn test_generate_uuid_v7_has_version_7_and_rfc4122_variant() {
+        // generate_uuid_v7() returns a UUID whose `.get_version_num()` == 7 and
+        // `.get_variant() == Variant::RFC4122` (== 2 in numeric form).
+        unimplemented!("uuid v7 helper");
+    }
+
+    #[test]
+    #[ignore = "no V3 VariantUtil 1-byte unsigned LE reader"]
+    fn test_variant_util_reads_unsigned_1_byte_little_endian_integer() {
+        // VariantUtil::read_byte_unsigned(&[0xff]) returns 255 (vs i8 interpretation -1).
+        unimplemented!("VariantUtil read_byte_unsigned");
+    }
+
+    #[test]
+    #[ignore = "no V3 VariantUtil 2-byte unsigned LE reader"]
+    fn test_variant_util_reads_unsigned_2_byte_little_endian_integer() {
+        // read_2_byte_unsigned([0xff,0xff]) returns 65535.
+        unimplemented!("VariantUtil read_2_byte_unsigned");
+    }
+
+    #[test]
+    #[ignore = "no V3 VariantUtil 3-byte unsigned LE reader"]
+    fn test_variant_util_reads_unsigned_3_byte_little_endian_integer() {
+        // read_3_byte_unsigned([0xff,0xff,0xff]) returns 16777215.
+        unimplemented!("VariantUtil read_3_byte_unsigned");
+    }
+
+    #[test]
+    fn test_truncate_int_zero_width_panics_and_negative_width_unreachable_at_type_level() {
+        // Rust's Transform::Truncate(u32) cannot carry a negative width by construction
+        // (the upstream contract requires a runtime check; in Rust the type system enforces it).
+        // Width=0 makes the implementation call i32::rem_euclid(0), which panics — semantic
+        // equivalent of Java's IllegalArgumentException.
+        let size_of_u32 = std::mem::size_of::<u32>();
+        assert_eq!(
+            size_of_u32, 4,
+            "Transform::Truncate(u32) prevents negative widths"
+        );
+
+        let value = Value::Int(100);
+        let result = std::panic::catch_unwind(|| value.transform(&Transform::Truncate(0)));
+        assert!(result.is_err(), "truncate with width=0 should panic");
+    }
+
+    #[test]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_indexed_element_access() {
+        // ValueArray with 3 elements: get(0)/get(1)/get(2) return the original elements
+        // by type + payload equality.
+        unimplemented!("Variant ValueArray indexed access");
+    }
+
+    #[test]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_serializes_into_exactly_size_in_bytes_buffer() {
+        // Write into a buffer sized exactly arr.size_in_bytes(), then read back via
+        // Variants::value with empty metadata; result equals input.
+        unimplemented!("Variant ValueArray minimal buffer serialization");
+    }
+
+    #[test]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_serializes_at_nonzero_offset_in_large_buffer() {
+        // Write into a buffer of size arr.size_in_bytes() + 1000 at offset 300; read back via
+        // Variants::value over the offset slice; result equals input.
+        unimplemented!("Variant ValueArray large buffer serialization");
+    }
+
+    #[test]
+    #[ignore = "no Variant ValueArray + Conversions for Variant"]
+    fn test_variant_value_array_round_trips_through_conversions() {
+        // Conversions::to_byte_buffer(VariantType, Variant::of(metadata, array)) +
+        // from_byte_buffer round-trips a full Variant containing a ValueArray.
+        unimplemented!("Variant ValueArray Conversions");
+    }
+
+    #[rstest::rstest]
+    #[case(300)]
+    #[case(70_000)]
+    #[case(16_777_300)]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_writer_auto_selects_one_to_four_byte_offset_sizing(
+        #[case] _array_len: usize,
+    ) {
+        // ValueArray writer must auto-select 1/2/3/4-byte offset sizing based on the largest
+        // element offset. Three array sizes pin the 1-byte, 2-byte, and 3+-byte branches.
+        unimplemented!("Variant ValueArray multi-byte offsets");
+    }
+
+    #[test]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_round_trips_over_ten_thousand_elements() {
+        // 10_000-element ValueArray fan-out: every index round-trips via the serialize-read pair.
+        unimplemented!("Variant ValueArray large fan-out");
+    }
+
+    #[rstest::rstest]
+    #[case("null")]
+    #[case("bool_true")]
+    #[case("bool_false")]
+    #[case("i8_positive")]
+    #[case("i8_negative")]
+    #[case("i16_positive")]
+    #[case("i16_negative")]
+    #[case("i32_positive")]
+    #[case("i32_negative")]
+    #[case("i64_positive")]
+    #[case("i64_negative")]
+    #[case("f32_positive")]
+    #[case("f32_negative")]
+    #[case("f64_positive")]
+    #[case("f64_negative")]
+    #[case("date_post_epoch")]
+    #[case("date_pre_epoch")]
+    #[case("timestamptz_post_epoch")]
+    #[case("timestamptz_pre_epoch")]
+    #[case("timestamp_post_epoch")]
+    #[case("timestamp_pre_epoch")]
+    #[case("decimal4_positive")]
+    #[case("decimal4_negative")]
+    #[case("decimal8_positive")]
+    #[case("decimal8_negative")]
+    #[case("decimal16_positive")]
+    #[case("decimal16_negative")]
+    #[case("binary_short")]
+    #[case("string_short_63_chars")]
+    #[case("string_long_64_chars")]
+    #[ignore = "no Variant value model: no VariantPrimitive::write_to LE serialization"]
+    fn test_variant_primitive_round_trips_through_le_byte_writer(#[case] _case_label: &str) {
+        // Allocate a buffer larger than primitive.size_in_bytes(), write at offset 300 in
+        // little-endian order, then read back via `Variants::value(EMPTY_METADATA, slice)`
+        // and assert type + payload equality with the original.
+        unimplemented!("Variant primitive write_to / Variants::value");
+    }
+
+    #[rstest::rstest]
+    #[case("null")]
+    #[case("bool_true")]
+    #[case("bool_false")]
+    #[case("i8_positive")]
+    #[case("i8_negative")]
+    #[case("i16_positive")]
+    #[case("i16_negative")]
+    #[case("i32_positive")]
+    #[case("i32_negative")]
+    #[case("i64_positive")]
+    #[case("i64_negative")]
+    #[case("f32_positive")]
+    #[case("f32_negative")]
+    #[case("f64_positive")]
+    #[case("f64_negative")]
+    #[case("date_post_epoch")]
+    #[case("date_pre_epoch")]
+    #[case("timestamptz_post_epoch")]
+    #[case("timestamptz_pre_epoch")]
+    #[case("timestamp_post_epoch")]
+    #[case("timestamp_pre_epoch")]
+    #[case("decimal4_positive")]
+    #[case("decimal4_negative")]
+    #[case("decimal8_positive")]
+    #[case("decimal8_negative")]
+    #[case("decimal16_positive")]
+    #[case("decimal16_negative")]
+    #[case("binary_short")]
+    #[case("string_short_63_chars")]
+    #[case("string_long_64_chars")]
+    #[ignore = "no Conversions::to_byte_buffer / from_byte_buffer for Variant"]
+    fn test_variant_full_value_round_trips_through_conversions(#[case] _case_label: &str) {
+        // `Conversions::to_byte_buffer(VariantType, Variant::of(metadata, primitive))` then
+        // `from_byte_buffer` returns a Variant whose metadata + value bytes equal the original.
+        unimplemented!("Conversions for Variant");
+    }
 }

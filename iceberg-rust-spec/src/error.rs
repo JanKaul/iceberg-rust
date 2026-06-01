@@ -62,3 +62,41 @@ impl From<apache_avro::Error> for Error {
         Error::Avro(Box::new(err))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    // -----------------------------------------------------------------------
+    // Placeholders for `runSafely`-style suppressed-exception propagation.
+    //
+    // Rust has no analog: `?` short-circuits on the first error;
+    // `std::error::Error::source()` exposes a single-link cause chain but no
+    // *list* of cleanup-time exceptions; `Drop` can act as a finally analog
+    // but panicking during unwind is UB. The 4 placeholders below cover the
+    // four `runSafely` overloads (varying numbers of declared checked
+    // exception types).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no exception_util::run_safely(block, catch, finally) suppressed-exception propagation"]
+    fn test_run_safely_attaches_finally_exception_as_suppressed_when_primary_succeeds() {
+        unimplemented!("run_safely 1-arg overload");
+    }
+
+    #[test]
+    #[ignore = "no exception_util::run_safely 2-exception overload"]
+    fn test_run_safely_attaches_catch_and_finally_exceptions_two_declared_types() {
+        unimplemented!("run_safely 2-arg overload");
+    }
+
+    #[test]
+    #[ignore = "no exception_util::run_safely 3-exception overload"]
+    fn test_run_safely_attaches_catch_and_finally_exceptions_three_declared_types() {
+        unimplemented!("run_safely 3-arg overload");
+    }
+
+    #[test]
+    #[ignore = "no exception_util::run_safely runtime-exception variant"]
+    fn test_run_safely_attaches_suppressed_exceptions_with_unchecked_runtime_errors() {
+        unimplemented!("run_safely runtime overload");
+    }
+}
