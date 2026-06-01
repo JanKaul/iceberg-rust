@@ -1666,6 +1666,237 @@ mod tests {
         unimplemented!("Timestamp no-zone parsing");
     }
 
+    // -----------------------------------------------------------------------
+    // Cast misc + invalid-cast coverage for Value::cast.
+    //
+    // Rust's Value::cast is intentionally strict: only same-type identity and
+    // {Int->Long, Int->Date, Long->Time/Timestamp/Timestamptz} succeed.
+    // Everything else returns Err(NotSupported). The invalid-cast tests can
+    // therefore pass today by iterating over the disallowed-target list.
+    // -----------------------------------------------------------------------
+
+    fn assert_invalid_casts(value: &Value, targets: &[Type]) {
+        for target in targets {
+            assert!(
+                value.clone().cast(target).is_err(),
+                "expected cast {:?} -> {:?} to error",
+                value,
+                target
+            );
+        }
+    }
+
+    fn all_other_primitive_types(excluded: &[PrimitiveType]) -> Vec<Type> {
+        let candidates = [
+            PrimitiveType::Boolean,
+            PrimitiveType::Int,
+            PrimitiveType::Long,
+            PrimitiveType::Float,
+            PrimitiveType::Double,
+            PrimitiveType::Date,
+            PrimitiveType::Time,
+            PrimitiveType::Timestamp,
+            PrimitiveType::Timestamptz,
+            PrimitiveType::String,
+            PrimitiveType::Uuid,
+            PrimitiveType::Fixed(1),
+            PrimitiveType::Binary,
+            PrimitiveType::Decimal {
+                precision: 9,
+                scale: 2,
+            },
+        ];
+        candidates
+            .into_iter()
+            .filter(|c| !excluded.contains(c))
+            .map(Type::Primitive)
+            .collect()
+    }
+
+    #[test]
+    fn test_identity_cast_returns_same_value_for_every_supported_primitive_variant() {
+        // Same-type Value::cast is a no-op. Decimal datatype() hardcodes precision=38, so
+        // the identity cast must target precision=38 too.
+        let dec_38_2 = Decimal::from_i128_with_scale(1234, 2);
+        let cases = vec![
+            Value::Boolean(true),
+            Value::Int(123),
+            Value::LongInt(12345),
+            Value::Float(OrderedFloat(1.5_f32)),
+            Value::Double(OrderedFloat(1.5_f64)),
+            Value::Date(19700),
+            Value::Time(60_000_000),
+            Value::Timestamp(1_700_000_000_000_000),
+            Value::TimestampTZ(1_700_000_000_000_000),
+            Value::String(String::from("hello")),
+            Value::UUID(uuid::Uuid::nil()),
+            Value::Fixed(3, vec![1, 2, 3]),
+            Value::Binary(vec![1, 2, 3]),
+            Value::Decimal(dec_38_2),
+        ];
+        for v in cases {
+            let target = v.datatype();
+            assert_eq!(v.clone().cast(&target).unwrap(), v);
+        }
+    }
+
+    #[test]
+    #[ignore = "Value::cast Timestamp->Date unimplemented"]
+    fn test_timestamp_with_microseconds_casts_to_date_via_floor_division() {
+        // Timestamp(micros).cast(Date) returns days-since-epoch with floor semantics.
+        unimplemented!("Timestamp->Date cast");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant"]
+    fn test_timestamp_with_nanoseconds_casts_to_date_via_floor_division() {
+        // TimestampNano(nanos).cast(Date) returns days-since-epoch with floor semantics.
+        unimplemented!("TimestampNano->Date cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast Binary->Fixed size-check unimplemented"]
+    fn test_binary_with_matching_length_casts_to_fixed() {
+        // Binary(bytes).cast(Fixed(n)) succeeds when bytes.len() == n; rejects when length mismatches.
+        unimplemented!("Binary->Fixed cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast Fixed->Binary unimplemented"]
+    fn test_fixed_casts_to_binary_unconditionally() {
+        // Fixed(_, bytes).cast(Binary) yields Binary(bytes) without size check.
+        unimplemented!("Fixed->Binary cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast String->Fixed (hex decode + length check) unimplemented"]
+    fn test_string_hex_casts_to_fixed_with_length_check() {
+        // String("0A0B0C").cast(Fixed(3)) decodes the hex string and yields Fixed(3, [10,11,12]).
+        unimplemented!("String->Fixed cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast String->Binary (hex decode) unimplemented"]
+    fn test_string_hex_casts_to_binary() {
+        // String("0A0B0C").cast(Binary) decodes the hex string and yields Binary([10,11,12]).
+        unimplemented!("String->Binary cast");
+    }
+
+    #[test]
+    fn test_boolean_value_rejects_every_non_boolean_target_type() {
+        let value = Value::Boolean(true);
+        let targets = all_other_primitive_types(&[PrimitiveType::Boolean]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_int_value_rejects_targets_outside_long_and_date() {
+        let value = Value::Int(34);
+        // Rust's cast allows Int->Long, Int->Date; reject everything else.
+        let targets = all_other_primitive_types(&[
+            PrimitiveType::Int,
+            PrimitiveType::Long,
+            PrimitiveType::Date,
+        ]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_long_value_rejects_targets_outside_time_timestamp_and_timestamptz() {
+        let value = Value::LongInt(34);
+        // Rust's cast allows Long->Time/Timestamp/Timestamptz; reject everything else.
+        let targets = all_other_primitive_types(&[
+            PrimitiveType::Long,
+            PrimitiveType::Time,
+            PrimitiveType::Timestamp,
+            PrimitiveType::Timestamptz,
+        ]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_float_value_rejects_every_non_float_target_type() {
+        let value = Value::Float(OrderedFloat(34.11_f32));
+        let targets = all_other_primitive_types(&[PrimitiveType::Float]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_double_value_rejects_every_non_double_target_type() {
+        let value = Value::Double(OrderedFloat(34.11_f64));
+        let targets = all_other_primitive_types(&[PrimitiveType::Double]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_date_value_rejects_every_non_date_target_type() {
+        let value = Value::Date(17396); // 2017-08-18
+        let targets = all_other_primitive_types(&[PrimitiveType::Date]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_time_value_rejects_every_non_time_target_type() {
+        let value = Value::Time(51_661_919_000);
+        let targets = all_other_primitive_types(&[PrimitiveType::Time]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_timestamp_micros_value_rejects_every_non_timestamp_target_type() {
+        let value = Value::Timestamp(1_503_065_561_919_123);
+        let targets = all_other_primitive_types(&[PrimitiveType::Timestamp]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant"]
+    fn test_timestamp_nanos_value_rejects_every_non_timestamp_target_type() {
+        // Once Value::TimestampNano lands, iterating its invalid-target list mirrors the
+        // Timestamp invalid-cast contract.
+        unimplemented!("TimestampNano variant");
+    }
+
+    #[test]
+    fn test_decimal_value_rejects_every_non_decimal_target_type() {
+        let value = Value::Decimal(Decimal::from_i128_with_scale(3411, 2));
+        // Decimal datatype() hardcodes precision=38 so identity uses precision=38; any other
+        // decimal precision/scale variant is therefore "not the same type" but still allowed.
+        let targets = all_other_primitive_types(&[PrimitiveType::Decimal {
+            precision: 9,
+            scale: 2,
+        }]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_string_value_rejects_every_non_string_target_type() {
+        let value = Value::String(String::from("abc"));
+        let targets = all_other_primitive_types(&[PrimitiveType::String]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_uuid_value_rejects_every_non_uuid_target_type() {
+        let value = Value::UUID(uuid::Uuid::nil());
+        let targets = all_other_primitive_types(&[PrimitiveType::Uuid]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_fixed_value_rejects_every_non_fixed_target_type() {
+        let value = Value::Fixed(1, vec![10]);
+        let targets = all_other_primitive_types(&[PrimitiveType::Fixed(1)]);
+        assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_binary_value_rejects_every_non_binary_target_type() {
+        let value = Value::Binary(vec![10, 11, 12]);
+        let targets = all_other_primitive_types(&[PrimitiveType::Binary]);
+        assert_invalid_casts(&value, &targets);
+    }
+
     #[rstest::rstest]
     #[case("null")]
     #[case("bool_true")]
