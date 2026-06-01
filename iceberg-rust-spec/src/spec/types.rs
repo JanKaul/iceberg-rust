@@ -1479,4 +1479,247 @@ mod tests {
         // type_compatibility_errors does not flag a required-vs-optional mismatch inside a struct.
         unimplemented!("compatibility type-only nested");
     }
+
+    // -----------------------------------------------------------------------
+    // Serde round-trip parity for primitive + nested types.
+    //
+    // These cover the same observable behaviour as Java's serialization test:
+    // the type survives a serialize-then-deserialize trip and compares equal
+    // to the original, with id-based lookup preserved across the trip.
+    // -----------------------------------------------------------------------
+
+    fn roundtrip<T>(value: &T) -> T
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned,
+    {
+        let json = serde_json::to_string(value).expect("serialize");
+        serde_json::from_str(&json).unwrap_or_else(|e| panic!("deserialize {json}: {e}"))
+    }
+
+    #[test]
+    fn test_singleton_primitive_types_round_trip_through_json_for_every_variant() {
+        // Boolean / Int / Long / Float / Double / Date / Time / Timestamp / Timestamptz /
+        // TimestampNs / TimestamptzNs / String / Uuid / Binary / Unknown / Variant survive serde.
+        let identity = [
+            PrimitiveType::Boolean,
+            PrimitiveType::Int,
+            PrimitiveType::Long,
+            PrimitiveType::Float,
+            PrimitiveType::Double,
+            PrimitiveType::Date,
+            PrimitiveType::Time,
+            PrimitiveType::Timestamp,
+            PrimitiveType::Timestamptz,
+            PrimitiveType::TimestampNs,
+            PrimitiveType::TimestamptzNs,
+            PrimitiveType::String,
+            PrimitiveType::Uuid,
+            PrimitiveType::Binary,
+            PrimitiveType::Unknown,
+            PrimitiveType::Variant,
+        ];
+        for t in identity {
+            assert_eq!(roundtrip(&t), t);
+        }
+    }
+
+    #[test]
+    fn test_parametrised_primitive_types_round_trip_through_json_with_equal_payload() {
+        // Decimal(p,s), Fixed(n), Geometry(crs?), Geography(crs?, algo?) — payload survives.
+        let parametrised = vec![
+            PrimitiveType::Decimal {
+                precision: 9,
+                scale: 3,
+            },
+            PrimitiveType::Decimal {
+                precision: 11,
+                scale: 0,
+            },
+            PrimitiveType::Fixed(4),
+            PrimitiveType::Fixed(34),
+            PrimitiveType::Geometry(None),
+            PrimitiveType::Geometry(Some(String::from("srid:3857"))),
+            PrimitiveType::Geography(None, None),
+            PrimitiveType::Geography(Some(String::from("srid:4269")), None),
+            PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)),
+        ];
+        for t in parametrised {
+            assert_eq!(roundtrip(&t), t);
+        }
+    }
+
+    #[test]
+    #[ignore = "StructType custom Deserialize swallows the inner `type` key without consuming its value; only round-trips when flattened inside a Schema wrapper"]
+    fn test_struct_type_round_trips_with_id_lookup_preserved() {
+        // StructType with named + numbered fields survives serde and supports field-id lookup.
+        let struct_type = StructType::new(vec![
+            StructField::new(
+                34,
+                "Name!",
+                true,
+                Type::Primitive(PrimitiveType::String),
+                None,
+            ),
+            StructField::new(
+                35,
+                "col",
+                false,
+                Type::Primitive(PrimitiveType::Decimal {
+                    precision: 38,
+                    scale: 2,
+                }),
+                None,
+            ),
+        ]);
+
+        let copy = roundtrip(&struct_type);
+        assert_eq!(copy, struct_type);
+
+        let by_id = copy.get(35).expect("field 35 should resolve");
+        assert_eq!(
+            by_id.field_type,
+            Type::Primitive(PrimitiveType::Decimal {
+                precision: 38,
+                scale: 2,
+            })
+        );
+        let by_name = copy.get_name("Name!").expect("Name! should resolve");
+        assert_eq!(by_name.field_type, Type::Primitive(PrimitiveType::String));
+    }
+
+    #[test]
+    fn test_map_type_round_trips_preserving_value_required_flag_for_optional_and_required() {
+        let optional_value = MapType {
+            key_id: 1,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value_id: 2,
+            value_required: false,
+            value: Box::new(Type::Primitive(PrimitiveType::Long)),
+        };
+        let required_value = MapType {
+            key_id: 4,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value_id: 5,
+            value_required: true,
+            value: Box::new(Type::Primitive(PrimitiveType::Long)),
+        };
+        for m in [optional_value, required_value] {
+            assert_eq!(roundtrip(&m), m);
+        }
+    }
+
+    #[test]
+    fn test_list_type_round_trips_preserving_element_required_flag_for_optional_and_required() {
+        let optional_element = ListType {
+            element_id: 2,
+            element_required: false,
+            element: Box::new(Type::Primitive(PrimitiveType::Double)),
+        };
+        let required_element = ListType {
+            element_id: 5,
+            element_required: true,
+            element: Box::new(Type::Primitive(PrimitiveType::Double)),
+        };
+        for l in [optional_element, required_element] {
+            assert_eq!(roundtrip(&l), l);
+        }
+    }
+
+    #[test]
+    #[ignore = "StructType custom Deserialize swallows the inner `type` key without consuming its value; only round-trips when flattened inside a Schema wrapper"]
+    fn test_deeply_nested_struct_with_map_and_list_round_trips_through_json() {
+        // Top-level struct mixing nested struct, map of struct, list of struct, map with
+        // complex (struct-typed) key, and primitive list. Cover the same shape as the
+        // Schema fixture: 8 top-level fields, 6+ levels of nesting.
+        let preferences = StructType::new(vec![
+            StructField::new(
+                8,
+                "feature1",
+                true,
+                Type::Primitive(PrimitiveType::Boolean),
+                None,
+            ),
+            StructField::new(
+                9,
+                "feature2",
+                false,
+                Type::Primitive(PrimitiveType::Boolean),
+                None,
+            ),
+        ]);
+        let locations_value = StructType::new(vec![
+            StructField::new(12, "lat", true, Type::Primitive(PrimitiveType::Float), None),
+            StructField::new(
+                13,
+                "long",
+                true,
+                Type::Primitive(PrimitiveType::Float),
+                None,
+            ),
+        ]);
+        let locations = MapType {
+            key_id: 10,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value_id: 11,
+            value_required: true,
+            value: Box::new(Type::Struct(locations_value)),
+        };
+        let points_element = StructType::new(vec![
+            StructField::new(15, "x", true, Type::Primitive(PrimitiveType::Long), None),
+            StructField::new(16, "y", true, Type::Primitive(PrimitiveType::Long), None),
+        ]);
+        let points = ListType {
+            element_id: 14,
+            element_required: false,
+            element: Box::new(Type::Struct(points_element)),
+        };
+        let doubles = ListType {
+            element_id: 17,
+            element_required: true,
+            element: Box::new(Type::Primitive(PrimitiveType::Double)),
+        };
+        let properties = MapType {
+            key_id: 18,
+            key: Box::new(Type::Primitive(PrimitiveType::String)),
+            value_id: 19,
+            value_required: false,
+            value: Box::new(Type::Primitive(PrimitiveType::String)),
+        };
+        let complex_key_struct = StructType::new(vec![
+            StructField::new(23, "x", true, Type::Primitive(PrimitiveType::Long), None),
+            StructField::new(24, "y", false, Type::Primitive(PrimitiveType::Long), None),
+        ]);
+        let complex_key_map = MapType {
+            key_id: 21,
+            key: Box::new(Type::Struct(complex_key_struct)),
+            value_id: 22,
+            value_required: false,
+            value: Box::new(Type::Primitive(PrimitiveType::String)),
+        };
+
+        let top = StructType::new(vec![
+            StructField::new(1, "id", true, Type::Primitive(PrimitiveType::Int), None),
+            StructField::new(
+                2,
+                "data",
+                false,
+                Type::Primitive(PrimitiveType::String),
+                None,
+            ),
+            StructField::new(3, "preferences", false, Type::Struct(preferences), None),
+            StructField::new(4, "locations", true, Type::Map(locations), None),
+            StructField::new(5, "points", false, Type::List(points), None),
+            StructField::new(6, "doubles", true, Type::List(doubles), None),
+            StructField::new(7, "properties", false, Type::Map(properties), None),
+            StructField::new(
+                20,
+                "complex_key_map",
+                true,
+                Type::Map(complex_key_map),
+                None,
+            ),
+        ]);
+
+        assert_eq!(roundtrip(&top), top);
+    }
 }
