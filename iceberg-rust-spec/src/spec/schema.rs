@@ -1526,6 +1526,118 @@ mod tests {
         unimplemented!("avro NameMapping visitor");
     }
 
+    // -----------------------------------------------------------------------
+    // Placeholders for a future `avro::schema_convert` bridge.
+    //
+    // Eventual surface:
+    //   avro::schema_convert::to_avro(&Schema)   -> avro::Schema
+    //   avro::schema_convert::from_avro(&avro::Schema) -> Schema
+    // Rust uses apache_avro directly in `iceberg-rust/src/table/manifest.rs`
+    // but has no Iceberg-side schema-bridge facade.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_iceberg_primitive_types_round_trip_through_avro_schema() {
+        // The 15 spec primitives (Boolean, Int, Long, Float, Double, Date, Time, Timestamp
+        // with/without zone, String, Uuid, Fixed, Binary, Decimal, Variant) survive the
+        // Iceberg <-> Avro round trip and compare equal to the original.
+        unimplemented!("avro::schema_convert primitives");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert reverse-direction timestamp handling"]
+    fn test_avro_timestamp_micros_without_adjust_to_utc_decodes_as_timestamp_without_zone() {
+        // An Avro `timestamp-micros` type with no `adjust-to-utc` property decodes to
+        // Iceberg `Timestamp` (without zone). Forward direction is lossy (Iceberg always
+        // emits the zone-bearing flag); reverse direction is unsupported.
+        unimplemented!("avro::schema_convert timestamp reverse");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_iceberg_struct_with_all_primitives_round_trips_via_named_record() {
+        // A top-level struct containing all 15 primitives round-trips as a named Avro record.
+        unimplemented!("avro::schema_convert struct");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_iceberg_list_round_trips_with_element_id_prop_on_avro_side() {
+        // List<Uuid> round-trips and the avro array carries an `element-id` prop matching
+        // the Iceberg element_id.
+        unimplemented!("avro::schema_convert list");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_iceberg_list_of_structs_uses_inner_named_record() {
+        // List<Struct{lat,long}> round-trips with the inner struct emitted as a named record.
+        unimplemented!("avro::schema_convert list of struct");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_iceberg_map_with_non_string_key_round_trips_via_array_of_pair_encoding() {
+        // Map<Long, Binary> round-trips through the Avro `array of {key, value}` encoding
+        // because Avro map keys must be strings.
+        unimplemented!("avro::schema_convert array-of-pair map");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_iceberg_map_with_string_key_round_trips_via_native_avro_map() {
+        // Map<String, Binary> round-trips as a native Avro map; key-id and value-id props
+        // appear on the avro map.
+        unimplemented!("avro::schema_convert native avro map");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_iceberg_map_of_list_to_struct_round_trips_via_array_of_pair_encoding() {
+        // Map<List<T>, Struct{...}> uses array-of-pair encoding because the key is non-string.
+        unimplemented!("avro::schema_convert array-of-pair map nested");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_iceberg_map_of_string_to_struct_round_trips_via_native_avro_map() {
+        // Map<String, Struct{...}> uses the native Avro map encoding.
+        unimplemented!("avro::schema_convert native avro map of struct");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_complex_arbitrarily_nested_iceberg_schema_produces_printable_avro_schema() {
+        // An arbitrarily nested schema (lists, maps, structs, primitives interleaved several
+        // levels deep) round-trips and the avro side serialises to a non-empty JSON string.
+        unimplemented!("avro::schema_convert complex");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert"]
+    fn test_special_character_field_names_are_sanitised_with_original_preserved_in_prop() {
+        // Field names "9x", "a.b", "☃", "a#b" become Avro-valid identifiers ("_9x",
+        // "a_x2Eb", "_x2603", "a_x23b") and the original name is preserved in the
+        // `iceberg-field-name` Avro field prop.
+        unimplemented!("avro::schema_convert special chars");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert doc propagation"]
+    fn test_field_docs_are_preserved_across_avro_round_trip() {
+        // Per-field docs survive both directions of the round trip.
+        unimplemented!("avro::schema_convert doc");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_convert Variant encoding"]
+    fn test_variant_field_encodes_as_id_named_record_with_metadata_and_value_bytes_children() {
+        // Variant fields encode as an Avro record named "rN" (id-named) whose children are
+        // `metadata: bytes` and `value: bytes`.
+        unimplemented!("avro::schema_convert variant");
+    }
+
     #[test]
     #[ignore = "no avro schema id-detection helpers in iceberg-rust-spec: needs remove_ids(&Schema) -> avro::Schema and has_ids(&avro::Schema) -> bool that walks every nested level"]
     fn test_avro_field_id_detection_walks_to_every_nesting_level() {
