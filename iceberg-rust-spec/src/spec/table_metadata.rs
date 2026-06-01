@@ -1969,6 +1969,128 @@ mod tests {
         unimplemented!("transaction append/delete + schema_id propagation");
     }
 
+    // -----------------------------------------------------------------------
+    // Placeholders for the commit-time event listener registry.
+    //
+    // Rust has no `Listeners` registry and no `CreateSnapshotEvent` callback
+    // hook. The two scenarios below pin the event shape on append-only and
+    // mixed append+delete commits.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no Listeners registry; no CreateSnapshotEvent on commit"]
+    fn test_commit_listener_receives_append_event_with_canonical_metric_keys() {
+        // Registering a listener for CreateSnapshotEvent and committing an append produces an
+        // event whose summary carries added-records / added-data-files / total-records /
+        // total-data-files with the expected counts.
+        unimplemented!("CreateSnapshotEvent listener");
+    }
+
+    #[test]
+    #[ignore = "no Listeners registry; no CreateSnapshotEvent on delete commit"]
+    fn test_commit_listener_receives_event_for_append_and_delete_commits() {
+        // Same as above for a delete commit; the resulting event also carries
+        // deleted-records / deleted-data-files keys.
+        unimplemented!("CreateSnapshotEvent delete listener");
+    }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for V3 row-lineage on snapshots and table metadata.
+    //
+    // TableMetadata.next_row_id is modelled but Snapshot does NOT carry
+    // first_row_id / added_rows fields. The 11 scenarios below pin the
+    // validation + propagation contract.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "Snapshot does not model first_row_id / added_rows; no constructor validation"]
+    fn test_snapshot_constructor_validates_row_lineage_field_consistency() {
+        // 6 sub-cases pin the constructor invariants:
+        //  - null first_row_id forces null added_rows
+        //  - non-null first_row_id requires non-null added_rows
+        //  - first_row_id < 0 rejected
+        //  - added_rows < 0 rejected
+        //  - first_row_id + added_rows must fit in i64 without overflow
+        //  - first_row_id + added_rows must be <= table.next_row_id
+        unimplemented!("Snapshot row-lineage validation");
+    }
+
+    #[test]
+    #[ignore = "no row-lineage propagation in TableMetadata snapshot addition"]
+    fn test_table_metadata_increments_next_row_id_on_snapshot_addition() {
+        // Adding a snapshot with first_row_id=N, added_rows=M advances next_row_id to N+M.
+        unimplemented!("TableMetadata next_row_id increment");
+    }
+
+    #[test]
+    #[ignore = "no row-lineage validation on snapshot addition"]
+    fn test_table_metadata_rejects_invalid_snapshot_addition_with_overlapping_row_ids() {
+        // Adding a snapshot whose [first_row_id, first_row_id+added_rows) overlaps an existing
+        // snapshot's row range raises.
+        unimplemented!("TableMetadata row-range overlap");
+    }
+
+    #[test]
+    #[ignore = "no fast-append snapshot producer; cannot drive row-lineage assignment"]
+    fn test_fast_append_assigns_first_row_id_and_advances_next_row_id() {
+        // FastAppend over a V3 table assigns first_row_id from the metadata's next_row_id,
+        // sets added_rows from the appended data, and writes back next_row_id += added_rows.
+        unimplemented!("fast append row-lineage");
+    }
+
+    #[test]
+    #[ignore = "no append snapshot producer; cannot drive row-lineage assignment"]
+    fn test_append_assigns_first_row_id_and_advances_next_row_id() {
+        // Same as above for the regular MergeAppend path.
+        unimplemented!("append row-lineage");
+    }
+
+    #[test]
+    #[ignore = "no branch-scoped append; cannot drive row-lineage on branch"]
+    fn test_append_to_branch_assigns_first_row_id_on_branch_snapshot() {
+        // Appending to a non-main branch produces a snapshot with first_row_id from
+        // next_row_id; the branch ref points to it and next_row_id is advanced.
+        unimplemented!("append-to-branch row-lineage");
+    }
+
+    #[test]
+    #[ignore = "no delete builder; cannot drive row-lineage on data-file deletes"]
+    fn test_data_file_delete_records_lineage_in_resulting_snapshot() {
+        // Deleting a data file (delete-files commit) records the affected row range on the
+        // resulting snapshot's removed-row-ranges field.
+        unimplemented!("delete row-lineage");
+    }
+
+    #[test]
+    #[ignore = "no position-delete builder; cannot drive row-lineage on position deletes"]
+    fn test_position_delete_records_lineage_in_resulting_snapshot() {
+        // Position-delete commit records lineage similarly to data-file deletes.
+        unimplemented!("position delete row-lineage");
+    }
+
+    #[test]
+    #[ignore = "no equality-delete builder; cannot drive row-lineage on equality deletes"]
+    fn test_equality_delete_records_lineage_in_resulting_snapshot() {
+        // Equality-delete commit records lineage similarly.
+        unimplemented!("equality delete row-lineage");
+    }
+
+    #[test]
+    #[ignore = "no replace operation builder; cannot drive row-lineage on full-table replace"]
+    fn test_replace_records_full_table_lineage_in_resulting_snapshot() {
+        // Replace operation removes the previous row range and adds a new one whose first_row_id
+        // continues from next_row_id.
+        unimplemented!("replace row-lineage");
+    }
+
+    #[test]
+    #[ignore = "no rewrite-files operation; cannot drive metadata-rewrite row-lineage"]
+    fn test_metadata_rewrite_preserves_row_lineage_across_rewritten_files() {
+        // Rewriting data files preserves first_row_id on the rewritten manifest entries; the
+        // resulting snapshot carries the same row range as the rewritten source files.
+        unimplemented!("metadata rewrite row-lineage");
+    }
+
     #[test]
     #[ignore = "no updateSchema builder; cannot drive schema_id divergence then realignment"]
     fn test_update_schema_emits_new_schema_id_without_creating_snapshot() {
