@@ -1,70 +1,38 @@
-use core::str;
+//! End-to-end Spark integration smoke test (mirrors `integration_trino.rs`).
+//!
+//! Drives a Spark container against a REST catalog + LocalStack S3, runs the
+//! setup script under `tests/spark/spark.sql`, then exercises the three cross-
+//! engine paths the Trino test covers: REST catalog visibility, DataFusion
+//! reads of a Spark-written table, and Spark reads of a Rust-written table.
+
+#[path = "spark_common/mod.rs"]
+mod spark_common;
+
 use std::sync::Arc;
 use std::time::Duration;
 
 use datafusion::arrow::array::{Float64Array, RecordBatch};
 use datafusion::execution::context::SessionContext;
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
-use iceberg_rest_catalog::apis::configuration::Configuration;
-use iceberg_rest_catalog::catalog::RestCatalog;
 use iceberg_rust::catalog::namespace::Namespace;
 use iceberg_rust::catalog::Catalog;
-use iceberg_rust::object_store::ObjectStoreBuilder;
 use iceberg_rust::spec::partition::{PartitionField, PartitionSpec, Transform};
 use iceberg_rust::spec::schema::Schema;
 use iceberg_rust::spec::types::{PrimitiveType, StructField, Type};
 use iceberg_rust::table::Table;
-use iceberg_rust::test_utils::is_podman;
-use testcontainers::core::CmdWaitFor;
-use testcontainers::{
-    core::{wait::LogWaitStrategy, AccessMode, ExecCommand, Mount, WaitFor},
-    runners::AsyncRunner,
-    GenericImage, ImageExt,
-};
+use testcontainers::core::{wait::LogWaitStrategy, AccessMode, ExecCommand, Mount, WaitFor};
+use testcontainers::runners::AsyncRunner;
+use testcontainers::{GenericImage, ImageExt};
 use testcontainers_modules::localstack::LocalStack;
 use tokio::time::sleep;
 
-fn configuration(host: &str, port: u16) -> Configuration {
-    Configuration {
-        base_path: format!("http://{host}:{port}"),
-        user_agent: None,
-        client: reqwest::Client::new(),
-        basic_auth: None,
-        oauth_access_token: None,
-        bearer_access_token: None,
-        api_key: None,
-        aws_v4_key: None,
-    }
-}
-
-/// Build the list of `--conf` arguments that retarget the tabulario image's
-/// pre-registered `iceberg` catalog at the test's REST and S3 endpoints.
-///
-/// The image's stock `spark-defaults.conf` registers `spark.sql.catalog.demo`
-/// pointing at `http://rest:8181`. We override the same catalog so the
-/// default catalog (`demo`) is what our SQL targets via `demo.<schema>.<table>`.
-fn spark_conf_args(rest_endpoint: &str, s3_endpoint: &str) -> Vec<String> {
-    vec![
-        "--master".to_string(),
-        "local[*]".to_string(),
-        "--conf".to_string(),
-        format!("spark.sql.catalog.demo.uri={rest_endpoint}"),
-        "--conf".to_string(),
-        "spark.sql.catalog.demo.warehouse=s3://warehouse/".to_string(),
-        "--conf".to_string(),
-        format!("spark.sql.catalog.demo.s3.endpoint={s3_endpoint}"),
-        "--conf".to_string(),
-        "spark.sql.catalog.demo.s3.path-style-access=true".to_string(),
-        "--conf".to_string(),
-        "spark.sql.catalog.demo.s3.access-key-id=user".to_string(),
-        "--conf".to_string(),
-        "spark.sql.catalog.demo.s3.secret-access-key=password".to_string(),
-    ]
-}
+use spark_common::{spark_sql, spark_sql_file};
 
 #[tokio::test]
 async fn integration_spark_rest() {
-    let container_host = if is_podman() {
+    // We want the setup SQL file mounted into the container, so we re-do the
+    // stack setup inline (the shared fixture is mount-free).
+    let container_host = if iceberg_rust::test_utils::is_podman() {
         "host.containers.internal"
     } else {
         "172.17.0.1"
@@ -88,7 +56,6 @@ async fn integration_spark_rest() {
         ]))
         .await
         .unwrap();
-
     while command.exit_code().await.unwrap().is_none() {
         sleep(Duration::from_millis(100)).await;
     }
@@ -96,7 +63,7 @@ async fn integration_spark_rest() {
     let localstack_host = localstack.get_host().await.unwrap();
     let localstack_port = localstack.get_host_port_ipv4(4566).await.unwrap();
 
-    let object_store = ObjectStoreBuilder::s3()
+    let object_store = iceberg_rust::object_store::ObjectStoreBuilder::s3()
         .with_config("aws_access_key_id", "user")
         .unwrap()
         .with_config("aws_secret_access_key", "password")
@@ -143,9 +110,6 @@ async fn integration_spark_rest() {
     let sql_mount = Mount::bind_mount(cwd.clone() + "/tests/spark/spark.sql", "/tmp/spark.sql")
         .with_access_mode(AccessMode::ReadOnly);
 
-    // Spark image: bring it up with a long-running no-op command so we can
-    // `exec` `spark-sql` invocations against it (matching the Trino test's
-    // pattern of running the CLI repeatedly).
     let spark = GenericImage::new("tabulario/spark-iceberg", "latest")
         .with_wait_for(WaitFor::Duration {
             length: Duration::from_secs(2),
@@ -162,57 +126,71 @@ async fn integration_spark_rest() {
         .await
         .unwrap();
 
-    let rest_endpoint_for_spark = format!("http://{}:{}", container_host, rest_port);
-    let s3_endpoint_for_spark = format!("http://{}:{}", container_host, localstack_port);
-    let conf_args = spark_conf_args(&rest_endpoint_for_spark, &s3_endpoint_for_spark);
+    let rest_endpoint_for_spark = format!("http://{container_host}:{rest_port}");
+    let s3_endpoint_for_spark = format!("http://{container_host}:{localstack_port}");
+    let conf_args = vec![
+        "--master".to_string(),
+        "local[*]".to_string(),
+        "--conf".to_string(),
+        format!("spark.sql.catalog.demo.uri={rest_endpoint_for_spark}"),
+        "--conf".to_string(),
+        "spark.sql.catalog.demo.warehouse=s3://warehouse/".to_string(),
+        "--conf".to_string(),
+        format!("spark.sql.catalog.demo.s3.endpoint={s3_endpoint_for_spark}"),
+        "--conf".to_string(),
+        "spark.sql.catalog.demo.s3.path-style-access=true".to_string(),
+        "--conf".to_string(),
+        "spark.sql.catalog.demo.s3.access-key-id=user".to_string(),
+        "--conf".to_string(),
+        "spark.sql.catalog.demo.s3.secret-access-key=password".to_string(),
+    ];
 
-    // Run the setup SQL via spark-sql.
-    let mut setup_cmd: Vec<String> = vec!["spark-sql".to_string()];
-    setup_cmd.extend(conf_args.iter().cloned());
-    setup_cmd.extend(vec!["-f".to_string(), "/tmp/spark.sql".to_string()]);
-
-    let mut result = spark
-        .exec(ExecCommand::new(setup_cmd).with_cmd_ready_condition(CmdWaitFor::Exit { code: None }))
-        .await
-        .unwrap();
-
-    while result.exit_code().await.unwrap().is_none() {
-        sleep(Duration::from_millis(500)).await;
-    }
-
-    let exit_code = result.exit_code().await.unwrap().unwrap();
-    if exit_code != 0 {
-        let stdout = String::from_utf8_lossy(&result.stdout_to_vec().await.unwrap()).into_owned();
-        let stderr = String::from_utf8_lossy(&result.stderr_to_vec().await.unwrap()).into_owned();
-        panic!(
-            "spark-sql setup failed (exit={exit_code}).\nstdout tail:\n{}\nstderr tail:\n{}",
-            tail(&stdout, 4000),
-            tail(&stderr, 4000)
-        );
-    }
-
-    // Verify Rust can see the tables Spark wrote.
-    let catalog = Arc::new(RestCatalog::new(
+    let catalog = Arc::new(iceberg_rest_catalog::catalog::RestCatalog::new(
         None,
-        configuration(&rest_host.to_string(), rest_port),
+        iceberg_rest_catalog::apis::configuration::Configuration {
+            base_path: format!("http://{}:{}", rest_host, rest_port),
+            user_agent: None,
+            client: reqwest::Client::new(),
+            basic_auth: None,
+            oauth_access_token: None,
+            bearer_access_token: None,
+            api_key: None,
+            aws_v4_key: None,
+        },
         Some(object_store),
         false,
     ));
 
+    let stack = spark_common::SparkStack {
+        localstack,
+        rest,
+        spark,
+        catalog: catalog.clone(),
+        conf_args,
+    };
+
+    // Run the setup SQL via spark-sql.
+    let setup = spark_sql_file(&stack, "/tmp/spark.sql").await;
+    assert!(
+        setup.is_success(),
+        "spark-sql setup failed.\n{}",
+        setup.dump()
+    );
+
+    // Verify Rust can see the tables Spark wrote.
     let tables = catalog
         .list_tabulars(&Namespace::try_new(&["test".to_owned()]).unwrap())
         .await
         .unwrap();
-
     assert_eq!(tables.len(), 3, "expected 3 tables created by Spark");
 
+    // DataFusion reads a Spark-written table.
     let ctx = SessionContext::new();
     ctx.register_catalog(
         "iceberg",
         Arc::new(IcebergCatalog::new(catalog.clone(), None).await.unwrap()),
     );
 
-    // DataFusion reads a Spark-written table.
     let df = ctx
         .sql("SELECT SUM(totalprice) FROM iceberg.test.orders;")
         .await
@@ -314,41 +292,11 @@ async fn integration_spark_rest() {
         .await;
 
     // Have Spark read the table Rust wrote and assert SUM(amount)=11.
-    let mut read_cmd: Vec<String> = vec!["spark-sql".to_string()];
-    read_cmd.extend(conf_args.iter().cloned());
-    read_cmd.extend(vec![
-        "-e".to_string(),
-        "SELECT SUM(amount) FROM demo.test.test_orders;".to_string(),
-    ]);
-
-    let mut result = spark
-        .exec(ExecCommand::new(read_cmd).with_cmd_ready_condition(CmdWaitFor::Exit { code: None }))
-        .await
-        .unwrap();
-    while result.exit_code().await.unwrap().is_none() {
-        sleep(Duration::from_millis(500)).await;
-    }
-
-    let exit_code = result.exit_code().await.unwrap().unwrap();
-    let stdout = String::from_utf8_lossy(&result.stdout_to_vec().await.unwrap()).into_owned();
-    let stderr = String::from_utf8_lossy(&result.stderr_to_vec().await.unwrap()).into_owned();
-    assert_eq!(
-        exit_code,
-        0,
-        "spark-sql read failed. stdout:\n{stdout}\nstderr tail:\n{}",
-        tail(&stderr, 4000)
-    );
+    let read = spark_sql(&stack, "SELECT SUM(amount) FROM demo.test.test_orders;").await;
+    assert!(read.is_success(), "spark-sql read failed.\n{}", read.dump());
     assert!(
-        stdout.contains("11"),
-        "expected Spark SUM(amount)=11 in stdout, got:\n{stdout}\nstderr tail:\n{}",
-        tail(&stderr, 4000)
+        read.stdout.contains("11"),
+        "expected Spark SUM(amount)=11 in stdout, got:\n{}",
+        read.dump()
     );
-}
-
-fn tail(s: &str, n: usize) -> String {
-    if s.len() <= n {
-        s.to_string()
-    } else {
-        format!("...{}", &s[s.len() - n..])
-    }
 }
