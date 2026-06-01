@@ -1254,4 +1254,229 @@ mod tests {
         // reassign_doc(target, doc_source) returns a struct equal to doc_source's struct.
         unimplemented!("type_util::reassign_doc");
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for a future `compatibility::check` module.
+    //
+    // Eventual surface:
+    //   compatibility::write_compatibility_errors(&Schema, &Schema) -> Vec<String>
+    //   compatibility::read_compatibility_errors(&Schema, &Schema)  -> Vec<String>
+    //   compatibility::type_compatibility_errors(&Schema, &Schema)  -> Vec<String>
+    // Plus supporting helpers `type_util::is_promotion_allowed(&Type, &Type) -> bool`
+    // and `Schema::case_insensitive_select(&str) -> Schema`.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors over the primitive promotion matrix"]
+    fn test_write_compatibility_pins_primitive_promotion_matrix() {
+        // For every (from, to) pair in the 24-primitive list, write_compatibility_errors
+        // returns an empty list iff the promotion is allowed by the spec; otherwise it
+        // returns a single error describing the disallowed promotion.
+        unimplemented!("compatibility primitive matrix");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for Variant"]
+    fn test_write_compatibility_variant_to_variant_succeeds() {
+        // Variant on both sides → no errors.
+        unimplemented!("compatibility variant-to-variant");
+    }
+
+    #[rstest::rstest]
+    #[case(Type::Struct(StructType::new(vec![StructField::new(
+        1, "from", true, Type::Primitive(PrimitiveType::Int), None,
+    )])))]
+    #[case(Type::Map(MapType {
+        key_id: 1,
+        key: Box::new(Type::Primitive(PrimitiveType::String)),
+        value_id: 2,
+        value_required: true,
+        value: Box::new(Type::Primitive(PrimitiveType::Int)),
+    }))]
+    #[case(Type::List(ListType {
+        element_id: 1,
+        element_required: true,
+        element: Box::new(Type::Primitive(PrimitiveType::String)),
+    }))]
+    #[case(Type::Primitive(PrimitiveType::Boolean))]
+    #[case(Type::Primitive(PrimitiveType::Int))]
+    #[case(Type::Primitive(PrimitiveType::Long))]
+    #[case(Type::Primitive(PrimitiveType::Float))]
+    #[case(Type::Primitive(PrimitiveType::Double))]
+    #[case(Type::Primitive(PrimitiveType::Date))]
+    #[case(Type::Primitive(PrimitiveType::Time))]
+    #[case(Type::Primitive(PrimitiveType::Timestamp))]
+    #[case(Type::Primitive(PrimitiveType::Timestamptz))]
+    #[case(Type::Primitive(PrimitiveType::TimestampNs))]
+    #[case(Type::Primitive(PrimitiveType::TimestamptzNs))]
+    #[case(Type::Primitive(PrimitiveType::String))]
+    #[case(Type::Primitive(PrimitiveType::Uuid))]
+    #[case(Type::Primitive(PrimitiveType::Fixed(3)))]
+    #[case(Type::Primitive(PrimitiveType::Fixed(4)))]
+    #[case(Type::Primitive(PrimitiveType::Binary))]
+    #[case(Type::Primitive(PrimitiveType::Decimal { precision: 9, scale: 2 }))]
+    #[case(Type::Primitive(PrimitiveType::Decimal { precision: 11, scale: 2 }))]
+    #[case(Type::Primitive(PrimitiveType::Decimal { precision: 9, scale: 3 }))]
+    #[case(Type::Primitive(PrimitiveType::Geometry(None)))]
+    #[case(Type::Primitive(PrimitiveType::Geometry(Some(String::from("srid:3857")))))]
+    #[case(Type::Primitive(PrimitiveType::Geography(None, None)))]
+    #[case(Type::Primitive(PrimitiveType::Geography(Some(String::from("srid:4269")), None)))]
+    #[case(Type::Primitive(PrimitiveType::Geography(
+        Some(String::from("srid:4269")),
+        Some(EdgeAlgorithm::Karney)
+    )))]
+    #[ignore = "no compatibility::write_compatibility_errors for to-Variant"]
+    fn test_write_compatibility_non_variant_to_variant_is_rejected(#[case] _from: Type) {
+        // Any non-Variant `from` type written to a Variant `to` type produces exactly one
+        // error containing the phrase "cannot be read as a variant".
+        unimplemented!("compatibility to-variant rejection");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for required-vs-optional"]
+    fn test_write_compatibility_required_to_field_rejects_optional_from_field() {
+        // Writing optional field into a required schema field → one error.
+        unimplemented!("compatibility required");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for missing top-level field"]
+    fn test_write_compatibility_missing_required_field_produces_one_error() {
+        // Read schema has a required field with no counterpart in write schema → one error.
+        unimplemented!("compatibility missing");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors inside struct"]
+    fn test_write_compatibility_required_nested_field_rejects_optional_nested_field() {
+        // Inside a struct: required field on read, optional on write → one error.
+        unimplemented!("compatibility required nested");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors inside struct"]
+    fn test_write_compatibility_missing_required_nested_field_produces_one_error() {
+        // Required nested field missing in write schema → one error.
+        unimplemented!("compatibility missing required nested");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for optional nested-field"]
+    fn test_write_compatibility_missing_optional_nested_field_is_ok() {
+        // Optional nested field missing on write side → no errors.
+        unimplemented!("compatibility missing optional nested");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for nested-type incompatibility"]
+    fn test_write_compatibility_incompatible_nested_struct_field_produces_one_error() {
+        // Nested field types differ in an incompatible way (e.g. long vs string) → one error.
+        unimplemented!("compatibility incompatible nested struct field");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for struct-vs-primitive shape"]
+    fn test_write_compatibility_incompatible_struct_and_primitive_produces_one_error() {
+        // Struct on read, primitive on write at the same field id → one error.
+        unimplemented!("compatibility struct-vs-primitive");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors with multi-error accumulation"]
+    fn test_write_compatibility_accumulates_multiple_errors_in_one_call() {
+        // A single check reports BOTH a nullability violation and a promotion violation.
+        unimplemented!("compatibility multi-error");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for map value required"]
+    fn test_write_compatibility_required_map_value_rejects_optional_write() {
+        // Map<K, required V> on read, optional V on write → one error.
+        unimplemented!("compatibility required map value");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for map key promotion"]
+    fn test_write_compatibility_incompatible_map_key_produces_one_error() {
+        // Map<int, V> on read, Map<string, V> on write → one error on the key type.
+        unimplemented!("compatibility incompatible map key");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for map value promotion"]
+    fn test_write_compatibility_incompatible_map_value_produces_one_error() {
+        // Map<K, int> read, Map<K, string> write → one error on the value type.
+        unimplemented!("compatibility incompatible map value");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for map-vs-primitive"]
+    fn test_write_compatibility_incompatible_map_and_primitive_produces_one_error() {
+        // Map on read, primitive on write at the same field id → one error.
+        unimplemented!("compatibility map-vs-primitive");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for required list element"]
+    fn test_write_compatibility_required_list_element_rejects_optional_write_element() {
+        // List<required E> on read, List<optional E> on write → one error.
+        unimplemented!("compatibility required list element");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for incompatible list element"]
+    fn test_write_compatibility_incompatible_list_element_produces_one_error() {
+        // List<int> read, List<string> write → one error on the element type.
+        unimplemented!("compatibility incompatible list element");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for list-vs-primitive"]
+    fn test_write_compatibility_incompatible_list_and_primitive_produces_one_error() {
+        // List on read, primitive on write at the same field id → one error.
+        unimplemented!("compatibility list-vs-primitive");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors for differing field order"]
+    fn test_write_compatibility_different_field_ordering_produces_one_error() {
+        // Same fields, different orders between read and write schemas → one error
+        // (write-side reordering rejected by default).
+        unimplemented!("compatibility field ordering");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::write_compatibility_errors check_ordering=false"]
+    fn test_write_compatibility_struct_write_reordering_with_check_ordering_false_succeeds() {
+        // With check_ordering=false, write-side struct reordering is accepted.
+        unimplemented!("compatibility check_ordering=false");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::read_compatibility_errors"]
+    fn test_read_compatibility_accepts_struct_field_reordering_unconditionally() {
+        // read_compatibility_errors accepts reordering even when write_compatibility_errors rejects it.
+        unimplemented!("compatibility read-side reordering");
+    }
+
+    #[test]
+    #[ignore = "no Schema::case_insensitive_select"]
+    fn test_case_insensitive_select_resolves_dotted_path_ignoring_case() {
+        // case_insensitive_select("Location.Lat") resolves to the lower-case nested field.
+        unimplemented!("Schema::case_insensitive_select");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::type_compatibility_errors"]
+    fn test_type_compatibility_ignores_required_optional_at_top_level() {
+        // type_compatibility_errors does not flag a required-vs-optional mismatch at the top level.
+        unimplemented!("compatibility type-only top-level");
+    }
+
+    #[test]
+    #[ignore = "no compatibility::type_compatibility_errors"]
+    fn test_type_compatibility_ignores_required_optional_inside_struct() {
+        // type_compatibility_errors does not flag a required-vs-optional mismatch inside a struct.
+        unimplemented!("compatibility type-only nested");
+    }
 }
