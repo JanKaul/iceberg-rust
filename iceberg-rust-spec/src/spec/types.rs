@@ -891,4 +891,367 @@ mod tests {
         let parsed: PrimitiveType = serde_json::from_str(&serialized).unwrap();
         assert_eq!(parsed, value);
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for a future `type_util` module.
+    //
+    // iceberg-rust-spec exposes only `Schema::project(&[i32])`, which filters
+    // top-level fields without recursing into structs/maps/lists and without
+    // rejecting explicit list/map ids. The remaining helpers (assign_ids,
+    // reassign_ids, select, select_not, select_in_id_order, get_projected_ids,
+    // index_by_id, index_name_by_id, index_by_name, reassign_or_refresh_ids,
+    // reassign_doc, ancestor_fields) have no Rust analog. Each test below pins
+    // the behaviour the eventual implementation must satisfy.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_remaps_target_to_source_ids_when_columns_differ_only_by_case() {
+        // Target has ids 0,1 for case-distinct columns "a","A". Source has 1,2.
+        // reassign_ids(target, source) returns a schema whose struct equals source's struct
+        // (target's column names ride source's ids).
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_propagates_identifier_field_ids_from_source() {
+        // Both schemas mark one identifier field; after reassignment the result
+        // carries the source's identifier_field_ids set.
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::assign_increasing_fresh_ids"]
+    fn test_assign_increasing_fresh_ids_remaps_identifier_field_id_to_new_ids() {
+        // Source ids 10,11 with identifier {10} → fresh ids 1,2 with identifier {1}.
+        unimplemented!("type_util::assign_increasing_fresh_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_with_source_missing_identifier_promotes_first_match() {
+        // Source has no identifier field; reassign_ids derives the identifier id
+        // from the source field whose name matches the target's identifier field.
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[test]
+    #[ignore = "Schema::project is flat: no recursion into nested structs"]
+    fn test_project_recurses_into_nested_structs_and_auto_includes_parents() {
+        // Build 3-level nested struct (top → someStruct → anotherStruct).
+        // project(schema, [11]) → only top field A.
+        // project(schema, [10,12,13]) → a (10) + someStruct keeping only b (13).
+        // project(schema, [11,12,15,17]) ≡ project(schema, [11,17])
+        //   → A + someStruct.anotherStruct.C (parents auto-included).
+        unimplemented!("recursive type_util::project");
+    }
+
+    #[test]
+    #[ignore = "Schema::project is flat: no recursion"]
+    fn test_project_preserves_naturally_empty_struct_chain() {
+        // Nested struct chain ending in an already-empty struct.
+        // Selecting any ancestor id keeps the chain down to (and including) that ancestor;
+        // descendants below the selected id collapse into empty struct shells.
+        unimplemented!("recursive type_util::project");
+    }
+
+    #[test]
+    #[ignore = "Schema::project is flat: no recursion"]
+    fn test_project_with_parent_only_yields_empty_struct_subtree() {
+        // Selecting only a parent id (without any child id) returns a struct whose body is empty.
+        unimplemented!("recursive type_util::project");
+    }
+
+    #[test]
+    #[ignore = "no type_util::select (auto-includes whole subtree when parent is selected)"]
+    fn test_select_returns_whole_subtree_when_parent_id_present() {
+        // select(schema, [10,12]) on a 3-level nested schema returns a (10) + the entire
+        // someStruct subtree (including its children).
+        // select(schema, [11,17]) auto-includes ancestors and returns A + someStruct →
+        // anotherStruct → C only, similar to project's parent auto-inclusion.
+        unimplemented!("type_util::select");
+    }
+
+    #[test]
+    #[ignore = "no type_util::select_in_id_order"]
+    fn test_select_in_id_order_emits_columns_in_ascending_id_regardless_of_input_order() {
+        // Schema with field order id=1,3,2 → select_in_id_order(schema, {2,3}) returns
+        // columns in [id=2, id=3] order. The result struct is the same regardless of
+        // whether the input schema's field order is normal or reversed.
+        unimplemented!("type_util::select_in_id_order");
+    }
+
+    #[test]
+    #[ignore = "Schema::project does not reject explicit map ids"]
+    fn test_project_rejects_explicit_map_id_but_accepts_keys_and_values() {
+        // For a Map<Struct, Struct> field with id 12 (key id 13, value id 14):
+        //   project([12]) and project([201]) (inner map id) raise IllegalArgument
+        //     "Cannot explicitly project List or Map types".
+        //   project([10,13,14,100,101]) projects only the map's key struct; value collapses to empty.
+        //   project([10,13,14]) (no key ids) yields the same result.
+        //   project([10,13,14,100,101,200,202,203]) keeps both key + nested map shells.
+        unimplemented!("type_util::project map handling");
+    }
+
+    #[test]
+    #[ignore = "no type_util::get_projected_ids"]
+    fn test_get_projected_ids_walks_every_nested_field() {
+        // For a schema with top fields a (10), A (11), emptyStruct (35), someStruct (12) →
+        //   b (13), B (14), anotherStruct (15) → c (16), C (17),
+        // get_projected_ids returns exactly {10,11,12,13,14,15,16,17,35}.
+        unimplemented!("type_util::get_projected_ids");
+    }
+
+    #[test]
+    #[ignore = "Schema::project does not reject explicit list/map ids at any depth"]
+    fn test_project_rejects_explicit_list_or_map_id_at_any_nesting_depth() {
+        // Schema = List<List<Map<Int, Struct>>>.
+        // project on any of the container ids (12 outer list, 13 inner list, 14 map) throws.
+        // project([16]) (struct id inside map value) succeeds and walks back up, leaving
+        // an empty struct shell as the deepest body.
+        unimplemented!("type_util::project list/map rejection");
+    }
+
+    #[test]
+    #[ignore = "Schema::project does not reject map ids at any depth"]
+    fn test_project_rejects_explicit_map_id_at_any_nesting_depth() {
+        // Schema = Map<Int, Map<Int, List<Struct>>>.
+        // project on container ids 12 (outer map), 14 (inner map value), 16 (innermost map value)
+        // all throw "Cannot explicitly project List or Map types".
+        // project([17]) (list element struct id) walks back up and yields the chain with an
+        // empty struct shell at the leaf.
+        unimplemented!("type_util::project map rejection");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_throws_when_target_field_missing_from_source() {
+        // Target has field b not present in source → reassign_ids errors with
+        // "Field b not found in source schema".
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::index_by_name"]
+    fn test_index_by_name_rejects_ambiguous_dotted_path_collision() {
+        // Struct with both nested path a.b.c (via two nested structs) and a flat name "a.b.c"
+        // as a sibling field → index_by_name errors with
+        // "Invalid schema: multiple fields for name a.b.c".
+        unimplemented!("type_util::index_by_name");
+    }
+
+    #[test]
+    #[ignore = "no type_util::select_not"]
+    fn test_select_not_drops_specified_fields_and_removes_empty_structs() {
+        // Schema = id (1, Long) + location (2, Struct{lat (3), long (4)}).
+        // select_not({1}) drops id → keeps location with both children.
+        // select_not({3,4}) drops both children of location → drops location too
+        //   (struct left with no fields is removed; result keeps only id).
+        // select_not({2}) on a struct id is a no-op (legacy behaviour) → result equals input.
+        unimplemented!("type_util::select_not");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_or_refresh_ids"]
+    fn test_reassign_or_refresh_ids_keeps_defaults_and_uses_source_or_fresh_ids() {
+        // Target has fields a (10), c (11 with initial/write defaults), B (12) and identifier {10}.
+        // Source has a (1), B (15).
+        // reassign_or_refresh_ids(target, source) yields a (1), c (16 fresh) preserving its
+        // defaults, B (15). New ids for unmatched-target-only fields continue from last source id.
+        unimplemented!("type_util::reassign_or_refresh_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_or_refresh_ids (case-insensitive variant)"]
+    fn test_reassign_or_refresh_ids_resolves_field_match_case_insensitive() {
+        // Target FIELD1,FIELD2; source field1,field2. With case_sensitive=false the
+        // result keeps target's original casing while inheriting source's ids 1,2.
+        unimplemented!("type_util::reassign_or_refresh_ids case-insensitive");
+    }
+
+    #[test]
+    #[ignore = "no type_util::assign_ids"]
+    fn test_assign_ids_applies_custom_remap_function() {
+        // assign_ids(struct, |old| old + 10) shifts every field id by 10
+        // while preserving initial_default / write_default on the column with defaults.
+        unimplemented!("type_util::assign_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::assign_fresh_ids"]
+    fn test_assign_fresh_ids_uses_supplier_to_allocate_each_field_id() {
+        // assign_fresh_ids(schema, counter starting at 10 with pre-increment) yields fresh
+        // ids 11,12,13 over the three top-level fields, preserving the column's defaults.
+        unimplemented!("type_util::assign_fresh_ids");
+    }
+
+    #[test]
+    #[ignore = "no type_util::reassign_doc"]
+    fn test_reassign_doc_copies_docs_without_overwriting_defaults() {
+        // Target schema with one field carrying initial/write defaults. Source carries docs
+        // for every field. reassign_doc(target, source) leaves ids unchanged, copies docs
+        // onto each target field, and preserves defaults on the column that has them.
+        unimplemented!("type_util::reassign_doc");
+    }
+
+    #[test]
+    #[ignore = "no type_util::ancestor_fields"]
+    fn test_ancestor_fields_returns_empty_for_unknown_id_in_empty_schema() {
+        // ancestor_fields(empty_schema, -1) and ancestor_fields(empty_schema, 1) are both empty.
+        unimplemented!("type_util::ancestor_fields");
+    }
+
+    #[test]
+    #[ignore = "no type_util::ancestor_fields"]
+    fn test_ancestor_fields_returns_empty_for_top_level_fields() {
+        // For a flat schema with two top-level fields, ancestor_fields(schema, id) is empty
+        // for every top-level id.
+        unimplemented!("type_util::ancestor_fields");
+    }
+
+    #[test]
+    #[ignore = "no type_util::ancestor_fields"]
+    fn test_ancestor_fields_returns_parents_outermost_to_innermost_for_deeply_nested_id() {
+        // Schema with: id (1), data (2), preferences (3) → feature1 (6), feature2 (7),
+        //   inner_preferences (8) → feature3 (12), feature4 (13);
+        // locations (4) MapType → key=struct{address,city,state,zip}, value=struct{lat,long};
+        // points (5) ListType<struct{x,y}>.
+        //
+        // ancestor_fields for top-level ids is empty.
+        // For preferences subtree: ids 6,7 → [preferences]; 12,13 → [inner_preferences, preferences].
+        // For locations subtree: key (9)/value (10) → [locations]; 20-23 → [key, locations];
+        //   14,15 → [value, locations].
+        // For points subtree: element (11) → [points]; 16,17 → [element, points].
+        unimplemented!("type_util::ancestor_fields");
+    }
+
+    // 8 V3 type variants exercised by every @ParameterizedTest below:
+    //   Unknown, Variant, TimestampNs, TimestamptzNs,
+    //   Geometry(default-crs), Geometry(srid:3857),
+    //   Geography(default-crs, default-algo), Geography(srid:4269, Karney).
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::assign_ids"]
+    fn test_assign_ids_preserves_v3_primitive_payload(#[case] _payload: PrimitiveType) {
+        // Source struct = required(id=0,"id",Int) + optional(id=1,"data",payload).
+        // assign_ids(source, |old| old + 10) yields ids 10,11 with the payload unchanged.
+        unimplemented!("type_util::assign_ids");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::assign_fresh_ids"]
+    fn test_assign_fresh_ids_preserves_v3_primitive_payload(#[case] _payload: PrimitiveType) {
+        // assign_fresh_ids(schema, counter starting at 10 with pre-increment) yields ids 11,12
+        // over (id, data) with the V3 payload unchanged.
+        unimplemented!("type_util::assign_fresh_ids");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::reassign_ids"]
+    fn test_reassign_ids_preserves_v3_primitive_payload(#[case] _payload: PrimitiveType) {
+        // Target ids 0,1; source ids 1,2 over (id, data:payload). reassign_ids returns a struct
+        // equal to source's struct, payload unchanged.
+        unimplemented!("type_util::reassign_ids");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::index_by_id"]
+    fn test_index_by_id_returns_v3_primitive_field_type(#[case] _payload: PrimitiveType) {
+        // index_by_id(struct{id (0), data (1, payload)})[1].type == payload.
+        unimplemented!("type_util::index_by_id");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::index_name_by_id"]
+    fn test_index_name_by_id_returns_field_name_for_v3_primitive(#[case] _payload: PrimitiveType) {
+        // index_name_by_id(struct{id (0), data (1, payload)})[1] == "data".
+        unimplemented!("type_util::index_name_by_id");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "Schema::project is flat: handling V3 payloads to be pinned by recursive project"]
+    fn test_project_returns_v3_primitive_field(#[case] _payload: PrimitiveType) {
+        // project(schema(id 0, data 1:payload), {1}) returns just the data field with payload intact.
+        unimplemented!("type_util::project");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::get_projected_ids"]
+    fn test_get_projected_ids_includes_v3_primitive(#[case] _payload: PrimitiveType) {
+        // get_projected_ids(schema(id 0, data 1:payload)) returns {0, 1}.
+        unimplemented!("type_util::get_projected_ids");
+    }
+
+    #[rstest::rstest]
+    #[case(PrimitiveType::Unknown)]
+    #[case(PrimitiveType::Variant)]
+    #[case(PrimitiveType::TimestampNs)]
+    #[case(PrimitiveType::TimestamptzNs)]
+    #[case(PrimitiveType::Geometry(None))]
+    #[case(PrimitiveType::Geometry(Some(String::from("srid:3857"))))]
+    #[case(PrimitiveType::Geography(None, None))]
+    #[case(PrimitiveType::Geography(Some(String::from("srid:4269")), Some(EdgeAlgorithm::Karney)))]
+    #[ignore = "no type_util::reassign_doc"]
+    fn test_reassign_doc_works_through_v3_primitive_field(#[case] _payload: PrimitiveType) {
+        // Target schema id (0), data (1, payload). Doc source has same ids/types with docs "id","data".
+        // reassign_doc(target, doc_source) returns a struct equal to doc_source's struct.
+        unimplemented!("type_util::reassign_doc");
+    }
 }
