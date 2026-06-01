@@ -1592,6 +1592,80 @@ mod tests {
     // covered by `Variants::ofXxx` factory methods.
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Placeholders for timestamp/date literal conversion gaps in Value::cast +
+    // Value::try_from_json. Rust has no Value::TimestampNano variant, the
+    // Timestamptz JSON parser hardcodes +00:00, neither timestamp variant
+    // rejects offset-vs-no-offset mismatches when casting between types.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; Value::cast Timestamp->TimestampNano unimplemented"]
+    fn test_timestamp_micros_promotes_to_timestamp_nanos_by_multiplying_by_one_thousand() {
+        // Value::Timestamp(micros).cast(TimestampNs) yields Value::TimestampNano(micros * 1000).
+        unimplemented!("Timestamp->TimestampNano cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast Timestamp->Date unimplemented"]
+    fn test_timestamp_micros_casts_to_date_with_floor_for_negative_sub_day_values() {
+        // Value::Timestamp(micros).cast(Date) returns days-since-epoch using floor division
+        // (negative sub-day micros round down to the previous day).
+        unimplemented!("Timestamp->Date cast");
+    }
+
+    #[test]
+    #[ignore = "Value::cast Timestamp->Date unimplemented (micros precision branch)"]
+    fn test_timestamp_micros_to_date_repeats_the_floor_rule_at_micros_precision() {
+        // Same as above but explicit micros-precision contract.
+        unimplemented!("Timestamp->Date cast micros");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; Value::cast TimestampNano->Timestamp unimplemented"]
+    fn test_timestamp_nanos_narrows_to_timestamp_micros_by_floor_division_by_one_thousand() {
+        // Value::TimestampNano(nanos).cast(Timestamp) yields Value::Timestamp(nanos.div_euclid(1000)).
+        unimplemented!("TimestampNano->Timestamp cast");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; Value::cast TimestampNano->Date unimplemented"]
+    fn test_timestamp_nanos_casts_to_date_using_floor_division() {
+        // Value::TimestampNano(nanos).cast(Date) returns days-since-epoch with floor semantics.
+        unimplemented!("TimestampNano->Date cast");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; offset-bearing string rejected for without-zone"]
+    fn test_timestamp_nanos_with_zone_strings_rejected_for_without_zone_targets() {
+        // `try_from_json` of `"2024-11-07T12:33:54.123456789+00:00"` is accepted for
+        // TimestampTzNs but rejected for TimestampNs (and similarly for TimestampTz/Timestamp).
+        unimplemented!("TimestampNano zone parsing");
+    }
+
+    #[test]
+    #[ignore = "Timestamptz parser hardcodes +00:00; offset-bearing string rejected for without-zone"]
+    fn test_timestamp_micros_with_zone_strings_rejected_for_without_zone_targets() {
+        // Same shape at micros precision: offset-bearing input is accepted for Timestamptz
+        // but rejected for Timestamp (without zone).
+        unimplemented!("Timestamptz zone parsing");
+    }
+
+    #[test]
+    #[ignore = "Timestamptz parser hardcodes +00:00; offset-less string rejected for with-zone"]
+    fn test_timestamp_nanos_without_zone_strings_rejected_for_with_zone_targets() {
+        // `try_from_json` of `"2024-11-07T12:33:54.123456789"` accepted for TimestampNs but
+        // rejected for TimestampTzNs.
+        unimplemented!("TimestampNano no-zone parsing");
+    }
+
+    #[test]
+    #[ignore = "Timestamptz parser hardcodes +00:00; offset-less string rejected for with-zone"]
+    fn test_timestamp_micros_without_zone_strings_rejected_for_with_zone_targets() {
+        // Same shape at micros: offset-less input accepted for Timestamp but rejected for Timestamptz.
+        unimplemented!("Timestamp no-zone parsing");
+    }
+
     #[rstest::rstest]
     #[case("null")]
     #[case("bool_true")]
