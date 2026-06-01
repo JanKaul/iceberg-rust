@@ -407,3 +407,124 @@ pub mod namespace {
     //! Catalog namespace
     pub use iceberg_rust_spec::namespace::Namespace;
 }
+
+#[cfg(test)]
+mod tests {
+    // -----------------------------------------------------------------------
+    // Placeholders for `catalog_util` dynamic-loading + bulk helper surface.
+    //
+    // The upstream `CatalogUtil` exposes reflection-based class loading for
+    // Catalog / FileIO / MetricsReporter implementations plus a small set of
+    // bulk helpers (`fullTableName`, bulk metadata-file delete). Rust catalogs
+    // are statically wired through `Catalog` trait impls and provider crates;
+    // there is no `loadCustomCatalog(class_name)` style helper.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no CatalogUtil dynamic loader: load_custom_catalog(name, type, properties)"]
+    fn test_load_custom_catalog_resolves_class_name_and_initialises_with_properties() {
+        unimplemented!("CatalogUtil dynamic loader");
+    }
+
+    #[test]
+    #[ignore = "no Hadoop config bridge into CatalogUtil load path"]
+    fn test_load_custom_catalog_with_hadoop_config_threads_config_into_initialise() {
+        unimplemented!("Hadoop config bridge");
+    }
+
+    #[test]
+    #[ignore = "no CatalogUtil class-not-found error path"]
+    fn test_load_custom_catalog_rejects_class_without_no_arg_constructor() {
+        unimplemented!("missing-constructor rejection");
+    }
+
+    #[test]
+    #[ignore = "no CatalogUtil type-check error path"]
+    fn test_load_custom_catalog_rejects_class_that_does_not_implement_catalog_trait() {
+        unimplemented!("type-check rejection");
+    }
+
+    #[test]
+    #[ignore = "no CatalogUtil constructor-error error path"]
+    fn test_load_custom_catalog_rejects_class_whose_constructor_throws() {
+        unimplemented!("constructor-error rejection");
+    }
+
+    #[test]
+    #[ignore = "no CatalogUtil bad-name error path"]
+    fn test_load_custom_catalog_rejects_invalid_class_name() {
+        unimplemented!("bad-name rejection");
+    }
+
+    #[test]
+    #[ignore = "no FileIO dynamic loader: load_custom_file_io"]
+    fn test_load_custom_file_io_via_no_arg_constructor() {
+        unimplemented!("FileIO loader");
+    }
+
+    #[test]
+    #[ignore = "no FileIO dynamic loader with Hadoop config"]
+    fn test_load_custom_file_io_via_hadoop_config_constructor() {
+        unimplemented!("FileIO loader hadoop");
+    }
+
+    #[test]
+    #[ignore = "no FileIO configure() phase after construction"]
+    fn test_load_custom_file_io_invokes_configurable_initialise() {
+        unimplemented!("FileIO configurable");
+    }
+
+    #[test]
+    #[ignore = "no SupportsStorageCredentials variant for FileIO"]
+    fn test_load_custom_file_io_supporting_storage_credentials_threads_credentials() {
+        unimplemented!("FileIO storage credentials");
+    }
+
+    #[test]
+    #[ignore = "no FileIO loader: bad argument rejection"]
+    fn test_load_custom_file_io_rejects_bad_argument() {
+        unimplemented!("FileIO bad arg");
+    }
+
+    #[test]
+    #[ignore = "no FileIO loader: bad class rejection"]
+    fn test_load_custom_file_io_rejects_bad_class_name() {
+        unimplemented!("FileIO bad class");
+    }
+
+    #[test]
+    #[ignore = "no CatalogUtil::build_custom_catalog(type, properties) selector"]
+    fn test_build_custom_catalog_dispatches_by_type_property() {
+        unimplemented!("CatalogUtil build dispatch");
+    }
+
+    #[test]
+    #[ignore = "no MetricsReporter dynamic loader"]
+    fn test_load_custom_metrics_reporter_via_no_arg_constructor() {
+        unimplemented!("MetricsReporter loader");
+    }
+
+    #[test]
+    #[ignore = "no MetricsReporter loader: bad argument rejection"]
+    fn test_load_custom_metrics_reporter_rejects_bad_argument() {
+        unimplemented!("MetricsReporter bad arg");
+    }
+
+    #[test]
+    #[ignore = "no MetricsReporter loader: bad class rejection"]
+    fn test_load_custom_metrics_reporter_rejects_bad_class_name() {
+        unimplemented!("MetricsReporter bad class");
+    }
+
+    #[test]
+    #[ignore = "no CatalogUtil::full_table_name(catalog, identifier) helper"]
+    fn test_full_table_name_formats_catalog_namespace_and_table_segments_for_distinct_inputs() {
+        unimplemented!("CatalogUtil::full_table_name");
+    }
+
+    #[test]
+    #[ignore = "no CatalogUtil::bulk_delete_metadata_files helper"]
+    fn test_bulk_delete_metadata_files_swallows_per_file_errors_and_continues() {
+        unimplemented!("CatalogUtil::bulk_delete_metadata_files");
+    }
+}
