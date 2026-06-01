@@ -132,7 +132,6 @@ async fn integration_df_insert_into_partitioned_table_total_count() {
 }
 
 #[tokio::test]
-#[ignore = "identity-partition pruning over a STRING column over-prunes — SELECT * returns the rows but SELECT WHERE = returns 0"]
 async fn integration_df_insert_into_partitioned_table_string_filter() {
     let ctx = boot_df_stack().await;
     execute_sql(&ctx, "CREATE SCHEMA warehouse.dml_part_sf").await;

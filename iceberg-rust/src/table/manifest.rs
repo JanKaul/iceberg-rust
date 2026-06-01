@@ -797,6 +797,9 @@ fn update_partitions(
                 summary.lower_bound = Some(value.clone());
             } else if let Some(lower_bound) = &mut summary.lower_bound {
                 match (value, lower_bound) {
+                    (Value::Boolean(val), Value::Boolean(current)) if *current > *val => {
+                        *current = *val
+                    }
                     (Value::Int(val), Value::Int(current)) if *current > *val => *current = *val,
                     (Value::LongInt(val), Value::LongInt(current)) if *current > *val => {
                         *current = *val
@@ -815,6 +818,21 @@ fn update_partitions(
                     (Value::TimestampTZ(val), Value::TimestampTZ(current)) if *current > *val => {
                         *current = *val
                     }
+                    (Value::String(val), Value::String(current)) if *current > *val => {
+                        *current = val.clone()
+                    }
+                    (Value::UUID(val), Value::UUID(current)) if *current > *val => {
+                        *current = *val
+                    }
+                    (Value::Fixed(_, val), Value::Fixed(_, current)) if *current > *val => {
+                        *current = val.clone()
+                    }
+                    (Value::Binary(val), Value::Binary(current)) if *current > *val => {
+                        *current = val.clone()
+                    }
+                    (Value::Decimal(val), Value::Decimal(current)) if *current > *val => {
+                        *current = *val
+                    }
                     _ => {}
                 }
             }
@@ -822,6 +840,9 @@ fn update_partitions(
                 summary.upper_bound = Some(value.clone());
             } else if let Some(upper_bound) = &mut summary.upper_bound {
                 match (value, upper_bound) {
+                    (Value::Boolean(val), Value::Boolean(current)) if *current < *val => {
+                        *current = *val
+                    }
                     (Value::Int(val), Value::Int(current)) if *current < *val => *current = *val,
                     (Value::LongInt(val), Value::LongInt(current)) if *current < *val => {
                         *current = *val
@@ -838,6 +859,21 @@ fn update_partitions(
                         *current = *val
                     }
                     (Value::TimestampTZ(val), Value::TimestampTZ(current)) if *current < *val => {
+                        *current = *val
+                    }
+                    (Value::String(val), Value::String(current)) if *current < *val => {
+                        *current = val.clone()
+                    }
+                    (Value::UUID(val), Value::UUID(current)) if *current < *val => {
+                        *current = *val
+                    }
+                    (Value::Fixed(_, val), Value::Fixed(_, current)) if *current < *val => {
+                        *current = val.clone()
+                    }
+                    (Value::Binary(val), Value::Binary(current)) if *current < *val => {
+                        *current = val.clone()
+                    }
+                    (Value::Decimal(val), Value::Decimal(current)) if *current < *val => {
                         *current = *val
                     }
                     _ => {}

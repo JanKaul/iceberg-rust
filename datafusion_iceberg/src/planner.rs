@@ -259,11 +259,13 @@ async fn plan_create_view(
         _ => panic!("Something is wrong"),
     };
 
-    #[cfg(test)]
-    let location = "/tmp/".to_owned() + catalog_name + "/" + namespace_name + "/" + table_name;
-
-    #[cfg(not(test))]
-    let location = "s3://".to_string() + catalog_name + "/" + namespace_name + "/" + table_name;
+    let namespace = Namespace::try_new(&[namespace_name.as_ref().to_owned()])
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    let ns_props = catalog.load_namespace(&namespace).await.unwrap_or_default();
+    let location = match ns_props.get("location") {
+        Some(prefix) => format!("{}/{table_name}", prefix.trim_end_matches('/')),
+        None => format!("/{catalog_name}/{namespace_name}/{table_name}"),
+    };
 
     if node.0.temporary {
         MaterializedView::builder()

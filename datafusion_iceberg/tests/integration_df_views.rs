@@ -32,7 +32,7 @@ async fn seed_view_base(ctx: &datafusion::execution::context::SessionContext) {
 }
 
 #[tokio::test]
-#[ignore = "planner.rs hardcodes s3:// view location when not built with cfg(test); blocks in-memory object store"]
+#[ignore = "view schema re-assigns field ids from 1 while underlying parquet keeps the base table's ids; DataFusion rejects the projection with a physical/logical metadata mismatch"]
 async fn integration_df_create_view_then_select() {
     let ctx = boot_df_stack().await;
     seed_view_base(&ctx).await;
@@ -49,7 +49,7 @@ async fn integration_df_create_view_then_select() {
 }
 
 #[tokio::test]
-#[ignore = "planner.rs hardcodes s3:// view location when not built with cfg(test); blocks in-memory object store"]
+#[ignore = "view schema re-assigns field ids from 1 while underlying parquet keeps the base table's ids; DataFusion rejects the projection with a physical/logical metadata mismatch"]
 async fn integration_df_create_view_with_aggregation() {
     let ctx = boot_df_stack().await;
     seed_view_base(&ctx).await;
@@ -65,7 +65,7 @@ async fn integration_df_create_view_with_aggregation() {
 }
 
 #[tokio::test]
-#[ignore = "planner.rs hardcodes s3:// MV location when not built with cfg(test); blocks in-memory object store"]
+#[ignore = "CREATE TEMPORARY VIEW creates a materialized-view metadata record but does not run the SELECT to populate the backing storage; needs a refresh step after create"]
 async fn integration_df_create_temporary_view_materializes_query() {
     let ctx = boot_df_stack().await;
     seed_view_base(&ctx).await;
@@ -83,7 +83,6 @@ async fn integration_df_create_temporary_view_materializes_query() {
 }
 
 #[tokio::test]
-#[ignore = "planner.rs hardcodes s3:// view location when not built with cfg(test); blocks in-memory object store"]
 async fn integration_df_view_over_view() {
     let ctx = boot_df_stack().await;
     seed_view_base(&ctx).await;
