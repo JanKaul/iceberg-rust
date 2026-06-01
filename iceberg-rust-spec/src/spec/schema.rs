@@ -1252,6 +1252,97 @@ mod tests {
         unimplemented!("schema_update::union_by_name sibling list");
     }
 
+    // -----------------------------------------------------------------------
+    // Placeholders for joint schema + name-mapping evolution.
+    //
+    // No Rust analog. Eventual surface: a `NameMapping` value that can be
+    // refreshed alongside schema_update commits, plus reactive updates to
+    // table-property-driven metrics/bloom/column-stats configs when a column
+    // is renamed/deleted.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no NameMapping; no schema_update::add_column join"]
+    fn test_add_column_refreshes_name_mapping_with_new_field() {
+        // After SchemaUpdate.add_column commits, NameMapping::create over the new schema
+        // includes the new column with its newly assigned id.
+        unimplemented!("NameMapping + schema_update add");
+    }
+
+    #[test]
+    #[ignore = "no NameMapping; no schema_update join"]
+    fn test_add_struct_column_refreshes_name_mapping_into_nested_field_tree() {
+        // Adding a nested struct column reflects in NameMapping with the inner field tree.
+        unimplemented!("NameMapping + schema_update nested add");
+    }
+
+    #[test]
+    #[ignore = "no NameMapping; no schema_update::rename_column join"]
+    fn test_rename_column_keeps_id_and_preserves_alias_in_name_mapping() {
+        // Renaming a column keeps its id; NameMapping carries both the new name and
+        // the old name as an alias of the same id.
+        unimplemented!("NameMapping + schema_update rename");
+    }
+
+    #[test]
+    #[ignore = "no NameMapping; no schema_update::delete_column join"]
+    fn test_delete_column_drops_field_from_name_mapping() {
+        // delete_column drops the entry from NameMapping after commit.
+        unimplemented!("NameMapping + schema_update delete");
+    }
+
+    #[test]
+    #[ignore = "no write.metadata.metrics.column.<name> table property handling"]
+    fn test_schema_op_updates_metrics_table_property_on_rename_and_delete() {
+        // write.metadata.metrics.column.<old_name> is renamed/removed when the column is
+        // renamed/deleted.
+        unimplemented!("metrics property propagation");
+    }
+
+    #[test]
+    #[ignore = "no write.parquet.bloom-filter-enabled.column.<name> table property handling"]
+    fn test_schema_op_updates_parquet_bloom_table_property_on_rename_and_delete() {
+        // write.parquet.bloom-filter-enabled.column.<old_name> is renamed/removed.
+        unimplemented!("bloom property propagation");
+    }
+
+    #[test]
+    #[ignore = "no write.parquet.column-stats-enabled.column.<name> table property handling"]
+    fn test_schema_op_updates_parquet_column_stats_table_property_on_rename_and_delete() {
+        // write.parquet.column-stats-enabled.column.<old_name> is renamed/removed.
+        unimplemented!("column-stats property propagation");
+    }
+
+    #[test]
+    #[ignore = "no NameMapping; no schema_update chained delete+add"]
+    fn test_delete_then_add_same_name_yields_fresh_id_and_resets_name_mapping_entry() {
+        // delete + re-add same name commits as two ops; NameMapping uses the new id with
+        // the old name as alias if previously aliased.
+        unimplemented!("NameMapping + schema_update delete+add");
+    }
+
+    #[test]
+    #[ignore = "no NameMapping; no schema_update chained delete+rename"]
+    fn test_delete_then_rename_to_freed_name_succeeds_with_mapping_reassign() {
+        // delete column "A", rename column "B" to "A" succeeds; NameMapping reflects the new
+        // id-to-name binding.
+        unimplemented!("NameMapping + schema_update delete+rename");
+    }
+
+    #[test]
+    #[ignore = "no NameMapping; no schema_update chained rename+add"]
+    fn test_rename_then_add_with_freed_name_succeeds_with_mapping_reassign() {
+        // rename "A"->"X" frees the old name "A"; then add a fresh "A" → fresh id, alias chain reset.
+        unimplemented!("NameMapping + schema_update rename+add");
+    }
+
+    #[test]
+    #[ignore = "no NameMapping; no schema_update chained two-renames"]
+    fn test_two_renames_swap_field_names_with_consistent_mapping_aliases() {
+        // rename A->B, rename C->A succeeds; NameMapping carries the alias chains for both.
+        unimplemented!("NameMapping + schema_update two-renames");
+    }
+
     #[test]
     #[ignore = "no avro schema id-detection helpers in iceberg-rust-spec: needs remove_ids(&Schema) -> avro::Schema and has_ids(&avro::Schema) -> bool that walks every nested level"]
     fn test_avro_field_id_detection_walks_to_every_nesting_level() {
