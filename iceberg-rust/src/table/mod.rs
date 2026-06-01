@@ -433,3 +433,295 @@ pub(crate) async fn delete_all_table_files(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    // -----------------------------------------------------------------------
+    // Placeholders for upstream scan + planning + metadata-table tests.
+    // Scan planning lives partly in iceberg-rust and partly in datafusion_iceberg;
+    // these placeholders pin the spec-of-truth scanning contract.
+    // -----------------------------------------------------------------------
+
+    // -- TestBatchScans (2) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[ignore = "no batch scan over multi-file table"]
+    fn test_batch_scans_scenarios(#[case] _scenario: usize) {
+        unimplemented!("BatchScans");
+    }
+
+    // -- TestSplitPlanning (13) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[ignore = "no split planning surface (target-split-size, lookback, open-file cost)"]
+    fn test_split_planning_scenarios(#[case] _scenario: usize) {
+        unimplemented!("SplitPlanning");
+    }
+
+    // -- TestScansAndSchemaEvolution (8) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[ignore = "no scan-at-snapshot semantics with schema evolution"]
+    fn test_scans_and_schema_evolution_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ScansAndSchemaEvolution");
+    }
+
+    // -- TestScanTaskUtil (1) --
+    #[test]
+    #[ignore = "no FileScanTask grouping helper"]
+    fn test_scan_task_util_grouping_smoke() {
+        unimplemented!("ScanTaskUtil");
+    }
+
+    // -- TestIncrementalDataTableScan (7) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "no incremental data table scan over snapshot range"]
+    fn test_incremental_data_table_scan_scenarios(#[case] _scenario: usize) {
+        unimplemented!("IncrementalDataTableScan");
+    }
+
+    // -- TestBaseIncrementalAppendScan (18) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[ignore = "no incremental append scan: append-only snapshot range"]
+    fn test_base_incremental_append_scan_scenarios(#[case] _scenario: usize) {
+        unimplemented!("BaseIncrementalAppendScan");
+    }
+
+    // -- TestBaseIncrementalChangelogScan (7) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "no incremental changelog scan: added + deleted rows"]
+    fn test_base_incremental_changelog_scan_scenarios(#[case] _scenario: usize) {
+        unimplemented!("BaseIncrementalChangelogScan");
+    }
+
+    // -- TestFindFiles (11) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[ignore = "no find-files-by-manifest + filter helper"]
+    fn test_find_files_scenarios(#[case] _scenario: usize) {
+        unimplemented!("FindFiles");
+    }
+
+    // -- TestLocalScan (13) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[ignore = "no pure-Java-style local scan path; Rust scans via DataFusion"]
+    fn test_local_scan_scenarios(#[case] _scenario: usize) {
+        unimplemented!("LocalScan");
+    }
+
+    // -- TestMetadataTableScans (58) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[case(43)]
+    #[case(44)]
+    #[case(45)]
+    #[case(46)]
+    #[case(47)]
+    #[case(48)]
+    #[case(49)]
+    #[case(50)]
+    #[case(51)]
+    #[case(52)]
+    #[case(53)]
+    #[case(54)]
+    #[case(55)]
+    #[case(56)]
+    #[case(57)]
+    #[case(58)]
+    #[ignore = "no metadata-table abstraction (snapshots / files / manifests / entries virtual tables)"]
+    fn test_metadata_table_scans_scenarios(#[case] _scenario: usize) {
+        unimplemented!("MetadataTableScans");
+    }
+
+    // -- TestMetadataTableFilters (12) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[ignore = "no metadata-table filter pushdown"]
+    fn test_metadata_table_filters_scenarios(#[case] _scenario: usize) {
+        unimplemented!("MetadataTableFilters");
+    }
+
+    // -- TestMetadataTableScansWithPartitionEvolution (12) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[ignore = "no metadata-table scans crossing partition-spec evolution"]
+    fn test_metadata_table_scans_with_partition_evolution_scenarios(#[case] _scenario: usize) {
+        unimplemented!("MetadataTableScansWithPartitionEvolution");
+    }
+
+    // -- TestEntriesMetadataTable (5) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[ignore = "no `entries` metadata table"]
+    fn test_entries_metadata_table_scenarios(#[case] _scenario: usize) {
+        unimplemented!("EntriesMetadataTable");
+    }
+
+    // -- TestScanSummary (3) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[ignore = "no ScanSummary statistics across snapshot range"]
+    fn test_scan_summary_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ScanSummary");
+    }
+
+    // -- TestStaticTable (7) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "no StaticTable (read-only over a metadata pointer)"]
+    fn test_static_table_scenarios(#[case] _scenario: usize) {
+        unimplemented!("StaticTable");
+    }
+}
