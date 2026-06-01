@@ -1508,6 +1508,25 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "no NameMappingWithAvroSchema visitor (avro->iceberg + paired-walk into MappedFields)"]
+    fn test_name_mapping_derived_from_avro_schema_handles_union_branches_and_named_records() {
+        // Given an Avro record with: plain INT, plain STRING, nested record `location` with two
+        // DOUBLE fields, an array of STRING, a 2-branch union [NULL, STRING], and a 6-branch
+        // union [NULL, STRING, innerRecord1{lat,long}, innerRecord2{lat,long},
+        //        innerRecord3{innerUnion=[STRING,INT]}, enum timezone, fixed bitmap]:
+        //
+        // After AvroSchemaUtil::to_iceberg the resulting Iceberg Schema is walked alongside
+        // the original Avro schema by AvroWithPartnerByStructureVisitor + NameMappingWithAvroSchema,
+        // and yields a MappedFields tree where:
+        //   - top-level Avro field names map to fresh top-level ids
+        //   - union branches lend their type-tag names (`string`, `int`, named records,
+        //     fixed name, enum name) as MappedField names inside the union's nested context
+        //   - array elements get a synthetic `element` MappedField id
+        //   - nested records appear as nested MappedFields trees
+        unimplemented!("avro NameMapping visitor");
+    }
+
+    #[test]
     #[ignore = "no avro schema id-detection helpers in iceberg-rust-spec: needs remove_ids(&Schema) -> avro::Schema and has_ids(&avro::Schema) -> bool that walks every nested level"]
     fn test_avro_field_id_detection_walks_to_every_nesting_level() {
         // Behaviour to pin once the helpers exist:
