@@ -958,4 +958,707 @@ pub mod tests {
 
         assert!(once);
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for the upstream REST catalog suite. iceberg-rest-catalog
+    // wires a `RestCatalog` impl, but doesn't surface most upstream features
+    // (session caches, view-support detection, server-side scan planning,
+    // OAuth + auth-session caching, remote-sign, metric reporters, ETag).
+    // -----------------------------------------------------------------------
+
+    use rstest::rstest;
+
+    // -- TestRESTCatalog (72) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[case(43)]
+    #[case(44)]
+    #[case(45)]
+    #[case(46)]
+    #[case(47)]
+    #[case(48)]
+    #[case(49)]
+    #[case(50)]
+    #[case(51)]
+    #[case(52)]
+    #[case(53)]
+    #[case(54)]
+    #[case(55)]
+    #[case(56)]
+    #[case(57)]
+    #[case(58)]
+    #[case(59)]
+    #[case(60)]
+    #[case(61)]
+    #[case(62)]
+    #[case(63)]
+    #[case(64)]
+    #[case(65)]
+    #[case(66)]
+    #[case(67)]
+    #[case(68)]
+    #[case(69)]
+    #[case(70)]
+    #[case(71)]
+    #[case(72)]
+    #[ignore = "upstream REST catalog suite covers tables + views + namespaces + table-load-credentials + token-refresh + view-support detection across 72 @TestTemplate methods"]
+    fn test_rest_catalog_suite_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestRESTCatalog");
+    }
+
+    // -- TestRESTViewCatalog (5) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[ignore = "no REST view catalog endpoints fully implemented"]
+    fn test_rest_view_catalog_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestRESTViewCatalog");
+    }
+
+    // -- TestRESTScanPlanning (34) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[ignore = "no server-side scan-planning protocol implementation"]
+    fn test_rest_scan_planning_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestRESTScanPlanning");
+    }
+
+    // -- TestRESTTableCache (9) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[ignore = "no REST table cache (per-session caching + refresh)"]
+    fn test_rest_table_cache_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestRESTTableCache");
+    }
+
+    // -- TestRESTUtil (14) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[ignore = "no RESTUtil helpers (URL encoding of namespaces / identifiers)"]
+    fn test_rest_util_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestRESTUtil");
+    }
+
+    // -- TestResourcePaths (30) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[ignore = "no ResourcePaths construction helper"]
+    fn test_resource_paths_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestResourcePaths");
+    }
+
+    // -- TestEndpoint (6) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[ignore = "no endpoint discovery from /v1/config"]
+    fn test_endpoint_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestEndpoint");
+    }
+
+    // -- TestConfigResponse + TestConfigResponseParser (6+10=16) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[ignore = "ConfigResponse + parser: 6 + 10 scenarios covering server config response shape"]
+    fn test_config_response_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestConfigResponse + Parser");
+    }
+
+    // -- TestCreateTableRequest (4) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[ignore = "CreateTableRequest JSON body shape"]
+    fn test_create_table_request_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestCreateTableRequest");
+    }
+
+    // -- TestCommitTransactionRequestParser (5) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[ignore = "CommitTransactionRequest JSON body shape"]
+    fn test_commit_transaction_request_parser_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestCommitTransactionRequestParser");
+    }
+
+    // -- TestLoadTableResponse + Parser (6+7=13) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[ignore = "LoadTableResponse + parser: 6 + 7 scenarios (storage credentials, table metadata)"]
+    fn test_load_table_response_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestLoadTableResponse + Parser");
+    }
+
+    // -- TestLoadViewResponseParser (4) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[ignore = "LoadViewResponse parser (existing cycle covered this in iceberg-rust-spec for the inner metadata; REST-side request still gap)"]
+    fn test_load_view_response_parser_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestLoadViewResponseParser");
+    }
+
+    // -- TestUpdateTableRequestParser (7) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "UpdateTableRequest JSON shape (assertions + updates)"]
+    fn test_update_table_request_parser_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestUpdateTableRequestParser");
+    }
+
+    // -- TestRegisterTableRequestParser + TestRegisterViewRequestParser (4+3=7) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "Register table / view request body shape"]
+    fn test_register_request_parser_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestRegisterTable + ViewRequestParser");
+    }
+
+    // -- TestRenameTableRequest (3) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[ignore = "Rename request body shape"]
+    fn test_rename_table_request_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestRenameTableRequest");
+    }
+
+    // -- Namespace request/response parsers (4+4+4+5+5+4+4 = 30) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[ignore = "CreateNamespace, GetNamespace, ListNamespaces, ListTables, UpdateNamespaceProperties (request + response): 30 scenarios"]
+    fn test_namespace_request_response_scenarios(#[case] _scenario: usize) {
+        unimplemented!("Namespace request/response parsers");
+    }
+
+    // -- TestCatalogErrorResponseParser (5) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[ignore = "CatalogErrorResponse parser (apis::Error mapping)"]
+    fn test_catalog_error_response_parser_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestCatalogErrorResponseParser");
+    }
+
+    // -- TestHTTPClient + TestHTTPHeaders + TestHTTPRequest (26+7+9=42) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[ignore = "low-level HTTPClient + Headers + Request behaviour: 26 + 7 + 9 scenarios"]
+    fn test_http_client_headers_request_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestHTTPClient + Headers + Request");
+    }
+
+    // -- TestExponentialHttpRequestRetryStrategy (20) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[ignore = "no exponential HTTP retry/backoff strategy"]
+    fn test_exponential_http_retry_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TestExponentialHttpRequestRetryStrategy");
+    }
+
+    // -- Authentication suite: AuthManagers (7), AuthSessionCache (2), BasicAuthManager (3),
+    //    OAuth2Manager (23), OAuth2Util (7), OAuthTokenResponse (2),
+    //    OAuthErrorResponseParser (3), DefaultAuthSession (2) = 49 --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[case(43)]
+    #[case(44)]
+    #[case(45)]
+    #[case(46)]
+    #[case(47)]
+    #[case(48)]
+    #[case(49)]
+    #[ignore = "authentication suite (AuthManagers, AuthSessionCache, BasicAuth, OAuth2Manager, OAuth2Util, OAuthTokenResponse + ErrorResponse parsers, DefaultAuthSession)"]
+    fn test_authentication_suite_scenarios(#[case] _scenario: usize) {
+        unimplemented!("Authentication suite");
+    }
+
+    // -- LoadCredentialsResponseParser (3) + StorageCredential (3) = 6 --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[ignore = "LoadCredentialsResponse parser + StorageCredential"]
+    fn test_storage_credentials_scenarios(#[case] _scenario: usize) {
+        unimplemented!("LoadCredentialsResponse + StorageCredential");
+    }
+
+    // -- Remote sign: TestRemoteSignRequestParser (9) + TestRemoteSignResponseParser (4) = 13 --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[ignore = "no S3 remote-sign request/response parsers"]
+    fn test_remote_sign_scenarios(#[case] _scenario: usize) {
+        unimplemented!("Remote sign request/response");
+    }
+
+    // -- Remote scan planning: TestRemoteScanPlanning (1) + TestFetchPlanningResultResponseParser (13) +
+    //    TestFetchScanTasksRequest (2) + TestFetchScanTasksResponseParser (5) +
+    //    TestPlanTableScanRequestParser (13) + TestPlanTableScanResponseParser (20) = 54 --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[case(43)]
+    #[case(44)]
+    #[case(45)]
+    #[case(46)]
+    #[case(47)]
+    #[case(48)]
+    #[case(49)]
+    #[case(50)]
+    #[case(51)]
+    #[case(52)]
+    #[case(53)]
+    #[case(54)]
+    #[ignore = "no remote scan planning (long-running scan-plan polling + plan/fetch parsers)"]
+    fn test_remote_scan_planning_suite_scenarios(#[case] _scenario: usize) {
+        unimplemented!("Remote scan planning suite");
+    }
+
+    // -- TestErrorHandlers (7) + TestETagProvider (4) = 11 --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[ignore = "no ErrorHandlers + ETagProvider"]
+    fn test_error_handlers_and_etag_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ErrorHandlers + ETagProvider");
+    }
+
+    // -- Metric reporting suite: TestCommitReporting (3) + TestScanReport (4) + ScanReportParser (11) +
+    //    ScanMetricsResultParser (7) + ReportMetricsRequestParser (5) + MetricsReporters (7) +
+    //    CacheMetricsReport (2) + CounterResultParser (6) + TimerResultParser (9) = 54 --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[case(43)]
+    #[case(44)]
+    #[case(45)]
+    #[case(46)]
+    #[case(47)]
+    #[case(48)]
+    #[case(49)]
+    #[case(50)]
+    #[case(51)]
+    #[case(52)]
+    #[case(53)]
+    #[case(54)]
+    #[ignore = "no metric reporting suite (CommitReporting, ScanReport + parser, MetricsReporters, Counter/Timer result parsers, ReportMetricsRequest parser)"]
+    fn test_metric_reporting_suite_scenarios(#[case] _scenario: usize) {
+        unimplemented!("Metric reporting suite");
+    }
 }

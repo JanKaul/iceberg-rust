@@ -29,6 +29,7 @@ uuid.workspace = true
 datafusion.workspace = true
 datafusion_iceberg = { path = "../../datafusion_iceberg", version = "0.10.0" }
 iceberg-rust = { path = "../../iceberg-rust", version = "0.10.0", features = ["test-utils"] }
+rstest = "0.26"
 testcontainers = "0.26"
 testcontainers-modules = { version = "0.14", features = ["localstack"] }
 tokio = "1"
