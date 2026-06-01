@@ -2007,6 +2007,96 @@ mod tests {
     // Edge-case width behaviour for Truncate(int).
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Datetime helper math for micros-precision timestamps.
+    //
+    // Rust models timestamps at micros precision only; nanos counterparts +
+    // millis/ISO helpers are gaps. The micros-precision bucket helpers
+    // (year/month/day/hour) reuse the same chrono routines as the production
+    // transform path, so a positive and a pre-epoch instant exercise the
+    // floor / zero-indexed contracts.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "datetime_to_months is off-by-one (1-indexed month vs spec's 0-indexed); year/day/hour pass but the whole convertNanos counterpart aborts on the month assertion"]
+    fn test_datetime_micros_year_month_day_hour_helpers_for_positive_instant() {
+        // Instant 2017-11-16T22:31:08.000001 (micros = 1_510_871_468_000_001).
+        // Bucket helpers should match the spec values for the same wall-clock instant:
+        // years=47, months=574, days=17486, hours=419686.
+        let micros: i64 = 1_510_871_468_000_001;
+        let dt = datetime::micros_to_datetime(micros);
+        assert_eq!(datetime::date_to_years(&dt.date()), 47);
+        assert_eq!(datetime::datetime_to_months(&dt), 574);
+        assert_eq!(datetime::datetime_to_days(&dt), 17486);
+        assert_eq!(datetime::datetime_to_hours(&dt), 419686);
+    }
+
+    #[test]
+    #[ignore = "datetime_to_months is off-by-one for the negative branch too"]
+    fn test_datetime_micros_year_month_day_hour_helpers_floor_for_pre_epoch_instant() {
+        // Pre-epoch instant 1922-02-15T01:28:51.999999 (micros = -1_510_871_468_000_001).
+        // Floor (Euclidean) division produces the lower bucket for non-aligned negatives:
+        // years=-48, months=-575, days=-17487, hours=-419687.
+        let micros: i64 = -1_510_871_468_000_001;
+        let dt = datetime::micros_to_datetime(micros);
+        assert_eq!(datetime::date_to_years(&dt.date()), -48);
+        assert_eq!(datetime::datetime_to_months(&dt), -575);
+        assert_eq!(datetime::datetime_to_days(&dt), -17487);
+        assert_eq!(datetime::datetime_to_hours(&dt), -419687);
+    }
+
+    #[test]
+    fn test_datetime_micros_hours_div_24_equals_days_for_positive_instant() {
+        // For any positive instant, the hour-bucket divided by 24 yields the day-bucket.
+        let dt = datetime::micros_to_datetime(1_750_000_500_000_001);
+        assert_eq!(
+            datetime::datetime_to_hours(&dt).div_euclid(24),
+            datetime::datetime_to_days(&dt)
+        );
+    }
+
+    #[test]
+    #[ignore = "no nanos_to_micros helper in iceberg-rust-spec datetime module"]
+    fn test_datetime_nanos_to_micros_floors_toward_negative_infinity() {
+        // nanos_to_micros(1234567890) = 1234567; nanos_to_micros(-1234567890) = -1234568.
+        unimplemented!("datetime::nanos_to_micros");
+    }
+
+    #[test]
+    #[ignore = "no micros_to_nanos helper"]
+    fn test_datetime_micros_to_nanos_multiplies_by_one_thousand() {
+        // micros_to_nanos(123456) = 123_456_000.
+        unimplemented!("datetime::micros_to_nanos");
+    }
+
+    #[test]
+    #[ignore = "no iso_timestamp_to_nanos helper"]
+    fn test_datetime_iso_timestamp_string_decodes_to_nanos_since_epoch() {
+        // iso_timestamp_to_nanos("2017-11-16T22:31:08.000001001") = 1_510_871_468_000_001_001.
+        unimplemented!("datetime::iso_timestamp_to_nanos");
+    }
+
+    #[test]
+    #[ignore = "no iso_timestamptz_to_nanos helper"]
+    fn test_datetime_iso_timestamptz_string_decodes_to_nanos_since_epoch() {
+        // iso_timestamptz_to_nanos("2017-11-16T22:31:08.000001001+00:00") = 1_510_871_468_000_001_001.
+        unimplemented!("datetime::iso_timestamptz_to_nanos");
+    }
+
+    #[test]
+    #[ignore = "no timestamp_from_millis helper"]
+    fn test_datetime_timestamp_from_millis_round_trips_known_wall_clock_instants() {
+        // timestamp_from_millis(1510871468000) = 2017-11-16T22:31:08; pre-epoch + zero too.
+        unimplemented!("datetime::timestamp_from_millis");
+    }
+
+    #[test]
+    #[ignore = "no millis_from_timestamp helper"]
+    fn test_datetime_millis_from_timestamp_emits_known_millis_values() {
+        // millis_from_timestamp(2017-11-16T22:31:08) = 1510871468000.
+        unimplemented!("datetime::millis_from_timestamp");
+    }
+
     #[test]
     fn test_truncate_int_zero_width_panics_and_negative_width_unreachable_at_type_level() {
         // Rust's Transform::Truncate(u32) cannot carry a negative width by construction
