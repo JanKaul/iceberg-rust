@@ -510,6 +510,19 @@ mod tests {
         unimplemented!("GeospatialBound");
     }
 
+    // -- TestPathUtil (6 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[ignore = "no V3 PathUtil (restricted JSONPath parser: $ root + .name segments, rejects brackets/wildcards/recursive-descent/positions/digit-leading/lone-surrogates; toNormalizedPath emits RFC9535 brackets; rfc9535escape per special chars)"]
+    fn test_path_util_scenarios(#[case] _scenario: usize) {
+        unimplemented!("V3 PathUtil");
+    }
+
     // -- TestGeospatialPredicateEvaluators (21 scenarios) --
     #[rstest]
     #[case(1)]

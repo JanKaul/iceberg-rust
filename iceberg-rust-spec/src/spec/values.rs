@@ -2097,6 +2097,39 @@ mod tests {
         unimplemented!("datetime::millis_from_timestamp");
     }
 
+    // -----------------------------------------------------------------------
+    // Placeholders for UUID v7 + Variant-helper LE byte reading.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "uuid crate v7 feature not enabled in iceberg-rust-spec/Cargo.toml; no generate_uuid_v7 helper"]
+    fn test_generate_uuid_v7_has_version_7_and_rfc4122_variant() {
+        // generate_uuid_v7() returns a UUID whose `.get_version_num()` == 7 and
+        // `.get_variant() == Variant::RFC4122` (== 2 in numeric form).
+        unimplemented!("uuid v7 helper");
+    }
+
+    #[test]
+    #[ignore = "no V3 VariantUtil 1-byte unsigned LE reader"]
+    fn test_variant_util_reads_unsigned_1_byte_little_endian_integer() {
+        // VariantUtil::read_byte_unsigned(&[0xff]) returns 255 (vs i8 interpretation -1).
+        unimplemented!("VariantUtil read_byte_unsigned");
+    }
+
+    #[test]
+    #[ignore = "no V3 VariantUtil 2-byte unsigned LE reader"]
+    fn test_variant_util_reads_unsigned_2_byte_little_endian_integer() {
+        // read_2_byte_unsigned([0xff,0xff]) returns 65535.
+        unimplemented!("VariantUtil read_2_byte_unsigned");
+    }
+
+    #[test]
+    #[ignore = "no V3 VariantUtil 3-byte unsigned LE reader"]
+    fn test_variant_util_reads_unsigned_3_byte_little_endian_integer() {
+        // read_3_byte_unsigned([0xff,0xff,0xff]) returns 16777215.
+        unimplemented!("VariantUtil read_3_byte_unsigned");
+    }
+
     #[test]
     fn test_truncate_int_zero_width_panics_and_negative_width_unreachable_at_type_level() {
         // Rust's Transform::Truncate(u32) cannot carry a negative width by construction
