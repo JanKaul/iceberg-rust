@@ -1581,4 +1581,91 @@ mod tests {
             5354
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for V3 Variant value wrapper + serialization.
+    //
+    // Rust has `PrimitiveType::Variant` in types.rs but no value-level Variant
+    // implementation: no `Variant` / `VariantPrimitive` / `VariantMetadata`
+    // value types, no LE little-endian byte writer, no Conversions::to_byte_buffer
+    // for variants. The 30-element case list mirrors the spec's primitive variants
+    // covered by `Variants::ofXxx` factory methods.
+    // -----------------------------------------------------------------------
+
+    #[rstest::rstest]
+    #[case("null")]
+    #[case("bool_true")]
+    #[case("bool_false")]
+    #[case("i8_positive")]
+    #[case("i8_negative")]
+    #[case("i16_positive")]
+    #[case("i16_negative")]
+    #[case("i32_positive")]
+    #[case("i32_negative")]
+    #[case("i64_positive")]
+    #[case("i64_negative")]
+    #[case("f32_positive")]
+    #[case("f32_negative")]
+    #[case("f64_positive")]
+    #[case("f64_negative")]
+    #[case("date_post_epoch")]
+    #[case("date_pre_epoch")]
+    #[case("timestamptz_post_epoch")]
+    #[case("timestamptz_pre_epoch")]
+    #[case("timestamp_post_epoch")]
+    #[case("timestamp_pre_epoch")]
+    #[case("decimal4_positive")]
+    #[case("decimal4_negative")]
+    #[case("decimal8_positive")]
+    #[case("decimal8_negative")]
+    #[case("decimal16_positive")]
+    #[case("decimal16_negative")]
+    #[case("binary_short")]
+    #[case("string_short_63_chars")]
+    #[case("string_long_64_chars")]
+    #[ignore = "no Variant value model: no VariantPrimitive::write_to LE serialization"]
+    fn test_variant_primitive_round_trips_through_le_byte_writer(#[case] _case_label: &str) {
+        // Allocate a buffer larger than primitive.size_in_bytes(), write at offset 300 in
+        // little-endian order, then read back via `Variants::value(EMPTY_METADATA, slice)`
+        // and assert type + payload equality with the original.
+        unimplemented!("Variant primitive write_to / Variants::value");
+    }
+
+    #[rstest::rstest]
+    #[case("null")]
+    #[case("bool_true")]
+    #[case("bool_false")]
+    #[case("i8_positive")]
+    #[case("i8_negative")]
+    #[case("i16_positive")]
+    #[case("i16_negative")]
+    #[case("i32_positive")]
+    #[case("i32_negative")]
+    #[case("i64_positive")]
+    #[case("i64_negative")]
+    #[case("f32_positive")]
+    #[case("f32_negative")]
+    #[case("f64_positive")]
+    #[case("f64_negative")]
+    #[case("date_post_epoch")]
+    #[case("date_pre_epoch")]
+    #[case("timestamptz_post_epoch")]
+    #[case("timestamptz_pre_epoch")]
+    #[case("timestamp_post_epoch")]
+    #[case("timestamp_pre_epoch")]
+    #[case("decimal4_positive")]
+    #[case("decimal4_negative")]
+    #[case("decimal8_positive")]
+    #[case("decimal8_negative")]
+    #[case("decimal16_positive")]
+    #[case("decimal16_negative")]
+    #[case("binary_short")]
+    #[case("string_short_63_chars")]
+    #[case("string_long_64_chars")]
+    #[ignore = "no Conversions::to_byte_buffer / from_byte_buffer for Variant"]
+    fn test_variant_full_value_round_trips_through_conversions(#[case] _case_label: &str) {
+        // `Conversions::to_byte_buffer(VariantType, Variant::of(metadata, primitive))` then
+        // `from_byte_buffer` returns a Variant whose metadata + value bytes equal the original.
+        unimplemented!("Conversions for Variant");
+    }
 }
