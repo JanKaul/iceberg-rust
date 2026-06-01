@@ -1999,6 +1999,62 @@ mod tests {
         unimplemented!("TimestampNano literal serde");
     }
 
+    // -----------------------------------------------------------------------
+    // Placeholders for a future V3 Variant array (`ValueArray`) value model.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_indexed_element_access() {
+        // ValueArray with 3 elements: get(0)/get(1)/get(2) return the original elements
+        // by type + payload equality.
+        unimplemented!("Variant ValueArray indexed access");
+    }
+
+    #[test]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_serializes_into_exactly_size_in_bytes_buffer() {
+        // Write into a buffer sized exactly arr.size_in_bytes(), then read back via
+        // Variants::value with empty metadata; result equals input.
+        unimplemented!("Variant ValueArray minimal buffer serialization");
+    }
+
+    #[test]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_serializes_at_nonzero_offset_in_large_buffer() {
+        // Write into a buffer of size arr.size_in_bytes() + 1000 at offset 300; read back via
+        // Variants::value over the offset slice; result equals input.
+        unimplemented!("Variant ValueArray large buffer serialization");
+    }
+
+    #[test]
+    #[ignore = "no Variant ValueArray + Conversions for Variant"]
+    fn test_variant_value_array_round_trips_through_conversions() {
+        // Conversions::to_byte_buffer(VariantType, Variant::of(metadata, array)) +
+        // from_byte_buffer round-trips a full Variant containing a ValueArray.
+        unimplemented!("Variant ValueArray Conversions");
+    }
+
+    #[rstest::rstest]
+    #[case(300)]
+    #[case(70_000)]
+    #[case(16_777_300)]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_writer_auto_selects_one_to_four_byte_offset_sizing(
+        #[case] _array_len: usize,
+    ) {
+        // ValueArray writer must auto-select 1/2/3/4-byte offset sizing based on the largest
+        // element offset. Three array sizes pin the 1-byte, 2-byte, and 3+-byte branches.
+        unimplemented!("Variant ValueArray multi-byte offsets");
+    }
+
+    #[test]
+    #[ignore = "no Variant ValueArray value model"]
+    fn test_variant_value_array_round_trips_over_ten_thousand_elements() {
+        // 10_000-element ValueArray fan-out: every index round-trips via the serialize-read pair.
+        unimplemented!("Variant ValueArray large fan-out");
+    }
+
     #[rstest::rstest]
     #[case("null")]
     #[case("bool_true")]
