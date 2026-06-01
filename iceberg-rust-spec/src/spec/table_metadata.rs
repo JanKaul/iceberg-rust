@@ -1949,4 +1949,35 @@ mod tests {
             "data did not match any variant of untagged enum TableMetadataEnum"
         )
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for the per-snapshot schema_id propagation contract.
+    //
+    // Rust has the data (`TableMetadata.schemas` HashMap, `Snapshot.schema_id`,
+    // `Schema.schema_id`) but no operational producer API (no `newAppend` /
+    // `newFastAppend` / `newDelete` / `updateSchema` builders that tie freshly
+    // committed snapshots to the current schema id). Both scenarios live here
+    // until that surface lands.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no append/delete builders; cannot drive multi-snapshot schema_id propagation"]
+    fn test_data_only_commits_keep_snapshot_schema_id_aligned_with_current_schema() {
+        // Initial schema id stable across (append × 2, delete × 1, fast_append × 1):
+        // table.schemas() stays a 1-entry map; every new snapshot's schema_id equals
+        // table.schema().schema_id().
+        unimplemented!("transaction append/delete + schema_id propagation");
+    }
+
+    #[test]
+    #[ignore = "no updateSchema builder; cannot drive schema_id divergence then realignment"]
+    fn test_update_schema_emits_new_schema_id_without_creating_snapshot() {
+        // Start with schema id S0. Commit data → snapshot.schema_id = S0.
+        // updateSchema.add_column commits a TableUpdate but does NOT create a snapshot:
+        //   table.schema().schema_id() advances to S1, table.schemas() grows to {S0, S1},
+        //   table.current_snapshot().schema_id() still reports S0.
+        // Next data commit (delete) produces a snapshot with schema_id = S1.
+        // Subsequent append → snapshot with schema_id = S1.
+        unimplemented!("updateSchema + schema_id propagation");
+    }
 }
