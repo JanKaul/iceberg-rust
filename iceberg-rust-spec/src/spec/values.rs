@@ -1897,6 +1897,108 @@ mod tests {
         assert_invalid_casts(&value, &targets);
     }
 
+    // -----------------------------------------------------------------------
+    // Literal serde JSON round-trip across every supported Value variant.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_literal_round_trips_via_try_from_json_for_every_decoder_supported_variant() {
+        // Iterates the 12 Value variants whose `Value::try_from_json` decoder is implemented.
+        // Fixed and Binary are todo!() on the decode side (covered separately below). The
+        // Timestamptz example uses +00:00 because Rust's parser hardcodes that offset.
+        let cases: Vec<(Value, Type, JsonValue)> = vec![
+            (
+                Value::Boolean(false),
+                Type::Primitive(PrimitiveType::Boolean),
+                JsonValue::Bool(false),
+            ),
+            (
+                Value::Int(34),
+                Type::Primitive(PrimitiveType::Int),
+                JsonValue::Number(34.into()),
+            ),
+            (
+                Value::LongInt(35),
+                Type::Primitive(PrimitiveType::Long),
+                JsonValue::Number(35_i64.into()),
+            ),
+            (
+                Value::Float(OrderedFloat(36.75_f32)),
+                Type::Primitive(PrimitiveType::Float),
+                JsonValue::Number(Number::from_f64(36.75).unwrap()),
+            ),
+            (
+                Value::Double(OrderedFloat(8.75_f64)),
+                Type::Primitive(PrimitiveType::Double),
+                JsonValue::Number(Number::from_f64(8.75).unwrap()),
+            ),
+            (
+                Value::Date(17499), // 2017-11-29
+                Type::Primitive(PrimitiveType::Date),
+                JsonValue::String(String::from("2017-11-29")),
+            ),
+            (
+                Value::Time(41_407_000_000),
+                Type::Primitive(PrimitiveType::Time),
+                JsonValue::String(String::from("11:30:07")),
+            ),
+            (
+                Value::Timestamp(1_511_955_007_123_456),
+                Type::Primitive(PrimitiveType::Timestamp),
+                JsonValue::String(String::from("2017-11-29T11:30:07.123456")),
+            ),
+            (
+                Value::TimestampTZ(1_511_955_007_123_456),
+                Type::Primitive(PrimitiveType::Timestamptz),
+                JsonValue::String(String::from("2017-11-29T11:30:07.123456+00:00")),
+            ),
+            (
+                Value::String(String::from("abc")),
+                Type::Primitive(PrimitiveType::String),
+                JsonValue::String(String::from("abc")),
+            ),
+            (
+                Value::UUID(uuid::Uuid::nil()),
+                Type::Primitive(PrimitiveType::Uuid),
+                JsonValue::String(uuid::Uuid::nil().to_string()),
+            ),
+        ];
+
+        for (value, ty, json) in cases {
+            let parsed = Value::try_from_json(json.clone(), &ty)
+                .expect("try_from_json should not error for supported variants");
+            assert_eq!(parsed.as_ref(), Some(&value), "decoded {json}");
+
+            let emitted: JsonValue = (&value).into();
+            assert_eq!(emitted, json, "encoded {value:?}");
+        }
+    }
+
+    #[test]
+    #[ignore = "Value::try_from_json hits todo!() for Fixed and Binary on the JSON-string decode path"]
+    fn test_literal_round_trips_via_json_for_fixed_and_binary_variants() {
+        // Fixed(3, [1,2,3]) <-> "010203" and Binary([3,4,5,6]) <-> "03040506" should round-trip
+        // via hex encoding. Encode path works; decode path is todo!() in values.rs.
+        unimplemented!("Fixed/Binary JSON decode");
+    }
+
+    #[test]
+    #[ignore = "Value::try_from_json and From<&Value> for JsonValue both todo!() for Decimal"]
+    fn test_literal_round_trips_via_json_for_decimal_variant() {
+        // Decimal("122.50") <-> "122.50" should round-trip via canonical string; both encode
+        // and decode are todo!() today.
+        unimplemented!("Decimal JSON round-trip");
+    }
+
+    #[test]
+    #[ignore = "no Value::TimestampNano variant; try_from_json for timestamp_ns / timestamptz_ns absent"]
+    fn test_literal_round_trips_via_json_for_timestamp_nano_variants() {
+        // Once Value::TimestampNano lands, two more cases extend the round-trip set:
+        //   ("2017-11-29T11:30:07.123456789", TimestampNs, no-offset string)
+        //   ("2017-11-29T11:30:07.123456789+00:00", TimestamptzNs, +00:00 offset)
+        unimplemented!("TimestampNano literal serde");
+    }
+
     #[rstest::rstest]
     #[case("null")]
     #[case("bool_true")]
