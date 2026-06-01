@@ -1407,6 +1407,106 @@ mod tests {
         unimplemented!("avro::schema_util::prune_columns variant");
     }
 
+    // -----------------------------------------------------------------------
+    // Placeholders for a future `mapping::NameMapping` module.
+    //
+    // Eventual surface:
+    //   mapping::MappedField { id: i32, names: Vec<String>, nested: Option<MappedFields> }
+    //   mapping::MappedFields(Vec<MappedField>) — rejects top-level duplicate ids/names at construction
+    //   mapping::NameMapping::create(&Schema) -> NameMapping
+    //   NameMapping::find(id: i32) -> Option<&MappedField>           // recurses through tree
+    //   NameMapping::find_path(path: &[&str]) -> Option<&MappedField> // top-level only without path
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no mapping::NameMapping"]
+    fn test_name_mapping_from_flat_schema_records_each_top_level_field() {
+        // NameMapping::create on a flat schema yields one MappedField per top-level column,
+        // each with the field's id and a single-element names vec.
+        unimplemented!("mapping::NameMapping flat");
+    }
+
+    #[test]
+    #[ignore = "no mapping::NameMapping"]
+    fn test_name_mapping_from_nested_struct_schema_carries_child_tree() {
+        // A struct field maps to a MappedField whose `nested` carries one MappedField per child.
+        unimplemented!("mapping::NameMapping nested struct");
+    }
+
+    #[test]
+    #[ignore = "no mapping::NameMapping"]
+    fn test_name_mapping_from_map_schema_uses_synthetic_key_value_names() {
+        // Map<string,int> maps to a MappedField whose nested children are named "key" and "value"
+        // with the map's synthetic key/value ids.
+        unimplemented!("mapping::NameMapping map");
+    }
+
+    #[test]
+    #[ignore = "no mapping::NameMapping"]
+    fn test_name_mapping_from_map_of_struct_key_preserves_inner_struct_tree() {
+        // Map with a struct key: the synthetic "key" MappedField carries the struct's child tree.
+        unimplemented!("mapping::NameMapping complex key");
+    }
+
+    #[test]
+    #[ignore = "no mapping::NameMapping"]
+    fn test_name_mapping_from_map_of_struct_value_preserves_inner_struct_tree() {
+        // Map with a struct value: the synthetic "value" MappedField carries the struct's child tree.
+        unimplemented!("mapping::NameMapping complex value");
+    }
+
+    #[test]
+    #[ignore = "no mapping::NameMapping"]
+    fn test_name_mapping_from_list_schema_uses_synthetic_element_name() {
+        // List<T> maps to a MappedField with a single child named "element" carrying T's id.
+        unimplemented!("mapping::NameMapping list");
+    }
+
+    #[test]
+    #[ignore = "no Schema duplicate-id rejection at construction"]
+    fn test_schema_construction_rejects_duplicate_field_ids() {
+        // Schema::builder with two fields sharing an id raises at build().
+        unimplemented!("Schema duplicate id rejection");
+    }
+
+    #[test]
+    #[ignore = "no MappedFields top-level duplicate-name rejection"]
+    fn test_mapped_fields_constructor_rejects_duplicate_top_level_names() {
+        // MappedFields::new with two MappedField entries sharing a name rejects.
+        unimplemented!("MappedFields duplicate name rejection");
+    }
+
+    #[test]
+    #[ignore = "no mapping::NameMapping nested-context duplicates accepted"]
+    fn test_mapped_fields_allows_duplicate_names_in_separate_contexts() {
+        // Same name appearing under different parents (or under different map/list synthetic
+        // contexts) is accepted; only duplicates within a single MappedFields list are rejected.
+        unimplemented!("MappedFields nested-context duplicates");
+    }
+
+    #[test]
+    #[ignore = "no mapping::NameMapping::find(id)"]
+    fn test_name_mapping_find_by_id_walks_full_tree() {
+        // find(id) returns the matching MappedField for any id at any depth: top-level, inside a
+        // nested struct, inside a map value's struct, inside a list element's struct.
+        unimplemented!("NameMapping::find by id");
+    }
+
+    #[test]
+    #[ignore = "no mapping::NameMapping::find_path"]
+    fn test_name_mapping_find_by_top_level_name_only_with_synthetic_names_requiring_paths() {
+        // find("element"), find("key"), find("value") return None at the top level; synthetic
+        // names require a path argument. Top-level user-supplied names resolve directly.
+        unimplemented!("NameMapping::find by name");
+    }
+
+    #[test]
+    #[ignore = "no mapping::NameMapping Variant leaf"]
+    fn test_name_mapping_with_variant_field_is_treated_as_a_leaf() {
+        // Variant fields map as a leaf MappedField with no nested children (no introspection).
+        unimplemented!("NameMapping variant");
+    }
+
     #[test]
     #[ignore = "no avro schema id-detection helpers in iceberg-rust-spec: needs remove_ids(&Schema) -> avro::Schema and has_ids(&avro::Schema) -> bool that walks every nested level"]
     fn test_avro_field_id_detection_walks_to_every_nesting_level() {
