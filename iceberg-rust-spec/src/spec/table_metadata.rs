@@ -1977,6 +1977,40 @@ mod tests {
     // mixed append+delete commits.
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Placeholders for metadata-file codec selection (`Codec` enum).
+    //
+    // Rust has no `MetadataCodec` enum; TableMetadata reads/writes JSON
+    // directly without an encoding pre-pass. The 3 tests pin the selection
+    // surface eventual `Codec::from_name` / `Codec::from_file_name` helpers
+    // must satisfy.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no MetadataCodec enum"]
+    fn test_metadata_file_compression_codec_selection_by_explicit_name() {
+        // Codec::from_name("gzip") → Gzip; Codec::from_name("none") → None.
+        // Case-insensitive matching is required.
+        unimplemented!("MetadataCodec::from_name");
+    }
+
+    #[test]
+    #[ignore = "no MetadataCodec enum: unknown-name rejection"]
+    fn test_metadata_file_codec_selection_rejects_unknown_codec_name() {
+        // Codec::from_name("snappy") → error with a message naming the rejected codec.
+        unimplemented!("MetadataCodec unknown name");
+    }
+
+    #[test]
+    #[ignore = "no MetadataCodec enum: filename-based selection"]
+    fn test_metadata_file_codec_selection_from_file_name_extension() {
+        // Codec::from_file_name("v1.metadata.json") → None.
+        // Codec::from_file_name("v1.gz.metadata.json") → Gzip.
+        // Codec::from_file_name("v1.metadata.json.gz") → Gzip.
+        // Non-metadata path → error ("is not a valid metadata file").
+        unimplemented!("MetadataCodec::from_file_name");
+    }
+
     #[test]
     #[ignore = "no Listeners registry; no CreateSnapshotEvent on commit"]
     fn test_commit_listener_receives_append_event_with_canonical_metric_keys() {
