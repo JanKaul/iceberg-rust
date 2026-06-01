@@ -322,4 +322,392 @@ mod tests {
         assert_eq!("id_truncate", partition_spec.fields[2].name);
         assert_eq!(Transform::Truncate(4), partition_spec.fields[2].transform);
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for a schema-aware PartitionSpec builder with case-sensitivity.
+    //
+    // Rust's `PartitionSpecBuilder` (via derive_builder) requires the caller to
+    // pass source_id directly: it has no schema-aware name resolution, no
+    // `case_sensitive(bool)` opt-in, no `always_null` shorthand, no default
+    // target-name generator, and no name-uniqueness validation. Each test below
+    // pins one cell of the upstream {transform x case-sensitivity x duplicate-class}
+    // grid.
+    // -----------------------------------------------------------------------
+
+    const SPEC_BUILDER_GAP: &str = "no PartitionSpec::builder_for(schema) + case_sensitive setter";
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) + case_sensitive setter"]
+    fn test_partition_spec_with_two_columns_differing_only_in_case_succeeds() {
+        // Schema with both "data" and "DATA" supports `identity("data")` + `identity("DATA")`
+        // under default case_sensitive=true.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) + identity target-name override"]
+    fn test_identity_target_name_override_succeeds() {
+        // `identity("data", "data_partition")` emits a partition field with target_name="data_partition".
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- bucket transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket exact-duplicate source"]
+    fn test_bucket_source_name_exact_duplicate_allowed_when_case_sensitive() {
+        // case_sensitive(true): two bucket(...) calls naming the same source column (with
+        // different target names) succeed.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket default target name"]
+    fn test_bucket_target_name_defaults_to_source_bucket() {
+        // `bucket("data", 16)` defaults the target name to "data_bucket".
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket default target name (case-insensitive)"]
+    fn test_bucket_target_name_default_under_case_insensitive() {
+        // case_sensitive(false).bucket("DATA", 16) defaults target name to "data_bucket".
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket inexact-duplicate source (case-insensitive)"]
+    fn test_bucket_source_inexact_duplicate_allowed_under_case_insensitive() {
+        // case_sensitive(false).bucket("DATA", 16).bucket("data", 32) succeeds.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket inexact target duplicate (case-insensitive)"]
+    fn test_bucket_target_inexact_duplicate_allowed_under_case_insensitive() {
+        // case_sensitive(false): two bucket targets that differ only in case both accepted.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket exact target duplicate (case-insensitive)"]
+    fn test_bucket_target_exact_duplicate_rejected_under_case_insensitive() {
+        // case_sensitive(false): two bucket targets sharing an identical lower-cased name → reject.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) bucket exact target duplicate (case-sensitive)"]
+    fn test_bucket_target_exact_duplicate_rejected_under_case_sensitive() {
+        // case_sensitive(true): two bucket targets sharing the exact same target name → reject.
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- truncate transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate default target name"]
+    fn test_truncate_target_name_defaults_to_source_trunc() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate default target name (case-insensitive)"]
+    fn test_truncate_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate exact-duplicate source"]
+    fn test_truncate_source_name_exact_duplicate_allowed_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate inexact-duplicate source (case-insensitive)"]
+    fn test_truncate_source_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate inexact target duplicate (case-insensitive)"]
+    fn test_truncate_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate exact target duplicate (case-insensitive)"]
+    fn test_truncate_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) truncate exact target duplicate (case-sensitive)"]
+    fn test_truncate_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- identity transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity default target name"]
+    fn test_identity_target_name_defaults_to_source_name() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity default target name (case-insensitive)"]
+    fn test_identity_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity exact-duplicate source rejected"]
+    fn test_identity_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity inexact-duplicate source rejected (case-insensitive)"]
+    fn test_identity_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity inexact target duplicate (case-insensitive)"]
+    fn test_identity_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity exact target duplicate (case-insensitive)"]
+    fn test_identity_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) identity exact target duplicate (case-sensitive)"]
+    fn test_identity_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- always_null (void) transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null default target name"]
+    fn test_always_null_target_name_defaults_to_source_null() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null default target name (case-insensitive)"]
+    fn test_always_null_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null exact-duplicate source"]
+    fn test_always_null_source_name_exact_duplicate_allowed_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null inexact-duplicate source (case-insensitive)"]
+    fn test_always_null_source_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null inexact target duplicate (case-insensitive)"]
+    fn test_always_null_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null exact target duplicate (case-insensitive)"]
+    fn test_always_null_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) always_null exact target duplicate (case-sensitive)"]
+    fn test_always_null_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- year transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year default target name"]
+    fn test_year_target_name_defaults_to_source_year() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year default target name (case-insensitive)"]
+    fn test_year_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year exact-duplicate source rejected"]
+    fn test_year_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year inexact-duplicate source rejected (case-insensitive)"]
+    fn test_year_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year inexact target duplicate (case-insensitive)"]
+    fn test_year_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year exact target duplicate (case-insensitive)"]
+    fn test_year_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) year exact target duplicate (case-sensitive)"]
+    fn test_year_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- month transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month default target name"]
+    fn test_month_target_name_defaults_to_source_month() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month default target name (case-insensitive)"]
+    fn test_month_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month exact-duplicate source rejected"]
+    fn test_month_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month inexact-duplicate source rejected (case-insensitive)"]
+    fn test_month_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month inexact target duplicate (case-insensitive)"]
+    fn test_month_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month exact target duplicate (case-insensitive)"]
+    fn test_month_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) month exact target duplicate (case-sensitive)"]
+    fn test_month_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- day transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day default target name"]
+    fn test_day_target_name_defaults_to_source_day() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day default target name (case-insensitive)"]
+    fn test_day_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day exact-duplicate source rejected"]
+    fn test_day_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day inexact-duplicate source rejected (case-insensitive)"]
+    fn test_day_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day inexact target duplicate (case-insensitive)"]
+    fn test_day_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day exact target duplicate (case-insensitive)"]
+    fn test_day_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) day exact target duplicate (case-sensitive)"]
+    fn test_day_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    // --- hour transform ---
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour default target name"]
+    fn test_hour_target_name_defaults_to_source_hour() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour default target name (case-insensitive)"]
+    fn test_hour_target_name_default_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour exact-duplicate source rejected"]
+    fn test_hour_source_exact_duplicate_rejected_when_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour inexact-duplicate source rejected (case-insensitive)"]
+    fn test_hour_source_inexact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour inexact target duplicate (case-insensitive)"]
+    fn test_hour_target_inexact_duplicate_allowed_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour exact target duplicate (case-insensitive)"]
+    fn test_hour_target_exact_duplicate_rejected_under_case_insensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
+
+    #[test]
+    #[ignore = "no PartitionSpec::builder_for(schema) hour exact target duplicate (case-sensitive)"]
+    fn test_hour_target_exact_duplicate_rejected_under_case_sensitive() {
+        unimplemented!("{SPEC_BUILDER_GAP}");
+    }
 }
