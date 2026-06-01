@@ -1056,6 +1056,202 @@ mod tests {
         unimplemented!("schema_update case-insensitive move-after-add");
     }
 
+    // -----------------------------------------------------------------------
+    // Placeholders for a future `schema_update::union_by_name` reducer.
+    //
+    // No Rust analog exists. Eventual signature:
+    //   schema_update::union_by_name(&Schema, last_column_id: i32, &Schema) -> Result<Schema, Error>
+    // Merges incoming schema by field NAME (not id): existing names keep their
+    // ids; new names get fresh ids; primitive promotion is honoured (widening
+    // only); structural changes (list element type, map key/value type, list
+    // to primitive) are rejected.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_adds_top_level_primitive() {
+        // Existing {id (1,int)} unioned with {id, score (float)} yields
+        // {id (1), score (fresh id)}.
+        unimplemented!("schema_update::union_by_name");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_propagates_field_default() {
+        // Incoming field carrying initial-default/write-default produces a new field with
+        // those defaults attached.
+        unimplemented!("schema_update::union_by_name defaults");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_adds_top_level_list() {
+        // Union introduces a new top-level list-of-primitive with a fresh element id.
+        unimplemented!("schema_update::union_by_name top-level list");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_adds_top_level_map() {
+        // Union introduces a new top-level map<string,int> with fresh key/value ids.
+        unimplemented!("schema_update::union_by_name top-level map");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_adds_top_level_struct() {
+        // Union introduces a new top-level struct with fresh field ids inside.
+        unimplemented!("schema_update::union_by_name top-level struct");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_adds_field_inside_nested_struct() {
+        // Union adds a single primitive inside an already-existing nested struct.
+        unimplemented!("schema_update::union_by_name nested primitive");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_adds_deeply_nested_primitives() {
+        // 9-level-deep struct chain in the union schema: every newly added node gets a fresh id;
+        // every existing node keeps its id.
+        unimplemented!("schema_update::union_by_name deeply nested primitives");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_adds_deeply_nested_lists() {
+        // 9-level-deep list-of-list-of-... chain merges with id preservation.
+        unimplemented!("schema_update::union_by_name deeply nested lists");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_adds_struct_inside_struct() {
+        // Union introduces a struct inside an existing struct.
+        unimplemented!("schema_update::union_by_name struct in struct");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name"]
+    fn test_union_by_name_adds_deeply_nested_maps() {
+        // 6-level-deep map<string, map<...>> chain merges with id preservation.
+        unimplemented!("schema_update::union_by_name deeply nested maps");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name list-element type-change rejection"]
+    fn test_union_by_name_rejects_list_element_type_change() {
+        // Existing list<int> + incoming list<long> → reject (element type changed).
+        unimplemented!("schema_update::union_by_name list element type rejection");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name map-value type-change rejection"]
+    fn test_union_by_name_rejects_map_value_type_change() {
+        // Existing map<string,int> + incoming map<string,long> → reject (value type changed).
+        unimplemented!("schema_update::union_by_name map value type rejection");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name map-key type-change rejection"]
+    fn test_union_by_name_rejects_map_key_type_change() {
+        // Existing map<string,int> + incoming map<long,int> → reject (key type changed).
+        unimplemented!("schema_update::union_by_name map key type rejection");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name doc propagation"]
+    fn test_union_by_name_propagates_doc_changes() {
+        // Incoming field with a doc replaces the existing field's doc (or sets it if none).
+        unimplemented!("schema_update::union_by_name doc");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name default propagation"]
+    fn test_union_by_name_propagates_write_default_preserves_initial() {
+        // Incoming write-default overwrites; initial-default is never overwritten.
+        unimplemented!("schema_update::union_by_name defaults");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name int->long promotion"]
+    fn test_union_by_name_promotes_int_to_long() {
+        // Existing Int field + incoming Long with same name → result is Long.
+        unimplemented!("schema_update::union_by_name int promote");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name float->double promotion"]
+    fn test_union_by_name_promotes_float_to_double() {
+        // Float + Double → Double.
+        unimplemented!("schema_update::union_by_name float promote");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name double->float narrowing ignored"]
+    fn test_union_by_name_ignores_double_to_float_narrowing() {
+        // Existing Double + incoming Float keeps Double (narrowing ignored).
+        unimplemented!("schema_update::union_by_name double narrow");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name long->int narrowing ignored"]
+    fn test_union_by_name_ignores_long_to_int_narrowing() {
+        // Existing Long + incoming Int keeps Long (narrowing ignored).
+        unimplemented!("schema_update::union_by_name long narrow");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name decimal narrowing ignored"]
+    fn test_union_by_name_ignores_decimal_narrowing() {
+        // Existing Decimal(10,2) + incoming Decimal(7,2) keeps the wider precision.
+        unimplemented!("schema_update::union_by_name decimal narrow");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name decimal widening"]
+    fn test_union_by_name_promotes_decimal_to_wider_precision_same_scale() {
+        // Existing Decimal(7,2) + incoming Decimal(10,2) yields Decimal(10,2).
+        unimplemented!("schema_update::union_by_name decimal widen");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name nested struct add"]
+    fn test_union_by_name_adds_primitive_to_existing_nested_struct() {
+        // Existing struct{a,b} + incoming struct{a,b,c} → struct keeps a,b ids and adds fresh-id c.
+        unimplemented!("schema_update::union_by_name nested struct add");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name list-to-primitive rejection"]
+    fn test_union_by_name_rejects_list_to_primitive_change() {
+        // Existing list field + incoming primitive of same name → reject.
+        unimplemented!("schema_update::union_by_name list to primitive");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name mirrored schemas"]
+    fn test_union_by_name_mirrored_schemas_preserve_ids() {
+        // Union of a schema with itself returns the same schema (ids preserved, no new fields).
+        unimplemented!("schema_update::union_by_name mirrored");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name append sibling struct"]
+    fn test_union_by_name_appends_sibling_struct_at_depth() {
+        // Adds a sibling struct several levels deep with fresh ids inside.
+        unimplemented!("schema_update::union_by_name sibling struct");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::union_by_name append sibling list"]
+    fn test_union_by_name_appends_sibling_list_at_depth() {
+        // Adds a sibling list several levels deep with fresh element id.
+        unimplemented!("schema_update::union_by_name sibling list");
+    }
+
     #[test]
     #[ignore = "no avro schema id-detection helpers in iceberg-rust-spec: needs remove_ids(&Schema) -> avro::Schema and has_ids(&avro::Schema) -> bool that walks every nested level"]
     fn test_avro_field_id_detection_walks_to_every_nesting_level() {
