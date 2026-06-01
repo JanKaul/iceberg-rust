@@ -410,6 +410,8 @@ pub mod namespace {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     // -----------------------------------------------------------------------
     // Placeholders for `catalog_util` dynamic-loading + bulk helper surface.
     //
@@ -526,5 +528,260 @@ mod tests {
     #[ignore = "no CatalogUtil::bulk_delete_metadata_files helper"]
     fn test_bulk_delete_metadata_files_swallows_per_file_errors_and_continues() {
         unimplemented!("CatalogUtil::bulk_delete_metadata_files");
+    }
+
+    // -- TestCatalogUtilDropTable (3 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[ignore = "no CatalogUtil::drop_table_data: orphan-file cleanup, table-purge, dangling-metadata"]
+    fn test_catalog_util_drop_table_scenarios(#[case] _scenario: usize) {
+        unimplemented!("drop_table_data");
+    }
+
+    // -- TestCachingCatalog (13 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[ignore = "no CachingCatalog: load/evict on load + commit, expiration, weak-reference table cache"]
+    fn test_caching_catalog_scenarios(#[case] _scenario: usize) {
+        unimplemented!("CachingCatalog");
+    }
+
+    // -- TestInMemoryCatalog (1 scenario) --
+    #[test]
+    #[ignore = "no in-memory reference Catalog impl bundled in iceberg-rust"]
+    fn test_in_memory_catalog_basic_lifecycle_smoke() {
+        // Upstream's InMemoryCatalog is the reference implementation; Rust delegates to
+        // SqlCatalog / FileCatalog / RestCatalog. No in-process toy catalog ships today.
+        unimplemented!("InMemoryCatalog");
+    }
+
+    // -- TestJdbcCatalog (46 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[case(43)]
+    #[case(44)]
+    #[case(45)]
+    #[case(46)]
+    #[ignore = "JDBC catalog backing-table migration + commit-conflict surface lives in catalogs/iceberg-sql-catalog as SqlCatalog; upstream JdbcCatalog test suite (schema migration v0->v1, commit conflict, namespace ops, table + view CRUD) not ported as-is"]
+    fn test_jdbc_catalog_scenarios(#[case] _scenario: usize) {
+        unimplemented!("JdbcCatalog suite");
+    }
+
+    // -- TestJdbcViewCatalog (7 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "JDBC view catalog suite mirrors JdbcCatalog for views"]
+    fn test_jdbc_view_catalog_scenarios(#[case] _scenario: usize) {
+        unimplemented!("JdbcViewCatalog suite");
+    }
+
+    // -- TestJdbcUtil (7 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "no JdbcUtil SQL string-building helpers"]
+    fn test_jdbc_util_scenarios(#[case] _scenario: usize) {
+        unimplemented!("JdbcUtil");
+    }
+
+    // -- TestJdbcTableConcurrency (3 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[ignore = "no JDBC table concurrency: optimistic-concurrency on metadata-pointer update"]
+    fn test_jdbc_table_concurrency_scenarios(#[case] _scenario: usize) {
+        unimplemented!("JdbcTableConcurrency");
+    }
+
+    // -- TestCreateTransaction (9 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[ignore = "no CreateTableTransaction: stage-and-commit semantics; create-table-if-not-exists; rollback on commit failure"]
+    fn test_create_transaction_scenarios(#[case] _scenario: usize) {
+        unimplemented!("CreateTableTransaction");
+    }
+
+    // -- TestReplaceTransaction (12 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[ignore = "no ReplaceTableTransaction: stage-replace, preserve-history, rollback semantics"]
+    fn test_replace_transaction_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ReplaceTableTransaction");
+    }
+
+    // -- TestCommitService (2 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[ignore = "no CommitService retry/backoff strategy"]
+    fn test_commit_service_scenarios(#[case] _scenario: usize) {
+        unimplemented!("CommitService");
+    }
+
+    // -- TestCommitMetricsResultParser (4 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[ignore = "no CommitMetricsResult JSON parser (REST commit metrics shape)"]
+    fn test_commit_metrics_result_parser_scenarios(#[case] _scenario: usize) {
+        unimplemented!("CommitMetricsResult parser");
+    }
+
+    // -- TestCommitReportParser (7 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "no CommitReport JSON parser (REST commit report shape)"]
+    fn test_commit_report_parser_scenarios(#[case] _scenario: usize) {
+        unimplemented!("CommitReport parser");
+    }
+
+    // -- TestLockManagers (2 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[ignore = "no LockManagers facade: load_lock_manager(class_name) dynamic loader"]
+    fn test_lock_managers_scenarios(#[case] _scenario: usize) {
+        unimplemented!("LockManagers loader");
+    }
+
+    // -- TestInMemoryLockManager (7 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "no InMemoryLockManager: acquire / release / heartbeat / expiration / contention"]
+    fn test_in_memory_lock_manager_scenarios(#[case] _scenario: usize) {
+        unimplemented!("InMemoryLockManager");
+    }
+
+    // -- TestClientPoolImpl (7 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[ignore = "no per-thread client pool for HMS/JDBC drivers"]
+    fn test_client_pool_impl_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ClientPoolImpl");
+    }
+
+    // -- TestEnvironmentContext (2 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[ignore = "no EnvironmentContext: build info + env propagation into commit summary"]
+    fn test_environment_context_scenarios(#[case] _scenario: usize) {
+        unimplemented!("EnvironmentContext");
+    }
+
+    // -- TestEnvironmentUtil (3 scenarios) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[ignore = "no EnvironmentUtil: env var resolution + system property fallback"]
+    fn test_environment_util_scenarios(#[case] _scenario: usize) {
+        unimplemented!("EnvironmentUtil");
     }
 }
