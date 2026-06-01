@@ -575,4 +575,64 @@ mod tests {
         let parsed: FileMetadata = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, original);
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for upstream reader / writer test contract gaps.
+    //
+    // Rust's `FileMetadata::read_footer(&[u8])` and `PuffinWriter::finish(self)
+    // -> Result<Vec<u8>>` already cover most of the read/write round-trip;
+    // however the upstream tests also exercise a footer-size *hint* API and a
+    // separate `close()`/`length()`/`footerSize()` accessor set on a writer
+    // whose `finish()` doesn't consume self. Those don't exist in Rust today.
+    // -----------------------------------------------------------------------
+
+    // --- TestPuffinReader (6) ---
+    // EmptyFooterUncompressed, EmptyWithUnknownFooterSize, ReadMetricDataUncompressed and
+    // ReadMetricDataCompressedZstd are already pinned in the puffin reader tests above; the
+    // 2 ignored entries below cover the footer-size hint surface.
+
+    #[test]
+    #[ignore = "no with_footer_size hint API on the reader"]
+    fn test_puffin_reader_rejects_wrong_caller_supplied_footer_size_hint() {
+        // `Puffin::read(input).with_file_size(len).with_footer_size(n)` validates that the
+        // caller-supplied footer-size hint matches the actual footer. A wrong hint errors.
+        unimplemented!("reader footer-size hint");
+    }
+
+    #[test]
+    #[ignore = "no with_footer_size hint API on the reader"]
+    fn test_puffin_reader_validates_footer_size_value() {
+        // The reader rejects out-of-range / negative footer-size hint values up front.
+        unimplemented!("reader footer-size hint validation");
+    }
+
+    // --- TestPuffinWriter (6) ---
+    // EmptyFooterUncompressed, WriteMetricDataUncompressed, and WriteMetricDataCompressedZstd
+    // are covered by existing puffin tests; the 3 ignored entries below cover the
+    // separate finish/close + length accessor + LZ4 footer-compression surface.
+
+    #[test]
+    #[ignore = "no separate close() / length() accessors; finish(self) consumes self"]
+    fn test_puffin_writer_supports_implicit_finish_on_drop() {
+        // Upstream `PuffinWriter` exposes `finish()` and `close()` separately so multiple
+        // close() calls or drop-time implicit finish are possible. Rust's finish(self)
+        // consumes self.
+        unimplemented!("writer implicit finish");
+    }
+
+    #[test]
+    #[ignore = "no compressFooter (LZ4) builder option"]
+    fn test_puffin_writer_emits_empty_footer_with_lz4_compression() {
+        // `compressFooter()` builder option emits the empty footer with LZ4 compression.
+        unimplemented!("writer footer compression");
+    }
+
+    #[test]
+    #[ignore = "no PuffinWriter::length / footerSize / writtenBlobsMetadata accessors"]
+    fn test_puffin_writer_exposes_post_close_length_and_footer_accessors() {
+        // After close(), the writer exposes length / footerSize / writtenBlobsMetadata for
+        // file-size calculation + downstream metadata propagation, including the encrypted
+        // output path.
+        unimplemented!("writer accessors");
+    }
 }
