@@ -848,6 +848,244 @@ fn update_partitions(
     Ok(())
 }
 
-/// TODO
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use rstest::rstest;
+
+    // -- TestManifestReader (15) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[ignore = "ManifestReader: V1/V2/V3 spec round-trip, filter without select, inheritable metadata, invalid usage"]
+    fn test_manifest_reader_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestReader");
+    }
+
+    // -- TestManifestReaderStats (10) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[ignore = "no ManifestReader filter / select / selectStats / project projection API"]
+    fn test_manifest_reader_stats_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestReaderStats");
+    }
+
+    // -- TestManifestWriter (9) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[ignore = "ManifestWriter direct-API scenarios (without-row-stats, fast-append entry status, partition summary, manifest cleanup)"]
+    fn test_manifest_writer_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestWriter");
+    }
+
+    // -- TestManifestWriterVersions (20) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[ignore = "no CreateTableBuilder::with_format_version setter; V1, V3, V4 + compression configuration paths"]
+    fn test_manifest_writer_versions_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestWriterVersions");
+    }
+
+    // -- TestManifestListVersions (10) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[ignore = "manifest list V1 / V3 round-trips unreachable without with_format_version setter; V3 first_row_id gap"]
+    fn test_manifest_list_versions_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestListVersions");
+    }
+
+    // -- TestManifestFileParser (3) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[ignore = "no ManifestFile JSON parser for REST scan-planning responses"]
+    fn test_manifest_file_parser_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestFileParser");
+    }
+
+    // -- TestManifestFileUtil (4) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[ignore = "no ManifestFileUtil helpers for filtering manifest entries by status / spec id"]
+    fn test_manifest_file_util_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestFileUtil");
+    }
+
+    // -- TestManifestInfoStruct (8) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[ignore = "no ManifestInfo struct projection of manifest entries"]
+    fn test_manifest_info_struct_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestInfoStruct");
+    }
+
+    // -- TestManifestListEncryption (2) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[ignore = "no encrypted manifest list read/write"]
+    fn test_manifest_list_encryption_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestListEncryption");
+    }
+
+    // -- TestManifestCaching (5) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[ignore = "no LRU cache for manifest reads"]
+    fn test_manifest_caching_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestCaching");
+    }
+
+    // -- Avro features suite (66 cases) covering: TestAvroDataWriter (1),
+    //    TestAvroDeleteWriters (3), TestAvroEnums (1),
+    //    TestAvroOptionsWithNonNullDefaults (2), TestAvroFileSplit (4),
+    //    TestEncryptedAvroFileSplit (4), TestAvroIterable (1),
+    //    TestAvroNameMapping (8), TestBuildAvroProjection (6),
+    //    TestAvroReadProjection (1), TestAvroSchemaProjection (3),
+    //    TestInternalData (2), TestSingleMessageEncoding (12),
+    //    TestDecoderResolver (2), TestReadProjection (14),
+    //    TestReadDefaultValues (2).
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[case(43)]
+    #[case(44)]
+    #[case(45)]
+    #[case(46)]
+    #[case(47)]
+    #[case(48)]
+    #[case(49)]
+    #[case(50)]
+    #[case(51)]
+    #[case(52)]
+    #[case(53)]
+    #[case(54)]
+    #[case(55)]
+    #[case(56)]
+    #[case(57)]
+    #[case(58)]
+    #[case(59)]
+    #[case(60)]
+    #[case(61)]
+    #[case(62)]
+    #[case(63)]
+    #[case(64)]
+    #[case(65)]
+    #[case(66)]
+    #[ignore = "Avro features beyond manifest read/write: data + delete writers, enums, options-with-non-null-defaults, file split, name mapping, build/read projection, schema projection, single-message encoding, decoder resolver, read projection, read default values"]
+    fn test_avro_features_suite_scenarios(#[case] _scenario: usize) {
+        unimplemented!("Avro features suite");
+    }
+}

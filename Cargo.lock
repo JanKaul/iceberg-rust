@@ -3558,6 +3558,7 @@ dependencies = [
  "iceberg-rust",
  "object_store",
  "reqwest",
+ "rstest 0.26.1",
  "secrecy",
  "serde",
  "serde_derive",

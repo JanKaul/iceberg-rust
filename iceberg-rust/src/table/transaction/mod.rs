@@ -514,3 +514,691 @@ impl<'table> TableTransaction<'table> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    // -----------------------------------------------------------------------
+    // Placeholders for table-operation + snapshot-producer + partition-spec
+    // evolution surfaces.
+    //
+    // Rust's `Transaction` builder composes `append_data` / `append_delete` /
+    // `overwrite` / `replace` / `update_properties` / `set_snapshot_ref` /
+    // `expire_snapshots` into one `Operation::Update` commit. The upstream
+    // surface is much richer: MergeAppend manifest merging policy, FastAppend
+    // vs MergeAppend distinction, dynamic partition overwrite,
+    // RowDelta with eq+pos deletes, rewrite-files preserving lineage,
+    // rewrite-manifests preserving entries, validate-files-exist hook,
+    // WAP staged snapshots, snapshot expiration with branch protection,
+    // sequence-number assignment, V3 row-lineage assignment, statistics +
+    // partition-statistics registration. Each class below pins the upstream
+    // contract as one `#[rstest]` with one `#[case]` per upstream @Test method.
+    // -----------------------------------------------------------------------
+
+    // -- TestTransaction (24) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[ignore = "no upstream-shape Transaction surface: empty txn, single+multi op, uncommitted-change detection, conflict + bulk cleanup, retry mechanics, no-custom-delete-func, fast-appends-inside-txn, rewrite-manifests appended directly, unknown-commit-state recovery, recommit, commit-properties, concurrent rewrite vs row-delta + overwrite, extend-base-transaction"]
+    fn test_transaction_scenarios(#[case] _scenario: usize) {
+        unimplemented!("Transaction");
+    }
+
+    // -- TestFastAppend (27) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[ignore = "no FastAppend snapshot producer surface (manifest cleanup, refresh-before-apply, refresh-before-commit, failure + retries, snapshot-id inheritance, partition summaries + limit, branch ref enforcement, V3 row-lineage)"]
+    fn test_fast_append_scenarios(#[case] _scenario: usize) {
+        unimplemented!("FastAppend");
+    }
+
+    // -- TestMergeAppend (31) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[ignore = "no MergeAppend snapshot producer surface (manifest combination policy + minMergeCount + min/max merge size, target file size, partition summaries, snapshot-id inheritance, branch refs, V3 row-lineage)"]
+    fn test_merge_append_scenarios(#[case] _scenario: usize) {
+        unimplemented!("MergeAppend");
+    }
+
+    // -- TestOverwrite (12) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[ignore = "no upstream OverwriteFiles surface (overwriteByRowFilter, validateAddedFilesMatchOverwriteFilter, mixed add+delete content-aware op emission, manifest merging)"]
+    fn test_overwrite_scenarios(#[case] _scenario: usize) {
+        unimplemented!("OverwriteFiles");
+    }
+
+    // -- TestOverwriteWithValidation (32) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[ignore = "no validateXxx hooks (validateNoConflictingAppends / validateNoConflictingDeletes / validateAddedFilesMatchOverwriteFilter / validateFromSnapshot)"]
+    fn test_overwrite_with_validation_scenarios(#[case] _scenario: usize) {
+        unimplemented!("OverwriteWithValidation");
+    }
+
+    // -- TestReplacePartitions (26) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[ignore = "no dynamic-partition overwrite surface (per-partition replace; validateAppendOnly / validateNoConflicting* hooks; void-transform handling)"]
+    fn test_replace_partitions_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ReplacePartitions");
+    }
+
+    // -- TestRowDelta (54) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[case(43)]
+    #[case(44)]
+    #[case(45)]
+    #[case(46)]
+    #[case(47)]
+    #[case(48)]
+    #[case(49)]
+    #[case(50)]
+    #[case(51)]
+    #[case(52)]
+    #[case(53)]
+    #[case(54)]
+    #[ignore = "no RowDelta surface (eq + pos deletes, deletion vectors, validation hooks, sequence-number coordination, branch-scoped, V3 row-lineage)"]
+    fn test_row_delta_scenarios(#[case] _scenario: usize) {
+        unimplemented!("RowDelta");
+    }
+
+    // -- TestRewriteFiles (17) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[ignore = "no RewriteFiles surface (preserve snapshot lineage; eq->pos delete migration; sequence-number preservation; remove-all-deletes; 4-arg data+delete overload; validation of nonexistent/already-deleted files)"]
+    fn test_rewrite_files_scenarios(#[case] _scenario: usize) {
+        unimplemented!("RewriteFiles");
+    }
+
+    // -- TestRewriteManifests (30) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[ignore = "no RewriteManifests surface (preserve entries; cluster-by-partition; target-manifest-size; replace by predicate)"]
+    fn test_rewrite_manifests_scenarios(#[case] _scenario: usize) {
+        unimplemented!("RewriteManifests");
+    }
+
+    // -- TestDeleteFiles (14) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[ignore = "no DeleteFiles surface (delete by row filter, case-sensitivity, branch-isolation, validateFilesExist hook, V3 deletion vectors)"]
+    fn test_delete_files_scenarios(#[case] _scenario: usize) {
+        unimplemented!("DeleteFiles");
+    }
+
+    // -- TestSnapshotChanges (3) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[ignore = "no per-snapshot SnapshotChanges accessor (addedDataFiles / removedDataFiles iterables, repeated-call caching)"]
+    fn test_snapshot_changes_scenarios(#[case] _scenario: usize) {
+        unimplemented!("SnapshotChanges");
+    }
+
+    // -- TestSnapshotProducer (6) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[ignore = "no SnapshotProducer composite ops"]
+    fn test_snapshot_producer_scenarios(#[case] _scenario: usize) {
+        unimplemented!("SnapshotProducer");
+    }
+
+    // -- TestSnapshotManager (40) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[ignore = "no ManageSnapshots builder (cherry-pick, fast-forward, remove branch/tag with main-protection, retention setters, replace branch/tag validation)"]
+    fn test_snapshot_manager_scenarios(#[case] _scenario: usize) {
+        unimplemented!("SnapshotManager");
+    }
+
+    // -- TestSnapshotLoading (8) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[ignore = "no lazy snapshot loading; Rust deserialises all snapshots eagerly with TableMetadata"]
+    fn test_snapshot_loading_scenarios(#[case] _scenario: usize) {
+        unimplemented!("SnapshotLoading");
+    }
+
+    // -- TestRemoveSnapshots (64) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[case(41)]
+    #[case(42)]
+    #[case(43)]
+    #[case(44)]
+    #[case(45)]
+    #[case(46)]
+    #[case(47)]
+    #[case(48)]
+    #[case(49)]
+    #[case(50)]
+    #[case(51)]
+    #[case(52)]
+    #[case(53)]
+    #[case(54)]
+    #[case(55)]
+    #[case(56)]
+    #[case(57)]
+    #[case(58)]
+    #[case(59)]
+    #[case(60)]
+    #[case(61)]
+    #[case(62)]
+    #[case(63)]
+    #[case(64)]
+    #[ignore = "no ExpireSnapshots surface (orphan-file detection, branch protection, retention age, per-snapshot age, retainLast, cleanExpiredFiles, executor)"]
+    fn test_remove_snapshots_scenarios(#[case] _scenario: usize) {
+        unimplemented!("RemoveSnapshots");
+    }
+
+    // -- TestManifestCleanup (3) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[ignore = "no ManifestCleanup of dangling manifests on expiration"]
+    fn test_manifest_cleanup_scenarios(#[case] _scenario: usize) {
+        unimplemented!("ManifestCleanup");
+    }
+
+    // -- TestSequenceNumberForV2Table (10) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[ignore = "no V2 sequence-number assignment on new snapshots, manifest entries, delete files"]
+    fn test_sequence_number_for_v2_scenarios(#[case] _scenario: usize) {
+        unimplemented!("SequenceNumberForV2Table");
+    }
+
+    // -- TestSetStatistics (6) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[ignore = "no TableUpdate::SetStatistics variant; no statistics_files field on TableMetadata"]
+    fn test_set_statistics_scenarios(#[case] _scenario: usize) {
+        unimplemented!("SetStatistics");
+    }
+
+    // -- TestSetPartitionStatistics (4) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[ignore = "no TableUpdate::SetPartitionStatistics variant"]
+    fn test_set_partition_statistics_scenarios(#[case] _scenario: usize) {
+        unimplemented!("SetPartitionStatistics");
+    }
+
+    // -- TestUpdatePartitionSpec (40) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[case(21)]
+    #[case(22)]
+    #[case(23)]
+    #[case(24)]
+    #[case(25)]
+    #[case(26)]
+    #[case(27)]
+    #[case(28)]
+    #[case(29)]
+    #[case(30)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(35)]
+    #[case(36)]
+    #[case(37)]
+    #[case(38)]
+    #[case(39)]
+    #[case(40)]
+    #[ignore = "no UpdatePartitionSpec builder (add/remove/rename field; commit produces new spec id; rename + add same name; void transform; bucket/truncate/year/month/day/hour evolution)"]
+    fn test_update_partition_spec_scenarios(#[case] _scenario: usize) {
+        unimplemented!("UpdatePartitionSpec");
+    }
+
+    // -- TestTableUpdatePartitionSpec (9) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[ignore = "no table-level UpdatePartitionSpec commit observation tests"]
+    fn test_table_update_partition_spec_scenarios(#[case] _scenario: usize) {
+        unimplemented!("TableUpdatePartitionSpec");
+    }
+
+    // -- TestWapWorkflow (14) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[ignore = "no Write-Audit-Publish workflow (staged snapshots, publish/abort)"]
+    fn test_wap_workflow_scenarios(#[case] _scenario: usize) {
+        unimplemented!("WapWorkflow");
+    }
+
+    // -- TestRowLineageAssignment (20) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
+    #[case(13)]
+    #[case(14)]
+    #[case(15)]
+    #[case(16)]
+    #[case(17)]
+    #[case(18)]
+    #[case(19)]
+    #[case(20)]
+    #[ignore = "no V3 row-lineage assignment during append/overwrite/rewrite operations"]
+    fn test_row_lineage_assignment_scenarios(#[case] _scenario: usize) {
+        unimplemented!("RowLineageAssignment");
+    }
+
+    // -- TestV1ToV2RowDeltaDelete (4) --
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[ignore = "no V1->V2 format upgrade path with row-delta delete addition"]
+    fn test_v1_to_v2_row_delta_delete_scenarios(#[case] _scenario: usize) {
+        unimplemented!("V1ToV2RowDeltaDelete");
+    }
+}
