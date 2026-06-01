@@ -2525,6 +2525,7 @@ dependencies = [
  "pyo3",
  "regex",
  "reqwest",
+ "rstest 0.26.1",
  "serde_json",
  "sqlx",
  "tempfile",
