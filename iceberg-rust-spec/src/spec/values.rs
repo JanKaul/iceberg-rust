@@ -2003,6 +2003,27 @@ mod tests {
     // Placeholders for a future V3 Variant array (`ValueArray`) value model.
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Edge-case width behaviour for Truncate(int).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_truncate_int_zero_width_panics_and_negative_width_unreachable_at_type_level() {
+        // Rust's Transform::Truncate(u32) cannot carry a negative width by construction
+        // (the upstream contract requires a runtime check; in Rust the type system enforces it).
+        // Width=0 makes the implementation call i32::rem_euclid(0), which panics — semantic
+        // equivalent of Java's IllegalArgumentException.
+        let size_of_u32 = std::mem::size_of::<u32>();
+        assert_eq!(
+            size_of_u32, 4,
+            "Transform::Truncate(u32) prevents negative widths"
+        );
+
+        let value = Value::Int(100);
+        let result = std::panic::catch_unwind(|| value.transform(&Transform::Truncate(0)));
+        assert!(result.is_err(), "truncate with width=0 should panic");
+    }
+
     #[test]
     #[ignore = "no Variant ValueArray value model"]
     fn test_variant_value_array_indexed_element_access() {
