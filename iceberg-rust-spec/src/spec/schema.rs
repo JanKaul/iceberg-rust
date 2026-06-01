@@ -311,6 +311,751 @@ mod tests {
         assert!(!result.fields[1].required);
     }
 
+    // -----------------------------------------------------------------------
+    // Placeholders for a future `schema_update` module.
+    //
+    // iceberg-rust-spec has no `SchemaUpdate` builder; schema evolution lives
+    // only as `TableUpdate::AddSchema` / `TableUpdate::SetCurrentSchema` at
+    // catalog-commit time. The fluent ops below (add/delete/rename/update/move
+    // columns, identifier-field management, case-sensitivity, nested-type
+    // descent) all need a `schema_update::SchemaUpdate::new(&Schema, last_column_id)`
+    // surface to land. Each test pins one observable scenario the eventual
+    // implementation must satisfy.
+    // -----------------------------------------------------------------------
+
+    // --- no-op + update column type/doc/default ---
+
+    #[test]
+    #[ignore = "no schema_update module"]
+    fn test_schema_update_no_changes_returns_input_schema() {
+        // SchemaUpdate(schema).apply() with no operations returns a schema equal to input.
+        unimplemented!("schema_update");
+    }
+
+    #[test]
+    #[ignore = "no schema_update module"]
+    fn test_delete_columns_drops_named_fields() {
+        // delete_column("id"), delete_column("data") drop two top-level fields.
+        unimplemented!("schema_update::delete_column");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::case_sensitive(false)"]
+    fn test_delete_columns_case_insensitive_matches_any_case() {
+        // case_sensitive(false).delete_column("ID") drops "id".
+        unimplemented!("schema_update case-insensitive");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::update_column"]
+    fn test_update_column_widens_primitive_types_for_allowed_promotions() {
+        // Int->Long, Float->Double, Decimal precision-widening all succeed.
+        unimplemented!("schema_update::update_column");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::update_column"]
+    fn test_update_column_type_preserves_doc_default_required_flag() {
+        // Field with doc + initial/write defaults + required flag keeps all of
+        // them after update_column changes its type.
+        unimplemented!("schema_update::update_column metadata preservation");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::update_column_doc"]
+    fn test_update_column_doc_preserves_type_default_required_flag() {
+        // update_column_doc("a","new doc") preserves type, defaults, required flag.
+        unimplemented!("schema_update::update_column_doc");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::update_column_default"]
+    fn test_update_column_default_preserves_type_doc_required_flag() {
+        // update_column_default("a", Literal::of(99)) preserves type, doc, required.
+        unimplemented!("schema_update::update_column_default");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::case_sensitive(false)"]
+    fn test_update_column_type_case_insensitive_match() {
+        // case_sensitive(false).update_column("ID", Long) resolves to lower-case "id".
+        unimplemented!("schema_update case-insensitive");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::update_column"]
+    fn test_update_column_rejects_disallowed_type_promotion() {
+        // Long->Int, Double->Float, narrowing decimals all raise IllegalArgument.
+        unimplemented!("schema_update::update_column rejection");
+    }
+
+    // --- rename column ---
+
+    #[test]
+    #[ignore = "no schema_update::rename_column"]
+    fn test_rename_column_changes_name_only() {
+        // rename_column("id","row_id") preserves id, type, doc, defaults.
+        unimplemented!("schema_update::rename_column");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::case_sensitive(false)"]
+    fn test_rename_column_case_insensitive_match() {
+        // case_sensitive(false).rename_column("ID","row_id") resolves to lower-case.
+        unimplemented!("schema_update case-insensitive rename");
+    }
+
+    // --- add column (top-level + nested) ---
+
+    #[test]
+    #[ignore = "no schema_update::add_column"]
+    fn test_add_column_appends_to_top_level() {
+        // add_column(None,"score",Float,None) appends with the next fresh id.
+        unimplemented!("schema_update::add_column");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::add_column with initial_default"]
+    fn test_add_column_with_initial_default_value() {
+        // add_column with initial_default=Literal::of(7) sets initial-default on the new field.
+        unimplemented!("schema_update::add_column initial_default");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_add_column_then_update_column_default() {
+        // add_column("score",Float) then update_column_default("score",Literal::of(0.5))
+        // applies as a single commit, with the default landing on the new field.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::add_column with parent"]
+    fn test_add_column_inside_nested_struct() {
+        // add_column(Some("location"),"altitude",Float,None) lands inside the location struct.
+        unimplemented!("schema_update::add_column parent");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::add_column inside map-of-struct value"]
+    fn test_add_field_inside_map_value_struct() {
+        // add_column(Some("mapField.value"),"info",String,None) lands inside the map value struct.
+        unimplemented!("schema_update::add_column map value");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::add_column inside list-of-struct element"]
+    fn test_add_field_inside_list_element_struct() {
+        // add_column(Some("list.element"),"weight",Int,None) lands inside the list element struct.
+        unimplemented!("schema_update::add_column list element");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::add_required_column without default rejection"]
+    fn test_add_required_column_without_default_rejected() {
+        // add_required_column with no default raises IllegalArgument
+        // because existing rows would have null for the new required column.
+        unimplemented!("schema_update::add_required_column rejection");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::add_required_column"]
+    fn test_add_required_column_with_default_accepted() {
+        // add_required_column(name,type,default=Literal::of(0)) succeeds; existing rows
+        // read as the default for this column.
+        unimplemented!("schema_update::add_required_column");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_add_required_column_via_update_column_default() {
+        // add_column(optional) then update_column_default(...) then require_column(...) succeeds.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::case_sensitive(false) for add_required_column"]
+    fn test_add_required_column_case_insensitive_match() {
+        // case_sensitive(false).add_required_column resolves any conflict by case-insensitive lookup.
+        unimplemented!("schema_update case-insensitive");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::case_sensitive(false) for multi-add"]
+    fn test_add_multiple_required_columns_case_insensitive() {
+        // case_sensitive(false) + multiple add_required_column ops in one apply.
+        unimplemented!("schema_update case-insensitive");
+    }
+
+    // --- make optional / require ---
+
+    #[test]
+    #[ignore = "no schema_update::make_column_optional"]
+    fn test_make_column_optional_flips_required_flag() {
+        // make_column_optional("id") flips required=true to required=false.
+        unimplemented!("schema_update::make_column_optional");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::require_column"]
+    fn test_require_column_flips_optional_to_required() {
+        // require_column("data") flips required=false to required=true on a column with default.
+        unimplemented!("schema_update::require_column");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_add_then_require_column_with_default() {
+        // add_column(name,type,initial_default) then require_column(name) succeeds.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_add_then_require_column_via_update_column_default() {
+        // add_column(optional) then update_column_default then require_column succeeds.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::case_sensitive(false) for require_column"]
+    fn test_require_column_case_insensitive_match() {
+        // case_sensitive(false).require_column("DATA") resolves to lower-case "data".
+        unimplemented!("schema_update case-insensitive");
+    }
+
+    // --- mixed change set ---
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_mixed_add_delete_rename_update_in_one_apply() {
+        // A single apply() with delete + rename + update + add operations produces a
+        // schema reflecting all four edits at once.
+        unimplemented!("schema_update chained ops");
+    }
+
+    // --- conflict detection ---
+
+    #[test]
+    #[ignore = "no schema_update::add_column ambiguity rejection"]
+    fn test_add_column_rejects_ambiguous_dotted_path() {
+        // Schema where "a.b" exists as both a flat field name and a nested path
+        // → add_column("a.b","c",Int) rejects with "ambiguous dotted path".
+        unimplemented!("schema_update::add_column ambiguity");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::add_column duplicate rejection"]
+    fn test_add_column_rejects_when_name_already_exists() {
+        // add_column("id",Long) rejects because "id" already exists at the target parent.
+        unimplemented!("schema_update::add_column duplicate");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_delete_then_add_same_name_succeeds_with_new_id() {
+        // delete_column("id") + add_column("id",Long) yields a new id for the readded column.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_delete_then_add_inside_nested_struct() {
+        // Inside a nested struct: delete a field then re-add same name with new id.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::delete_column missing rejection"]
+    fn test_delete_column_rejects_missing_name() {
+        // delete_column("absent") raises IllegalArgument.
+        unimplemented!("schema_update::delete_column missing");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_add_then_delete_same_name_rejected() {
+        // add_column("new",Int) then delete_column("new") rejects because the column was just added.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::rename_column missing rejection"]
+    fn test_rename_column_rejects_missing_source_name() {
+        // rename_column("absent","new") raises IllegalArgument.
+        unimplemented!("schema_update::rename_column missing");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_rename_then_delete_target_name_rejected() {
+        // rename_column("a","b") then delete_column("b") rejects because "b" was just renamed in.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_delete_then_rename_to_deleted_name_rejected() {
+        // delete_column("a") then rename_column("b","a") rejects because "a" was just deleted.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::update_column missing rejection"]
+    fn test_update_column_rejects_missing_name() {
+        // update_column("absent",Long) raises IllegalArgument.
+        unimplemented!("schema_update::update_column missing");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::update_column_doc missing rejection"]
+    fn test_update_column_doc_rejects_missing_name() {
+        // update_column_doc("absent","doc") raises IllegalArgument.
+        unimplemented!("schema_update::update_column_doc missing");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::update_column_default missing rejection"]
+    fn test_update_column_default_rejects_missing_name() {
+        // update_column_default("absent",Literal::of(0)) raises IllegalArgument.
+        unimplemented!("schema_update::update_column_default missing");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_update_then_delete_same_name_rejected() {
+        // update_column then delete_column on the same name rejects.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_delete_then_update_same_name_rejected() {
+        // delete_column then update_column on the same name rejects.
+        unimplemented!("schema_update chained ops");
+    }
+
+    // --- map field ops ---
+
+    #[test]
+    #[ignore = "no schema_update map-key delete rejection"]
+    fn test_delete_map_key_rejected() {
+        // delete_column("mapField.key") raises IllegalArgument; map keys are not deletable.
+        unimplemented!("schema_update map key delete");
+    }
+
+    #[test]
+    #[ignore = "no schema_update map-value delete rejection"]
+    fn test_delete_map_value_rejected() {
+        // delete_column("mapField.value") raises IllegalArgument; map values are not deletable.
+        unimplemented!("schema_update map value delete");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::add_column inside map-key struct"]
+    fn test_add_field_to_map_key_struct() {
+        // add_column(Some("mapField.key"),"x",Int,None) lands inside the map-key struct.
+        unimplemented!("schema_update map key add");
+    }
+
+    #[test]
+    #[ignore = "no schema_update map-key type alter rejection"]
+    fn test_alter_map_key_struct_type_rejected() {
+        // update_column("mapField.key",NewType) raises IllegalArgument; key type cannot change.
+        unimplemented!("schema_update map key alter");
+    }
+
+    #[test]
+    #[ignore = "no schema_update map-key primitive promotion"]
+    fn test_update_map_key_primitive_promotion() {
+        // For primitive map keys, update_column promotes via the same allowed-promotion rules.
+        unimplemented!("schema_update map key promote");
+    }
+
+    // --- update on freshly added / deleted columns ---
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_update_type_on_freshly_added_column() {
+        // add_column(name,Int) then update_column(name,Long) succeeds within the same apply.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_update_doc_on_freshly_added_column() {
+        // add_column(name,Int) then update_column_doc(name,"new") sets the doc on the new field.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops"]
+    fn test_update_doc_on_deleted_column_rejected() {
+        // delete_column(name) then update_column_doc(name,"doc") rejects.
+        unimplemented!("schema_update chained ops");
+    }
+
+    // --- move ops (top-level + nested) ---
+
+    #[test]
+    #[ignore = "no schema_update::move_xxx ops"]
+    fn test_multiple_consecutive_moves_apply_in_sequence() {
+        // Three consecutive move ops (first/before/after) compose into one final ordering.
+        unimplemented!("schema_update move");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_first"]
+    fn test_move_first_places_top_level_column_at_position_zero() {
+        // move_first("data") puts "data" at index 0 of the top-level fields.
+        unimplemented!("schema_update::move_first");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_before"]
+    fn test_move_before_first_places_column_at_position_zero() {
+        // move_before("data","id") with id at index 0 puts "data" at index 0 (and id at 1).
+        unimplemented!("schema_update::move_before");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_after"]
+    fn test_move_after_last_places_column_at_end() {
+        // move_after("id","data") with data the last field puts id at the new last position.
+        unimplemented!("schema_update::move_after");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_after"]
+    fn test_move_after_sibling_places_column_after_named_sibling() {
+        // move_after("a","c") between two other fields places a directly after c.
+        unimplemented!("schema_update::move_after");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_before"]
+    fn test_move_before_sibling_places_column_before_named_sibling() {
+        // move_before("a","c") places a directly before c.
+        unimplemented!("schema_update::move_before");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_first nested"]
+    fn test_move_nested_field_first_within_parent_struct() {
+        // move_first("location.lat") puts lat at index 0 within the location struct.
+        unimplemented!("schema_update::move_first nested");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_before nested"]
+    fn test_move_nested_field_before_first_within_parent_struct() {
+        // move_before("location.lat","location.long") with long at index 0 puts lat at 0.
+        unimplemented!("schema_update::move_before nested");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_after nested"]
+    fn test_move_nested_field_after_last_within_parent_struct() {
+        // move_after on the last sibling of a nested struct is a no-op for the moved field.
+        unimplemented!("schema_update::move_after nested");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_after nested"]
+    fn test_move_nested_field_after_named_sibling() {
+        // move_after("location.long","location.lat") within a 3-field nested struct.
+        unimplemented!("schema_update::move_after nested");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move_before nested"]
+    fn test_move_nested_field_before_named_sibling() {
+        // move_before within a 3-field nested struct.
+        unimplemented!("schema_update::move_before nested");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move within list element struct"]
+    fn test_move_field_within_list_element_struct() {
+        // move within list.element.struct preserves the list shape and reorders inside.
+        unimplemented!("schema_update::move list element");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move within map value struct"]
+    fn test_move_field_within_map_value_struct() {
+        // move within map.value.struct preserves the map shape and reorders inside.
+        unimplemented!("schema_update::move map value");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained add+move ops"]
+    fn test_move_freshly_added_top_level_column() {
+        // add_column("new") then move_first("new") puts "new" at index 0.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained add+move ops"]
+    fn test_move_added_top_level_column_after_another_added_column() {
+        // add x, add y, move_after("x","y") yields ...,y,x,... ordering.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained add+move ops"]
+    fn test_move_freshly_added_nested_struct_field() {
+        // add_column(Some("location"),"altitude",...) then move_first("location.altitude").
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained add+move ops"]
+    fn test_move_added_nested_struct_field_before_another_added_field() {
+        // Two adds inside a struct, then move_before on the new ones.
+        unimplemented!("schema_update chained ops");
+    }
+
+    #[test]
+    #[ignore = "no schema_update move self-reference rejection"]
+    fn test_move_field_to_self_position_rejected() {
+        // move_before("a","a") and move_after("a","a") raise IllegalArgument.
+        unimplemented!("schema_update::move self-ref");
+    }
+
+    #[test]
+    #[ignore = "no schema_update move missing rejection"]
+    fn test_move_rejects_missing_source_column() {
+        // move_first("absent") raises IllegalArgument.
+        unimplemented!("schema_update::move missing");
+    }
+
+    #[test]
+    #[ignore = "no schema_update move-before-add rejection"]
+    fn test_move_before_added_column_in_same_apply_rejected() {
+        // move_before("existing","new") where "new" is being added in this apply rejects.
+        unimplemented!("schema_update::move-before-add");
+    }
+
+    #[test]
+    #[ignore = "no schema_update move missing reference rejection"]
+    fn test_move_rejects_missing_reference_column() {
+        // move_after("a","absent") raises IllegalArgument.
+        unimplemented!("schema_update::move missing reference");
+    }
+
+    #[test]
+    #[ignore = "no schema_update map-key move rejection"]
+    fn test_move_primitive_map_key_rejected() {
+        // move on a primitive map-key field rejects (no sibling structure).
+        unimplemented!("schema_update::move map key");
+    }
+
+    #[test]
+    #[ignore = "no schema_update map-value move rejection"]
+    fn test_move_primitive_map_value_rejected() {
+        // move on a primitive map-value field rejects.
+        unimplemented!("schema_update::move map value");
+    }
+
+    #[test]
+    #[ignore = "no schema_update list-element move rejection"]
+    fn test_move_primitive_list_element_rejected() {
+        // move on a primitive list-element field rejects.
+        unimplemented!("schema_update::move list element");
+    }
+
+    #[test]
+    #[ignore = "no schema_update cross-struct move rejection"]
+    fn test_move_top_level_field_between_different_structs_rejected() {
+        // move_before("a","other_struct.b") rejects because the target lives in a different parent.
+        unimplemented!("schema_update::move cross-struct");
+    }
+
+    #[test]
+    #[ignore = "no schema_update cross-struct move rejection"]
+    fn test_move_nested_field_to_sibling_struct_rejected() {
+        // move within a nested struct rejects when the target sibling is in a different struct.
+        unimplemented!("schema_update::move cross-struct nested");
+    }
+
+    // --- identifier field management ---
+
+    #[test]
+    #[ignore = "no schema_update::set_identifier_fields"]
+    fn test_set_identifier_fields_accepts_existing_field_names() {
+        // set_identifier_fields(["id"]) succeeds for an existing required column.
+        unimplemented!("schema_update::set_identifier_fields");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained ops with identifier fields"]
+    fn test_set_identifier_fields_on_freshly_added_columns() {
+        // add_column(name) then set_identifier_fields([name]) succeeds.
+        unimplemented!("schema_update chained identifier");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::set_identifier_fields nested"]
+    fn test_set_identifier_fields_inside_nested_struct() {
+        // set_identifier_fields(["location.lat"]) targets a nested field id.
+        unimplemented!("schema_update::set_identifier_fields nested");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::set_identifier_fields dotted-path"]
+    fn test_set_identifier_fields_via_dotted_path() {
+        // Dotted-path argument resolves to the nested field id.
+        unimplemented!("schema_update::set_identifier_fields dotted");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::remove_identifier_field"]
+    fn test_remove_identifier_field_clears_from_set() {
+        // remove_identifier_field("id") drops id from the identifier set.
+        unimplemented!("schema_update::remove_identifier_field");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::set_identifier_fields invalid-target rejection"]
+    fn test_set_identifier_fields_rejects_invalid_combinations() {
+        // Optional column, float/double/null/missing column, doubly-nested-in-struct paths
+        // all raise IllegalArgument for set_identifier_fields.
+        unimplemented!("schema_update::set_identifier_fields rejection");
+    }
+
+    #[test]
+    #[ignore = "no schema_update chained delete+identifier ops"]
+    fn test_delete_identifier_field_column_clears_id_from_set() {
+        // delete_column("id") drops id from identifier_field_ids automatically.
+        unimplemented!("schema_update chained delete identifier");
+    }
+
+    #[test]
+    #[ignore = "no schema_update delete-last-identifier rejection"]
+    fn test_delete_only_remaining_identifier_field_column_rejected() {
+        // delete_column on the only column in identifier_field_ids without compensating ops rejects.
+        unimplemented!("schema_update delete last identifier");
+    }
+
+    #[test]
+    #[ignore = "no schema_update delete-containing-identifier rejection"]
+    fn test_delete_struct_that_contains_identifier_field_rejected() {
+        // delete_column("location") when "location.lat" is identifier rejects.
+        unimplemented!("schema_update delete containing identifier");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::rename_column propagates identifier id"]
+    fn test_rename_identifier_field_preserves_id_in_set() {
+        // rename_column on an identifier field keeps the id in identifier_field_ids.
+        unimplemented!("schema_update rename identifier");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move on identifier field"]
+    fn test_move_identifier_field_preserves_id_in_set() {
+        // move on an identifier field keeps the id in identifier_field_ids.
+        unimplemented!("schema_update move identifier");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::case_sensitive(false) for move on identifier field"]
+    fn test_move_identifier_field_case_insensitive_match() {
+        // case_sensitive(false).move_first("ID") works on the identifier field "id".
+        unimplemented!("schema_update case-insensitive move identifier");
+    }
+
+    // --- move on deleted columns ---
+
+    #[test]
+    #[ignore = "no schema_update::move on deleted column"]
+    fn test_move_after_deleted_top_level_column_rejected() {
+        // delete_column("a") then move_after("b","a") rejects because "a" was just deleted.
+        unimplemented!("schema_update move after deleted");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move on deleted column"]
+    fn test_move_before_deleted_top_level_column_rejected() {
+        // delete_column("a") then move_before("b","a") rejects.
+        unimplemented!("schema_update move before deleted");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move on deleted column"]
+    fn test_move_first_of_deleted_top_level_column_rejected() {
+        // delete_column("a") then move_first("a") rejects.
+        unimplemented!("schema_update move first deleted");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move on deleted nested column"]
+    fn test_move_after_deleted_nested_field_rejected() {
+        // delete nested then move_after referencing it rejects.
+        unimplemented!("schema_update move after deleted nested");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move on deleted nested column"]
+    fn test_move_before_deleted_nested_field_rejected() {
+        // delete nested then move_before referencing it rejects.
+        unimplemented!("schema_update move before deleted nested");
+    }
+
+    #[test]
+    #[ignore = "no schema_update::move on deleted nested column"]
+    fn test_move_first_of_deleted_nested_field_rejected() {
+        // delete nested then move_first on it rejects.
+        unimplemented!("schema_update move first deleted nested");
+    }
+
+    // --- V3 Unknown type handling ---
+
+    #[test]
+    #[ignore = "no schema_update::add_column for Unknown"]
+    fn test_add_column_with_unknown_type_succeeds() {
+        // add_column(name,Unknown,None) succeeds; existing rows null-fill.
+        unimplemented!("schema_update::add_column unknown");
+    }
+
+    #[test]
+    #[ignore = "no schema_update Unknown non-null default rejection"]
+    fn test_add_unknown_column_with_non_null_default_rejected() {
+        // add_column(name,Unknown,Literal::of(...)) rejects because Unknown has no defaultable values.
+        unimplemented!("schema_update unknown non-null default");
+    }
+
+    #[test]
+    #[ignore = "no schema_update required Unknown rejection"]
+    fn test_add_required_unknown_column_rejected() {
+        // add_required_column(name,Unknown,...) rejects because Unknown values cannot satisfy required.
+        unimplemented!("schema_update required unknown");
+    }
+
+    // --- case-insensitive add + move combinations ---
+
+    #[test]
+    #[ignore = "no schema_update case-insensitive add+move"]
+    fn test_case_insensitive_add_top_level_and_move() {
+        // case_sensitive(false).add_column("X",Int) then move_first("X") with target lookup of "x".
+        unimplemented!("schema_update case-insensitive add+move");
+    }
+
+    #[test]
+    #[ignore = "no schema_update case-insensitive nested add+move"]
+    fn test_case_insensitive_add_nested_and_move() {
+        // case_sensitive(false) for nested add + nested move with mixed-case names.
+        unimplemented!("schema_update case-insensitive nested add+move");
+    }
+
+    #[test]
+    #[ignore = "no schema_update case-insensitive move after newly added"]
+    fn test_case_insensitive_move_after_newly_added_field() {
+        // case_sensitive(false).add_column then move_after referencing the added column by alt case.
+        unimplemented!("schema_update case-insensitive move-after-add");
+    }
+
     #[test]
     #[ignore = "no avro schema id-detection helpers in iceberg-rust-spec: needs remove_ids(&Schema) -> avro::Schema and has_ids(&avro::Schema) -> bool that walks every nested level"]
     fn test_avro_field_id_detection_walks_to_every_nesting_level() {
