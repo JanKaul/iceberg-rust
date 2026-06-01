@@ -310,4 +310,20 @@ mod tests {
         assert_eq!(2, result.fields[1].id);
         assert!(!result.fields[1].required);
     }
+
+    #[test]
+    #[ignore = "no avro schema id-detection helpers in iceberg-rust-spec: needs remove_ids(&Schema) -> avro::Schema and has_ids(&avro::Schema) -> bool that walks every nested level"]
+    fn test_avro_field_id_detection_walks_to_every_nesting_level() {
+        // Behaviour to pin once the helpers exist:
+        //   1. Build an Iceberg schema with a top-level Long, a Map<String,
+        //      Struct<Float, Float>>, a List<String>, and a Variant.
+        //   2. remove_ids(&schema) -> avro::Schema with no `field-id` props anywhere.
+        //   3. has_ids(&avro_schema) == false on the fresh result.
+        //   4. Adding a `field-id` prop to the first top-level avro field flips
+        //      has_ids to true.
+        //   5. Starting fresh and adding `field-id` deep inside (map value -> inner
+        //      struct's optional Float field) also flips has_ids to true -- i.e. the
+        //      walk descends through union, map-value, and nested struct branches.
+        unimplemented!("avro::schema_id_util not implemented");
+    }
 }
