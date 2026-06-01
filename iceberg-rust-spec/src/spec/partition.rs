@@ -778,4 +778,420 @@ mod tests {
         // a V1 table whose specs map carries both entries with distinct spec ids.
         unimplemented!("partition spec evolution v1");
     }
+
+    // -----------------------------------------------------------------------
+    // Placeholders for strict + inclusive Transform projection and residual
+    // rewriting. Rust today only exposes the forward `Value::transform` path
+    // for bucket / truncate / year / month / day / hour; projection of an
+    // arbitrary BoundPredicate through the transform (strict for upper/lower
+    // bounds; inclusive for membership) and the resulting residual expression
+    // after partition pruning are not modelled.
+    // -----------------------------------------------------------------------
+
+    const PROJECTION_GAP: &str = "no Transform::project_strict / project_inclusive / Residuals";
+
+    // --- TestBucketingProjection (12) ---
+
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(int)"]
+    fn test_bucket_projection_int_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(int)"]
+    fn test_bucket_projection_int_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(long)"]
+    fn test_bucket_projection_long_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(long)"]
+    fn test_bucket_projection_long_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(decimal)"]
+    fn test_bucket_projection_decimal_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(decimal)"]
+    fn test_bucket_projection_decimal_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(string)"]
+    fn test_bucket_projection_string_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(string)"]
+    fn test_bucket_projection_string_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(binary)"]
+    fn test_bucket_projection_byte_buffer_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(binary)"]
+    fn test_bucket_projection_byte_buffer_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for bucket(uuid)"]
+    fn test_bucket_projection_uuid_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for bucket(uuid)"]
+    fn test_bucket_projection_uuid_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+
+    // --- TestTruncatesProjection (16) ---
+
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(int) lower bound"]
+    fn test_truncate_projection_int_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(int) upper bound"]
+    fn test_truncate_projection_int_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(int) lower bound"]
+    fn test_truncate_projection_int_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(int) upper bound"]
+    fn test_truncate_projection_int_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(long) lower bound"]
+    fn test_truncate_projection_long_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(long) upper bound"]
+    fn test_truncate_projection_long_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(long) lower bound"]
+    fn test_truncate_projection_long_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(long) upper bound"]
+    fn test_truncate_projection_long_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(decimal) lower bound"]
+    fn test_truncate_projection_decimal_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(decimal) upper bound"]
+    fn test_truncate_projection_decimal_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(decimal) lower bound"]
+    fn test_truncate_projection_decimal_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(decimal) upper bound"]
+    fn test_truncate_projection_decimal_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(string)"]
+    fn test_truncate_projection_string_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(string)"]
+    fn test_truncate_projection_string_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for truncate(binary)"]
+    fn test_truncate_projection_binary_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for truncate(binary)"]
+    fn test_truncate_projection_binary_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+
+    // --- TestTruncatesResiduals (2) ---
+
+    #[test]
+    #[ignore = "no Transform::residual for truncate(int)"]
+    fn test_truncate_residual_int_pushes_through_known_partition_value() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::residual for truncate(string)"]
+    fn test_truncate_residual_string_pushes_through_known_partition_value() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+
+    // --- TestDatesProjection (22) ---
+
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) at epoch"]
+    fn test_dates_projection_month_strict_epoch() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) at epoch"]
+    fn test_dates_projection_month_inclusive_epoch() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) post-epoch lower bound"]
+    fn test_dates_projection_month_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) pre-epoch lower bound"]
+    fn test_dates_projection_negative_month_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) post-epoch upper bound"]
+    fn test_dates_projection_month_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(date) pre-epoch upper bound"]
+    fn test_dates_projection_negative_month_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) post-epoch lower bound"]
+    fn test_dates_projection_month_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) pre-epoch lower bound"]
+    fn test_dates_projection_negative_month_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) post-epoch upper bound"]
+    fn test_dates_projection_month_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(date) pre-epoch upper bound"]
+    fn test_dates_projection_negative_month_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(date) post-epoch"]
+    fn test_dates_projection_day_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(date) pre-epoch"]
+    fn test_dates_projection_negative_day_strict() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(date) post-epoch"]
+    fn test_dates_projection_day_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(date) pre-epoch"]
+    fn test_dates_projection_negative_day_inclusive() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(date) post-epoch lower bound"]
+    fn test_dates_projection_year_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(date) pre-epoch lower bound"]
+    fn test_dates_projection_negative_year_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(date) post-epoch upper bound"]
+    fn test_dates_projection_year_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(date) pre-epoch upper bound"]
+    fn test_dates_projection_negative_year_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(date) post-epoch lower bound"]
+    fn test_dates_projection_year_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(date) pre-epoch lower bound"]
+    fn test_dates_projection_negative_year_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(date) post-epoch upper bound"]
+    fn test_dates_projection_year_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(date) pre-epoch upper bound"]
+    fn test_dates_projection_negative_year_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+
+    // --- TestTimestampsProjection (26) ---
+
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) at epoch"]
+    fn test_timestamps_projection_day_strict_epoch() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) at epoch"]
+    fn test_timestamps_projection_day_inclusive_epoch() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(timestamp) post-epoch lower bound"]
+    fn test_timestamps_projection_month_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(timestamp) pre-epoch lower bound"]
+    fn test_timestamps_projection_negative_month_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(timestamp) post-epoch upper bound"]
+    fn test_timestamps_projection_month_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for month(timestamp) pre-epoch upper bound"]
+    fn test_timestamps_projection_negative_month_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(timestamp) post-epoch lower bound"]
+    fn test_timestamps_projection_month_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(timestamp) pre-epoch lower bound"]
+    fn test_timestamps_projection_negative_month_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(timestamp) post-epoch upper bound"]
+    fn test_timestamps_projection_month_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for month(timestamp) pre-epoch upper bound"]
+    fn test_timestamps_projection_negative_month_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) post-epoch lower bound"]
+    fn test_timestamps_projection_day_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) pre-epoch lower bound"]
+    fn test_timestamps_projection_negative_day_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) post-epoch upper bound"]
+    fn test_timestamps_projection_day_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for day(timestamp) pre-epoch upper bound"]
+    fn test_timestamps_projection_negative_day_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) post-epoch lower bound"]
+    fn test_timestamps_projection_day_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) pre-epoch lower bound"]
+    fn test_timestamps_projection_negative_day_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) post-epoch upper bound"]
+    fn test_timestamps_projection_day_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for day(timestamp) pre-epoch upper bound"]
+    fn test_timestamps_projection_negative_day_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(timestamp) lower bound"]
+    fn test_timestamps_projection_year_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for year(timestamp) upper bound"]
+    fn test_timestamps_projection_year_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(timestamp) lower bound"]
+    fn test_timestamps_projection_year_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for year(timestamp) upper bound"]
+    fn test_timestamps_projection_year_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for hour(timestamp) lower bound"]
+    fn test_timestamps_projection_hour_strict_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_strict for hour(timestamp) upper bound"]
+    fn test_timestamps_projection_hour_strict_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for hour(timestamp) lower bound"]
+    fn test_timestamps_projection_hour_inclusive_lower_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
+    #[test]
+    #[ignore = "no Transform::project_inclusive for hour(timestamp) upper bound"]
+    fn test_timestamps_projection_hour_inclusive_upper_bound() {
+        unimplemented!("{PROJECTION_GAP}");
+    }
 }
