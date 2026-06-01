@@ -1343,6 +1343,70 @@ mod tests {
         unimplemented!("NameMapping + schema_update two-renames");
     }
 
+    // -----------------------------------------------------------------------
+    // Placeholders for a future `avro::schema_util::prune_columns` helper.
+    //
+    // Eventual signature:
+    //   prune_columns(&avro::Schema, &HashSet<i32>) -> avro::Schema
+    // Returns a pruned Avro schema matching the Iceberg-schema projection: for
+    // map / list / struct fields, selecting any of the container's ids (incl.
+    // synthetic key/element/value ids) projects the whole container; selecting
+    // a child id of a struct projects just that child wrapped in its parent.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "no avro::schema_util::prune_columns"]
+    fn test_prune_columns_returns_only_selected_top_level_primitive() {
+        // Schema with id (Long), properties (Map), location (Struct), tags (List), payload (Variant).
+        // prune({0}) → schema with just id.
+        unimplemented!("avro::schema_util::prune_columns");
+    }
+
+    #[rstest::rstest]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[ignore = "no avro::schema_util::prune_columns"]
+    fn test_prune_columns_selecting_any_map_synthetic_id_projects_whole_map(
+        #[case] _selected_id: i32,
+    ) {
+        // prune({map_id}), prune({key_id}), prune({value_id}) all return the schema with
+        // only the map field (full key + value types preserved).
+        unimplemented!("avro::schema_util::prune_columns map id");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_util::prune_columns"]
+    fn test_prune_columns_selecting_struct_parent_returns_empty_struct_shell() {
+        // prune({struct_id}) returns schema with the struct field but an empty body.
+        unimplemented!("avro::schema_util::prune_columns struct parent");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_util::prune_columns"]
+    fn test_prune_columns_selecting_struct_child_returns_struct_with_only_child() {
+        // prune({struct_child_id}) returns schema where the struct keeps only the selected child.
+        unimplemented!("avro::schema_util::prune_columns struct child");
+    }
+
+    #[rstest::rstest]
+    #[case(8)]
+    #[case(9)]
+    #[ignore = "no avro::schema_util::prune_columns"]
+    fn test_prune_columns_selecting_any_list_synthetic_id_projects_whole_list(
+        #[case] _selected_id: i32,
+    ) {
+        // prune({list_id}) and prune({element_id}) both return the schema with the list field intact.
+        unimplemented!("avro::schema_util::prune_columns list id");
+    }
+
+    #[test]
+    #[ignore = "no avro::schema_util::prune_columns"]
+    fn test_prune_columns_selecting_variant_projects_whole_variant_field() {
+        // prune({variant_field_id}) returns schema with the variant field intact.
+        unimplemented!("avro::schema_util::prune_columns variant");
+    }
+
     #[test]
     #[ignore = "no avro schema id-detection helpers in iceberg-rust-spec: needs remove_ids(&Schema) -> avro::Schema and has_ids(&avro::Schema) -> bool that walks every nested level"]
     fn test_avro_field_id_detection_walks_to_every_nesting_level() {
