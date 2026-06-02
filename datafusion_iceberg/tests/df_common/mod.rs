@@ -17,7 +17,9 @@ use datafusion::execution::context::SessionContext;
 use datafusion::execution::SessionStateBuilder;
 use datafusion_expr::ScalarUDF;
 use datafusion_iceberg::catalog::catalog_list::IcebergCatalogList;
-use datafusion_iceberg::planner::{iceberg_transform, IcebergQueryPlanner, RefreshMaterializedView};
+use datafusion_iceberg::planner::{
+    iceberg_transform, IcebergQueryPlanner, RefreshMaterializedView,
+};
 use iceberg_rust::object_store::ObjectStoreBuilder;
 use iceberg_sql_catalog::SqlCatalogList;
 

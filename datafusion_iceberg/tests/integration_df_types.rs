@@ -92,8 +92,11 @@ async fn integration_df_decimal_aggregation() {
          (4, CAST(0.05 AS DECIMAL(10, 2)))",
     )
     .await;
-    let sum_str = df_common::execute_sql(&ctx, "SELECT CAST(SUM(price) AS DOUBLE) FROM warehouse.tp_dec.t")
-        .await;
+    let sum_str = df_common::execute_sql(
+        &ctx,
+        "SELECT CAST(SUM(price) AS DOUBLE) FROM warehouse.tp_dec.t",
+    )
+    .await;
     use datafusion::arrow::array::Float64Array;
     let val = sum_str[0]
         .column(0)
@@ -148,8 +151,11 @@ async fn integration_df_boolean_filter() {
          (1, true), (2, false), (3, true), (4, true), (5, false)",
     )
     .await;
-    let truthy =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.tp_bool.t WHERE active").await;
+    let truthy = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(*) FROM warehouse.tp_bool.t WHERE active",
+    )
+    .await;
     assert_eq!(truthy, 3);
     let falsy = execute_scalar_i64(
         &ctx,

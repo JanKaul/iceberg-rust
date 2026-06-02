@@ -30,7 +30,11 @@ async fn integration_df_alter_table_add_column() {
          LOCATION '/warehouse/alter1/t'",
     )
     .await;
-    execute_sql(&ctx, "ALTER TABLE warehouse.alter1.t ADD COLUMN extra STRING").await;
+    execute_sql(
+        &ctx,
+        "ALTER TABLE warehouse.alter1.t ADD COLUMN extra STRING",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -272,10 +276,16 @@ async fn integration_df_bucket_function() {
          LOCATION '/warehouse/tfn_b/t'",
     )
     .await;
-    execute_sql(&ctx, "INSERT INTO warehouse.tfn_b.t VALUES (1), (2), (3), (4)").await;
-    let n =
-        execute_scalar_i64(&ctx, "SELECT COUNT(DISTINCT bucket(8, id)) FROM warehouse.tfn_b.t")
-            .await;
+    execute_sql(
+        &ctx,
+        "INSERT INTO warehouse.tfn_b.t VALUES (1), (2), (3), (4)",
+    )
+    .await;
+    let n = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(DISTINCT bucket(8, id)) FROM warehouse.tfn_b.t",
+    )
+    .await;
     assert!(n >= 1 && n <= 4);
 }
 

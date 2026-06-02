@@ -61,8 +61,7 @@ async fn integration_df_insert_values_multiple_rows() {
          (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd')",
     )
     .await;
-    let count =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.dml_insert_many.t").await;
+    let count = execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.dml_insert_many.t").await;
     assert_eq!(count, 4);
 }
 
@@ -80,11 +79,8 @@ async fn integration_df_insert_multiple_batches_accumulate() {
         "INSERT INTO warehouse.dml_insert_batches.t VALUES (3, 'c')",
     )
     .await;
-    let count = execute_scalar_i64(
-        &ctx,
-        "SELECT COUNT(*) FROM warehouse.dml_insert_batches.t",
-    )
-    .await;
+    let count =
+        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.dml_insert_batches.t").await;
     assert_eq!(count, 3);
 }
 
@@ -105,11 +101,8 @@ async fn integration_df_insert_select_from_other_table() {
          SELECT id, label FROM warehouse.dml_insert_source.src WHERE id > 1",
     )
     .await;
-    let count = execute_scalar_i64(
-        &ctx,
-        "SELECT COUNT(*) FROM warehouse.dml_insert_source.dst",
-    )
-    .await;
+    let count =
+        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.dml_insert_source.dst").await;
     assert_eq!(count, 2);
 }
 
@@ -174,7 +167,6 @@ async fn integration_df_insert_then_select_specific_column() {
          (10, 'a'), (20, 'b'), (30, 'c')",
     )
     .await;
-    let sum =
-        execute_scalar_i64(&ctx, "SELECT SUM(id) FROM warehouse.dml_select_col.t").await;
+    let sum = execute_scalar_i64(&ctx, "SELECT SUM(id) FROM warehouse.dml_select_col.t").await;
     assert_eq!(sum, 60);
 }

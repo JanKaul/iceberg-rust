@@ -59,11 +59,8 @@ async fn integration_df_create_view_with_aggregation() {
          SELECT kind, SUM(weight) AS total FROM warehouse.v.events GROUP BY kind",
     )
     .await;
-    let total = execute_scalar_i64(
-        &ctx,
-        "SELECT SUM(total) FROM warehouse.v.weights_by_kind",
-    )
-    .await;
+    let total =
+        execute_scalar_i64(&ctx, "SELECT SUM(total) FROM warehouse.v.weights_by_kind").await;
     assert_eq!(total, 137);
 }
 

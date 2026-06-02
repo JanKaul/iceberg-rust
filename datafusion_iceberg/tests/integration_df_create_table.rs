@@ -104,8 +104,7 @@ async fn integration_df_drop_table_removes_from_listing() {
          LOCATION '/warehouse/ddl_drop/t'",
     )
     .await;
-    let count_before =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.ddl_drop.t").await;
+    let count_before = execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.ddl_drop.t").await;
     assert_eq!(count_before, 0);
 
     execute_sql(&ctx, "DROP TABLE warehouse.ddl_drop.t").await;

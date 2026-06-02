@@ -35,8 +35,11 @@ async fn seed_filters(ctx: &datafusion::execution::context::SessionContext) {
 async fn integration_df_filter_equal() {
     let ctx = boot_df_stack().await;
     seed_filters(&ctx).await;
-    let n =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.flt.t WHERE score = 30").await;
+    let n = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(*) FROM warehouse.flt.t WHERE score = 30",
+    )
+    .await;
     assert_eq!(n, 1);
 }
 
@@ -44,8 +47,11 @@ async fn integration_df_filter_equal() {
 async fn integration_df_filter_not_equal() {
     let ctx = boot_df_stack().await;
     seed_filters(&ctx).await;
-    let n =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.flt.t WHERE score <> 30").await;
+    let n = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(*) FROM warehouse.flt.t WHERE score <> 30",
+    )
+    .await;
     assert_eq!(n, 9);
 }
 
@@ -53,8 +59,11 @@ async fn integration_df_filter_not_equal() {
 async fn integration_df_filter_less_than() {
     let ctx = boot_df_stack().await;
     seed_filters(&ctx).await;
-    let n =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.flt.t WHERE score < 40").await;
+    let n = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(*) FROM warehouse.flt.t WHERE score < 40",
+    )
+    .await;
     assert_eq!(n, 3);
 }
 
@@ -62,8 +71,11 @@ async fn integration_df_filter_less_than() {
 async fn integration_df_filter_less_or_equal() {
     let ctx = boot_df_stack().await;
     seed_filters(&ctx).await;
-    let n =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.flt.t WHERE score <= 40").await;
+    let n = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(*) FROM warehouse.flt.t WHERE score <= 40",
+    )
+    .await;
     assert_eq!(n, 4);
 }
 
@@ -71,8 +83,11 @@ async fn integration_df_filter_less_or_equal() {
 async fn integration_df_filter_greater_than() {
     let ctx = boot_df_stack().await;
     seed_filters(&ctx).await;
-    let n =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.flt.t WHERE score > 70").await;
+    let n = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(*) FROM warehouse.flt.t WHERE score > 70",
+    )
+    .await;
     assert_eq!(n, 3);
 }
 
@@ -80,8 +95,11 @@ async fn integration_df_filter_greater_than() {
 async fn integration_df_filter_greater_or_equal() {
     let ctx = boot_df_stack().await;
     seed_filters(&ctx).await;
-    let n =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.flt.t WHERE score >= 70").await;
+    let n = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(*) FROM warehouse.flt.t WHERE score >= 70",
+    )
+    .await;
     assert_eq!(n, 4);
 }
 
@@ -125,8 +143,11 @@ async fn integration_df_filter_between() {
 async fn integration_df_filter_is_null() {
     let ctx = boot_df_stack().await;
     seed_filters(&ctx).await;
-    let n =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.flt.t WHERE label IS NULL").await;
+    let n = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(*) FROM warehouse.flt.t WHERE label IS NULL",
+    )
+    .await;
     assert_eq!(n, 2);
 }
 
@@ -134,9 +155,11 @@ async fn integration_df_filter_is_null() {
 async fn integration_df_filter_is_not_null() {
     let ctx = boot_df_stack().await;
     seed_filters(&ctx).await;
-    let n =
-        execute_scalar_i64(&ctx, "SELECT COUNT(*) FROM warehouse.flt.t WHERE label IS NOT NULL")
-            .await;
+    let n = execute_scalar_i64(
+        &ctx,
+        "SELECT COUNT(*) FROM warehouse.flt.t WHERE label IS NOT NULL",
+    )
+    .await;
     assert_eq!(n, 8);
 }
 
