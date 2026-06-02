@@ -39,6 +39,7 @@ iceberg-rust = { path = "../iceberg-rust", version = "0.10.0", features = ["test
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
 pyo3 = { version = "0.28", features = ["auto-initialize"] }
 reqwest = "0.12"
+rstest = "0.26"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 tempfile = "3.27.0"
 testcontainers = "0.26"
