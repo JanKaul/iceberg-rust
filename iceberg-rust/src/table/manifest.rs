@@ -797,7 +797,7 @@ fn update_partitions(
                 summary.lower_bound = Some(value.clone());
             } else if let Some(lower_bound) = &mut summary.lower_bound {
                 match (value, lower_bound) {
-                    (Value::Boolean(val), Value::Boolean(current)) if *current > *val => {
+                    (Value::Boolean(val), Value::Boolean(current)) if *current & !*val => {
                         *current = *val
                     }
                     (Value::Int(val), Value::Int(current)) if *current > *val => *current = *val,
@@ -838,7 +838,7 @@ fn update_partitions(
                 summary.upper_bound = Some(value.clone());
             } else if let Some(upper_bound) = &mut summary.upper_bound {
                 match (value, upper_bound) {
-                    (Value::Boolean(val), Value::Boolean(current)) if *current < *val => {
+                    (Value::Boolean(val), Value::Boolean(current)) if !*current & *val => {
                         *current = *val
                     }
                     (Value::Int(val), Value::Int(current)) if *current < *val => *current = *val,
