@@ -175,9 +175,11 @@ impl View {
     /// Encoding: `"<spec_id>:<arrow_id>,..."`. Returns an empty map when the
     /// property is absent or the value cannot be parsed.
     pub fn arrow_field_ids(&self) -> std::collections::HashMap<i32, i32> {
-        parse_arrow_field_ids(self.metadata.properties.get(
-            iceberg_rust_spec::spec::view_metadata::ARROW_FIELD_IDS_PROPERTY,
-        ))
+        parse_arrow_field_ids(
+            self.metadata
+                .properties
+                .get(iceberg_rust_spec::spec::view_metadata::ARROW_FIELD_IDS_PROPERTY),
+        )
     }
     /// Creates a new transaction for performing atomic updates to this view
     ///

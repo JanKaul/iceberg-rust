@@ -277,8 +277,7 @@ async fn plan_create_view(
         .zip(source_arrow_ids.iter())
         .filter_map(|(spec_field, src)| src.map(|src_id| (spec_field.id, src_id)))
         .collect();
-    let arrow_field_ids_property =
-        iceberg_rust::view::encode_arrow_field_ids(&arrow_id_mapping);
+    let arrow_field_ids_property = iceberg_rust::view::encode_arrow_field_ids(&arrow_id_mapping);
 
     let definition = node.0.definition.as_ref().unwrap();
     let definition = match (definition.split_once(" as "), definition.split_once(" AS ")) {

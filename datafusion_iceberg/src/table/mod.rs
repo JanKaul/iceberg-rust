@@ -130,10 +130,8 @@ fn apply_arrow_field_id_overrides(
             let mut field_metadata = arrow_field.metadata().clone();
             match overrides.get(&spec_field.id) {
                 Some(&arrow_id) => {
-                    field_metadata.insert(
-                        PARQUET_FIELD_ID_META_KEY.to_string(),
-                        arrow_id.to_string(),
-                    );
+                    field_metadata
+                        .insert(PARQUET_FIELD_ID_META_KEY.to_string(), arrow_id.to_string());
                 }
                 None => {
                     field_metadata.remove(PARQUET_FIELD_ID_META_KEY);

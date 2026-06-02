@@ -111,11 +111,21 @@ async fn integration_df_view_with_self_join_colliding_source_ids() {
     .await;
     // Exercises projection of both colliding-id columns through an
     // aggregate, which is exactly the path that mismatched before.
-    let expected: i64 = [(1, 1), (1, 3), (1, 5), (3, 3), (3, 5), (5, 5),
-                         (2, 2), (2, 6), (6, 6), (4, 4)]
-        .iter()
-        .map(|(a, b)| a + b)
-        .sum();
+    let expected: i64 = [
+        (1, 1),
+        (1, 3),
+        (1, 5),
+        (3, 3),
+        (3, 5),
+        (5, 5),
+        (2, 2),
+        (2, 6),
+        (6, 6),
+        (4, 4),
+    ]
+    .iter()
+    .map(|(a, b)| a + b)
+    .sum();
     assert_eq!(sum, expected);
 }
 

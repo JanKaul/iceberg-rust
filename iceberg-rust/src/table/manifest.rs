@@ -821,9 +821,7 @@ fn update_partitions(
                     (Value::String(val), Value::String(current)) if *current > *val => {
                         *current = val.clone()
                     }
-                    (Value::UUID(val), Value::UUID(current)) if *current > *val => {
-                        *current = *val
-                    }
+                    (Value::UUID(val), Value::UUID(current)) if *current > *val => *current = *val,
                     (Value::Fixed(_, val), Value::Fixed(_, current)) if *current > *val => {
                         *current = val.clone()
                     }
@@ -864,9 +862,7 @@ fn update_partitions(
                     (Value::String(val), Value::String(current)) if *current < *val => {
                         *current = val.clone()
                     }
-                    (Value::UUID(val), Value::UUID(current)) if *current < *val => {
-                        *current = *val
-                    }
+                    (Value::UUID(val), Value::UUID(current)) if *current < *val => *current = *val,
                     (Value::Fixed(_, val), Value::Fixed(_, current)) if *current < *val => {
                         *current = val.clone()
                     }
