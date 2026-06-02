@@ -286,7 +286,7 @@ async fn integration_df_bucket_function() {
         "SELECT COUNT(DISTINCT bucket(8, id)) FROM warehouse.tfn_b.t",
     )
     .await;
-    assert!(n >= 1 && n <= 4);
+    assert!((1..=4).contains(&n));
 }
 
 #[tokio::test]
