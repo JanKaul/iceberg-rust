@@ -246,11 +246,38 @@ async fn plan_create_view(
 
     let catalog = iceberg_catalog.catalog();
 
-    let schema = StructType::try_from(&new_fields_with_ids(
-        node.0.input.schema().as_arrow().fields(),
-        &mut 0,
-    ))
-    .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    // Views may project the same source column twice or columns from
+    // independent base tables, so source arrow ids can legitimately collide
+    // (e.g. `SELECT a.id, b.id FROM a JOIN b`). Iceberg spec field ids must
+    // be unique within a schema, so we assign fresh ids here regardless of
+    // what the input fields carry; the original arrow ids are captured
+    // separately and persisted as a view property so the scan-side reporter
+    // can match the physical schema later.
+    let input_arrow_fields = node.0.input.schema().as_arrow().fields().clone();
+    let source_arrow_ids: Vec<Option<i32>> = input_arrow_fields
+        .iter()
+        .map(|f| {
+            f.metadata()
+                .get(iceberg_rust::spec::arrow::schema::PARQUET_FIELD_ID_META_KEY)
+                .and_then(|s| s.parse::<i32>().ok())
+        })
+        .collect();
+    let stripped: datafusion::arrow::datatypes::Fields = input_arrow_fields
+        .iter()
+        .map(|f| {
+            let mut md = f.metadata().clone();
+            md.remove(iceberg_rust::spec::arrow::schema::PARQUET_FIELD_ID_META_KEY);
+            Arc::new((**f).clone().with_metadata(md))
+        })
+        .collect();
+    let schema = StructType::try_from(&new_fields_with_ids(&stripped, &mut 0))
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    let arrow_id_mapping: std::collections::HashMap<i32, i32> = schema
+        .iter()
+        .zip(source_arrow_ids.iter())
+        .filter_map(|(spec_field, src)| src.map(|src_id| (spec_field.id, src_id)))
+        .collect();
+    let arrow_field_ids_property = iceberg_rust::view::encode_arrow_field_ids(&arrow_id_mapping);
 
     let definition = node.0.definition.as_ref().unwrap();
     let definition = match (definition.split_once(" as "), definition.split_once(" AS ")) {
@@ -259,14 +286,17 @@ async fn plan_create_view(
         _ => panic!("Something is wrong"),
     };
 
-    #[cfg(test)]
-    let location = "/tmp/".to_owned() + catalog_name + "/" + namespace_name + "/" + table_name;
-
-    #[cfg(not(test))]
-    let location = "s3://".to_string() + catalog_name + "/" + namespace_name + "/" + table_name;
+    let namespace = Namespace::try_new(&[namespace_name.as_ref().to_owned()])
+        .map_err(|err| DataFusionError::External(Box::new(err)))?;
+    let ns_props = catalog.load_namespace(&namespace).await.unwrap_or_default();
+    let location = match ns_props.get("location") {
+        Some(prefix) => format!("{}/{table_name}", prefix.trim_end_matches('/')),
+        None => format!("/{catalog_name}/{namespace_name}/{table_name}"),
+    };
 
     if node.0.temporary {
-        MaterializedView::builder()
+        let mut builder = MaterializedView::builder();
+        builder
             .with_name(table_name)
             .with_location(location)
             .with_schema(Schema::from_struct_type(schema, DEFAULT_SCHEMA_ID, None))
@@ -275,12 +305,20 @@ async fn plan_create_view(
                     .with_representation(ViewRepresentation::sql(definition, None))
                     .build()
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
-            )
+            );
+        if !arrow_field_ids_property.is_empty() {
+            builder.with_property((
+                iceberg_rust::spec::view_metadata::ARROW_FIELD_IDS_PROPERTY.to_owned(),
+                arrow_field_ids_property.clone(),
+            ));
+        }
+        builder
             .build(&[namespace_name.as_ref().to_owned()], catalog)
             .await
             .map_err(|err| DataFusionError::External(Box::new(err)))?;
     } else {
-        View::builder()
+        let mut builder = View::builder();
+        builder
             .with_name(table_name)
             .with_location(location)
             .with_schema(Schema::from_struct_type(schema, DEFAULT_SCHEMA_ID, None))
@@ -289,7 +327,14 @@ async fn plan_create_view(
                     .with_representation(ViewRepresentation::sql(definition, None))
                     .build()
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
-            )
+            );
+        if !arrow_field_ids_property.is_empty() {
+            builder.with_property((
+                iceberg_rust::spec::view_metadata::ARROW_FIELD_IDS_PROPERTY.to_owned(),
+                arrow_field_ids_property,
+            ));
+        }
+        builder
             .build(&[namespace_name.as_ref().to_owned()], catalog)
             .await
             .map_err(|err| DataFusionError::External(Box::new(err)))?;

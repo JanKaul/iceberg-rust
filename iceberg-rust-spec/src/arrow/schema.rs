@@ -209,36 +209,32 @@ pub fn new_fields_with_ids(fields: &Fields, index: &mut i32) -> Fields {
     fields
         .into_iter()
         .map(|field| {
-            *index += 1;
+            let id = resolve_field_id(field, index);
             match field.data_type() {
-                DataType::Struct(fields) => {
-                    let temp = *index;
-                    Field::new(
-                        field.name(),
-                        DataType::Struct(new_fields_with_ids(fields, index)),
-                        field.is_nullable(),
-                    )
-                    .with_metadata(HashMap::from_iter(vec![(
-                        PARQUET_FIELD_ID_META_KEY.to_string(),
-                        temp.to_string(),
-                    )]))
-                }
+                DataType::Struct(fields) => Field::new(
+                    field.name(),
+                    DataType::Struct(new_fields_with_ids(fields, index)),
+                    field.is_nullable(),
+                )
+                .with_metadata(HashMap::from_iter(vec![(
+                    PARQUET_FIELD_ID_META_KEY.to_string(),
+                    id.to_string(),
+                )])),
                 DataType::List(list_field) => {
-                    let temp = *index;
-                    *index += 1;
+                    let element_id = resolve_field_id(list_field, index);
                     Field::new(
                         field.name(),
                         DataType::List(Arc::new(list_field.deref().clone().with_metadata(
                             HashMap::from_iter(vec![(
                                 PARQUET_FIELD_ID_META_KEY.to_string(),
-                                index.to_string(),
+                                element_id.to_string(),
                             )]),
                         ))),
                         field.is_nullable(),
                     )
                     .with_metadata(HashMap::from_iter(vec![(
                         PARQUET_FIELD_ID_META_KEY.to_string(),
-                        temp.to_string(),
+                        id.to_string(),
                     )]))
                 }
                 _ => field
@@ -246,11 +242,27 @@ pub fn new_fields_with_ids(fields: &Fields, index: &mut i32) -> Fields {
                     .clone()
                     .with_metadata(HashMap::from_iter(vec![(
                         PARQUET_FIELD_ID_META_KEY.to_string(),
-                        index.to_string(),
+                        id.to_string(),
                     )])),
             }
         })
         .collect()
+}
+
+fn resolve_field_id(field: &Field, index: &mut i32) -> i32 {
+    if let Some(existing) = field
+        .metadata()
+        .get(PARQUET_FIELD_ID_META_KEY)
+        .and_then(|s| s.parse::<i32>().ok())
+    {
+        if existing > *index {
+            *index = existing;
+        }
+        existing
+    } else {
+        *index += 1;
+        *index
+    }
 }
 
 #[cfg(test)]
@@ -958,5 +970,75 @@ mod tests {
 
         let field_name = schema.get_name("nested_object.key1");
         assert!(field_name.is_some());
+    }
+
+    fn field_id(field: &Field) -> Option<i32> {
+        field
+            .metadata()
+            .get(PARQUET_FIELD_ID_META_KEY)
+            .and_then(|s| s.parse::<i32>().ok())
+    }
+
+    #[test]
+    fn new_fields_with_ids_assigns_when_metadata_missing() {
+        let fields: Fields = vec![
+            Field::new("a", DataType::Int32, false),
+            Field::new("b", DataType::Utf8, true),
+        ]
+        .into();
+        let mut index = 0;
+        let result = new_fields_with_ids(&fields, &mut index);
+
+        assert_eq!(field_id(&result[0]), Some(1));
+        assert_eq!(field_id(&result[1]), Some(2));
+        assert_eq!(index, 2);
+    }
+
+    #[test]
+    fn new_fields_with_ids_preserves_when_metadata_present() {
+        let with_id = |name: &str, ty: DataType, id: i32| {
+            Field::new(name, ty, false).with_metadata(HashMap::from_iter(vec![(
+                PARQUET_FIELD_ID_META_KEY.to_string(),
+                id.to_string(),
+            )]))
+        };
+        let fields: Fields = vec![
+            with_id("a", DataType::Int32, 1),
+            with_id("b", DataType::Utf8, 3),
+        ]
+        .into();
+        let mut index = 0;
+        let result = new_fields_with_ids(&fields, &mut index);
+
+        assert_eq!(field_id(&result[0]), Some(1));
+        assert_eq!(field_id(&result[1]), Some(3));
+        assert_eq!(index, 3, "index advances past the max preserved id");
+    }
+
+    #[test]
+    fn new_fields_with_ids_mixed_inputs() {
+        let with_id = |name: &str, id: i32| {
+            Field::new(name, DataType::Int32, false).with_metadata(HashMap::from_iter(vec![(
+                PARQUET_FIELD_ID_META_KEY.to_string(),
+                id.to_string(),
+            )]))
+        };
+        let fields: Fields = vec![
+            with_id("kept", 5),
+            Field::new("fresh", DataType::Int32, false),
+            with_id("also_kept", 2),
+        ]
+        .into();
+        let mut index = 0;
+        let result = new_fields_with_ids(&fields, &mut index);
+
+        assert_eq!(field_id(&result[0]), Some(5));
+        assert_eq!(
+            field_id(&result[1]),
+            Some(6),
+            "fresh id advances past max preserved",
+        );
+        assert_eq!(field_id(&result[2]), Some(2));
+        assert_eq!(index, 6);
     }
 }

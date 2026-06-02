@@ -103,6 +103,46 @@ use iceberg_rust::{
 static DATA_FILE_PATH_COLUMN: &str = "__data_file_path";
 static MANIFEST_FILE_PATH_COLUMN: &str = "__manifest_file_path";
 
+/// When the view tracks source arrow ids (the `overrides` map is non-empty),
+/// reshape each top-level field's `PARQUET:field_id` metadata so it matches
+/// what the underlying SELECT actually produces at run time:
+/// - Spec id present in the map → write the recorded source arrow id.
+/// - Spec id absent → strip the `PARQUET:field_id` entry entirely (covers
+///   computed expressions / aggregates whose physical output carries no
+///   field-id metadata).
+///
+/// When the view has no tracking (legacy / non-datafusion_iceberg create
+/// path), the schema is returned unchanged.
+fn apply_arrow_field_id_overrides(
+    schema: ArrowSchema,
+    iceberg_fields: &iceberg_rust::spec::types::StructType,
+    overrides: &std::collections::HashMap<i32, i32>,
+) -> ArrowSchema {
+    if overrides.is_empty() {
+        return schema;
+    }
+    let metadata = schema.metadata().clone();
+    let rewritten: Vec<Field> = schema
+        .fields()
+        .iter()
+        .zip(iceberg_fields.iter())
+        .map(|(arrow_field, spec_field)| {
+            let mut field_metadata = arrow_field.metadata().clone();
+            match overrides.get(&spec_field.id) {
+                Some(&arrow_id) => {
+                    field_metadata
+                        .insert(PARQUET_FIELD_ID_META_KEY.to_string(), arrow_id.to_string());
+                }
+                None => {
+                    field_metadata.remove(PARQUET_FIELD_ID_META_KEY);
+                }
+            }
+            (**arrow_field).clone().with_metadata(field_metadata)
+        })
+        .collect();
+    ArrowSchema::new_with_metadata(rewritten, metadata)
+}
+
 #[derive(Debug, Clone)]
 /// Iceberg table for datafusion
 pub struct DataFusionTable {
@@ -191,9 +231,21 @@ impl DataFusionTable {
                 let schema = end
                     .and_then(|version_id| view.metadata().schema(version_id).ok().cloned())
                     .unwrap_or_else(|| view.current_schema(None).unwrap().clone());
-                Arc::new((schema.fields()).try_into().unwrap())
+                let arrow: ArrowSchema = (schema.fields()).try_into().unwrap();
+                Arc::new(apply_arrow_field_id_overrides(
+                    arrow,
+                    schema.fields(),
+                    &view.arrow_field_ids(),
+                ))
             }
             Tabular::MaterializedView(matview) => {
+                // Materialised views read from their own backing storage
+                // table, whose parquet carries the MV's spec field ids — the
+                // identity (spec id == arrow id) holds at scan time, so we
+                // do not apply the view's source-id override here. The
+                // `arrow_field_ids` property is only meaningful when the
+                // view is non-materialised and the scan flows through the
+                // underlying SELECT against base tables.
                 let schema = end
                     .and_then(|version_id| matview.metadata().schema(version_id).ok().cloned())
                     .unwrap_or_else(|| matview.current_schema(None).unwrap().clone());

@@ -36,6 +36,16 @@ use _serde::ViewMetadataEnum;
 /// Prefix used to denote branch references in the view properties
 pub static REF_PREFIX: &str = "ref-";
 
+/// View / materialised-view property carrying a comma-separated
+/// `<spec_field_id>:<arrow_source_field_id>` mapping. Used by
+/// `datafusion_iceberg` to bridge a view's unique iceberg-spec field ids and
+/// the `PARQUET:field_id` arrow metadata of the underlying base-table scan
+/// so DataFusion's physical-vs-logical schema validator does not fire when
+/// the SELECT projects columns whose source ids differ from the view's
+/// freshly-assigned ids (or, in self-join / multi-base-table views,
+/// legitimately collide between sources).
+pub static ARROW_FIELD_IDS_PROPERTY: &str = "datafusion-iceberg.arrow-field-ids";
+
 /// Default version id
 pub static DEFAULT_VERSION_ID: i64 = 0;
 

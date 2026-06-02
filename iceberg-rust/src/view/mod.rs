@@ -168,6 +168,19 @@ impl View {
     pub fn metadata(&self) -> &ViewMetadata {
         &self.metadata
     }
+    /// Parses the optional spec-id → arrow-source-id mapping stored in the
+    /// view's properties under `ARROW_FIELD_IDS_PROPERTY` (see
+    /// `iceberg_rust_spec::spec::view_metadata::ARROW_FIELD_IDS_PROPERTY`).
+    ///
+    /// Encoding: `"<spec_id>:<arrow_id>,..."`. Returns an empty map when the
+    /// property is absent or the value cannot be parsed.
+    pub fn arrow_field_ids(&self) -> std::collections::HashMap<i32, i32> {
+        parse_arrow_field_ids(
+            self.metadata
+                .properties
+                .get(iceberg_rust_spec::spec::view_metadata::ARROW_FIELD_IDS_PROPERTY),
+        )
+    }
     /// Creates a new transaction for performing atomic updates to this view
     ///
     /// # Arguments
@@ -183,5 +196,78 @@ impl View {
     /// Multiple operations can be chained and will be committed together.
     pub fn new_transaction(&mut self, branch: Option<&str>) -> ViewTransaction<'_> {
         ViewTransaction::new(self, branch)
+    }
+}
+
+/// Encodes a spec-id → arrow-source-id mapping into the comma-separated
+/// `"<spec_id>:<arrow_id>,..."` form expected by `ARROW_FIELD_IDS_PROPERTY`.
+/// Order is deterministic (ascending by spec id) so identical mappings
+/// produce identical property values across runs.
+pub fn encode_arrow_field_ids(mapping: &std::collections::HashMap<i32, i32>) -> String {
+    let mut entries: Vec<(&i32, &i32)> = mapping.iter().collect();
+    entries.sort_by_key(|(k, _)| *k);
+    entries
+        .into_iter()
+        .map(|(spec, arrow)| format!("{spec}:{arrow}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Parses the comma-separated `"<spec_id>:<arrow_id>,..."` value of
+/// `ARROW_FIELD_IDS_PROPERTY` into a spec-id → arrow-source-id map.
+/// Returns an empty map for `None` input or any unparseable entry — callers
+/// treat absence and parse failure identically (fall back to the spec id
+/// as the arrow id).
+pub fn parse_arrow_field_ids(value: Option<&String>) -> std::collections::HashMap<i32, i32> {
+    let mut out = std::collections::HashMap::new();
+    let Some(raw) = value else {
+        return out;
+    };
+    for entry in raw.split(',').filter(|s| !s.is_empty()) {
+        let (spec_str, arrow_str) = match entry.split_once(':') {
+            Some(pair) => pair,
+            None => return std::collections::HashMap::new(),
+        };
+        let (Ok(spec), Ok(arrow)) = (spec_str.parse::<i32>(), arrow_str.parse::<i32>()) else {
+            return std::collections::HashMap::new();
+        };
+        out.insert(spec, arrow);
+    }
+    out
+}
+
+#[cfg(test)]
+mod arrow_field_ids_tests {
+    use super::{encode_arrow_field_ids, parse_arrow_field_ids};
+
+    #[test]
+    fn round_trip_single_table() {
+        let mapping = [(1, 1), (2, 3)].into_iter().collect();
+        let encoded = encode_arrow_field_ids(&mapping);
+        assert_eq!(encoded, "1:1,2:3");
+        let decoded = parse_arrow_field_ids(Some(&encoded));
+        assert_eq!(decoded, mapping);
+    }
+
+    #[test]
+    fn round_trip_self_join_collision() {
+        // Two view spec ids both sourced from arrow id 1 (e.g. a JOIN b on
+        // the same base table).
+        let mapping = [(1, 1), (2, 1)].into_iter().collect();
+        let encoded = encode_arrow_field_ids(&mapping);
+        assert_eq!(encoded, "1:1,2:1");
+        let decoded = parse_arrow_field_ids(Some(&encoded));
+        assert_eq!(decoded, mapping);
+    }
+
+    #[test]
+    fn absent_property_yields_empty_map() {
+        assert!(parse_arrow_field_ids(None).is_empty());
+    }
+
+    #[test]
+    fn malformed_property_yields_empty_map() {
+        assert!(parse_arrow_field_ids(Some(&"not-a-pair".to_string())).is_empty());
+        assert!(parse_arrow_field_ids(Some(&"1:x,2:3".to_string())).is_empty());
     }
 }
