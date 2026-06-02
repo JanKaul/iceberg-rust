@@ -145,6 +145,14 @@ impl MaterializedView {
     pub fn metadata(&self) -> &MaterializedViewMetadata {
         &self.metadata
     }
+    /// Parses the optional spec-id → arrow-source-id mapping stored under
+    /// `ARROW_FIELD_IDS_PROPERTY`. Same semantics as `View::arrow_field_ids`;
+    /// see that doc comment.
+    pub fn arrow_field_ids(&self) -> std::collections::HashMap<i32, i32> {
+        crate::view::parse_arrow_field_ids(self.metadata.properties.get(
+            iceberg_rust_spec::spec::view_metadata::ARROW_FIELD_IDS_PROPERTY,
+        ))
+    }
     /// Creates a new transaction for performing atomic operations on this materialized view
     ///
     /// # Arguments
