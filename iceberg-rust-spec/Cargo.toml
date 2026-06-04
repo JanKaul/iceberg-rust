@@ -26,8 +26,8 @@ serde_json = { workspace = true }
 serde_repr = "0.1.19"
 thiserror = { workspace = true }
 url = { workspace = true }
-uuid = { version = "1.23.1", features = ["serde", "v4", "v1"] }
+uuid = { version = "1.23.2", features = ["serde", "v4", "v1"] }
 zstd = "0.13"
 
 [dev-dependencies]
-rstest = "0.23"
+rstest = "0.26"
