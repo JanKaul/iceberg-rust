@@ -41,7 +41,7 @@ object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
 murmur3 = { version = "0.5.2" }
 parquet = { version = "58", features = ["async", "object_store"] }
 pin-project-lite = "0.2"
-regex = "1.11.1"
+regex = "1.12.4"
 serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"
@@ -50,4 +50,4 @@ thiserror = "2"
 tracing = "0.1"
 tracing-futures = "0.2"
 url = "^2.5"
-uuid = { version = "1.23.1", features = ["serde", "v4"] }
+uuid = { version = "1.23.3", features = ["serde", "v4"] }
