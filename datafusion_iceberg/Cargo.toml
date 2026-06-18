@@ -32,12 +32,12 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 # The version should match the Arrow version used by duckdb
-arrow-ipc = "58"
+arrow-ipc = "59"
 duckdb = { version = "1.10503", features = ["bundled"] }
 iceberg-rest-catalog = { path = "../catalogs/iceberg-rest-catalog" }
 iceberg-rust = { path = "../iceberg-rust", version = "0.10.0", features = ["test-utils"] }
 iceberg-sql-catalog = { path = "../catalogs/iceberg-sql-catalog" }
-pyo3 = { version = "0.28", features = ["auto-initialize"] }
+pyo3 = { version = "0.29", features = ["auto-initialize"] }
 reqwest = "0.12"
 rstest = "0.26"
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
