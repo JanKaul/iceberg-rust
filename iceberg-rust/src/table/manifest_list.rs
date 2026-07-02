@@ -17,11 +17,10 @@ use futures::{future::join_all, stream, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
     manifest_list::{
-        avro_value_to_manifest_list_entry, manifest_list_schema_v1, manifest_list_schema_v2,
-        manifest_list_schema_v3, Content, ManifestListEntry,
+        avro_value_to_manifest_list_entry, Content, ManifestListEntry,
     },
     snapshot::Snapshot,
-    table_metadata::{FormatVersion, TableMetadata},
+    table_metadata::TableMetadata,
     util::strip_prefix,
 };
 use object_store::{ObjectStore, ObjectStoreExt};
@@ -96,13 +95,19 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
     /// * The Avro reader cannot be created with the schema
     /// * The manifest list format is invalid
     pub(crate) fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
-        let schema: &AvroSchema = match table_metadata.format_version {
-            FormatVersion::V1 => manifest_list_schema_v1(),
-            FormatVersion::V2 => manifest_list_schema_v2(),
-            FormatVersion::V3 => manifest_list_schema_v3(),
-        };
+        // We intentionally read without a reader schema so that the embedded writer schema is used.
+        // Some query engines (e.g. AWS Athena) write legacy field names such as
+        // `added_data_files_count` instead of the spec-correct `added_files_count` (see
+        // https://github.com/apache/iceberg/issues/8684). Supplying a reader schema causes
+        // apache_avro to perform Avro-level field resolution by name, which fails for those
+        // files because avro-rs has no alias support.  Without a reader schema the raw field
+        // names from the file reach the serde layer, where `#[serde(alias)]` can map both the
+        // legacy and the canonical names.
+        //
+        // TODO: switch back to `AvroReader::with_schema` once all major query engines write
+        // the spec-correct field names.
         Ok(Self {
-            reader: AvroReader::with_schema(schema, reader)?
+            reader: AvroReader::new(reader)?
                 .zip(repeat(table_metadata))
                 .map(|(avro_value_res, meta)| {
                     avro_value_to_manifest_list_entry(avro_value_res, meta).map_err(Error::from)
