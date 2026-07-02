@@ -16,9 +16,7 @@ use apache_avro::{
 use futures::{future::join_all, stream, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, ManifestEntry, Status},
-    manifest_list::{
-        avro_value_to_manifest_list_entry, Content, ManifestListEntry,
-    },
+    manifest_list::{avro_value_to_manifest_list_entry, Content, ManifestListEntry},
     snapshot::Snapshot,
     table_metadata::TableMetadata,
     util::strip_prefix,
@@ -107,11 +105,11 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
         // TODO: switch back to `AvroReader::with_schema` once all major query engines write
         // the spec-correct field names.
         Ok(Self {
-            reader: AvroReader::new(reader)?
-                .zip(repeat(table_metadata))
-                .map(|(avro_value_res, meta)| {
+            reader: AvroReader::new(reader)?.zip(repeat(table_metadata)).map(
+                |(avro_value_res, meta)| {
                     avro_value_to_manifest_list_entry(avro_value_res, meta).map_err(Error::from)
-                }),
+                },
+            ),
         })
     }
 }
