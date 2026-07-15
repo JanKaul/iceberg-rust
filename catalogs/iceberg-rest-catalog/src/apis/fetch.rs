@@ -84,7 +84,16 @@ where
     T: serde::de::DeserializeOwned,
     E: serde::de::DeserializeOwned,
 {
-    let resp = fetch_inner(configuration, method, prefix, uri_str, request, headers, query_params).await?;
+    let resp = fetch_inner(
+        configuration,
+        method,
+        prefix,
+        uri_str,
+        request,
+        headers,
+        query_params,
+    )
+    .await?;
     let status = resp.status();
     let content = resp.text().await?;
     if !status.is_client_error() && !status.is_server_error() {
@@ -114,7 +123,16 @@ where
     T: serde::de::DeserializeOwned,
     E: serde::de::DeserializeOwned,
 {
-    let resp = fetch_inner(configuration, method, prefix, uri_str, request, headers, query_params).await?;
+    let resp = fetch_inner(
+        configuration,
+        method,
+        prefix,
+        uri_str,
+        request,
+        headers,
+        query_params,
+    )
+    .await?;
     if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
         return Ok(Conditional::NotModified);
     }

@@ -409,8 +409,8 @@ pub mod _serde {
             partition::{PartitionField, PartitionSpec},
             schema,
             snapshot::{
-                _serde::{SnapshotV1, SnapshotV2},
                 SnapshotReference, SnapshotRetention,
+                _serde::{SnapshotV1, SnapshotV2},
             },
             sort,
         },

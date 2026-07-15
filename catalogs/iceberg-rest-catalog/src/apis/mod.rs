@@ -117,5 +117,4 @@ pub mod configuration_api_api;
 pub(crate) mod fetch;
 pub mod o_auth2_api_api;
 
-
 pub mod configuration;
