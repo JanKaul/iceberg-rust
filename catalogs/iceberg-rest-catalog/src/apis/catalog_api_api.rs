@@ -793,6 +793,13 @@ pub async fn load_table(
     headers: HashMap<String, String>,
     snapshots: Option<&str>,
 ) -> Result<models::LoadTableResult, Error<LoadTableError>> {
+    if headers.keys().any(|k| k.eq_ignore_ascii_case("if-none-match")) {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "If-None-Match header is not allowed in load_table; use load_table_conditional instead",
+        )));
+    }
+
     let mut query_params = HashMap::new();
     if let Some(snapshots) = snapshots {
         query_params.insert("snapshots".to_owned(), snapshots.to_string());
@@ -828,6 +835,13 @@ pub async fn load_table_conditional(
     headers: HashMap<String, String>,
     snapshots: Option<&str>,
 ) -> Result<super::Conditional<models::LoadTableResult>, Error<LoadTableError>> {
+    if !headers.keys().any(|k| k.eq_ignore_ascii_case("if-none-match")) {
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "load_table_conditional requires an If-None-Match header; use load_table for unconditional requests",
+        )));
+    }
+
     let mut query_params = HashMap::new();
     if let Some(snapshots) = snapshots {
         query_params.insert("snapshots".to_owned(), snapshots.to_string());
