@@ -134,10 +134,13 @@ mod _serde {
         /// ID of the snapshot where the manifest file was added
         pub added_snapshot_id: i64,
         /// Number of entries in the manifest that have status ADDED (1)
+        #[serde(alias = "added_data_files_count")]
         pub added_files_count: i32,
         /// Number of entries in the manifest that have status EXISTING (0)
+        #[serde(alias = "existing_data_files_count")]
         pub existing_files_count: i32,
         /// Number of entries in the manifest that have status DELETED (2)
+        #[serde(alias = "deleted_data_files_count")]
         pub deleted_files_count: i32,
         /// Number of rows in all of files in the manifest that have status ADDED
         pub added_rows_count: i64,
@@ -170,10 +173,13 @@ mod _serde {
         /// ID of the snapshot where the manifest file was added
         pub added_snapshot_id: i64,
         /// Number of entries in the manifest that have status ADDED (1), when null this is assumed to be non-zero
+        #[serde(alias = "added_data_files_count")]
         pub added_files_count: i32,
         /// Number of entries in the manifest that have status EXISTING (0), when null this is assumed to be non-zero
+        #[serde(alias = "existing_data_files_count")]
         pub existing_files_count: i32,
         /// Number of entries in the manifest that have status DELETED (2), when null this is assumed to be non-zero
+        #[serde(alias = "deleted_data_files_count")]
         pub deleted_files_count: i32,
         /// Number of rows in all of files in the manifest that have status ADDED, when null this is assumed to be non-zero
         pub added_rows_count: i64,
@@ -200,10 +206,13 @@ mod _serde {
         /// ID of the snapshot where the manifest file was added
         pub added_snapshot_id: i64,
         /// Number of entries in the manifest that have status ADDED (1), when null this is assumed to be non-zero
+        #[serde(alias = "added_data_files_count")]
         pub added_files_count: Option<i32>,
         /// Number of entries in the manifest that have status EXISTING (0), when null this is assumed to be non-zero
+        #[serde(alias = "existing_data_files_count")]
         pub existing_files_count: Option<i32>,
         /// Number of entries in the manifest that have status DELETED (2), when null this is assumed to be non-zero
+        #[serde(alias = "deleted_data_files_count")]
         pub deleted_files_count: Option<i32>,
         /// Number of rows in all of files in the manifest that have status ADDED, when null this is assumed to be non-zero
         pub added_rows_count: Option<i64>,
