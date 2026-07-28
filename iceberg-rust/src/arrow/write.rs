@@ -51,7 +51,7 @@ use iceberg_rust_spec::{
     spec::{manifest::DataFile, schema::Schema, values::Value},
     table_metadata::{
         self, WRITE_DATA_PATH, WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED,
-        WRITE_OBJECT_STORAGE_ENABLED,
+        WRITE_OBJECT_STORAGE_ENABLED, WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX,
     },
     util::strip_prefix,
 };
@@ -62,6 +62,7 @@ use parquet::{
         metadata::{KeyValue, ParquetMetaData},
         properties::WriterProperties,
     },
+    schema::types::ColumnPath,
 };
 use uuid::Uuid;
 
@@ -521,6 +522,7 @@ async fn create_arrow_writer(
 
     let mut props_builder =
         WriterProperties::builder().set_compression(Compression::ZSTD(ZstdLevel::try_new(1)?));
+    props_builder = apply_bloom_filter_properties(props_builder, table_properties);
     if estimate_distinct_count {
         props_builder = props_builder.set_key_value_metadata(Some(vec![KeyValue::new(
             ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY.to_owned(),
@@ -536,6 +538,25 @@ async fn create_arrow_writer(
             Some(props_builder.build()),
         )?,
     ))
+}
+
+/// Applies per-column bloom-filter table properties to the writer builder.
+///
+/// Honors the standard Iceberg property
+/// `write.parquet.bloom-filter-enabled.column.<name>` = `true`/`false`
+/// per column. Unrelated properties are ignored.
+fn apply_bloom_filter_properties(
+    mut props_builder: parquet::file::properties::WriterPropertiesBuilder,
+    table_properties: &HashMap<String, String>,
+) -> parquet::file::properties::WriterPropertiesBuilder {
+    for (key, value) in table_properties {
+        if let Some(column) = key.strip_prefix(WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX) {
+            let enabled = value == "true";
+            props_builder =
+                props_builder.set_column_bloom_filter_enabled(ColumnPath::from(column), enabled);
+        }
+    }
+    props_builder
 }
 
 /// Generates a unique file path for a Parquet data file.
@@ -621,6 +642,34 @@ fn record_batch_size(batch: &RecordBatch) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn bloom_filter_properties_apply_per_column() {
+        let table_properties = HashMap::from([
+            (
+                "write.parquet.bloom-filter-enabled.column.label_env".to_string(),
+                "true".to_string(),
+            ),
+            (
+                "write.parquet.bloom-filter-enabled.column.body".to_string(),
+                "false".to_string(),
+            ),
+            ("write.data.path".to_string(), "s3://x".to_string()),
+        ]);
+        let props =
+            apply_bloom_filter_properties(WriterProperties::builder(), &table_properties).build();
+        assert!(props
+            .bloom_filter_properties(&ColumnPath::from("label_env"))
+            .is_some());
+        assert!(props
+            .bloom_filter_properties(&ColumnPath::from("body"))
+            .is_none());
+        assert!(props
+            .bloom_filter_properties(&ColumnPath::from("other"))
+            .is_none());
+    }
+
     use iceberg_rust_spec::{
         partition::BoundPartitionField,
         types::{StructField, Type},

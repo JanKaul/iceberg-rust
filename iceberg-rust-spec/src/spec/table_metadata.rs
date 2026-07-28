@@ -49,6 +49,10 @@ pub const WRITE_OBJECT_STORAGE_ENABLED: &str = "write.object-storage.enabled";
 pub const WRITE_DATA_PATH: &str = "write.data.path";
 pub const WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED: &str =
     "write.metadata.metrics.distinct-counts.enabled";
+/// Per-column Parquet bloom-filter toggle: append the column name, e.g.
+/// `write.parquet.bloom-filter-enabled.column.label_env = "true"`.
+pub const WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX: &str =
+    "write.parquet.bloom-filter-enabled.column.";
 
 pub use _serde::{TableMetadataV1, TableMetadataV2, TableMetadataV3};
 
