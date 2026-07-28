@@ -151,21 +151,27 @@ pub struct TableMetadata {
 }
 
 impl TableMetadata {
-    /// Gets the current schema for a given branch, or the table's current schema if no branch is specified.
+    /// Gets the table's current schema (`current-schema-id`).
+    ///
+    /// Per the Iceberg spec the table's authoritative schema is
+    /// `current-schema-id`; a snapshot's `schema-id` only records the schema
+    /// that was current when that snapshot was written (use
+    /// [`TableMetadata::schema`] for snapshot-scoped reads). Resolving via
+    /// the current snapshot here made `SetCurrentSchema` unreachable: the
+    /// old snapshot pinned the old schema id, and every new append/replace
+    /// stamped its snapshot from this method, re-pinning the old schema
+    /// forever.
     ///
     /// # Arguments
-    /// * `branch` - Optional branch name to get the schema for
+    /// * `_branch` - Retained for API compatibility; the current schema is a
+    ///   table-level property and does not vary by branch
     ///
     /// # Returns
     /// * `Result<&Schema, Error>` - The current schema, or an error if the schema cannot be found
     #[inline]
-    pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
-        let schema_id = self
-            .current_snapshot(branch)?
-            .and_then(|x| *x.schema_id())
-            .unwrap_or(self.current_schema_id);
+    pub fn current_schema(&self, _branch: Option<&str>) -> Result<&Schema, Error> {
         self.schemas
-            .get(&schema_id)
+            .get(&self.current_schema_id)
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
     }
 
@@ -1959,6 +1965,78 @@ mod tests {
     // committed snapshots to the current schema id). Both scenarios live here
     // until that surface lands.
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_current_schema_resolves_via_current_schema_id_not_snapshot_pin() {
+        // A table whose only snapshot was written under schema 0, then evolved
+        // to schema 1 via AddSchema + SetCurrentSchema. current_schema() must
+        // return schema 1 (the table's authoritative schema); the snapshot's
+        // pinned schema stays reachable through schema(snapshot_id).
+        let data = r#"
+            {
+                "format-version": 2,
+                "table-uuid": "fb072c92-a02b-11e9-ae9c-1bb7bc9eca94",
+                "location": "s3://b/wh/data.db/table",
+                "last-sequence-number": 1,
+                "last-updated-ms": 1515100955770,
+                "last-column-id": 2,
+                "schemas": [
+                    {
+                        "schema-id": 0,
+                        "type": "struct",
+                        "fields": [
+                            {"id": 1, "name": "body", "required": false, "type": "string"}
+                        ]
+                    },
+                    {
+                        "schema-id": 1,
+                        "type": "struct",
+                        "fields": [
+                            {"id": 1, "name": "body", "required": false, "type": "string"},
+                            {"id": 2, "name": "label_env", "required": false, "type": "string"}
+                        ]
+                    }
+                ],
+                "current-schema-id": 1,
+                "partition-specs": [{"spec-id": 0, "fields": []}],
+                "default-spec-id": 0,
+                "last-partition-id": 0,
+                "properties": {},
+                "current-snapshot-id": 3051729675574597004,
+                "snapshots": [
+                    {
+                        "snapshot-id": 3051729675574597004,
+                        "timestamp-ms": 1515100955770,
+                        "sequence-number": 1,
+                        "schema-id": 0,
+                        "summary": {"operation": "append"},
+                        "manifest-list": "s3://a/b/1.avro"
+                    }
+                ],
+                "refs": {
+                    "main": {
+                        "snapshot-id": 3051729675574597004,
+                        "type": "branch"
+                    }
+                },
+                "sort-orders": [],
+                "default-sort-order-id": 0
+            }
+        "#;
+        let metadata =
+            serde_json::from_str::<TableMetadata>(data).expect("Failed to deserialize json");
+
+        let current = metadata.current_schema(None).expect("current schema");
+        assert_eq!(*current.schema_id(), 1);
+        assert!(current.fields().iter().any(|f| f.name == "label_env"));
+
+        // Snapshot-scoped reads still see the schema the snapshot was
+        // written under.
+        let pinned = metadata
+            .schema(3051729675574597004)
+            .expect("snapshot schema");
+        assert_eq!(*pinned.schema_id(), 0);
+    }
 
     #[test]
     #[ignore = "no append/delete builders; cannot drive multi-snapshot schema_id propagation"]
