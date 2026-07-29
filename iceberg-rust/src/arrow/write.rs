@@ -551,9 +551,13 @@ fn apply_bloom_filter_properties(
 ) -> parquet::file::properties::WriterPropertiesBuilder {
     for (key, value) in table_properties {
         if let Some(column) = key.strip_prefix(WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX) {
-            let enabled = value == "true";
-            props_builder =
-                props_builder.set_column_bloom_filter_enabled(ColumnPath::from(column), enabled);
+            let enabled = value.eq_ignore_ascii_case("true");
+            // Parquet addresses nested columns by path parts; a dotted name
+            // passed as one string would be treated as a single segment and
+            // silently never match.
+            let path_parts: Vec<String> = column.split('.').map(String::from).collect();
+            props_builder = props_builder
+                .set_column_bloom_filter_enabled(ColumnPath::from(path_parts), enabled);
         }
     }
     props_builder
@@ -667,6 +671,45 @@ mod tests {
             .is_none());
         assert!(props
             .bloom_filter_properties(&ColumnPath::from("other"))
+            .is_none());
+    }
+
+    #[test]
+    fn bloom_filter_properties_apply_to_nested_columns() {
+        let table_properties = HashMap::from([(
+            "write.parquet.bloom-filter-enabled.column.my_struct.label_env".to_string(),
+            "true".to_string(),
+        )]);
+        let props =
+            apply_bloom_filter_properties(WriterProperties::builder(), &table_properties).build();
+        // Parquet addresses nested columns by path parts, not by the dotted string.
+        assert!(props
+            .bloom_filter_properties(&ColumnPath::from(vec![
+                "my_struct".to_string(),
+                "label_env".to_string()
+            ]))
+            .is_some());
+    }
+
+    #[test]
+    fn bloom_filter_property_values_are_case_insensitive() {
+        let table_properties = HashMap::from([
+            (
+                "write.parquet.bloom-filter-enabled.column.label_env".to_string(),
+                "TRUE".to_string(),
+            ),
+            (
+                "write.parquet.bloom-filter-enabled.column.body".to_string(),
+                "False".to_string(),
+            ),
+        ]);
+        let props =
+            apply_bloom_filter_properties(WriterProperties::builder(), &table_properties).build();
+        assert!(props
+            .bloom_filter_properties(&ColumnPath::from("label_env"))
+            .is_some());
+        assert!(props
+            .bloom_filter_properties(&ColumnPath::from("body"))
             .is_none());
     }
 
