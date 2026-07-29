@@ -147,14 +147,16 @@ impl TabularMetadataRef<'_> {
     /// Returns the current schema for the tabular object
     ///
     /// # Arguments
-    /// * `branch` - Optional branch name to get schema from
+    /// * `branch` - Optional branch name to get schema from (views and
+    ///   materialized views only; a table's current schema is a table-level
+    ///   property and does not vary by branch)
     ///
     /// # Returns
     /// * `Ok(&Schema)` - The current schema for this table, view, or materialized view
     /// * `Err(Error)` - If the schema cannot be retrieved
     pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
         match self {
-            TabularMetadataRef::Table(table) => table.current_schema(branch),
+            TabularMetadataRef::Table(table) => table.current_schema(),
             TabularMetadataRef::View(view) => view.current_schema(branch),
             TabularMetadataRef::MaterializedView(matview) => matview.current_schema(branch),
         }

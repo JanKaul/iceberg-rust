@@ -163,15 +163,9 @@ impl Operation {
                         all_files.iter(),
                         manifest_list_schema,
                         table_metadata,
-                        branch.as_deref(),
                     )?
                 } else {
-                    ManifestListWriter::new(
-                        all_files.iter(),
-                        manifest_list_schema,
-                        table_metadata,
-                        branch.as_deref(),
-                    )?
+                    ManifestListWriter::new(all_files.iter(), manifest_list_schema, table_metadata)?
                 };
 
                 let snapshot_id = generate_snapshot_id();
@@ -262,11 +256,7 @@ impl Operation {
                         operation: snapshot_operation,
                         other: summary_fields,
                     })
-                    .with_schema_id(
-                        *table_metadata
-                            .current_schema(branch.as_deref())?
-                            .schema_id(),
-                    );
+                    .with_schema_id(*table_metadata.current_schema()?.schema_id());
                 if let Some(snapshot) = old_snapshot {
                     snapshot_builder.with_parent_snapshot_id(*snapshot.snapshot_id());
                 }
@@ -332,15 +322,9 @@ impl Operation {
                         data_files_iter,
                         manifest_list_schema,
                         table_metadata,
-                        branch.as_deref(),
                     )?
                 } else {
-                    ManifestListWriter::new(
-                        data_files_iter,
-                        manifest_list_schema,
-                        table_metadata,
-                        branch.as_deref(),
-                    )?
+                    ManifestListWriter::new(data_files_iter, manifest_list_schema, table_metadata)?
                 };
 
                 let new_datafile_iter = data_files.into_iter().map(|data_file| {
@@ -439,11 +423,7 @@ impl Operation {
                         operation: snapshot_operation,
                         other: summary_fields,
                     })
-                    .with_schema_id(
-                        *table_metadata
-                            .current_schema(branch.as_deref())?
-                            .schema_id(),
-                    );
+                    .with_schema_id(*table_metadata.current_schema()?.schema_id());
                 if let Some(snapshot) = old_snapshot {
                     snapshot_builder.with_parent_snapshot_id(*snapshot.snapshot_id());
                 }
@@ -477,10 +457,9 @@ impl Operation {
                     files.len(),
                     additional_summary
                 );
-                let partition_fields =
-                    table_metadata.current_partition_fields(branch.as_deref())?;
+                let partition_fields = table_metadata.current_partition_fields()?;
                 let old_snapshot = table_metadata.current_snapshot(branch.as_deref())?;
-                let schema = table_metadata.current_schema(branch.as_deref())?.clone();
+                let schema = table_metadata.current_schema()?.clone();
 
                 let partition_column_names = partition_fields
                     .iter()
@@ -538,7 +517,6 @@ impl Operation {
                         &manifest_schema,
                         table_metadata,
                         ManifestListContent::Data,
-                        branch.as_deref(),
                     )?;
 
                     for manifest_entry in new_datafile_iter {
@@ -570,7 +548,6 @@ impl Operation {
                             &manifest_schema,
                             table_metadata,
                             ManifestListContent::Data,
-                            branch.as_deref(),
                         )?;
 
                         for manifest_entry in entries {
@@ -708,7 +685,6 @@ impl Operation {
                         &manifests_to_overwrite,
                         manifest_list_schema,
                         table_metadata,
-                        branch.as_deref(),
                     )?;
 
                 let mut filtered_stats = manifest_list_writer
@@ -799,11 +775,7 @@ impl Operation {
                         operation: snapshot_operation,
                         other: summary_fields,
                     })
-                    .with_schema_id(
-                        *table_metadata
-                            .current_schema(branch.as_deref())?
-                            .schema_id(),
-                    );
+                    .with_schema_id(*table_metadata.current_schema()?.schema_id());
                 snapshot_builder.with_parent_snapshot_id(*old_snapshot.snapshot_id());
                 let snapshot = snapshot_builder.build()?;
 

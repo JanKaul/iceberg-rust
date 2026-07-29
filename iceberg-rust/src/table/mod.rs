@@ -146,18 +146,15 @@ impl Table {
         self.object_store.clone()
     }
     #[inline]
-    /// Returns the current schema for this table, optionally for a specific branch
-    ///
-    /// # Arguments
-    /// * `branch` - Optional branch name to get the schema for. If None, returns the main branch schema
+    /// Returns the current schema for this table (`current-schema-id`)
     ///
     /// # Returns
     /// * `Result<&Schema, Error>` - The current schema if found, or an error if the schema cannot be found
     ///
     /// # Errors
     /// Returns an error if the schema ID cannot be found in the table metadata
-    pub fn current_schema(&self, branch: Option<&str>) -> Result<&Schema, Error> {
-        self.metadata.current_schema(branch).map_err(Error::from)
+    pub fn current_schema(&self) -> Result<&Schema, Error> {
+        self.metadata.current_schema().map_err(Error::from)
     }
     #[inline]
     /// Returns a reference to this table's metadata

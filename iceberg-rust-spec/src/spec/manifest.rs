@@ -1920,8 +1920,7 @@ mod tests {
         };
 
         let partition_schema =
-            partition_value_schema(&table_metadata.current_partition_fields(None).unwrap())
-                .unwrap();
+            partition_value_schema(&table_metadata.current_partition_fields().unwrap()).unwrap();
 
         let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2).unwrap();
 
@@ -1977,7 +1976,7 @@ mod tests {
                 manifest_entry,
                 ManifestEntry::try_from_v2(
                     entry,
-                    table_metadata.current_schema(None).unwrap(),
+                    table_metadata.current_schema().unwrap(),
                     table_metadata.default_partition_spec().unwrap()
                 )
                 .unwrap()
@@ -2047,8 +2046,7 @@ mod tests {
         };
 
         let partition_schema =
-            partition_value_schema(&table_metadata.current_partition_fields(None).unwrap())
-                .unwrap();
+            partition_value_schema(&table_metadata.current_partition_fields().unwrap()).unwrap();
 
         let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V3).unwrap();
 
@@ -2102,7 +2100,7 @@ mod tests {
                 manifest_entry,
                 ManifestEntry::try_from_v3(
                     entry,
-                    table_metadata.current_schema(None).unwrap(),
+                    table_metadata.current_schema().unwrap(),
                     table_metadata.default_partition_spec().unwrap()
                 )
                 .unwrap()
@@ -2172,8 +2170,7 @@ mod tests {
         };
 
         let partition_schema =
-            partition_value_schema(&table_metadata.current_partition_fields(None).unwrap())
-                .unwrap();
+            partition_value_schema(&table_metadata.current_partition_fields().unwrap()).unwrap();
         let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V3).unwrap();
 
         let mut writer = apache_avro::Writer::new(&schema, vec![]);
@@ -2186,7 +2183,7 @@ mod tests {
             let entry = apache_avro::from_value::<ManifestEntryV3>(&value.unwrap()).unwrap();
             let parsed = ManifestEntry::try_from_v3(
                 entry,
-                table_metadata.current_schema(None).unwrap(),
+                table_metadata.current_schema().unwrap(),
                 table_metadata.default_partition_spec().unwrap(),
             )
             .unwrap();
@@ -2263,8 +2260,7 @@ mod tests {
         };
 
         let partition_schema =
-            partition_value_schema(&table_metadata.current_partition_fields(None).unwrap())
-                .unwrap();
+            partition_value_schema(&table_metadata.current_partition_fields().unwrap()).unwrap();
 
         let schema = ManifestEntry::schema(&partition_schema, &FormatVersion::V2).unwrap();
 
@@ -2320,7 +2316,7 @@ mod tests {
             manifest_entry,
             ManifestEntry::try_from_v2(
                 metadata_entry,
-                table_metadata.current_schema(None).unwrap(),
+                table_metadata.current_schema().unwrap(),
                 table_metadata.default_partition_spec().unwrap()
             )
             .unwrap()
