@@ -162,14 +162,10 @@ impl TableMetadata {
     /// stamped its snapshot from this method, re-pinning the old schema
     /// forever.
     ///
-    /// # Arguments
-    /// * `_branch` - Retained for API compatibility; the current schema is a
-    ///   table-level property and does not vary by branch
-    ///
     /// # Returns
     /// * `Result<&Schema, Error>` - The current schema, or an error if the schema cannot be found
     #[inline]
-    pub fn current_schema(&self, _branch: Option<&str>) -> Result<&Schema, Error> {
+    pub fn current_schema(&self) -> Result<&Schema, Error> {
         self.schemas
             .get(&self.current_schema_id)
             .ok_or_else(|| Error::InvalidFormat("schema".to_string()))
@@ -205,19 +201,13 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("partition spec".to_string()))
     }
 
-    /// Gets the current partition fields for a given branch, binding them to their source schema fields
-    ///
-    /// # Arguments
-    /// * `branch` - Optional branch name to get the partition fields for
+    /// Gets the current partition fields, binding them to their source schema fields
     ///
     /// # Returns
     /// * `Result<Vec<BoundPartitionField>, Error>` - Vector of partition fields bound to their source schema fields,
     ///   or an error if the schema or partition spec cannot be found
-    pub fn current_partition_fields(
-        &self,
-        branch: Option<&str>,
-    ) -> Result<Vec<BoundPartitionField<'_>>, Error> {
-        let schema = self.current_schema(branch)?;
+    pub fn current_partition_fields(&self) -> Result<Vec<BoundPartitionField<'_>>, Error> {
+        let schema = self.current_schema()?;
         let partition_spec = self.default_partition_spec()?;
         partition_fields(partition_spec, schema)
     }
@@ -2026,7 +2016,7 @@ mod tests {
         let metadata =
             serde_json::from_str::<TableMetadata>(data).expect("Failed to deserialize json");
 
-        let current = metadata.current_schema(None).expect("current schema");
+        let current = metadata.current_schema().expect("current schema");
         assert_eq!(*current.schema_id(), 1);
         assert!(current.fields().iter().any(|f| f.name == "label_env"));
 

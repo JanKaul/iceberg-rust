@@ -313,7 +313,7 @@ impl Catalog for GlueCatalog {
 
         object_store.put_version_hint(&metadata_location).await.ok();
 
-        let schema = metadata.current_schema(None)?;
+        let schema = metadata.current_schema()?;
 
         self.client
             .create_table()
@@ -470,7 +470,7 @@ impl Catalog for GlueCatalog {
 
         let schema = metadata.current_schema(None)?;
 
-        let table_schema = table_metadata.current_schema(None)?;
+        let table_schema = table_metadata.current_schema()?;
 
         // Create view
         self.client
@@ -580,7 +580,7 @@ impl Catalog for GlueCatalog {
 
         object_store.put_version_hint(&metadata_location).await.ok();
 
-        let schema = metadata.current_schema(None)?;
+        let schema = metadata.current_schema()?;
 
         self.client
             .update_table()
@@ -891,7 +891,7 @@ impl Catalog for GlueCatalog {
                 .await?,
         )?;
 
-        let schema = metadata.current_schema(None)?;
+        let schema = metadata.current_schema()?;
 
         self.client
             .create_table()

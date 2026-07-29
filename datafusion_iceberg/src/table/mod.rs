@@ -207,7 +207,7 @@ impl DataFusionTable {
             Tabular::Table(table) => {
                 let schema = end
                     .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
-                    .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
+                    .unwrap_or_else(|| table.current_schema().unwrap().clone());
                 let mut builder =
                     SchemaBuilder::from(TryInto::<ArrowSchema>::try_into(schema.fields()).unwrap());
                 if config
@@ -452,7 +452,7 @@ async fn table_scan(
     let schema = snapshot_range
         .1
         .and_then(|snapshot_id| table.metadata().schema(snapshot_id).ok().cloned())
-        .unwrap_or_else(|| table.current_schema(None).unwrap().clone());
+        .unwrap_or_else(|| table.current_schema().unwrap().clone());
 
     // Create a unique URI for this particular object store
     let object_store_url = fake_object_store_url(&table.metadata().location);
@@ -471,7 +471,7 @@ async fn table_scan(
     let partition_fields = &snapshot_range
         .1
         .and_then(|snapshot_id| table.metadata().partition_fields(snapshot_id).ok())
-        .unwrap_or_else(|| table.metadata().current_partition_fields(None).unwrap());
+        .unwrap_or_else(|| table.metadata().current_partition_fields().unwrap());
 
     let sequence_number_range = [snapshot_range.0, snapshot_range.1]
         .iter()
@@ -1237,14 +1237,14 @@ async fn write_parquet_files(
 
     // Get table schema and metadata
     let schema = table
-        .current_schema(branch)
+        .current_schema()
         .map_err(DataFusionIcebergError::from)?;
     let arrow_schema = Arc::new(
         TryInto::<ArrowSchema>::try_into(schema.fields()).map_err(DataFusionIcebergError::from)?,
     );
 
     let partition_fields = metadata
-        .current_partition_fields(branch)
+        .current_partition_fields()
         .map_err(DataFusionIcebergError::from)?;
 
     let bucket = Bucket::from_path(&metadata.location).map_err(DataFusionIcebergError::from)?;
@@ -1293,7 +1293,7 @@ async fn write_parquet_files(
 
     let sink = ParquetSink::new(config, table_parquet_options);
 
-    let (demux_task, file_receiver) = start_demuxer_task(metadata, batches, context, branch)?;
+    let (demux_task, file_receiver) = start_demuxer_task(metadata, batches, context)?;
 
     sink.spawn_writer_tasks_and_join(context, demux_task, file_receiver, object_store.clone())
         .await?;
@@ -1328,7 +1328,6 @@ pub(crate) fn start_demuxer_task(
     metadata: &TableMetadata,
     data: SendableRecordBatchStream,
     context: &Arc<TaskContext>,
-    branch: Option<&str>,
 ) -> Result<
     (
         SpawnedTask<Result<(), DataFusionError>>,
@@ -1353,7 +1352,7 @@ pub(crate) fn start_demuxer_task(
         SpawnedTask::spawn({
             let partition_spec = partition_spec.clone();
             let schema = metadata
-                .current_schema(branch)
+                .current_schema()
                 .map_err(DataFusionIcebergError::from)?
                 .clone();
             let location = metadata.location.clone();

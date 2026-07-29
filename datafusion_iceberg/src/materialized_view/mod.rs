@@ -179,7 +179,7 @@ pub async fn refresh_materialized_view(
                 .fields()
                 .iter()
                 .map(|x| {
-                    let schema = storage_table.current_schema(branch.as_deref())?;
+                    let schema = storage_table.current_schema()?;
                     Ok(schema
                         .get_name(x.name())
                         .ok_or(Error::Schema(x.name().to_string(), schema.to_string()))?

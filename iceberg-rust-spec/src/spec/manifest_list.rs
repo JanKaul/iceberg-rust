@@ -356,7 +356,7 @@ impl ManifestListEntry {
     ) -> Result<ManifestListEntry, Error> {
         let partition_types = table_metadata.default_partition_spec()?.data_types(
             table_metadata
-                .current_schema(None)
+                .current_schema()
                 .or(table_metadata
                     .refs
                     .values()
@@ -400,7 +400,7 @@ impl ManifestListEntry {
     ) -> Result<ManifestListEntry, Error> {
         let partition_types = table_metadata.default_partition_spec()?.data_types(
             table_metadata
-                .current_schema(None)
+                .current_schema()
                 .or(table_metadata
                     .refs
                     .values()
@@ -444,7 +444,7 @@ impl ManifestListEntry {
     ) -> Result<ManifestListEntry, Error> {
         let partition_types = table_metadata.default_partition_spec()?.data_types(
             table_metadata
-                .current_schema(None)
+                .current_schema()
                 .or(table_metadata
                     .refs
                     .values()

@@ -251,7 +251,7 @@ pub async fn snapshot_column_bounds(
 ) -> Result<Option<Rectangle>, Error> {
     let schema = table_metadata
         .schema(*snapshot.snapshot_id())
-        .or(table_metadata.current_schema(None))?;
+        .or(table_metadata.current_schema())?;
     let manifests = read_snapshot(snapshot, table_metadata, object_store.clone())
         .await?
         .collect::<Result<Vec<_>, _>>()?;
@@ -322,7 +322,6 @@ pub async fn snapshot_column_bounds(
 /// * `selected_manifest` - Optional existing manifest that can be reused for appends
 /// * `bounding_partition_values` - Computed partition boundaries for the data files
 /// * `n_existing_files` - Count of existing files for split calculations
-/// * `branch` - Optional branch name for multi-branch table operations
 pub(crate) struct ManifestListWriter<'schema, 'metadata> {
     table_metadata: &'metadata TableMetadata,
     writer: AvroWriter<'schema, Vec<u8>>,
@@ -332,7 +331,6 @@ pub(crate) struct ManifestListWriter<'schema, 'metadata> {
     n_existing_files: usize,
     commit_uuid: String,
     manifest_count: usize,
-    branch: Option<String>,
 }
 
 impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
@@ -346,7 +344,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// * `data_files` - Iterator over data files to compute partition boundaries from
     /// * `schema` - The Avro schema to use for manifest list serialization
     /// * `table_metadata` - Reference to the table metadata for partition field information
-    /// * `branch` - Optional branch name for multi-branch table operations
     ///
     /// # Returns
     /// * `Result<Self, Error>` - A new ManifestListWriter instance or an error
@@ -363,16 +360,14 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     data_files.iter(),
     ///     &manifest_list_schema,
     ///     &table_metadata,
-    ///     Some("main"),
     /// )?;
     /// ```
     pub(crate) fn new<'datafiles>(
         data_files: impl Iterator<Item = &'datafiles DataFile>,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
-        branch: Option<&str>,
     ) -> Result<Self, Error> {
-        let partition_fields = table_metadata.current_partition_fields(branch)?;
+        let partition_fields = table_metadata.current_partition_fields()?;
 
         let partition_column_names = partition_fields
             .iter()
@@ -395,7 +390,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             n_existing_files: 0,
             commit_uuid,
             manifest_count: 0,
-            branch: branch.map(ToOwned::to_owned),
         })
     }
 
@@ -418,7 +412,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// * `data_files` - Iterator over new data files to be appended
     /// * `schema` - The Avro schema to use for manifest list serialization
     /// * `table_metadata` - Reference to the table metadata for partition field information
-    /// * `branch` - Optional branch name for multi-branch table operations
     ///
     /// # Returns
     /// * `Result<Self, Error>` - A new ManifestListWriter instance with selected manifest or an error
@@ -438,7 +431,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     new_data_files.iter(),
     ///     &manifest_list_schema,
     ///     &table_metadata,
-    ///     Some("main"),
     /// )?;
     /// ```
     pub(crate) fn from_existing<'datafiles>(
@@ -446,9 +438,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         data_files: impl Iterator<Item = &'datafiles DataFile>,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
-        branch: Option<&str>,
     ) -> Result<Self, Error> {
-        let partition_fields = table_metadata.current_partition_fields(branch)?;
+        let partition_fields = table_metadata.current_partition_fields()?;
 
         let partition_column_names = partition_fields
             .iter()
@@ -487,7 +478,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             n_existing_files: file_count_all_entries,
             commit_uuid,
             manifest_count: 0,
-            branch: branch.map(ToOwned::to_owned),
         })
     }
 
@@ -511,7 +501,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// * `manifests_to_overwrite` - Set of manifest paths that should be excluded/overwritten
     /// * `schema` - The Avro schema to use for manifest list serialization
     /// * `table_metadata` - Reference to the table metadata for partition field information
-    /// * `branch` - Optional branch name for multi-branch table operations
     ///
     /// # Returns
     /// * `Result<(Self, Vec<ManifestListEntry>), Error>` - A tuple containing:
@@ -535,7 +524,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     &manifests_to_overwrite,
     ///     &manifest_list_schema,
     ///     &table_metadata,
-    ///     Some("main"),
     /// )?;
     /// ```
     pub(crate) fn from_existing_without_overwrites<'datafiles>(
@@ -544,9 +532,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         manifests_to_overwrite: &HashSet<String>,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
-        branch: Option<&str>,
     ) -> Result<(Self, Vec<ManifestListEntry>), Error> {
-        let partition_fields = table_metadata.current_partition_fields(branch)?;
+        let partition_fields = table_metadata.current_partition_fields()?;
 
         let partition_column_names = partition_fields
             .iter()
@@ -591,7 +578,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 n_existing_files: file_count_all_entries,
                 commit_uuid,
                 manifest_count: 0,
-                branch: branch.map(ToOwned::to_owned),
             },
             manifests,
         ))
@@ -815,9 +801,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         };
         let selected_manifest_bytes_opt = prefetch_manifest(&selected_manifest, &object_store);
 
-        let partition_fields = self
-            .table_metadata
-            .current_partition_fields(self.branch.as_deref())?;
+        let partition_fields = self.table_metadata.current_partition_fields()?;
 
         let manifest_schema = ManifestEntry::schema(
             &partition_value_schema(&partition_fields)?,
@@ -840,7 +824,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                             &filter,
                             &manifest_schema,
                             self.table_metadata,
-                            self.branch.as_deref(),
                         )?;
                     (manifest_writer, Some(filtered_stats))
                 } else {
@@ -850,7 +833,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                         manifest,
                         &manifest_schema,
                         self.table_metadata,
-                        self.branch.as_deref(),
                     )?;
                     (manifest_writer, None)
                 }
@@ -863,7 +845,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                     &manifest_schema,
                     self.table_metadata,
                     content,
-                    self.branch.as_deref(),
                 )?;
                 (manifest_writer, None)
             };
@@ -1056,9 +1037,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         } else {
             None
         };
-        let partition_fields = self
-            .table_metadata
-            .current_partition_fields(self.branch.as_deref())?;
+        let partition_fields = self.table_metadata.current_partition_fields()?;
 
         let partition_column_names = partition_fields
             .iter()
@@ -1145,7 +1124,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                     &manifest_schema,
                     self.table_metadata,
                     content,
-                    self.branch.as_deref(),
                 )?;
 
                 for manifest_entry in entries {
@@ -1264,9 +1242,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         data_files_to_filter: &HashMap<String, Vec<String>>,
         object_store: Arc<dyn ObjectStore>,
     ) -> Result<FilteredManifestStats, Error> {
-        let partition_fields = self
-            .table_metadata
-            .current_partition_fields(self.branch.as_deref())?;
+        let partition_fields = self.table_metadata.current_partition_fields()?;
 
         let manifest_schema = Arc::new(ManifestEntry::schema(
             &partition_value_schema(&partition_fields)?,
@@ -1276,7 +1252,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         let futures = manifests_to_overwrite.into_iter().map(|mut manifest| {
             let object_store = object_store.clone();
             let manifest_schema = manifest_schema.clone();
-            let branch = self.branch.clone();
             let manifest_location = self.next_manifest_location();
             let table_metadata = self.table_metadata;
             async move {
@@ -1303,7 +1278,6 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                         &data_files_to_filter,
                         &manifest_schema,
                         table_metadata,
-                        branch.as_deref(),
                     )?;
 
                 // Apply filtered statistics

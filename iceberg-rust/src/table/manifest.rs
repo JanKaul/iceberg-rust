@@ -202,7 +202,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
         content: manifest_list::Content,
-        branch: Option<&str>,
     ) -> Result<Self, Error> {
         let mut writer = AvroWriter::new(schema, Vec::new());
 
@@ -219,17 +218,17 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             "schema".to_string(),
             match table_metadata.format_version {
                 FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
-                    table_metadata.current_schema(branch)?.clone(),
+                    table_metadata.current_schema()?.clone(),
                 ))?,
                 FormatVersion::V2 | FormatVersion::V3 => serde_json::to_string(
-                    &Into::<SchemaV2>::into(table_metadata.current_schema(branch)?.clone()),
+                    &Into::<SchemaV2>::into(table_metadata.current_schema()?.clone()),
                 )?,
             },
         )?;
 
         writer.add_user_metadata(
             "schema-id".to_string(),
-            serde_json::to_string(&table_metadata.current_schema(branch)?.schema_id())?,
+            serde_json::to_string(&table_metadata.current_schema()?.schema_id())?,
         )?;
 
         let spec_id = table_metadata.default_spec_id;
@@ -311,7 +310,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         mut manifest: ManifestListEntry,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
-        branch: Option<&str>,
     ) -> Result<Self, Error> {
         let mut writer = AvroWriter::new(schema, Vec::new());
         writer.add_user_metadata(
@@ -327,17 +325,17 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             "schema".to_string(),
             match table_metadata.format_version {
                 FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
-                    table_metadata.current_schema(branch)?.clone(),
+                    table_metadata.current_schema()?.clone(),
                 ))?,
                 FormatVersion::V2 | FormatVersion::V3 => serde_json::to_string(
-                    &Into::<SchemaV2>::into(table_metadata.current_schema(branch)?.clone()),
+                    &Into::<SchemaV2>::into(table_metadata.current_schema()?.clone()),
                 )?,
             },
         )?;
 
         writer.add_user_metadata(
             "schema-id".to_string(),
-            serde_json::to_string(&table_metadata.current_schema(branch)?.schema_id())?,
+            serde_json::to_string(&table_metadata.current_schema()?.schema_id())?,
         )?;
 
         let spec_id = table_metadata.default_spec_id;
@@ -446,7 +444,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         filter: &HashSet<String>,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
-        branch: Option<&str>,
     ) -> Result<(Self, FilteredManifestStats), Error> {
         let manifest_reader = ManifestReader::new(bytes)?;
 
@@ -466,17 +463,17 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             "schema".to_string(),
             match table_metadata.format_version {
                 FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
-                    table_metadata.current_schema(branch)?.clone(),
+                    table_metadata.current_schema()?.clone(),
                 ))?,
                 FormatVersion::V2 | FormatVersion::V3 => serde_json::to_string(
-                    &Into::<SchemaV2>::into(table_metadata.current_schema(branch)?.clone()),
+                    &Into::<SchemaV2>::into(table_metadata.current_schema()?.clone()),
                 )?,
             },
         )?;
 
         writer.add_user_metadata(
             "schema-id".to_string(),
-            serde_json::to_string(&table_metadata.current_schema(branch)?.schema_id())?,
+            serde_json::to_string(&table_metadata.current_schema()?.schema_id())?,
         )?;
 
         let spec_id = table_metadata.default_spec_id;

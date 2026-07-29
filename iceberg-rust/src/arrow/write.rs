@@ -167,12 +167,7 @@ async fn store_parquet_partitioned(
 ) -> Result<Vec<DataFile>, ArrowError> {
     let metadata = table.metadata();
     let object_store = table.object_store();
-    let schema = Arc::new(
-        metadata
-            .current_schema(branch)
-            .map_err(Error::from)?
-            .clone(),
-    );
+    let schema = Arc::new(metadata.current_schema().map_err(Error::from)?.clone());
     // project the schema on to the equality_ids for equality deletes
     let schema = if let Some(equality_ids) = equality_ids {
         Arc::new(schema.project(equality_ids))
@@ -187,9 +182,7 @@ async fn store_parquet_partitioned(
             .clone(),
     );
 
-    let partition_fields = &metadata
-        .current_partition_fields(branch)
-        .map_err(Error::from)?;
+    let partition_fields = &metadata.current_partition_fields().map_err(Error::from)?;
 
     let data_location = &metadata
         .properties
