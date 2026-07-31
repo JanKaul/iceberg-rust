@@ -589,11 +589,8 @@ async fn table_scan(
         let pruning_predicate =
             PruningPredicate::try_new(physical_predicate, arrow_schema.clone())?;
         // After the first pruning stage the data_files are pruned again based on the pruning statistics in the manifest files.
-        let files_to_prune = pruning_predicate.prune(&PruneDataFiles::new(
-            &schema,
-            &partition_schema,
-            &data_files,
-        ))?;
+        let files_to_prune =
+            pruning_predicate.prune(&PruneDataFiles::new(&schema, &arrow_schema, &data_files))?;
 
         let mut statistics = statistics_from_datafiles(&schema, &data_files);
         // Add placeholder statistics for partition/metadata columns
