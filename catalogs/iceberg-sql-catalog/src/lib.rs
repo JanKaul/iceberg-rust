@@ -62,8 +62,21 @@ impl SqlCatalog {
             pool_options = pool_options.max_connections(1);
         }
 
-        let pool = AnyPoolOptions::after_connect(pool_options, |connection, _| {
+        let is_sqlite = url.starts_with("sqlite");
+
+        let pool = AnyPoolOptions::after_connect(pool_options, move |connection, _| {
             Box::pin(async move {
+                if is_sqlite {
+                    // Enable write-ahead logging and a busy timeout on every SQLite
+                    // connection. WAL lets readers proceed during a write and makes
+                    // each write cheaper, so concurrent catalog commits don't
+                    // serialize behind an exclusive rollback-journal lock; the busy
+                    // timeout avoids immediate "database is locked" errors under
+                    // brief write contention. Both are no-ops on an in-memory
+                    // database.
+                    connection.execute("PRAGMA journal_mode=WAL;").await?;
+                    connection.execute("PRAGMA busy_timeout=30000;").await?;
+                }
                 connection
                     .execute(
                         "create table if not exists iceberg_tables (
@@ -770,12 +783,21 @@ impl SqlCatalogList {
 
         let mut pool_options = PoolOptions::new();
 
-        if url.starts_with("sqlite") {
+        let is_sqlite = url.starts_with("sqlite");
+
+        if is_sqlite {
             pool_options = pool_options.max_connections(1);
         }
 
-        let pool = AnyPoolOptions::after_connect(pool_options, |connection, _| {
+        let pool = AnyPoolOptions::after_connect(pool_options, move |connection, _| {
             Box::pin(async move {
+                if is_sqlite {
+                    // See SqlCatalog::new: WAL + a busy timeout keep concurrent
+                    // catalog commits from serializing behind an exclusive
+                    // rollback-journal lock. No-ops on an in-memory database.
+                    connection.execute("PRAGMA journal_mode=WAL;").await?;
+                    connection.execute("PRAGMA busy_timeout=30000;").await?;
+                }
                 connection
                     .execute(
                         "create table if not exists iceberg_tables (
