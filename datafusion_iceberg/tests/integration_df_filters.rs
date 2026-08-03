@@ -11,6 +11,7 @@
 mod df_common;
 
 use df_common::{boot_df_stack, execute_scalar_i64, execute_sql};
+use rstest::rstest;
 
 async fn seed_filters(ctx: &datafusion::execution::context::SessionContext) {
     execute_sql(ctx, "CREATE SCHEMA warehouse.flt").await;
@@ -221,4 +222,95 @@ async fn integration_df_filter_negation() {
     )
     .await;
     assert_eq!(n, 6);
+}
+
+// Number of parquet data files the physical plan for `sql` would scan
+async fn plan_files(ctx: &datafusion::execution::context::SessionContext, sql: &str) -> usize {
+    let plan = ctx
+        .sql(sql)
+        .await
+        .unwrap()
+        .create_physical_plan()
+        .await
+        .unwrap();
+    let displayed = datafusion::physical_plan::displayable(plan.as_ref())
+        .indent(false)
+        .to_string();
+    displayed.matches(".parquet").count()
+}
+
+// A filter must prune whole data files at plan time from Iceberg metadata
+// alone, not just push the predicate down to the parquet reader.
+#[rstest]
+#[case::unpartitioned(false)]
+#[case::partitioned(true)]
+#[tokio::test]
+async fn integration_df_filter_prunes_files(#[case] partitioned: bool) {
+    let ctx = boot_df_stack().await;
+    execute_sql(&ctx, "CREATE SCHEMA warehouse.flt_prune").await;
+    execute_sql(
+        &ctx,
+        &format!(
+            "CREATE EXTERNAL TABLE warehouse.flt_prune.t \
+             (id BIGINT NOT NULL, region STRING NOT NULL, score INT NOT NULL) \
+             STORED AS ICEBERG LOCATION '/warehouse/flt_prune/t'{}",
+            if partitioned {
+                " PARTITIONED BY (region)"
+            } else {
+                ""
+            }
+        ),
+    )
+    .await;
+    // One single-region insert per commit, with disjoint score ranges ->
+    // two data files (and two manifests) whose region and score bounds
+    // don't overlap
+    execute_sql(
+        &ctx,
+        "INSERT INTO warehouse.flt_prune.t VALUES \
+         (1, 'emea', 10), (2, 'emea', 20), (3, 'emea', 30)",
+    )
+    .await;
+    execute_sql(
+        &ctx,
+        "INSERT INTO warehouse.flt_prune.t VALUES \
+         (4, 'amer', 40), (5, 'amer', 50)",
+    )
+    .await;
+
+    assert_eq!(
+        plan_files(&ctx, "SELECT * FROM warehouse.flt_prune.t").await,
+        2
+    );
+
+    // Each predicate isolates one of the two files (or neither) through a
+    // different column's bounds; pruning must not change the row counts
+    for (predicate, files, rows) in [
+        ("id < 3", 1, 2),
+        ("id > 4", 1, 1),
+        ("region = 'emea'", 1, 3),
+        ("region = 'amer'", 1, 2),
+        ("region = 'apac'", 0, 0),
+        ("score <= 30", 1, 3),
+        ("score >= 40", 1, 2),
+    ] {
+        assert_eq!(
+            plan_files(
+                &ctx,
+                &format!("SELECT * FROM warehouse.flt_prune.t WHERE {predicate}")
+            )
+            .await,
+            files,
+            "{predicate}"
+        );
+        assert_eq!(
+            execute_scalar_i64(
+                &ctx,
+                &format!("SELECT COUNT(*) FROM warehouse.flt_prune.t WHERE {predicate}")
+            )
+            .await,
+            rows,
+            "{predicate}"
+        );
+    }
 }
