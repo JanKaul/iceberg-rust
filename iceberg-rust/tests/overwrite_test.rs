@@ -476,3 +476,199 @@ async fn create_files_to_overwrite_for_partition(
 
     Ok(files_to_overwrite)
 }
+
+/// Regression test: an overwrite that leaves surviving entries in a filtered
+/// manifest must not panic.
+///
+/// `ManifestWriter::from_existing_with_filter` rewrites every surviving entry
+/// with status `Existing` and then zeroes the manifest's "added" counters.
+/// Those counters are REQUIRED fields in the v2/v3 manifest-list schema, so
+/// setting them to `None` panicked in `ManifestListEntryV2::from` as soon as
+/// `append_and_filter` serialized the rewritten entry back into the manifest
+/// list.
+///
+/// `test_table_transaction_overwrite` above does not reach that path: it
+/// removes every file its filtered manifest holds, so the manifest ends up
+/// empty and `append_and_filter`'s `added > 0 || existing > 0` guard skips
+/// serialization entirely. The append path escapes it too, because `add_file`
+/// repopulates the counters afterwards. The panic therefore only shows up when
+/// an overwrite removes a strict *subset* of a manifest's files — exactly what
+/// a partition-scoped compaction does.
+#[tokio::test]
+async fn test_overwrite_keeping_surviving_entries_in_filtered_manifest() {
+    let object_store = ObjectStoreBuilder::memory();
+    let catalog: Arc<dyn Catalog> = Arc::new(
+        SqlCatalog::new("sqlite://", "warehouse", object_store.clone())
+            .await
+            .unwrap(),
+    );
+
+    let schema = {
+        let mut schema_builder = Schema::builder();
+        schema_builder
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "region".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "value".to_string(),
+                required: false,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap()
+    };
+    let partition_spec = PartitionSpec::builder()
+        .with_partition_field(PartitionField::new(2, 1000, "region", Transform::Identity))
+        .build()
+        .unwrap();
+
+    let mut table = Table::builder()
+        .with_name("test_overwrite_partial_manifest")
+        .with_location("/test/test_overwrite_partial_manifest")
+        .with_schema(schema)
+        .with_partition_spec(partition_spec)
+        .build(&["test".to_owned()], catalog.clone())
+        .await
+        .expect("Failed to create table");
+
+    // Many small single-file appends into one partition — the shape a
+    // streaming ingest writer produces. Once the selected manifest grows past
+    // `MIN_DATAFILES_PER_MANIFEST + sqrt(total)`, the manifest list splits, so
+    // this reliably yields several manifests holding several entries each.
+    //
+    // That matters, because an overwrite designates ONE manifest to receive
+    // the new data files and calls `add_file` on it, which repopulates the
+    // "added" counters. Only the *other* filtered manifests go through
+    // `append_and_filter`, which serializes them as-is — so reaching the bug
+    // needs a filtered manifest that is not the selected one and still holds a
+    // surviving entry.
+    for i in 0..32_i64 {
+        let batch = RecordBatch::try_new(
+            Arc::new(create_arrow_schema()),
+            vec![
+                Arc::new(Int64Array::from(vec![i])),
+                Arc::new(StringArray::from(vec!["us-east"])),
+                Arc::new(Int64Array::from(vec![Some(i * 10)])),
+            ],
+        )
+        .unwrap();
+        let data_files = write_parquet_partitioned(&table, stream::iter(vec![Ok(batch)]), None)
+            .await
+            .expect("Failed to write parquet files");
+        table
+            .new_transaction(None)
+            .append_data(data_files)
+            .commit()
+            .await
+            .expect("Failed to append data");
+    }
+
+    let manifests = table.manifests(None, None).await.unwrap();
+    assert!(
+        manifests.len() >= 2,
+        "setup should split into several manifests, got {}",
+        manifests.len()
+    );
+
+    // Remove one file from every manifest that holds more than one, so
+    // whichever manifest the overwrite selects for the new files, at least one
+    // other is filtered while retaining a survivor.
+    let mut files_to_overwrite: HashMap<String, Vec<String>> = HashMap::new();
+    let mut victims: Vec<String> = Vec::new();
+    let mut survivors: Vec<String> = Vec::new();
+    for manifest_entry in manifests {
+        let manifest_path = manifest_entry.manifest_path.clone();
+        let entries = table
+            .datafiles(&[manifest_entry], None, (None, None))
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        let mut paths: Vec<String> = entries
+            .into_iter()
+            .map(|r| r.unwrap().1.data_file().file_path().to_owned())
+            .collect();
+        paths.sort();
+        if paths.len() < 2 {
+            continue;
+        }
+        victims.push(paths[0].clone());
+        survivors.extend(paths[1..].iter().cloned());
+        files_to_overwrite.insert(manifest_path, vec![paths[0].clone()]);
+    }
+    assert!(
+        !files_to_overwrite.is_empty(),
+        "at least one multi-entry manifest is required"
+    );
+
+    // Replacement data standing in for the removed file's rows.
+    let replacement = RecordBatch::try_new(
+        Arc::new(create_arrow_schema()),
+        vec![
+            Arc::new(Int64Array::from(vec![1_i64, 2_i64])),
+            Arc::new(StringArray::from(vec!["us-east", "us-east"])),
+            Arc::new(Int64Array::from(vec![Some(10), Some(20)])),
+        ],
+    )
+    .unwrap();
+    let replacement_files =
+        write_parquet_partitioned(&table, stream::iter(vec![Ok(replacement)]), None)
+            .await
+            .expect("Failed to write replacement parquet files");
+
+    // Before the fix this panicked inside `ManifestListEntryV2::from`.
+    table
+        .new_transaction(None)
+        .overwrite(replacement_files, files_to_overwrite)
+        .commit()
+        .await
+        .expect("overwrite leaving surviving entries should commit");
+
+    // The surviving file's rows and the replacement's rows must both be live,
+    // and the removed file must be gone.
+    let live: Vec<String> = {
+        let manifests = table.manifests(None, None).await.unwrap();
+        let entries = table
+            .datafiles(&manifests, None, (None, None))
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        entries
+            .into_iter()
+            .map(|r| r.unwrap().1.data_file().file_path().to_owned())
+            .collect()
+    };
+
+    for victim in &victims {
+        assert!(
+            !live.contains(victim),
+            "the overwritten file {victim} must no longer be live"
+        );
+    }
+    for survivor in &survivors {
+        assert!(
+            live.contains(survivor),
+            "the surviving file {survivor} in a filtered manifest must still be live"
+        );
+    }
+}

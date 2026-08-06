@@ -393,8 +393,15 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             manifest.existing_rows_count.unwrap_or(0) + manifest.added_rows_count.unwrap_or(0),
         );
 
-        manifest.added_files_count = None;
-        manifest.added_rows_count = None;
+        // Zero, not absent: `added_files_count` / `added_rows_count` are
+        // REQUIRED fields in the v2/v3 manifest-list schema, and
+        // `ManifestListEntryV2::from` unwraps them. A manifest whose entries
+        // were all rewritten as Existing adds nothing, but it must still say
+        // so explicitly — leaving these `None` panics as soon as the entry is
+        // serialized back into the manifest list without an intervening
+        // `add_file` call to repopulate them.
+        manifest.added_files_count = Some(0);
+        manifest.added_rows_count = Some(0);
 
         Ok(ManifestWriter {
             manifest,
@@ -540,8 +547,15 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 - filtered_stats.removed_records,
         );
 
-        manifest.added_files_count = None;
-        manifest.added_rows_count = None;
+        // Zero, not absent: `added_files_count` / `added_rows_count` are
+        // REQUIRED fields in the v2/v3 manifest-list schema, and
+        // `ManifestListEntryV2::from` unwraps them. A manifest whose entries
+        // were all rewritten as Existing adds nothing, but it must still say
+        // so explicitly — leaving these `None` panics as soon as the entry is
+        // serialized back into the manifest list without an intervening
+        // `add_file` call to repopulate them.
+        manifest.added_files_count = Some(0);
+        manifest.added_rows_count = Some(0);
 
         Ok((
             ManifestWriter {
