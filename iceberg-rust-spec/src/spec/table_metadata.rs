@@ -53,6 +53,16 @@ pub const WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED: &str =
 /// `write.parquet.bloom-filter-enabled.column.label_env = "true"`.
 pub const WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX: &str =
     "write.parquet.bloom-filter-enabled.column.";
+/// Default statistics mode for a table's columns: `none`, `counts`,
+/// `truncate(n)` or `full`. Defaults to `truncate(16)`.
+pub const WRITE_METADATA_METRICS_DEFAULT: &str = "write.metadata.metrics.default";
+/// Per-column statistics mode: append the column name, e.g.
+/// `write.metadata.metrics.column.body = "none"`. Overrides the default.
+pub const WRITE_METADATA_METRICS_COLUMN_PREFIX: &str = "write.metadata.metrics.column.";
+/// How many top-level columns the inferred default mode reaches. Columns past
+/// it are only measured when named explicitly. Defaults to 100.
+pub const WRITE_METADATA_METRICS_MAX_INFERRED_COLUMN_DEFAULTS: &str =
+    "write.metadata.metrics.max-inferred-column-defaults";
 
 pub use _serde::{TableMetadataV1, TableMetadataV2, TableMetadataV3};
 
