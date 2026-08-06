@@ -32,6 +32,11 @@ pub enum Error {
     /// Not found in catalog
     #[error("Entity not found in catalog")]
     CatalogNotFound,
+    /// A concurrent commit superseded the base metadata this commit was built on
+    #[error(
+        "Commit to {0} conflicted with a concurrent commit; the base metadata is no longer current"
+    )]
+    CommitConflict(String),
     /// External error
     #[error(transparent)]
     External(Box<dyn std::error::Error + Send + Sync>),
