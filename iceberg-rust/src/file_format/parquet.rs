@@ -23,6 +23,9 @@ use thrift::protocol::{TCompactOutputProtocol, TSerializable};
 use tracing::instrument;
 
 use crate::error::Error;
+use crate::file_format::metrics::{
+    truncate_lower_bound, truncate_upper_bound, MetricsConfig, MetricsMode,
+};
 
 /// Parquet file-level KV metadata key that opts in to HLL-based `distinct_count`
 /// estimation for `Int64` columns. A patched arrow-rs writer reads this entry
@@ -67,31 +70,59 @@ pub fn parquet_to_datafile(
         .collect::<Result<HashMap<String, PartitionField>, Error>>()?;
     let _parquet_schema = file_metadata.file_metadata().schema_descr_ptr();
 
+    let metrics_config = MetricsConfig::from_table_properties(table_properties);
+    // `max-inferred-column-defaults` counts top-level columns, so a nested
+    // column inherits the position of the field it hangs off.
+    let top_level_indices: HashMap<&str, usize> = schema
+        .iter()
+        .enumerate()
+        .map(|(index, field)| (field.name.as_str(), index))
+        .collect();
+
     let mut column_sizes = AvroMap(HashMap::new());
     let mut value_counts = AvroMap(HashMap::new());
     let mut null_value_counts = AvroMap(HashMap::new());
     let mut distinct_counts = write_distinct_counts.then(|| AvroMap(HashMap::new()));
     let mut lower_bounds: HashMap<i32, Value> = HashMap::new();
     let mut upper_bounds: HashMap<i32, Value> = HashMap::new();
+    // Which mode produced each column's bounds, so truncation can be applied
+    // once at the end rather than per row group.
+    let mut column_metrics_modes: HashMap<i32, MetricsMode> = HashMap::new();
 
     for row_group in file_metadata.row_groups() {
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
+            let column_path = column.column_path().parts().join(".");
             let id = schema
-                .get_name(&column.column_path().parts().join("."))
+                .get_name(&column_path)
                 .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
                 .id;
+
+            let top_level_index = column_path
+                .split('.')
+                .next()
+                .and_then(|root| top_level_indices.get(root).copied());
+            let metrics_mode = metrics_config.mode_for(&column_path, top_level_index);
+            column_metrics_modes.insert(id, metrics_mode);
+
+            // Column sizes describe the file's physical layout rather than its
+            // values, so they are collected regardless of the metrics mode.
             column_sizes
                 .entry(id)
                 .and_modify(|x| *x += column.compressed_size())
                 .or_insert(column.compressed_size());
-            value_counts
-                .entry(id)
-                .and_modify(|x| *x += row_group.num_rows())
-                .or_insert(row_group.num_rows());
+            if metrics_mode.records_counts() {
+                value_counts
+                    .entry(id)
+                    .and_modify(|x| *x += row_group.num_rows())
+                    .or_insert(row_group.num_rows());
+            }
 
             if let Some(statistics) = column.statistics() {
-                if let Some(null_count) = statistics.null_count_opt() {
+                if let Some(null_count) = statistics
+                    .null_count_opt()
+                    .filter(|_| metrics_mode.records_counts())
+                {
                     null_value_counts
                         .entry(id)
                         .and_modify(|x| *x += null_count as i64)
@@ -116,7 +147,10 @@ pub fn parquet_to_datafile(
                     _ => None,
                 };
 
-                if let Some(distinct_counts) = distinct_counts.as_mut() {
+                if let Some(distinct_counts) = distinct_counts
+                    .as_mut()
+                    .filter(|_| metrics_mode.records_counts())
+                {
                     if let (Some(distinct_count), Some(min_bytes), Some(max_bytes)) = (
                         statistics.distinct_count_opt(),
                         statistics.min_bytes_opt(),
@@ -179,7 +213,10 @@ pub fn parquet_to_datafile(
                     }
                 }
 
-                if let Some(min_bytes) = statistics.min_bytes_opt() {
+                if let Some(min_bytes) = statistics
+                    .min_bytes_opt()
+                    .filter(|_| metrics_mode.records_bounds())
+                {
                     if let Type::Primitive(_) = &data_type {
                         let new = Value::try_from_bytes_with_hint(
                             min_bytes,
@@ -239,7 +276,10 @@ pub fn parquet_to_datafile(
                         }
                     }
                 }
-                if let Some(max_bytes) = statistics.max_bytes_opt() {
+                if let Some(max_bytes) = statistics
+                    .max_bytes_opt()
+                    .filter(|_| metrics_mode.records_bounds())
+                {
                     if let Type::Primitive(_) = &data_type {
                         let new = Value::try_from_bytes_with_hint(
                             max_bytes,
@@ -335,6 +375,28 @@ pub fn parquet_to_datafile(
             }
         }
     }
+    // Truncate once, after the bounds have been merged across row groups.
+    // Truncating per row group and merging afterwards would repeatedly widen an
+    // already-widened upper bound.
+    let lower_bounds = lower_bounds
+        .into_iter()
+        .map(|(id, value)| match column_metrics_modes.get(&id) {
+            Some(MetricsMode::Truncate(length)) => (id, truncate_lower_bound(value, *length)),
+            _ => (id, value),
+        })
+        .collect::<HashMap<i32, Value>>();
+    let upper_bounds = upper_bounds
+        .into_iter()
+        .filter_map(|(id, value)| match column_metrics_modes.get(&id) {
+            // A bound that cannot be raised is dropped: an understated upper
+            // bound would prune files that still hold matching rows.
+            Some(MetricsMode::Truncate(length)) => {
+                truncate_upper_bound(value, *length).map(|value| (id, value))
+            }
+            _ => Some((id, value)),
+        })
+        .collect::<HashMap<i32, Value>>();
+
     let mut builder = DataFile::builder();
     builder
         .with_content(if equality_ids.is_none() {
@@ -479,6 +541,162 @@ where
     };
 
     (outside_overlap + new_in_overlap).round() as i64
+}
+
+#[cfg(test)]
+mod metrics_mode_tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use arrow::array::{ArrayRef, StringArray};
+    use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+    use arrow::record_batch::RecordBatch;
+    use iceberg_rust_spec::spec::schema::Schema;
+    use iceberg_rust_spec::spec::types::{PrimitiveType, StructField, Type};
+    use iceberg_rust_spec::spec::values::Value;
+    use iceberg_rust_spec::table_metadata::{
+        WRITE_METADATA_METRICS_COLUMN_PREFIX, WRITE_METADATA_METRICS_DEFAULT,
+    };
+    use parquet::arrow::ArrowWriter;
+    use parquet::file::reader::{FileReader, SerializedFileReader};
+
+    use super::parquet_to_datafile;
+
+    /// A two-column table whose values are far longer than any sane bound.
+    fn schema() -> Schema {
+        Schema::builder()
+            .with_struct_field(StructField {
+                id: 0,
+                name: "body".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .with_struct_field(StructField {
+                id: 1,
+                name: "trace_id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap()
+    }
+
+    /// Writes one Parquet file holding `body`/`trace_id` and returns the
+    /// `DataFile` built from it under the given table properties.
+    fn datafile_with(
+        properties: HashMap<String, String>,
+    ) -> iceberg_rust_spec::spec::manifest::DataFile {
+        let arrow_schema = Arc::new(ArrowSchema::new(vec![
+            Field::new("body", DataType::Utf8, false),
+            Field::new("trace_id", DataType::Utf8, false),
+        ]));
+
+        let bodies: ArrayRef = Arc::new(StringArray::from(vec![
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa- first log line",
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz- last log line",
+        ]));
+        let trace_ids: ArrayRef = Arc::new(StringArray::from(vec![
+            "00000000000000000000000000000001",
+            "ffffffffffffffffffffffffffffffff",
+        ]));
+        let batch = RecordBatch::try_new(arrow_schema.clone(), vec![bodies, trace_ids]).unwrap();
+
+        let mut buffer = Vec::new();
+        let mut writer = ArrowWriter::try_new(&mut buffer, arrow_schema, None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+        let file_size = buffer.len() as u64;
+
+        let reader = SerializedFileReader::new(bytes::Bytes::from(buffer)).unwrap();
+        let parquet_metadata = reader.metadata().clone();
+
+        parquet_to_datafile(
+            "/t/data/1.parquet",
+            file_size,
+            &parquet_metadata,
+            &schema(),
+            &[],
+            None,
+            &properties,
+        )
+        .unwrap()
+    }
+
+    fn bound(bounds: &Option<HashMap<i32, Value>>, id: i32) -> Option<String> {
+        match bounds.as_ref()?.get(&id)? {
+            Value::String(string) => Some(string.clone()),
+            other => panic!("expected a string bound, got {other:?}"),
+        }
+    }
+
+    /// A table that says nothing must still not carry a full-length bound for
+    /// every column: the spec's inferred default is `truncate(16)`.
+    #[test]
+    fn bounds_are_truncated_to_sixteen_by_default() {
+        let datafile = datafile_with(HashMap::new());
+
+        let lower = bound(datafile.lower_bounds(), 0).expect("a lower bound for body");
+        let upper = bound(datafile.upper_bounds(), 0).expect("an upper bound for body");
+
+        assert_eq!(lower.chars().count(), 16, "lower bound was not truncated");
+        assert!(upper.chars().count() <= 16, "upper bound was not truncated");
+
+        // Truncation must not break the bounds' meaning.
+        assert!(lower.as_str() <= "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa- first log line");
+        assert!(upper.as_str() >= "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz- last log line");
+    }
+
+    /// `none` on a column drops its bounds and counts, which is the point for a
+    /// JSON blob or a log body that no query ever prunes on.
+    #[test]
+    fn a_column_set_to_none_carries_no_metrics() {
+        let properties = HashMap::from([(
+            format!("{WRITE_METADATA_METRICS_COLUMN_PREFIX}body"),
+            "none".to_string(),
+        )]);
+        let datafile = datafile_with(properties);
+
+        assert_eq!(bound(datafile.lower_bounds(), 0), None);
+        assert_eq!(bound(datafile.upper_bounds(), 0), None);
+        assert_eq!(datafile.value_counts().as_ref().unwrap().get(&0), None);
+
+        // The other column is untouched.
+        assert!(bound(datafile.lower_bounds(), 1).is_some());
+        assert!(datafile.value_counts().as_ref().unwrap().get(&1).is_some());
+
+        // Column sizes describe layout, not values, and are always present.
+        assert!(datafile.column_sizes().as_ref().unwrap().get(&0).is_some());
+    }
+
+    /// `full` keeps the untruncated bound, for the columns worth it.
+    #[test]
+    fn a_column_set_to_full_keeps_untruncated_bounds() {
+        let properties = HashMap::from([
+            (
+                WRITE_METADATA_METRICS_DEFAULT.to_string(),
+                "counts".to_string(),
+            ),
+            (
+                format!("{WRITE_METADATA_METRICS_COLUMN_PREFIX}trace_id"),
+                "full".to_string(),
+            ),
+        ]);
+        let datafile = datafile_with(properties);
+
+        assert_eq!(
+            bound(datafile.lower_bounds(), 1).as_deref(),
+            Some("00000000000000000000000000000001")
+        );
+        // `counts` gives the other column counts but no bounds.
+        assert_eq!(bound(datafile.lower_bounds(), 0), None);
+        assert!(datafile.value_counts().as_ref().unwrap().get(&0).is_some());
+    }
 }
 
 #[cfg(test)]
