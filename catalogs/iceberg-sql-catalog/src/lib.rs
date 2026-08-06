@@ -109,6 +109,35 @@ impl SqlCatalog {
     fn default_object_store(&self, bucket: Bucket) -> Arc<dyn object_store::ObjectStore> {
         Arc::new(self.object_store.build(bucket).unwrap())
     }
+
+    /// Atomically move the catalog's metadata pointer for `identifier` from
+    /// `previous_metadata_location` to `metadata_location`.
+    ///
+    /// The update only matches while the previous location is still current, so
+    /// a writer that committed first leaves this update matching no rows. That
+    /// outcome is a lost commit, not a success: the new metadata file exists in
+    /// the object store but nothing references it. Report it as a conflict and
+    /// drop the cache entry, whose metadata is now known to be stale, so the
+    /// next load refreshes from the catalog.
+    async fn swap_metadata_location(
+        &self,
+        identifier: &Identifier,
+        previous_metadata_location: &str,
+        metadata_location: &str,
+    ) -> Result<(), IcebergError> {
+        let catalog_name = &self.name;
+        let namespace = identifier.namespace().to_string();
+        let name = identifier.name();
+
+        let result = sqlx::query(&format!("update iceberg_tables set metadata_location = '{metadata_location}', previous_metadata_location = '{previous_metadata_location}' where catalog_name = '{catalog_name}' and table_namespace = '{namespace}' and table_name = '{name}' and metadata_location = '{previous_metadata_location}';")).execute(&self.pool).await.map_err(Error::from)?;
+
+        if result.rows_affected() == 0 {
+            self.cache.write().unwrap().remove(identifier);
+            return Err(IcebergError::CommitConflict(identifier.to_string()));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -575,13 +604,8 @@ impl Catalog for SqlCatalog {
             .await?;
         object_store.put_version_hint(&metadata_location).await.ok();
 
-        let catalog_name = self.name.clone();
-        let namespace = identifier.namespace().to_string();
-        let name = identifier.name().to_string();
-        let metadata_file_location = metadata_location.to_string();
-        let previous_metadata_file_location = previous_metadata_location.to_string();
-
-        sqlx::query(&format!("update iceberg_tables set metadata_location = '{metadata_file_location}', previous_metadata_location = '{previous_metadata_file_location}' where catalog_name = '{catalog_name}' and table_namespace = '{namespace}' and table_name = '{name}' and metadata_location = '{previous_metadata_file_location}';")).execute(&self.pool).await.map_err(Error::from)?;
+        self.swap_metadata_location(&identifier, &previous_metadata_location, &metadata_location)
+            .await?;
 
         self.cache.write().unwrap().insert(
             identifier.clone(),
@@ -633,13 +657,9 @@ impl Catalog for SqlCatalog {
             )),
         }?;
 
-        let catalog_name = self.name.clone();
-        let namespace = identifier.namespace().to_string();
-        let name = identifier.name().to_string();
-        let metadata_file_location = metadata_location.to_string();
-        let previous_metadata_file_location = previous_metadata_location.to_string();
+        self.swap_metadata_location(&identifier, &previous_metadata_location, &metadata_location)
+            .await?;
 
-        sqlx::query(&format!("update iceberg_tables set metadata_location = '{metadata_file_location}', previous_metadata_location = '{previous_metadata_file_location}' where catalog_name = '{catalog_name}' and table_namespace = '{namespace}' and table_name = '{name}' and metadata_location = '{previous_metadata_file_location}';")).execute(&self.pool).await.map_err(Error::from)?;
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone()),
@@ -689,13 +709,9 @@ impl Catalog for SqlCatalog {
             )),
         }?;
 
-        let catalog_name = self.name.clone();
-        let namespace = identifier.namespace().to_string();
-        let name = identifier.name().to_string();
-        let metadata_file_location = metadata_location.to_string();
-        let previous_metadata_file_location = previous_metadata_location.to_string();
+        self.swap_metadata_location(&identifier, &previous_metadata_location, &metadata_location)
+            .await?;
 
-        sqlx::query(&format!("update iceberg_tables set metadata_location = '{metadata_file_location}', previous_metadata_location = '{previous_metadata_file_location}' where catalog_name = '{catalog_name}' and table_namespace = '{namespace}' and table_name = '{name}' and metadata_location = '{previous_metadata_file_location}';")).execute(&self.pool).await.map_err(Error::from)?;
         self.cache.write().unwrap().insert(
             identifier.clone(),
             (metadata_location.clone(), metadata.clone()),
@@ -1093,5 +1109,101 @@ pub mod tests {
         let version = version_hint_content(&keys[0].clone().0);
 
         assert_eq!(std::str::from_utf8(&version_hint).unwrap(), version);
+    }
+
+    /// Two catalog instances over the same database — the shape of any
+    /// multi-process deployment — must not both report success for commits
+    /// built on the same base metadata. The second commit's compare-and-swap
+    /// matches no rows, so its snapshot is never recorded; reporting `Ok`
+    /// there silently loses the write.
+    #[tokio::test]
+    async fn concurrent_commit_from_a_second_catalog_reports_conflict() {
+        use iceberg_rust::catalog::identifier::Identifier;
+        use iceberg_rust::catalog::tabular::Tabular;
+        use iceberg_rust::error::Error as IcebergError;
+        use iceberg_rust::spec::schema::Schema;
+        use iceberg_rust::spec::types::{PrimitiveType, StructField, Type};
+        use iceberg_rust::table::Table;
+
+        // A shared-cache in-memory database stands in for a shared catalog
+        // database; the cloned builder keeps both catalogs on one object store.
+        let url = "sqlite:file:conflict_test?mode=memory&cache=shared";
+        let object_store = ObjectStoreBuilder::memory();
+
+        let catalog_a = Arc::new(
+            SqlCatalog::new(url, "warehouse", object_store.clone())
+                .await
+                .unwrap(),
+        );
+        let catalog_b = Arc::new(
+            SqlCatalog::new(url, "warehouse", object_store)
+                .await
+                .unwrap(),
+        );
+
+        catalog_a
+            .create_namespace(&Namespace::try_new(&["ns".to_string()]).unwrap(), None)
+            .await
+            .unwrap();
+
+        let schema = Schema::builder()
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        let mut table_a = Table::builder()
+            .with_name("t")
+            .with_location("/warehouse/ns/t")
+            .with_schema(schema)
+            .build(&["ns".to_string()], catalog_a.clone())
+            .await
+            .unwrap();
+
+        // Catalog B loads the table, caching the same base metadata location
+        // that catalog A is about to supersede.
+        let identifier = Identifier::new(&["ns".to_string()], "t");
+        let Tabular::Table(mut table_b) =
+            catalog_b.clone().load_tabular(&identifier).await.unwrap()
+        else {
+            panic!("expected a table");
+        };
+
+        table_a
+            .new_transaction(None)
+            .update_properties(vec![("owner".to_string(), "a".to_string())])
+            .commit()
+            .await
+            .unwrap();
+
+        // B's commit is built on metadata A already superseded: it must fail
+        // rather than report a success the catalog never recorded.
+        let result = table_b
+            .new_transaction(None)
+            .update_properties(vec![("owner".to_string(), "b".to_string())])
+            .commit()
+            .await;
+
+        assert!(
+            matches!(result, Err(IcebergError::CommitConflict(_))),
+            "expected a commit conflict, got {result:?}"
+        );
+
+        // And the losing commit must not have overwritten the winner.
+        let Tabular::Table(reloaded) = catalog_a.clone().load_tabular(&identifier).await.unwrap()
+        else {
+            panic!("expected a table");
+        };
+        assert_eq!(
+            reloaded.metadata().properties.get("owner"),
+            Some(&"a".to_string())
+        );
     }
 }
