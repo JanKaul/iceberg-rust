@@ -53,6 +53,18 @@ pub const WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED: &str =
 /// `write.parquet.bloom-filter-enabled.column.label_env = "true"`.
 pub const WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX: &str =
     "write.parquet.bloom-filter-enabled.column.";
+/// Per-column Parquet bloom-filter false-positive probability: append the
+/// column name, e.g. `write.parquet.bloom-filter-fpp.column.trace_id = "0.01"`.
+/// A filter is sized from this, trading footer bytes against wasted reads.
+pub const WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX: &str =
+    "write.parquet.bloom-filter-fpp.column.";
+/// Parquet data page size in bytes. Bounds the granularity of page-level
+/// statistics and page skipping.
+pub const WRITE_PARQUET_PAGE_SIZE_BYTES: &str = "write.parquet.page-size-bytes";
+/// Maximum number of rows in a Parquet data page.
+pub const WRITE_PARQUET_PAGE_ROW_LIMIT: &str = "write.parquet.page-row-limit";
+/// Parquet dictionary page size in bytes.
+pub const WRITE_PARQUET_DICT_SIZE_BYTES: &str = "write.parquet.dict-size-bytes";
 /// Default statistics mode for a table's columns: `none`, `counts`,
 /// `truncate(n)` or `full`. Defaults to `truncate(16)`.
 pub const WRITE_METADATA_METRICS_DEFAULT: &str = "write.metadata.metrics.default";

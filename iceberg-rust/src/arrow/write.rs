@@ -52,12 +52,15 @@ use iceberg_rust_spec::{
     table_metadata::{
         self, WRITE_DATA_PATH, WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED,
         WRITE_OBJECT_STORAGE_ENABLED, WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX,
+        WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX, WRITE_PARQUET_COMPRESSION_CODEC,
+        WRITE_PARQUET_COMPRESSION_LEVEL, WRITE_PARQUET_DICT_SIZE_BYTES,
+        WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES,
     },
     util::strip_prefix,
 };
 use parquet::{
     arrow::AsyncArrowWriter,
-    basic::{Compression, ZstdLevel},
+    basic::{BrotliLevel, Compression, GzipLevel, ZstdLevel},
     file::{
         metadata::{KeyValue, ParquetMetaData},
         properties::WriterProperties,
@@ -77,6 +80,10 @@ use super::partition::partition_record_batch;
 
 const MAX_PARQUET_SIZE: usize = 512_000_000;
 const COMPRESSION_FACTOR: usize = 200;
+
+/// Zstd level used when the table names zstd without a level, and the level
+/// the writer falls back to when a table says nothing about compression.
+const DEFAULT_ZSTD_LEVEL_VALUE: i32 = 1;
 
 #[instrument(skip(table, batches), fields(table_name = %table.identifier().name()))]
 /// Writes Arrow record batches as partitioned Parquet files.
@@ -513,8 +520,10 @@ async fn create_arrow_writer(
         .get(WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED)
         .is_some_and(|x| x == "true");
 
-    let mut props_builder =
-        WriterProperties::builder().set_compression(Compression::ZSTD(ZstdLevel::try_new(1)?));
+    let mut props_builder = WriterProperties::builder().set_compression(Compression::ZSTD(
+        ZstdLevel::try_new(DEFAULT_ZSTD_LEVEL_VALUE)?,
+    ));
+    props_builder = apply_writer_properties(props_builder, table_properties);
     props_builder = apply_bloom_filter_properties(props_builder, table_properties);
     if estimate_distinct_count {
         props_builder = props_builder.set_key_value_metadata(Some(vec![KeyValue::new(
@@ -535,9 +544,10 @@ async fn create_arrow_writer(
 
 /// Applies per-column bloom-filter table properties to the writer builder.
 ///
-/// Honors the standard Iceberg property
-/// `write.parquet.bloom-filter-enabled.column.<name>` = `true`/`false`
-/// per column. Unrelated properties are ignored.
+/// Honors the standard Iceberg properties
+/// `write.parquet.bloom-filter-enabled.column.<name>` = `true`/`false` and
+/// `write.parquet.bloom-filter-fpp.column.<name>` = a false-positive
+/// probability in `(0, 1)`. Unrelated properties are ignored.
 fn apply_bloom_filter_properties(
     mut props_builder: parquet::file::properties::WriterPropertiesBuilder,
     table_properties: &HashMap<String, String>,
@@ -545,15 +555,103 @@ fn apply_bloom_filter_properties(
     for (key, value) in table_properties {
         if let Some(column) = key.strip_prefix(WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX) {
             let enabled = value.eq_ignore_ascii_case("true");
-            // Parquet addresses nested columns by path parts; a dotted name
-            // passed as one string would be treated as a single segment and
-            // silently never match.
-            let path_parts: Vec<String> = column.split('.').map(String::from).collect();
-            props_builder = props_builder
-                .set_column_bloom_filter_enabled(ColumnPath::from(path_parts), enabled);
+            props_builder =
+                props_builder.set_column_bloom_filter_enabled(column_path(column), enabled);
+        } else if let Some(column) = key.strip_prefix(WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX)
+        {
+            // A filter is sized from its target false-positive rate, so an
+            // out-of-range value would produce a nonsensical filter. Ignore it
+            // and keep the default rather than fail the write.
+            if let Some(fpp) = value
+                .parse::<f64>()
+                .ok()
+                .filter(|fpp| *fpp > 0.0 && *fpp < 1.0)
+            {
+                props_builder = props_builder.set_column_bloom_filter_fpp(column_path(column), fpp);
+            }
         }
     }
     props_builder
+}
+
+/// Parquet addresses nested columns by path parts; a dotted name passed as one
+/// string would be treated as a single segment and silently never match.
+fn column_path(column: &str) -> ColumnPath {
+    ColumnPath::from(column.split('.').map(String::from).collect::<Vec<String>>())
+}
+
+/// Applies the file-layout and compression table properties to the writer.
+///
+/// Honors `write.parquet.compression-codec`,
+/// `write.parquet.compression-level`, `write.parquet.page-size-bytes`,
+/// `write.parquet.page-row-limit` and `write.parquet.dict-size-bytes`. An
+/// unparsable or unknown value is ignored, so a bad property degrades to the
+/// default instead of failing the write.
+fn apply_writer_properties(
+    mut props_builder: parquet::file::properties::WriterPropertiesBuilder,
+    table_properties: &HashMap<String, String>,
+) -> parquet::file::properties::WriterPropertiesBuilder {
+    let level = table_properties
+        .get(WRITE_PARQUET_COMPRESSION_LEVEL)
+        .and_then(|value| value.parse::<u32>().ok());
+
+    if let Some(codec) = table_properties
+        .get(WRITE_PARQUET_COMPRESSION_CODEC)
+        .and_then(|codec| compression_from(codec, level))
+    {
+        props_builder = props_builder.set_compression(codec);
+    }
+
+    if let Some(bytes) = parse_positive(table_properties, WRITE_PARQUET_PAGE_SIZE_BYTES) {
+        props_builder = props_builder.set_data_page_size_limit(bytes);
+    }
+    if let Some(rows) = parse_positive(table_properties, WRITE_PARQUET_PAGE_ROW_LIMIT) {
+        props_builder = props_builder.set_data_page_row_count_limit(rows);
+    }
+    if let Some(bytes) = parse_positive(table_properties, WRITE_PARQUET_DICT_SIZE_BYTES) {
+        props_builder = props_builder.set_dictionary_page_size_limit(bytes);
+    }
+
+    props_builder
+}
+
+fn parse_positive(table_properties: &HashMap<String, String>, key: &str) -> Option<usize> {
+    table_properties
+        .get(key)
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+}
+
+/// Resolve an Iceberg codec name, with its optional level, to a Parquet codec.
+///
+/// Returns `None` for an unknown codec so the caller keeps its default. A level
+/// the codec rejects falls back to that codec's default level rather than
+/// dropping the codec entirely.
+fn compression_from(codec: &str, level: Option<u32>) -> Option<Compression> {
+    match codec.trim().to_ascii_lowercase().as_str() {
+        "uncompressed" | "none" => Some(Compression::UNCOMPRESSED),
+        "snappy" => Some(Compression::SNAPPY),
+        "lz4" => Some(Compression::LZ4),
+        "lz4_raw" => Some(Compression::LZ4_RAW),
+        "gzip" => Some(Compression::GZIP(
+            level
+                .and_then(|level| GzipLevel::try_new(level).ok())
+                .unwrap_or_default(),
+        )),
+        "brotli" => Some(Compression::BROTLI(
+            level
+                .and_then(|level| BrotliLevel::try_new(level).ok())
+                .unwrap_or_default(),
+        )),
+        "zstd" => Some(Compression::ZSTD(
+            level
+                .and_then(|level| ZstdLevel::try_new(level as i32).ok())
+                .unwrap_or_else(|| {
+                    ZstdLevel::try_new(DEFAULT_ZSTD_LEVEL_VALUE).unwrap_or_default()
+                }),
+        )),
+        _ => None,
+    }
 }
 
 /// Generates a unique file path for a Parquet data file.
@@ -635,6 +733,160 @@ fn record_batch_size(batch: &RecordBatch) -> usize {
         .iter()
         .fold(0, |acc, x| acc + x.size())
         * batch.num_rows()
+}
+
+#[cfg(test)]
+mod writer_properties_tests {
+    use super::*;
+
+    fn build(properties: &[(&str, &str)]) -> parquet::file::properties::WriterProperties {
+        let properties: HashMap<String, String> = properties
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        apply_writer_properties(WriterProperties::builder(), &properties).build()
+    }
+
+    /// A table naming a codec must get it. The writer previously hardcoded
+    /// zstd level 1 while table creation recorded `zstd`/`3` in the metadata,
+    /// so the properties described a file that was never written.
+    #[test]
+    fn the_compression_codec_and_level_are_honored() {
+        let props = build(&[
+            (WRITE_PARQUET_COMPRESSION_CODEC, "zstd"),
+            (WRITE_PARQUET_COMPRESSION_LEVEL, "9"),
+        ]);
+        assert_eq!(
+            props.compression(&ColumnPath::from("any")),
+            Compression::ZSTD(ZstdLevel::try_new(9).unwrap())
+        );
+
+        assert_eq!(
+            build(&[(WRITE_PARQUET_COMPRESSION_CODEC, "SNAPPY")])
+                .compression(&ColumnPath::from("any")),
+            Compression::SNAPPY
+        );
+        assert_eq!(
+            build(&[(WRITE_PARQUET_COMPRESSION_CODEC, "uncompressed")])
+                .compression(&ColumnPath::from("any")),
+            Compression::UNCOMPRESSED
+        );
+    }
+
+    /// A codec that takes no level must ignore one rather than be dropped.
+    #[test]
+    fn a_level_on_a_levelless_codec_is_ignored() {
+        let props = build(&[
+            (WRITE_PARQUET_COMPRESSION_CODEC, "snappy"),
+            (WRITE_PARQUET_COMPRESSION_LEVEL, "9"),
+        ]);
+        assert_eq!(
+            props.compression(&ColumnPath::from("any")),
+            Compression::SNAPPY
+        );
+    }
+
+    /// A bad property must degrade to the default, never fail the write.
+    #[test]
+    fn unusable_values_fall_back_to_defaults() {
+        let default = WriterProperties::builder().build();
+
+        // Unknown codec: keep whatever the builder had.
+        let props = build(&[(WRITE_PARQUET_COMPRESSION_CODEC, "rot13")]);
+        assert_eq!(
+            props.compression(&ColumnPath::from("any")),
+            default.compression(&ColumnPath::from("any"))
+        );
+
+        // Out-of-range zstd level: keep the codec, use its default level.
+        let props = build(&[
+            (WRITE_PARQUET_COMPRESSION_CODEC, "zstd"),
+            (WRITE_PARQUET_COMPRESSION_LEVEL, "999"),
+        ]);
+        assert!(matches!(
+            props.compression(&ColumnPath::from("any")),
+            Compression::ZSTD(_)
+        ));
+
+        // Unparsable and zero sizes are ignored.
+        for value in ["not-a-number", "0"] {
+            let props = build(&[(WRITE_PARQUET_PAGE_SIZE_BYTES, value)]);
+            assert_eq!(
+                props.data_page_size_limit(),
+                default.data_page_size_limit(),
+                "page size {value:?} should have been ignored"
+            );
+        }
+    }
+
+    /// Page and dictionary sizing bound how finely a reader can skip within a
+    /// file, and were not reachable at all before.
+    #[test]
+    fn page_and_dictionary_sizing_are_honored() {
+        let props = build(&[
+            (WRITE_PARQUET_PAGE_SIZE_BYTES, "65536"),
+            (WRITE_PARQUET_PAGE_ROW_LIMIT, "5000"),
+            (WRITE_PARQUET_DICT_SIZE_BYTES, "131072"),
+        ]);
+
+        assert_eq!(props.data_page_size_limit(), 65536);
+        assert_eq!(props.data_page_row_count_limit(), 5000);
+        assert_eq!(props.dictionary_page_size_limit(), 131072);
+    }
+
+    /// A bloom filter is sized from its target false-positive rate, so a
+    /// high-cardinality column such as `trace_id` needs its own.
+    #[test]
+    fn per_column_bloom_filter_fpp_is_honored() {
+        let properties: HashMap<String, String> = HashMap::from([
+            (
+                format!("{WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX}trace_id"),
+                "true".to_string(),
+            ),
+            (
+                format!("{WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX}trace_id"),
+                "0.001".to_string(),
+            ),
+        ]);
+        let props = apply_bloom_filter_properties(WriterProperties::builder(), &properties).build();
+
+        assert_eq!(
+            props.bloom_filter_properties(&ColumnPath::from("trace_id")),
+            Some(&parquet::file::properties::BloomFilterProperties {
+                fpp: 0.001,
+                ndv: parquet::file::properties::DEFAULT_BLOOM_FILTER_NDV,
+            })
+        );
+    }
+
+    /// An fpp outside `(0, 1)` cannot size a filter; it must be ignored rather
+    /// than produce a nonsensical one.
+    #[test]
+    fn an_out_of_range_fpp_is_ignored() {
+        for value in ["0", "1", "-0.5", "1.5", "many"] {
+            let properties: HashMap<String, String> = HashMap::from([
+                (
+                    format!("{WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX}trace_id"),
+                    "true".to_string(),
+                ),
+                (
+                    format!("{WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX}trace_id"),
+                    value.to_string(),
+                ),
+            ]);
+            let props =
+                apply_bloom_filter_properties(WriterProperties::builder(), &properties).build();
+
+            let fpp = props
+                .bloom_filter_properties(&ColumnPath::from("trace_id"))
+                .map(|properties| properties.fpp);
+            assert_eq!(
+                fpp,
+                Some(parquet::file::properties::DEFAULT_BLOOM_FILTER_FPP),
+                "fpp {value:?} should have been ignored"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
