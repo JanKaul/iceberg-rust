@@ -48,61 +48,81 @@ pub struct SqlCatalog {
 
 pub mod error;
 
+/// How a catalog connects to its database.
+///
+/// The catalog opens its pool through sqlx's `Any` driver, which takes a URL
+/// and nothing else, so a caller had no way to size the pool or to configure
+/// the sessions on it. Both matter under load: the pool's defaults let ten
+/// writers contend on a database that may serialize them, and settings such as
+/// SQLite's `busy_timeout` or PostgreSQL's `statement_timeout` are per-session
+/// and cannot be carried on the URL — sqlx's SQLite URL parser rejects them as
+/// query parameters outright.
+#[derive(Debug, Clone, Default)]
+pub struct SqlCatalogOptions {
+    pool: Option<PoolOptions<sqlx::Any>>,
+    session_statements: Vec<String>,
+}
+
+impl SqlCatalogOptions {
+    /// Options that reproduce the defaults: sqlx's pool settings, except that a
+    /// private in-memory SQLite database is held to a single connection, since
+    /// a second connection would open a different database.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Size and time-bound the connection pool.
+    pub fn with_pool_options(mut self, pool: PoolOptions<sqlx::Any>) -> Self {
+        self.pool = Some(pool);
+        self
+    }
+
+    /// Statements to run on every new connection before it is used, such as
+    /// `pragma busy_timeout = 30000` or `set statement_timeout = '30s'`.
+    ///
+    /// They run in order, after the catalog's own tables are ensured, and an
+    /// error from any of them fails the connection.
+    pub fn with_session_statements(
+        mut self,
+        statements: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.session_statements = statements.into_iter().map(Into::into).collect();
+        self
+    }
+}
+
 impl SqlCatalog {
     pub async fn new(
         url: &str,
         name: &str,
         object_store: ObjectStoreBuilder,
     ) -> Result<Self, Error> {
+        Self::new_with_options(url, name, object_store, SqlCatalogOptions::default()).await
+    }
+
+    /// Open a catalog with explicit connection options.
+    pub async fn new_with_options(
+        url: &str,
+        name: &str,
+        object_store: ObjectStoreBuilder,
+        options: SqlCatalogOptions,
+    ) -> Result<Self, Error> {
         install_default_drivers();
 
-        let mut pool_options = PoolOptions::new();
+        let pool_options = options.pool.unwrap_or_else(|| {
+            let pool_options = PoolOptions::new();
+            if url == "sqlite://" {
+                pool_options.max_connections(1)
+            } else {
+                pool_options
+            }
+        });
 
-        if url == "sqlite://" {
-            pool_options = pool_options.max_connections(1);
-        }
-
-        let is_sqlite = url.starts_with("sqlite");
-
-        let pool = AnyPoolOptions::after_connect(pool_options, move |connection, _| {
-            Box::pin(async move {
-                if is_sqlite {
-                    // Enable write-ahead logging and a busy timeout on every SQLite
-                    // connection. WAL lets readers proceed during a write and makes
-                    // each write cheaper, so concurrent catalog commits don't
-                    // serialize behind an exclusive rollback-journal lock; the busy
-                    // timeout avoids immediate "database is locked" errors under
-                    // brief write contention. Both are no-ops on an in-memory
-                    // database.
-                    connection.execute("PRAGMA journal_mode=WAL;").await?;
-                    connection.execute("PRAGMA busy_timeout=30000;").await?;
-                }
-                connection
-                    .execute(
-                        "create table if not exists iceberg_tables (
-                                catalog_name varchar(255) not null,
-                                table_namespace varchar(255) not null,
-                                table_name varchar(255) not null,
-                                metadata_location varchar(255) not null,
-                                previous_metadata_location varchar(255),
-                                primary key (catalog_name, table_namespace, table_name)
-                            );",
-                    )
-                    .await?;
-                connection
-                    .execute(
-                        "create table if not exists iceberg_namespace_properties (
-                                catalog_name varchar(255) not null,
-                                namespace varchar(255) not null,
-                                property_key varchar(255),
-                                property_value varchar(255),
-                                primary key (catalog_name, namespace, property_key)
-                            );",
-                    )
-                    .await?;
-                Ok(())
-            })
-        })
+        let pool = pool_options_with_setup(
+            pool_options,
+            url.starts_with("sqlite"),
+            options.session_statements,
+        )
         .connect_lazy(url)?;
 
         Ok(SqlCatalog {
@@ -151,6 +171,65 @@ impl SqlCatalog {
 
         Ok(())
     }
+}
+
+/// Pool options whose connections get the default SQLite pragmas, then the
+/// catalog's tables, then the caller's session statements.
+///
+/// The caller's statements run last so they can override a default: a table
+/// wanting `synchronous = full`, say, sets it and wins.
+fn pool_options_with_setup(
+    pool_options: PoolOptions<sqlx::Any>,
+    is_sqlite: bool,
+    session_statements: Vec<String>,
+) -> PoolOptions<sqlx::Any> {
+    // The hook runs per connection, so the statements are shared rather than
+    // cloned for each one.
+    let session_statements = Arc::new(session_statements);
+
+    AnyPoolOptions::after_connect(pool_options, move |connection, _| {
+        let session_statements = session_statements.clone();
+        Box::pin(async move {
+            if is_sqlite {
+                // Enable write-ahead logging and a busy timeout on every SQLite
+                // connection. WAL lets readers proceed during a write and makes
+                // each write cheaper, so concurrent catalog commits don't
+                // serialize behind an exclusive rollback-journal lock; the busy
+                // timeout avoids immediate "database is locked" errors under
+                // brief write contention. Both are no-ops on an in-memory
+                // database.
+                connection.execute("PRAGMA journal_mode=WAL;").await?;
+                connection.execute("PRAGMA busy_timeout=30000;").await?;
+            }
+            connection
+                .execute(
+                    "create table if not exists iceberg_tables (
+                                catalog_name varchar(255) not null,
+                                table_namespace varchar(255) not null,
+                                table_name varchar(255) not null,
+                                metadata_location varchar(255) not null,
+                                previous_metadata_location varchar(255),
+                                primary key (catalog_name, table_namespace, table_name)
+                            );",
+                )
+                .await?;
+            connection
+                .execute(
+                    "create table if not exists iceberg_namespace_properties (
+                                catalog_name varchar(255) not null,
+                                namespace varchar(255) not null,
+                                property_key varchar(255),
+                                property_value varchar(255),
+                                primary key (catalog_name, namespace, property_key)
+                            );",
+                )
+                .await?;
+            for statement in session_statements.iter() {
+                connection.execute(statement.as_str()).await?;
+            }
+            Ok(())
+        })
+    })
 }
 
 #[derive(Debug)]
@@ -795,51 +874,31 @@ pub struct SqlCatalogList {
 
 impl SqlCatalogList {
     pub async fn new(url: &str, object_store: ObjectStoreBuilder) -> Result<Self, Error> {
+        Self::new_with_options(url, object_store, SqlCatalogOptions::default()).await
+    }
+
+    /// Open a catalog list with explicit connection options.
+    pub async fn new_with_options(
+        url: &str,
+        object_store: ObjectStoreBuilder,
+        options: SqlCatalogOptions,
+    ) -> Result<Self, Error> {
         install_default_drivers();
 
-        let mut pool_options = PoolOptions::new();
+        let pool_options = options.pool.unwrap_or_else(|| {
+            let pool_options = PoolOptions::new();
+            if url.starts_with("sqlite") {
+                pool_options.max_connections(1)
+            } else {
+                pool_options
+            }
+        });
 
-        let is_sqlite = url.starts_with("sqlite");
-
-        if is_sqlite {
-            pool_options = pool_options.max_connections(1);
-        }
-
-        let pool = AnyPoolOptions::after_connect(pool_options, move |connection, _| {
-            Box::pin(async move {
-                if is_sqlite {
-                    // See SqlCatalog::new: WAL + a busy timeout keep concurrent
-                    // catalog commits from serializing behind an exclusive
-                    // rollback-journal lock. No-ops on an in-memory database.
-                    connection.execute("PRAGMA journal_mode=WAL;").await?;
-                    connection.execute("PRAGMA busy_timeout=30000;").await?;
-                }
-                connection
-                    .execute(
-                        "create table if not exists iceberg_tables (
-                                catalog_name varchar(255) not null,
-                                table_namespace varchar(255) not null,
-                                table_name varchar(255) not null,
-                                metadata_location varchar(255) not null,
-                                previous_metadata_location varchar(255),
-                                primary key (catalog_name, table_namespace, table_name)
-                            );",
-                    )
-                    .await?;
-                connection
-                    .execute(
-                        "create table if not exists iceberg_namespace_properties (
-                                catalog_name varchar(255) not null,
-                                namespace varchar(255) not null,
-                                property_key varchar(255),
-                                property_value varchar(255),
-                                primary key (catalog_name, namespace, property_key)
-                            );",
-                    )
-                    .await?;
-                Ok(())
-            })
-        })
+        let pool = pool_options_with_setup(
+            pool_options,
+            url.starts_with("sqlite"),
+            options.session_statements,
+        )
         .connect(url)
         .await?;
 
@@ -895,8 +954,9 @@ pub mod tests {
     use testcontainers_modules::{localstack::LocalStack, postgres::Postgres};
     use tokio::time::sleep;
 
-    use crate::SqlCatalog;
+    use crate::{SqlCatalog, SqlCatalogOptions};
     use iceberg_rust::object_store::store::version_hint_content;
+    use sqlx::pool::PoolOptions;
     use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
@@ -1227,5 +1287,109 @@ pub mod tests {
             reloaded.metadata().properties.get("owner"),
             Some(&"a".to_string())
         );
+    }
+
+    /// Per-session settings cannot be carried on the URL — sqlx's SQLite parser
+    /// rejects `busy_timeout` as a query parameter — so the only way to set one
+    /// is on the connection itself.
+    #[tokio::test]
+    async fn session_statements_are_applied_to_pooled_connections() {
+        use sqlx::Row;
+
+        let options = SqlCatalogOptions::new()
+            .with_session_statements(["pragma busy_timeout = 12345".to_string()]);
+
+        let catalog = SqlCatalog::new_with_options(
+            "sqlite:file:session_statements?mode=memory&cache=shared",
+            "warehouse",
+            ObjectStoreBuilder::memory(),
+            options,
+        )
+        .await
+        .unwrap();
+
+        let timeout: i64 = sqlx::query("pragma busy_timeout")
+            .fetch_one(&catalog.pool)
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(timeout, 12345);
+    }
+
+    /// The SQLite defaults must survive: a caller supplying options is adding
+    /// to them, not replacing them.
+    #[tokio::test]
+    async fn the_default_sqlite_pragmas_survive_caller_options() {
+        use sqlx::Row;
+
+        let catalog = SqlCatalog::new_with_options(
+            "sqlite:file:defaults_survive?mode=memory&cache=shared",
+            "warehouse",
+            ObjectStoreBuilder::memory(),
+            SqlCatalogOptions::new().with_session_statements(["pragma synchronous = normal"]),
+        )
+        .await
+        .unwrap();
+
+        let timeout: i64 = sqlx::query("pragma busy_timeout")
+            .fetch_one(&catalog.pool)
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(timeout, 30000, "the default busy timeout must still apply");
+
+        let synchronous: i64 = sqlx::query("pragma synchronous")
+            .fetch_one(&catalog.pool)
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(synchronous, 1, "the caller's statement must have run too");
+    }
+
+    /// The pool's size is the caller's to choose; the default leaves several
+    /// writers contending on a database that may well serialize them.
+    #[tokio::test]
+    async fn pool_options_are_honored() {
+        let options =
+            SqlCatalogOptions::new().with_pool_options(PoolOptions::new().max_connections(3));
+
+        let catalog = SqlCatalog::new_with_options(
+            "sqlite:file:pool_options?mode=memory&cache=shared",
+            "warehouse",
+            ObjectStoreBuilder::memory(),
+            options,
+        )
+        .await
+        .unwrap();
+
+        // Force the lazy pool to connect before asking about its size.
+        catalog
+            .create_namespace(&Namespace::try_new(&["ns".to_string()]).unwrap(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(catalog.pool.options().get_max_connections(), 3);
+    }
+
+    /// A catalog opened the old way must behave exactly as before, including
+    /// the single-connection cap that keeps a private in-memory SQLite
+    /// database from being opened twice.
+    #[tokio::test]
+    async fn the_default_constructor_keeps_its_previous_behavior() {
+        let catalog = SqlCatalog::new("sqlite://", "warehouse", ObjectStoreBuilder::memory())
+            .await
+            .unwrap();
+
+        assert_eq!(catalog.pool.options().get_max_connections(), 1);
+
+        // And it still works end to end.
+        catalog
+            .create_namespace(&Namespace::try_new(&["ns".to_string()]).unwrap(), None)
+            .await
+            .unwrap();
+        assert!(catalog
+            .namespace_exists(&Namespace::try_new(&["ns".to_string()]).unwrap())
+            .await
+            .unwrap());
     }
 }
