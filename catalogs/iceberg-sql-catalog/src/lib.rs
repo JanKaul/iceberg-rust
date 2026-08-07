@@ -109,14 +109,14 @@ impl SqlCatalog {
     ) -> Result<Self, Error> {
         install_default_drivers();
 
-        let pool_options = options.pool.unwrap_or_else(|| {
-            let pool_options = PoolOptions::new();
-            if url == "sqlite://" {
-                pool_options.max_connections(1)
-            } else {
-                pool_options
-            }
-        });
+        let mut pool_options = options.pool.unwrap_or_default();
+        if url == "sqlite://" {
+            // A private in-memory SQLite database is only reachable through the
+            // connection that created it; a second connection opens a distinct,
+            // empty database. Enforce the single-connection cap even when the
+            // caller supplied their own pool options.
+            pool_options = pool_options.max_connections(1);
+        }
 
         let pool = pool_options_with_setup(
             pool_options,
@@ -1369,6 +1369,37 @@ pub mod tests {
             .unwrap();
 
         assert_eq!(catalog.pool.options().get_max_connections(), 3);
+    }
+
+    /// A private in-memory SQLite database (`sqlite://`) is only reachable
+    /// through the connection that created it, so the single-connection cap
+    /// must hold even when the caller supplies their own pool options —
+    /// otherwise a second connection silently opens a distinct, empty
+    /// database.
+    #[tokio::test]
+    async fn sqlite_private_memory_caps_connections_even_with_explicit_pool_options() {
+        let options =
+            SqlCatalogOptions::new().with_pool_options(PoolOptions::new().max_connections(5));
+
+        let catalog = SqlCatalog::new_with_options(
+            "sqlite://",
+            "warehouse",
+            ObjectStoreBuilder::memory(),
+            options,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(catalog.pool.options().get_max_connections(), 1);
+
+        catalog
+            .create_namespace(&Namespace::try_new(&["ns".to_string()]).unwrap(), None)
+            .await
+            .unwrap();
+        assert!(catalog
+            .namespace_exists(&Namespace::try_new(&["ns".to_string()]).unwrap())
+            .await
+            .unwrap());
     }
 
     /// A catalog opened the old way must behave exactly as before, including
