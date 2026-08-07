@@ -52,10 +52,10 @@ use iceberg_rust_spec::{
     table_metadata::{
         self, WRITE_DATA_PATH, WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED,
         WRITE_OBJECT_STORAGE_ENABLED, WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX,
-        WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX, WRITE_PARQUET_COMPRESSION_CODEC,
-        WRITE_PARQUET_COMPRESSION_LEVEL, WRITE_PARQUET_DICT_SIZE_BYTES,
-        WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES, WRITE_PARQUET_PAGE_VERSION,
-        WRITE_PARQUET_ROW_GROUP_SIZE_BYTES,
+        WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX, WRITE_PARQUET_BLOOM_FILTER_NDV_COLUMN_PREFIX,
+        WRITE_PARQUET_COMPRESSION_CODEC, WRITE_PARQUET_COMPRESSION_LEVEL,
+        WRITE_PARQUET_DICT_SIZE_BYTES, WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES,
+        WRITE_PARQUET_PAGE_VERSION, WRITE_PARQUET_ROW_GROUP_SIZE_BYTES,
     },
     util::strip_prefix,
 };
@@ -546,9 +546,10 @@ async fn create_arrow_writer(
 /// Applies per-column bloom-filter table properties to the writer builder.
 ///
 /// Honors the standard Iceberg properties
-/// `write.parquet.bloom-filter-enabled.column.<name>` = `true`/`false` and
+/// `write.parquet.bloom-filter-enabled.column.<name>` = `true`/`false`,
 /// `write.parquet.bloom-filter-fpp.column.<name>` = a false-positive
-/// probability in `(0, 1)`. Unrelated properties are ignored.
+/// probability in `(0, 1)` and `write.parquet.bloom-filter-ndv.column.<name>`
+/// = an expected distinct-value count > 0. Unrelated properties are ignored.
 fn apply_bloom_filter_properties(
     mut props_builder: parquet::file::properties::WriterPropertiesBuilder,
     table_properties: &HashMap<String, String>,
@@ -569,6 +570,13 @@ fn apply_bloom_filter_properties(
                 .filter(|fpp| *fpp > 0.0 && *fpp < 1.0)
             {
                 props_builder = props_builder.set_column_bloom_filter_fpp(column_path(column), fpp);
+            }
+        } else if let Some(column) = key.strip_prefix(WRITE_PARQUET_BLOOM_FILTER_NDV_COLUMN_PREFIX)
+        {
+            // A zero or negative ndv can't size a filter; ignore it and keep
+            // the default rather than fail the write.
+            if let Some(ndv) = value.parse::<u64>().ok().filter(|ndv| *ndv > 0) {
+                props_builder = props_builder.set_column_bloom_filter_ndv(column_path(column), ndv);
             }
         }
     }
@@ -920,6 +928,61 @@ mod writer_properties_tests {
                 ndv: parquet::file::properties::DEFAULT_BLOOM_FILTER_NDV,
             })
         );
+    }
+
+    /// The fpp alone assumes the default cardinality; a high-cardinality
+    /// column such as `trace_id` needs its real ndv to size the filter
+    /// correctly.
+    #[test]
+    fn per_column_bloom_filter_ndv_is_honored() {
+        let properties: HashMap<String, String> = HashMap::from([
+            (
+                format!("{WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX}trace_id"),
+                "true".to_string(),
+            ),
+            (
+                format!("{WRITE_PARQUET_BLOOM_FILTER_NDV_COLUMN_PREFIX}trace_id"),
+                "1000000".to_string(),
+            ),
+        ]);
+        let props = apply_bloom_filter_properties(WriterProperties::builder(), &properties).build();
+
+        assert_eq!(
+            props.bloom_filter_properties(&ColumnPath::from("trace_id")),
+            Some(&parquet::file::properties::BloomFilterProperties {
+                fpp: parquet::file::properties::DEFAULT_BLOOM_FILTER_FPP,
+                ndv: 1_000_000,
+            })
+        );
+    }
+
+    /// A zero or unparsable ndv can't size a filter; it must be ignored
+    /// rather than produce a nonsensical one.
+    #[test]
+    fn an_invalid_ndv_is_ignored() {
+        for value in ["0", "-5", "many"] {
+            let properties: HashMap<String, String> = HashMap::from([
+                (
+                    format!("{WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX}trace_id"),
+                    "true".to_string(),
+                ),
+                (
+                    format!("{WRITE_PARQUET_BLOOM_FILTER_NDV_COLUMN_PREFIX}trace_id"),
+                    value.to_string(),
+                ),
+            ]);
+            let props =
+                apply_bloom_filter_properties(WriterProperties::builder(), &properties).build();
+
+            let ndv = props
+                .bloom_filter_properties(&ColumnPath::from("trace_id"))
+                .map(|properties| properties.ndv);
+            assert_eq!(
+                ndv,
+                Some(parquet::file::properties::DEFAULT_BLOOM_FILTER_NDV),
+                "ndv {value:?} should have been ignored"
+            );
+        }
     }
 
     /// An fpp outside `(0, 1)` cannot size a filter; it must be ignored rather

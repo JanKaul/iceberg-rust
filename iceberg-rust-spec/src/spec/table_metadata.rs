@@ -58,6 +58,13 @@ pub const WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX: &str =
 /// A filter is sized from this, trading footer bytes against wasted reads.
 pub const WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX: &str =
     "write.parquet.bloom-filter-fpp.column.";
+/// Per-column Parquet bloom-filter expected number of distinct values:
+/// append the column name, e.g.
+/// `write.parquet.bloom-filter-ndv.column.trace_id = "1000000"`. A filter is
+/// sized from this and the fpp; without it, every column is sized as if it
+/// had the default cardinality regardless of how selective it actually is.
+pub const WRITE_PARQUET_BLOOM_FILTER_NDV_COLUMN_PREFIX: &str =
+    "write.parquet.bloom-filter-ndv.column.";
 /// Parquet data page size in bytes. Bounds the granularity of page-level
 /// statistics and page skipping.
 pub const WRITE_PARQUET_PAGE_SIZE_BYTES: &str = "write.parquet.page-size-bytes";
