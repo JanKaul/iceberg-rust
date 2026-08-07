@@ -68,6 +68,8 @@ pub const WRITE_PARQUET_DICT_SIZE_BYTES: &str = "write.parquet.dict-size-bytes";
 /// Maximum size of a Parquet row group in bytes. Row groups are flushed once
 /// their estimated encoded size crosses this, independent of row count.
 pub const WRITE_PARQUET_ROW_GROUP_SIZE_BYTES: &str = "write.parquet.row-group-size-bytes";
+/// Parquet page format: `v1` (DataPage) or `v2` (DataPageV2). Defaults to `v1`.
+pub const WRITE_PARQUET_PAGE_VERSION: &str = "write.parquet.page-version";
 /// Default statistics mode for a table's columns: `none`, `counts`,
 /// `truncate(n)` or `full`. Defaults to `truncate(16)`.
 pub const WRITE_METADATA_METRICS_DEFAULT: &str = "write.metadata.metrics.default";

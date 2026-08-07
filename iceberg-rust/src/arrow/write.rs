@@ -54,7 +54,7 @@ use iceberg_rust_spec::{
         WRITE_OBJECT_STORAGE_ENABLED, WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX,
         WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX, WRITE_PARQUET_COMPRESSION_CODEC,
         WRITE_PARQUET_COMPRESSION_LEVEL, WRITE_PARQUET_DICT_SIZE_BYTES,
-        WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES,
+        WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES, WRITE_PARQUET_PAGE_VERSION,
         WRITE_PARQUET_ROW_GROUP_SIZE_BYTES,
     },
     util::strip_prefix,
@@ -64,7 +64,7 @@ use parquet::{
     basic::{BrotliLevel, Compression, GzipLevel, ZstdLevel},
     file::{
         metadata::{KeyValue, ParquetMetaData},
-        properties::WriterProperties,
+        properties::{WriterProperties, WriterVersion},
     },
     schema::types::ColumnPath,
 };
@@ -585,10 +585,10 @@ fn column_path(column: &str) -> ColumnPath {
 ///
 /// Honors `write.parquet.compression-codec`,
 /// `write.parquet.compression-level`, `write.parquet.page-size-bytes`,
-/// `write.parquet.page-row-limit`, `write.parquet.dict-size-bytes` and
-/// `write.parquet.row-group-size-bytes`. An unparsable or unknown value is
-/// ignored, so a bad property degrades to the default instead of failing the
-/// write.
+/// `write.parquet.page-row-limit`, `write.parquet.dict-size-bytes`,
+/// `write.parquet.row-group-size-bytes` and `write.parquet.page-version`. An
+/// unparsable or unknown value is ignored, so a bad property degrades to the
+/// default instead of failing the write.
 fn apply_writer_properties(
     mut props_builder: parquet::file::properties::WriterPropertiesBuilder,
     table_properties: &HashMap<String, String>,
@@ -616,8 +616,27 @@ fn apply_writer_properties(
     if let Some(bytes) = parse_positive(table_properties, WRITE_PARQUET_ROW_GROUP_SIZE_BYTES) {
         props_builder = props_builder.set_max_row_group_bytes(Some(bytes));
     }
+    if let Some(version) = table_properties
+        .get(WRITE_PARQUET_PAGE_VERSION)
+        .and_then(|version| writer_version_from(version))
+    {
+        props_builder = props_builder.set_writer_version(version);
+    }
 
     props_builder
+}
+
+/// Resolve an Iceberg page-version name to a Parquet writer version.
+///
+/// Returns `None` for anything other than `v1`/`v2` so the caller keeps
+/// whatever the builder had, matching the reference implementation's default
+/// of `v1`.
+fn writer_version_from(version: &str) -> Option<WriterVersion> {
+    match version.trim().to_ascii_lowercase().as_str() {
+        "v1" => Some(WriterVersion::PARQUET_1_0),
+        "v2" => Some(WriterVersion::PARQUET_2_0),
+        _ => None,
+    }
 }
 
 fn parse_positive(table_properties: &HashMap<String, String>, key: &str) -> Option<usize> {
@@ -855,6 +874,27 @@ mod writer_properties_tests {
                 "row group size {value:?} should have been ignored"
             );
         }
+    }
+
+    /// `v2` unlocks DataPageV2 encoding; an unrecognized value must keep the
+    /// builder's default (`v1`) rather than fail the write.
+    #[test]
+    fn page_version_is_honored() {
+        assert_eq!(
+            build(&[(WRITE_PARQUET_PAGE_VERSION, "v2")]).writer_version(),
+            WriterVersion::PARQUET_2_0
+        );
+        assert_eq!(
+            build(&[(WRITE_PARQUET_PAGE_VERSION, "V1")]).writer_version(),
+            WriterVersion::PARQUET_1_0
+        );
+
+        let default = WriterProperties::builder().build();
+        assert_eq!(
+            build(&[(WRITE_PARQUET_PAGE_VERSION, "v3")]).writer_version(),
+            default.writer_version(),
+            "an unrecognized page version should have been ignored"
+        );
     }
 
     /// A bloom filter is sized from its target false-positive rate, so a
