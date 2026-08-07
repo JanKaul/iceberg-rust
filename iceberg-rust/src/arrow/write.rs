@@ -55,6 +55,7 @@ use iceberg_rust_spec::{
         WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX, WRITE_PARQUET_COMPRESSION_CODEC,
         WRITE_PARQUET_COMPRESSION_LEVEL, WRITE_PARQUET_DICT_SIZE_BYTES,
         WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES,
+        WRITE_PARQUET_ROW_GROUP_SIZE_BYTES,
     },
     util::strip_prefix,
 };
@@ -584,9 +585,10 @@ fn column_path(column: &str) -> ColumnPath {
 ///
 /// Honors `write.parquet.compression-codec`,
 /// `write.parquet.compression-level`, `write.parquet.page-size-bytes`,
-/// `write.parquet.page-row-limit` and `write.parquet.dict-size-bytes`. An
-/// unparsable or unknown value is ignored, so a bad property degrades to the
-/// default instead of failing the write.
+/// `write.parquet.page-row-limit`, `write.parquet.dict-size-bytes` and
+/// `write.parquet.row-group-size-bytes`. An unparsable or unknown value is
+/// ignored, so a bad property degrades to the default instead of failing the
+/// write.
 fn apply_writer_properties(
     mut props_builder: parquet::file::properties::WriterPropertiesBuilder,
     table_properties: &HashMap<String, String>,
@@ -610,6 +612,9 @@ fn apply_writer_properties(
     }
     if let Some(bytes) = parse_positive(table_properties, WRITE_PARQUET_DICT_SIZE_BYTES) {
         props_builder = props_builder.set_dictionary_page_size_limit(bytes);
+    }
+    if let Some(bytes) = parse_positive(table_properties, WRITE_PARQUET_ROW_GROUP_SIZE_BYTES) {
+        props_builder = props_builder.set_max_row_group_bytes(Some(bytes));
     }
 
     props_builder
@@ -832,6 +837,24 @@ mod writer_properties_tests {
         assert_eq!(props.data_page_size_limit(), 65536);
         assert_eq!(props.data_page_row_count_limit(), 5000);
         assert_eq!(props.dictionary_page_size_limit(), 131072);
+    }
+
+    /// `set_max_row_group_bytes` flushes a row group by estimated encoded
+    /// size rather than row count, unlike the row-count-only knob it
+    /// complements.
+    #[test]
+    fn row_group_size_bytes_is_honored() {
+        let props = build(&[(WRITE_PARQUET_ROW_GROUP_SIZE_BYTES, "268435456")]);
+        assert_eq!(props.max_row_group_bytes(), Some(268435456));
+
+        for value in ["not-a-number", "0"] {
+            let props = build(&[(WRITE_PARQUET_ROW_GROUP_SIZE_BYTES, value)]);
+            assert_eq!(
+                props.max_row_group_bytes(),
+                None,
+                "row group size {value:?} should have been ignored"
+            );
+        }
     }
 
     /// A bloom filter is sized from its target false-positive rate, so a
