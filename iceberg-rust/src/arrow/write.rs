@@ -56,6 +56,7 @@ use iceberg_rust_spec::{
         WRITE_PARQUET_COMPRESSION_CODEC, WRITE_PARQUET_COMPRESSION_LEVEL,
         WRITE_PARQUET_DICT_SIZE_BYTES, WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES,
         WRITE_PARQUET_PAGE_VERSION, WRITE_PARQUET_ROW_GROUP_SIZE_BYTES,
+        WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX,
     },
     util::strip_prefix,
 };
@@ -64,7 +65,7 @@ use parquet::{
     basic::{BrotliLevel, Compression, GzipLevel, ZstdLevel},
     file::{
         metadata::{KeyValue, ParquetMetaData},
-        properties::{WriterProperties, WriterVersion},
+        properties::{EnabledStatistics, WriterProperties, WriterVersion},
     },
     schema::types::ColumnPath,
 };
@@ -526,6 +527,7 @@ async fn create_arrow_writer(
     ));
     props_builder = apply_writer_properties(props_builder, table_properties);
     props_builder = apply_bloom_filter_properties(props_builder, table_properties);
+    props_builder = apply_column_statistics_properties(props_builder, table_properties);
     if estimate_distinct_count {
         props_builder = props_builder.set_key_value_metadata(Some(vec![KeyValue::new(
             ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY.to_owned(),
@@ -587,6 +589,30 @@ fn apply_bloom_filter_properties(
 /// string would be treated as a single segment and silently never match.
 fn column_path(column: &str) -> ColumnPath {
     ColumnPath::from(column.split('.').map(String::from).collect::<Vec<String>>())
+}
+
+/// Applies per-column Parquet statistics table properties to the writer.
+///
+/// Honors `write.parquet.stats-enabled.column.<name>` = `true`/`false`,
+/// controlling whether Parquet writes column statistics into the file
+/// footer for that column. This is distinct from `write.metadata.metrics.*`,
+/// which controls the truncated stats recorded in the Iceberg manifest.
+fn apply_column_statistics_properties(
+    mut props_builder: parquet::file::properties::WriterPropertiesBuilder,
+    table_properties: &HashMap<String, String>,
+) -> parquet::file::properties::WriterPropertiesBuilder {
+    for (key, value) in table_properties {
+        if let Some(column) = key.strip_prefix(WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX) {
+            let enabled = if value.eq_ignore_ascii_case("true") {
+                EnabledStatistics::Page
+            } else {
+                EnabledStatistics::None
+            };
+            props_builder =
+                props_builder.set_column_statistics_enabled(column_path(column), enabled);
+        }
+    }
+    props_builder
 }
 
 /// Applies the file-layout and compression table properties to the writer.
@@ -1012,6 +1038,40 @@ mod writer_properties_tests {
                 "fpp {value:?} should have been ignored"
             );
         }
+    }
+
+    /// Distinct from `write.metadata.metrics.*`: this toggles whether
+    /// Parquet itself writes column stats into the file footer, defaulting
+    /// to on (`EnabledStatistics::Page`).
+    #[test]
+    fn column_statistics_enabled_is_honored() {
+        let properties: HashMap<String, String> = HashMap::from([(
+            format!("{WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX}body"),
+            "false".to_string(),
+        )]);
+        let props =
+            apply_column_statistics_properties(WriterProperties::builder(), &properties).build();
+
+        assert_eq!(
+            props.statistics_enabled(&ColumnPath::from("body")),
+            EnabledStatistics::None
+        );
+        // An untouched column keeps the builder's default.
+        assert_eq!(
+            props.statistics_enabled(&ColumnPath::from("other")),
+            EnabledStatistics::Page
+        );
+
+        let properties: HashMap<String, String> = HashMap::from([(
+            format!("{WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX}body"),
+            "true".to_string(),
+        )]);
+        let props =
+            apply_column_statistics_properties(WriterProperties::builder(), &properties).build();
+        assert_eq!(
+            props.statistics_enabled(&ColumnPath::from("body")),
+            EnabledStatistics::Page
+        );
     }
 }
 

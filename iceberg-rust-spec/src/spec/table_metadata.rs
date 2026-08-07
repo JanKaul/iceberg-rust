@@ -72,6 +72,11 @@ pub const WRITE_PARQUET_PAGE_SIZE_BYTES: &str = "write.parquet.page-size-bytes";
 pub const WRITE_PARQUET_PAGE_ROW_LIMIT: &str = "write.parquet.page-row-limit";
 /// Parquet dictionary page size in bytes.
 pub const WRITE_PARQUET_DICT_SIZE_BYTES: &str = "write.parquet.dict-size-bytes";
+/// Per-column toggle for whether Parquet writes column statistics into the
+/// file footer: append the column name, e.g.
+/// `write.parquet.stats-enabled.column.body = "false"`. Distinct from
+/// `write.metadata.metrics.*`, which controls manifest-level stats.
+pub const WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX: &str = "write.parquet.stats-enabled.column.";
 /// Maximum size of a Parquet row group in bytes. Row groups are flushed once
 /// their estimated encoded size crosses this, independent of row count.
 pub const WRITE_PARQUET_ROW_GROUP_SIZE_BYTES: &str = "write.parquet.row-group-size-bytes";
