@@ -22,8 +22,9 @@
 //! ```no_run
 //! # use arrow::record_batch::RecordBatch;
 //! # use futures::Stream;
+//! # use iceberg_rust::arrow::write::write_parquet_partitioned;
 //! # use iceberg_rust::table::Table;
-//! # async fn example(table: &Table, batches: impl Stream<Item = Result<RecordBatch, arrow::error::ArrowError>>) {
+//! # async fn example(table: &Table, batches: impl Stream<Item = Result<RecordBatch, arrow::error::ArrowError>> + Send + 'static) {
 //! let data_files = write_parquet_partitioned(
 //!     table,
 //!     batches,
