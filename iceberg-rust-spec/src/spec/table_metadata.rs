@@ -77,6 +77,12 @@ pub const WRITE_PARQUET_DICT_SIZE_BYTES: &str = "write.parquet.dict-size-bytes";
 /// `write.parquet.stats-enabled.column.body = "false"`. Distinct from
 /// `write.metadata.metrics.*`, which controls manifest-level stats.
 pub const WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX: &str = "write.parquet.stats-enabled.column.";
+/// Per-column toggle for Parquet dictionary encoding: append the column
+/// name, e.g. `write.parquet.dict-encoding-enabled.column.trace_id =
+/// "false"`. Useful to turn off for a column whose values are rarely
+/// repeated, where a dictionary just adds overhead.
+pub const WRITE_PARQUET_DICT_ENCODING_ENABLED_COLUMN_PREFIX: &str =
+    "write.parquet.dict-encoding-enabled.column.";
 /// Maximum size of a Parquet row group in bytes. Row groups are flushed once
 /// their estimated encoded size crosses this, independent of row count.
 pub const WRITE_PARQUET_ROW_GROUP_SIZE_BYTES: &str = "write.parquet.row-group-size-bytes";

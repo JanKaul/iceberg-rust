@@ -54,9 +54,9 @@ use iceberg_rust_spec::{
         WRITE_OBJECT_STORAGE_ENABLED, WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX,
         WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX, WRITE_PARQUET_BLOOM_FILTER_NDV_COLUMN_PREFIX,
         WRITE_PARQUET_COMPRESSION_CODEC, WRITE_PARQUET_COMPRESSION_LEVEL,
-        WRITE_PARQUET_DICT_SIZE_BYTES, WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES,
-        WRITE_PARQUET_PAGE_VERSION, WRITE_PARQUET_ROW_GROUP_SIZE_BYTES,
-        WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX,
+        WRITE_PARQUET_DICT_ENCODING_ENABLED_COLUMN_PREFIX, WRITE_PARQUET_DICT_SIZE_BYTES,
+        WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES, WRITE_PARQUET_PAGE_VERSION,
+        WRITE_PARQUET_ROW_GROUP_SIZE_BYTES, WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX,
     },
     util::strip_prefix,
 };
@@ -527,7 +527,7 @@ async fn create_arrow_writer(
     ));
     props_builder = apply_writer_properties(props_builder, table_properties);
     props_builder = apply_bloom_filter_properties(props_builder, table_properties);
-    props_builder = apply_column_statistics_properties(props_builder, table_properties);
+    props_builder = apply_column_write_properties(props_builder, table_properties);
     if estimate_distinct_count {
         props_builder = props_builder.set_key_value_metadata(Some(vec![KeyValue::new(
             ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY.to_owned(),
@@ -591,13 +591,15 @@ fn column_path(column: &str) -> ColumnPath {
     ColumnPath::from(column.split('.').map(String::from).collect::<Vec<String>>())
 }
 
-/// Applies per-column Parquet statistics table properties to the writer.
+/// Applies per-column Parquet write-behavior table properties to the writer.
 ///
 /// Honors `write.parquet.stats-enabled.column.<name>` = `true`/`false`,
 /// controlling whether Parquet writes column statistics into the file
-/// footer for that column. This is distinct from `write.metadata.metrics.*`,
-/// which controls the truncated stats recorded in the Iceberg manifest.
-fn apply_column_statistics_properties(
+/// footer for that column (distinct from `write.metadata.metrics.*`, which
+/// controls the truncated stats recorded in the Iceberg manifest), and
+/// `write.parquet.dict-encoding-enabled.column.<name>` = `true`/`false`,
+/// controlling whether that column uses dictionary encoding.
+fn apply_column_write_properties(
     mut props_builder: parquet::file::properties::WriterPropertiesBuilder,
     table_properties: &HashMap<String, String>,
 ) -> parquet::file::properties::WriterPropertiesBuilder {
@@ -610,6 +612,12 @@ fn apply_column_statistics_properties(
             };
             props_builder =
                 props_builder.set_column_statistics_enabled(column_path(column), enabled);
+        } else if let Some(column) =
+            key.strip_prefix(WRITE_PARQUET_DICT_ENCODING_ENABLED_COLUMN_PREFIX)
+        {
+            let enabled = value.eq_ignore_ascii_case("true");
+            props_builder =
+                props_builder.set_column_dictionary_enabled(column_path(column), enabled);
         }
     }
     props_builder
@@ -1049,8 +1057,7 @@ mod writer_properties_tests {
             format!("{WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX}body"),
             "false".to_string(),
         )]);
-        let props =
-            apply_column_statistics_properties(WriterProperties::builder(), &properties).build();
+        let props = apply_column_write_properties(WriterProperties::builder(), &properties).build();
 
         assert_eq!(
             props.statistics_enabled(&ColumnPath::from("body")),
@@ -1066,12 +1073,33 @@ mod writer_properties_tests {
             format!("{WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX}body"),
             "true".to_string(),
         )]);
-        let props =
-            apply_column_statistics_properties(WriterProperties::builder(), &properties).build();
+        let props = apply_column_write_properties(WriterProperties::builder(), &properties).build();
         assert_eq!(
             props.statistics_enabled(&ColumnPath::from("body")),
             EnabledStatistics::Page
         );
+    }
+
+    /// Turning dictionary encoding off is useful for a column whose values
+    /// are rarely repeated, where a dictionary just adds overhead.
+    #[test]
+    fn column_dictionary_encoding_is_honored() {
+        let properties: HashMap<String, String> = HashMap::from([(
+            format!("{WRITE_PARQUET_DICT_ENCODING_ENABLED_COLUMN_PREFIX}trace_id"),
+            "false".to_string(),
+        )]);
+        let props = apply_column_write_properties(WriterProperties::builder(), &properties).build();
+
+        assert!(!props.dictionary_enabled(&ColumnPath::from("trace_id")));
+        // An untouched column keeps the builder's default (enabled).
+        assert!(props.dictionary_enabled(&ColumnPath::from("other")));
+
+        let properties: HashMap<String, String> = HashMap::from([(
+            format!("{WRITE_PARQUET_DICT_ENCODING_ENABLED_COLUMN_PREFIX}trace_id"),
+            "true".to_string(),
+        )]);
+        let props = apply_column_write_properties(WriterProperties::builder(), &properties).build();
+        assert!(props.dictionary_enabled(&ColumnPath::from("trace_id")));
     }
 }
 
