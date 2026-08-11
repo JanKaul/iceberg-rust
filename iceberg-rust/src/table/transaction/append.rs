@@ -62,15 +62,16 @@ fn split_datafiles_once(
             }
         }
     }
+    // A side can legitimately end up empty: every entry may fall closer to the
+    // same bound, and the input iterator may be empty outright. Such a side has
+    // no bounding rectangle, so fall back to the empty one already used for the
+    // degenerate split above. Feeding it back into `split_datafiles_once` hits
+    // that same degenerate branch, and `split_datafiles` drops empty groups.
+    let empty_rect = || Rectangle::new(SmallVec::new(), SmallVec::new());
+
     Ok([
-        (
-            smaller,
-            smaller_rect.expect("No files selected for the smaller rectangle"),
-        ),
-        (
-            larger,
-            larger_rect.expect("No files selected for the smaller rectangle"),
-        ),
+        (smaller, smaller_rect.unwrap_or_else(empty_rect)),
+        (larger, larger_rect.unwrap_or_else(empty_rect)),
     ])
 }
 
@@ -273,4 +274,105 @@ pub(crate) fn append_summary(files: &[DataFile]) -> Option<HashMap<String, Strin
         ("added-records".into(), added_records.to_string()),
         ("added-data-files".into(), added_data_files.to_string()),
     ]))
+}
+
+#[cfg(test)]
+mod split_tests {
+    use iceberg_rust_spec::{
+        manifest::{Content, DataFile, FileFormat, ManifestEntry, Status},
+        table_metadata::FormatVersion,
+        values::{Struct, Value},
+    };
+    use smallvec::smallvec;
+
+    use super::{split_datafiles, split_datafiles_once};
+    use crate::util::Rectangle;
+
+    /// Build a manifest entry sitting at partition `day = value`.
+    fn entry_at(day: i32) -> ManifestEntry {
+        let data_file = DataFile::builder()
+            .with_content(Content::Data)
+            .with_file_path(format!("s3://bucket/day={day}/data.parquet"))
+            .with_file_format(FileFormat::Parquet)
+            .with_partition(Struct::from_iter(vec![(
+                "day".to_owned(),
+                Some(Value::Int(day)),
+            )]))
+            .with_record_count(1)
+            .with_file_size_in_bytes(1024)
+            .with_column_sizes(None)
+            .with_value_counts(None)
+            .with_null_value_counts(None)
+            .with_nan_value_counts(None)
+            .with_distinct_counts(None)
+            .with_lower_bounds(None)
+            .with_upper_bounds(None)
+            .build()
+            .expect("data file builds");
+
+        ManifestEntry::builder()
+            .with_format_version(FormatVersion::V2)
+            .with_status(Status::Added)
+            .with_data_file(data_file)
+            .with_sequence_number(1)
+            .build()
+            .expect("manifest entry builds")
+    }
+
+    /// A rectangle spanning `day` in [min, max].
+    fn rect(min: i32, max: i32) -> Rectangle {
+        Rectangle::new(smallvec![Value::Int(min)], smallvec![Value::Int(max)])
+    }
+
+    /// Regression: every entry clustering on one side of the split used to
+    /// panic on `Option::expect` because the opposite side never got a
+    /// bounding rectangle. Retention hits this once it has deleted enough
+    /// files that the survivors all sit near one bound of a stale rect.
+    #[test]
+    fn all_entries_on_one_side_yields_an_empty_opposite_split() {
+        let files = vec![Ok(entry_at(1)), Ok(entry_at(2))];
+
+        let [(smaller, _), (larger, _)] =
+            split_datafiles_once(files.into_iter(), rect(0, 100), &["day"])
+                .expect("split must not fail when one side is empty");
+
+        assert_eq!(smaller.len(), 2, "both entries sit near the lower bound");
+        assert!(larger.is_empty(), "no entry sits near the upper bound");
+    }
+
+    #[test]
+    fn one_sided_split_drops_the_empty_group() {
+        let files = vec![Ok(entry_at(1)), Ok(entry_at(2))];
+
+        let groups = split_datafiles(files.into_iter(), rect(0, 100), &["day"], 1)
+            .expect("split must not fail when one side is empty");
+
+        assert_eq!(groups.len(), 1, "the empty group is filtered out");
+        assert_eq!(groups[0].len(), 2);
+    }
+
+    #[test]
+    fn one_sided_split_recurses_without_panicking() {
+        let files = vec![Ok(entry_at(1)), Ok(entry_at(2)), Ok(entry_at(3))];
+
+        let groups = split_datafiles(files.into_iter(), rect(0, 100), &["day"], 2)
+            .expect("recursive split must not fail when one side is empty");
+
+        let total: usize = groups.iter().map(Vec::len).sum();
+        assert_eq!(total, 3, "no entry is lost across the recursion");
+        assert!(
+            groups.iter().all(|g| !g.is_empty()),
+            "no empty group survives"
+        );
+    }
+
+    #[test]
+    fn empty_input_produces_no_groups() {
+        let files: Vec<Result<ManifestEntry, crate::error::Error>> = Vec::new();
+
+        let groups = split_datafiles(files.into_iter(), rect(0, 100), &["day"], 1)
+            .expect("an empty input must not fail");
+
+        assert!(groups.is_empty(), "nothing in, nothing out");
+    }
 }
