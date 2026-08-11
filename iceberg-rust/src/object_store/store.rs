@@ -95,7 +95,7 @@ lazy_static! {
         )
         .unwrap(),
         // The legacy file-system format https://iceberg.apache.org/spec/#file-system-tables
-        Regex::new(r"^v(?<version>[0-9]+).metadata.json$").unwrap(),
+        Regex::new(r"^v(?<version>[0-9]+).(?:gz.)?metadata.json$").unwrap(),
     ];
 }
 
@@ -201,6 +201,7 @@ mod tests {
 
     #[rstest]
     #[case::file_format("/path/to/metadata/v2.metadata.json", "2")]
+    #[case::file_format_with_gzip("/path/to/metadata/v2.gz.metadata.json", "2")]
     #[case::metastore_format_no_gzip(
         "/path/to/metadata/00004-3f569e94-5601-48f3-9199-8d71df4ea7b0.metadata.json",
         "00004-3f569e94-5601-48f3-9199-8d71df4ea7b0"
