@@ -53,6 +53,41 @@ pub const WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED: &str =
 /// `write.parquet.bloom-filter-enabled.column.label_env = "true"`.
 pub const WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX: &str =
     "write.parquet.bloom-filter-enabled.column.";
+/// Per-column Parquet bloom-filter false-positive probability: append the
+/// column name, e.g. `write.parquet.bloom-filter-fpp.column.trace_id = "0.01"`.
+/// A filter is sized from this, trading footer bytes against wasted reads.
+pub const WRITE_PARQUET_BLOOM_FILTER_FPP_COLUMN_PREFIX: &str =
+    "write.parquet.bloom-filter-fpp.column.";
+/// Per-column Parquet bloom-filter expected number of distinct values:
+/// append the column name, e.g.
+/// `write.parquet.bloom-filter-ndv.column.trace_id = "1000000"`. A filter is
+/// sized from this and the fpp; without it, every column is sized as if it
+/// had the default cardinality regardless of how selective it actually is.
+pub const WRITE_PARQUET_BLOOM_FILTER_NDV_COLUMN_PREFIX: &str =
+    "write.parquet.bloom-filter-ndv.column.";
+/// Parquet data page size in bytes. Bounds the granularity of page-level
+/// statistics and page skipping.
+pub const WRITE_PARQUET_PAGE_SIZE_BYTES: &str = "write.parquet.page-size-bytes";
+/// Maximum number of rows in a Parquet data page.
+pub const WRITE_PARQUET_PAGE_ROW_LIMIT: &str = "write.parquet.page-row-limit";
+/// Parquet dictionary page size in bytes.
+pub const WRITE_PARQUET_DICT_SIZE_BYTES: &str = "write.parquet.dict-size-bytes";
+/// Per-column toggle for whether Parquet writes column statistics into the
+/// file footer: append the column name, e.g.
+/// `write.parquet.stats-enabled.column.body = "false"`. Distinct from
+/// `write.metadata.metrics.*`, which controls manifest-level stats.
+pub const WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX: &str = "write.parquet.stats-enabled.column.";
+/// Per-column toggle for Parquet dictionary encoding: append the column
+/// name, e.g. `write.parquet.dict-encoding-enabled.column.trace_id =
+/// "false"`. Useful to turn off for a column whose values are rarely
+/// repeated, where a dictionary just adds overhead.
+pub const WRITE_PARQUET_DICT_ENCODING_ENABLED_COLUMN_PREFIX: &str =
+    "write.parquet.dict-encoding-enabled.column.";
+/// Maximum size of a Parquet row group in bytes. Row groups are flushed once
+/// their estimated encoded size crosses this, independent of row count.
+pub const WRITE_PARQUET_ROW_GROUP_SIZE_BYTES: &str = "write.parquet.row-group-size-bytes";
+/// Parquet page format: `v1` (DataPage) or `v2` (DataPageV2). Defaults to `v1`.
+pub const WRITE_PARQUET_PAGE_VERSION: &str = "write.parquet.page-version";
 /// Default statistics mode for a table's columns: `none`, `counts`,
 /// `truncate(n)` or `full`. Defaults to `truncate(16)`.
 pub const WRITE_METADATA_METRICS_DEFAULT: &str = "write.metadata.metrics.default";
