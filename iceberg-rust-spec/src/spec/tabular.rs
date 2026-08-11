@@ -131,6 +131,19 @@ impl TabularMetadataRef<'_> {
         }
     }
 
+    /// Returns the properties of the tabular object
+    ///
+    /// # Returns
+    /// * The `write.*` and other properties that configure how this table,
+    ///   view, or materialized view is written
+    pub fn properties(&self) -> &std::collections::HashMap<String, String> {
+        match self {
+            TabularMetadataRef::Table(table) => &table.properties,
+            TabularMetadataRef::View(view) => &view.properties,
+            TabularMetadataRef::MaterializedView(matview) => &matview.properties,
+        }
+    }
+
     /// Returns the current sequence number or version ID of the tabular object
     ///
     /// # Returns

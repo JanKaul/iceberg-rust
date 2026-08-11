@@ -396,8 +396,11 @@ impl Catalog for FileCatalog {
             .put_metadata(&temp_metadata_location, metadata.as_ref())
             .await?;
 
-        let metadata_location =
-            new_filesystem_metadata_location(&metadata.location, &previous_metadata_location)?;
+        let metadata_location = new_filesystem_metadata_location(
+            &metadata.location,
+            &previous_metadata_location,
+            temp_metadata_location.ends_with(".gz.metadata.json"),
+        )?;
 
         object_store
             .copy_if_not_exists(
@@ -453,6 +456,7 @@ impl Catalog for FileCatalog {
                 let metadata_location = new_filesystem_metadata_location(
                     &metadata.location,
                     &previous_metadata_location,
+                    temp_metadata_location.ends_with(".gz.metadata.json"),
                 )?;
 
                 object_store
@@ -514,6 +518,7 @@ impl Catalog for FileCatalog {
                 let metadata_location = new_filesystem_metadata_location(
                     &metadata.location,
                     &previous_metadata_location,
+                    temp_metadata_location.ends_with(".gz.metadata.json"),
                 )?;
 
                 object_store
@@ -612,12 +617,14 @@ impl FileCatalog {
                 .trim_start_matches((strip_prefix(&path) + "/v").trim_start_matches("/"))
                 .trim_end_matches("/")
                 .trim_end_matches(".metadata.json")
+                .trim_end_matches(".gz")
                 .parse::<usize>()
                 .unwrap();
             let y = y
                 .trim_start_matches((strip_prefix(&path) + "/v").trim_start_matches("/"))
                 .trim_end_matches("/")
                 .trim_end_matches(".metadata.json")
+                .trim_end_matches(".gz")
                 .parse::<usize>()
                 .unwrap();
             x.cmp(&y)
@@ -668,6 +675,7 @@ fn parse_version(path: &str) -> Result<u64, IcebergError> {
         .ok_or(IcebergError::InvalidFormat("Metadata location".to_owned()))?
         .trim_start_matches('v')
         .trim_end_matches(".metadata.json")
+        .trim_end_matches(".gz")
         .parse()
         .map_err(IcebergError::from)
 }
@@ -675,12 +683,92 @@ fn parse_version(path: &str) -> Result<u64, IcebergError> {
 fn new_filesystem_metadata_location(
     metadata_location: &str,
     previous_metadata_location: &str,
+    gzipped: bool,
 ) -> Result<String, IcebergError> {
     let current_version = parse_version(previous_metadata_location)? + 1;
-    Ok(metadata_location.to_string()
-        + "/metadata/v"
-        + &current_version.to_string()
-        + ".metadata.json")
+    // The name carries the encoding: the reader decides whether to decompress
+    // from the suffix alone, so a gzipped file must be named `.gz.metadata.json`
+    // even though this catalog numbers versions rather than using the metastore
+    // name. Kept in sync with the temp file actually written, not re-derived
+    // from properties, so the two can never disagree.
+    let suffix = if gzipped {
+        "gz.metadata.json"
+    } else {
+        "metadata.json"
+    };
+    Ok(format!(
+        "{}/metadata/v{}.{}",
+        metadata_location, current_version, suffix
+    ))
+}
+
+#[cfg(test)]
+mod metadata_naming_tests {
+    use super::*;
+
+    /// The version number must be recovered from both the plain and the
+    /// gzipped name, since a gzipped table's previous location carries the
+    /// `.gz.metadata.json` suffix and drives the next version number.
+    #[test]
+    fn parse_version_reads_plain_and_gzipped_names() {
+        assert_eq!(
+            parse_version("/wh/ns/t/metadata/v7.metadata.json").unwrap(),
+            7
+        );
+        assert_eq!(
+            parse_version("/wh/ns/t/metadata/v7.gz.metadata.json").unwrap(),
+            7
+        );
+    }
+
+    /// The final versioned name must carry the same encoding as the file that
+    /// was actually written; otherwise the reader, which decides purely from
+    /// the suffix, would read gzip bytes as plain JSON.
+    #[test]
+    fn the_versioned_name_carries_the_gzip_suffix() {
+        let plain = new_filesystem_metadata_location(
+            "/wh/ns/t",
+            "/wh/ns/t/metadata/v3.metadata.json",
+            false,
+        )
+        .unwrap();
+        assert_eq!(plain, "/wh/ns/t/metadata/v4.metadata.json");
+
+        let gzipped = new_filesystem_metadata_location(
+            "/wh/ns/t",
+            "/wh/ns/t/metadata/v3.gz.metadata.json",
+            true,
+        )
+        .unwrap();
+        assert_eq!(gzipped, "/wh/ns/t/metadata/v4.gz.metadata.json");
+    }
+
+    /// The encoding may be toggled on an existing table, so the previous name's
+    /// suffix and the requested encoding are independent: whichever the caller
+    /// asks for wins, and the version still advances.
+    #[test]
+    fn the_encoding_can_change_between_commits() {
+        // Was plain, now gzipped.
+        assert_eq!(
+            new_filesystem_metadata_location(
+                "/wh/ns/t",
+                "/wh/ns/t/metadata/v1.metadata.json",
+                true
+            )
+            .unwrap(),
+            "/wh/ns/t/metadata/v2.gz.metadata.json"
+        );
+        // Was gzipped, now plain.
+        assert_eq!(
+            new_filesystem_metadata_location(
+                "/wh/ns/t",
+                "/wh/ns/t/metadata/v1.gz.metadata.json",
+                false
+            )
+            .unwrap(),
+            "/wh/ns/t/metadata/v2.metadata.json"
+        );
+    }
 }
 
 #[derive(Debug)]

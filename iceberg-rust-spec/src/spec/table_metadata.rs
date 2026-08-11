@@ -98,6 +98,9 @@ pub const WRITE_METADATA_METRICS_COLUMN_PREFIX: &str = "write.metadata.metrics.c
 /// it are only measured when named explicitly. Defaults to 100.
 pub const WRITE_METADATA_METRICS_MAX_INFERRED_COLUMN_DEFAULTS: &str =
     "write.metadata.metrics.max-inferred-column-defaults";
+/// Codec for `metadata.json`: `none` (default) or `gzip`. A gzipped metadata
+/// file is named `*.gz.metadata.json`, which is how readers detect it.
+pub const WRITE_METADATA_COMPRESSION_CODEC: &str = "write.metadata.compression-codec";
 
 pub use _serde::{TableMetadataV1, TableMetadataV2, TableMetadataV3};
 
@@ -406,6 +409,11 @@ pub fn partition_fields<'a>(
 
 /// Creates a new metadata file location for a table
 ///
+/// The name carries the encoding: a table whose
+/// `write.metadata.compression-codec` is `gzip` gets a `.gz.metadata.json`
+/// suffix, which is how readers already decide whether to decompress. Any
+/// other value, including the default `none`, produces a plain name.
+///
 /// # Arguments
 /// * `metadata` - The table metadata to create a location for
 ///
@@ -415,13 +423,26 @@ pub fn new_metadata_location<'a, T: Into<TabularMetadataRef<'a>>>(metadata: T) -
     let metadata: TabularMetadataRef = metadata.into();
     let transaction_uuid = Uuid::new_v4();
     let version = metadata.sequence_number();
+    let suffix = if metadata_is_gzipped(metadata.properties()) {
+        "gz.metadata.json"
+    } else {
+        "metadata.json"
+    };
 
     format!(
-        "{}/metadata/{:05}-{}.metadata.json",
+        "{}/metadata/{:05}-{}.{}",
         metadata.location(),
         version,
-        transaction_uuid
+        transaction_uuid,
+        suffix
     )
+}
+
+/// Whether a table's properties ask for gzipped metadata.
+pub fn metadata_is_gzipped(properties: &HashMap<String, String>) -> bool {
+    properties
+        .get(WRITE_METADATA_COMPRESSION_CODEC)
+        .is_some_and(|codec| codec.trim().eq_ignore_ascii_case("gzip"))
 }
 
 impl fmt::Display for TableMetadata {
@@ -1126,6 +1147,43 @@ impl From<FormatVersion> for i32 {
             FormatVersion::V1 => 1,
             FormatVersion::V2 => 2,
             FormatVersion::V3 => 3,
+        }
+    }
+}
+
+#[cfg(test)]
+mod metadata_compression_tests {
+    use super::*;
+
+    #[test]
+    fn gzip_is_recognized_whatever_the_casing() {
+        for value in ["gzip", "GZIP", " Gzip "] {
+            let properties = HashMap::from([(
+                WRITE_METADATA_COMPRESSION_CODEC.to_string(),
+                value.to_string(),
+            )]);
+            assert!(
+                metadata_is_gzipped(&properties),
+                "{value:?} should mean gzip"
+            );
+        }
+    }
+
+    /// The spec's default is `none`, and an unrecognized codec must not be
+    /// guessed at -- a name claiming gzip that is not gzip is unreadable.
+    #[test]
+    fn anything_else_means_uncompressed() {
+        assert!(!metadata_is_gzipped(&HashMap::new()));
+
+        for value in ["none", "", "zstd", "gzip2"] {
+            let properties = HashMap::from([(
+                WRITE_METADATA_COMPRESSION_CODEC.to_string(),
+                value.to_string(),
+            )]);
+            assert!(
+                !metadata_is_gzipped(&properties),
+                "{value:?} should not mean gzip"
+            );
         }
     }
 }

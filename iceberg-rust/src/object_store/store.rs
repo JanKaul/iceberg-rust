@@ -9,9 +9,11 @@ use object_store::{Attributes, ObjectStore, ObjectStoreExt, PutOptions, TagSet};
 
 use crate::error::Error;
 use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::io::Read;
+use std::io::{Read, Write};
 
 /// Simplify interaction with iceberg files
 #[async_trait]
@@ -47,7 +49,7 @@ impl<T: ObjectStore> IcebergStore for T {
     ) -> Result<(), Error> {
         self.put(
             &strip_prefix(location).into(),
-            serde_json::to_vec(&metadata)?.into(),
+            serialize_metadata(location, metadata)?.into(),
         )
         .await?;
 
@@ -93,7 +95,7 @@ lazy_static! {
         )
         .unwrap(),
         // The legacy file-system format https://iceberg.apache.org/spec/#file-system-tables
-        Regex::new(r"^v(?<version>[0-9]+).metadata.json$").unwrap(),
+        Regex::new(r"^v(?<version>[0-9]+).(?:gz.)?metadata.json$").unwrap(),
     ];
 }
 
@@ -116,6 +118,25 @@ pub fn version_hint_content(original: &str) -> String {
                 .next()
         })
         .unwrap_or(original.to_string())
+}
+
+/// Encode metadata for the given location.
+///
+/// The file name carries the encoding — `new_metadata_location` appends
+/// `.gz.metadata.json` when the table asks for gzipped metadata — so writing
+/// and reading agree without either having to consult the properties again.
+/// `metadata.json` is the largest per-commit artifact a busy table produces,
+/// and it is highly repetitive JSON, so gzip typically shrinks it severalfold.
+fn serialize_metadata(location: &str, metadata: TabularMetadataRef<'_>) -> Result<Vec<u8>, Error> {
+    let json = serde_json::to_vec(&metadata)?;
+
+    if !location.ends_with(".gz.metadata.json") {
+        return Ok(json);
+    }
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&json)?;
+    encoder.finish().map_err(Error::from)
 }
 
 fn parse_metadata(location: &str, bytes: &[u8]) -> Result<TabularMetadata, Error> {
@@ -180,6 +201,7 @@ mod tests {
 
     #[rstest]
     #[case::file_format("/path/to/metadata/v2.metadata.json", "2")]
+    #[case::file_format_with_gzip("/path/to/metadata/v2.gz.metadata.json", "2")]
     #[case::metastore_format_no_gzip(
         "/path/to/metadata/00004-3f569e94-5601-48f3-9199-8d71df4ea7b0.metadata.json",
         "00004-3f569e94-5601-48f3-9199-8d71df4ea7b0"
@@ -505,5 +527,135 @@ mod tests {
 
         let result = parse_metadata(location, empty_gzipped_bytes);
         assert!(result.is_err());
+    }
+
+    /// A `.gz.metadata.json` name must actually produce gzip, and must read
+    /// back — the reader has long decompressed such files, but nothing ever
+    /// wrote one, so the two halves were never exercised together.
+    #[test]
+    fn gzipped_metadata_round_trips_through_the_writer() {
+        use iceberg_rust_spec::table_metadata::TableMetadata;
+        use std::str::FromStr;
+
+        let json_data = r#"
+            {
+                "format-version" : 2,
+                "table-uuid": "fb072c92-a02b-11e9-ae9c-1bb7bc9eca94",
+                "location": "s3://b/wh/data.db/table",
+                "last-sequence-number" : 1,
+                "last-updated-ms": 1515100955770,
+                "last-column-id": 1,
+                "schemas": [
+                    {
+                        "schema-id" : 1,
+                        "type" : "struct",
+                        "fields" :[
+                            {
+                                "id": 1,
+                                "name": "struct_name",
+                                "required": true,
+                                "type": "fixed[1]"
+                            }
+                        ]
+                    }
+                ],
+                "current-schema-id" : 1,
+                "partition-specs": [
+                    {
+                        "spec-id": 1,
+                        "fields": [
+                            {
+                                "source-id": 4,
+                                "field-id": 1000,
+                                "name": "ts_day",
+                                "transform": "day"
+                            }
+                        ]
+                    }
+                ],
+                "default-spec-id": 1,
+                "last-partition-id": 1,
+                "properties": {},
+                "sort-orders": [],
+                "default-sort-order-id": 0
+            }
+        "#;
+        let metadata = TableMetadata::from_str(json_data).unwrap();
+
+        let gz_location = "/path/to/metadata/00001-uuid.gz.metadata.json";
+        let bytes = serialize_metadata(gz_location, (&metadata).into()).unwrap();
+
+        // Gzip's magic number: the bytes really are compressed, not just named
+        // as if they were.
+        assert_eq!(&bytes[..2], &[0x1f, 0x8b], "expected a gzip stream");
+        assert!(
+            bytes.len() < serde_json::to_vec(&metadata).unwrap().len(),
+            "gzip should shrink the metadata"
+        );
+
+        let TabularMetadata::Table(read_back) = parse_metadata(gz_location, &bytes).unwrap() else {
+            panic!("expected a table");
+        };
+        assert_eq!(read_back.table_uuid, metadata.table_uuid);
+    }
+
+    /// The default is uncompressed, and a plain name must stay plain JSON.
+    #[test]
+    fn a_plain_metadata_name_is_written_uncompressed() {
+        use iceberg_rust_spec::table_metadata::TableMetadata;
+        use std::str::FromStr;
+
+        let json_data = r#"
+            {
+                "format-version" : 2,
+                "table-uuid": "fb072c92-a02b-11e9-ae9c-1bb7bc9eca94",
+                "location": "s3://b/wh/data.db/table",
+                "last-sequence-number" : 1,
+                "last-updated-ms": 1515100955770,
+                "last-column-id": 1,
+                "schemas": [
+                    {
+                        "schema-id" : 1,
+                        "type" : "struct",
+                        "fields" :[
+                            {
+                                "id": 1,
+                                "name": "struct_name",
+                                "required": true,
+                                "type": "fixed[1]"
+                            }
+                        ]
+                    }
+                ],
+                "current-schema-id" : 1,
+                "partition-specs": [
+                    {
+                        "spec-id": 1,
+                        "fields": [
+                            {
+                                "source-id": 4,
+                                "field-id": 1000,
+                                "name": "ts_day",
+                                "transform": "day"
+                            }
+                        ]
+                    }
+                ],
+                "default-spec-id": 1,
+                "last-partition-id": 1,
+                "properties": {},
+                "sort-orders": [],
+                "default-sort-order-id": 0
+            }
+        "#;
+        let metadata = TableMetadata::from_str(json_data).unwrap();
+
+        let bytes = serialize_metadata(
+            "/path/to/metadata/00001-uuid.metadata.json",
+            (&metadata).into(),
+        )
+        .unwrap();
+
+        assert_eq!(bytes, serde_json::to_vec(&metadata).unwrap());
     }
 }
