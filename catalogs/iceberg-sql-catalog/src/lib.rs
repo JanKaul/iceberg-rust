@@ -21,7 +21,7 @@ use iceberg_rust::{
     object_store::{store::IcebergStore, Bucket, ObjectStoreBuilder},
     spec::{
         materialized_view_metadata::MaterializedViewMetadata,
-        table_metadata::{new_metadata_location, TableMetadata},
+        table_metadata::{new_metadata_location, MetadataLog, TableMetadata},
         tabular::TabularMetadata,
         util::strip_prefix,
         view_metadata::ViewMetadata,
@@ -610,15 +610,60 @@ impl Catalog for SqlCatalog {
                 "Table requirements not valid".to_owned(),
             ));
         }
+        // Timestamp of the metadata file we are about to supersede, recorded in
+        // the metadata log per the Iceberg spec (the log entry marks when the
+        // previous metadata was created).
+        let previous_last_updated_ms = metadata.last_updated_ms;
         apply_table_updates(&mut metadata, commit.updates)?;
+
+        // Maintain the metadata log and honor `write.metadata.previous-versions-max`
+        // / `write.metadata.delete-after-commit.enabled`. iceberg-rust did not
+        // previously record superseded metadata files, so every commit left an
+        // orphan `metadata.json` behind; this bounds that growth.
+        let delete_after_commit = metadata
+            .properties
+            .get("write.metadata.delete-after-commit.enabled")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let previous_versions_max = metadata
+            .properties
+            .get("write.metadata.previous-versions-max")
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(100);
+        metadata.metadata_log.push(MetadataLog {
+            metadata_file: previous_metadata_location.to_string(),
+            timestamp_ms: previous_last_updated_ms,
+        });
+        let expired_metadata_files: Vec<String> =
+            if metadata.metadata_log.len() > previous_versions_max {
+                let remove = metadata.metadata_log.len() - previous_versions_max;
+                metadata
+                    .metadata_log
+                    .drain(0..remove)
+                    .map(|entry| entry.metadata_file)
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
         let metadata_location = new_metadata_location(&metadata);
         object_store
             .put_metadata(&metadata_location, metadata.as_ref())
             .await?;
         object_store.put_version_hint(&metadata_location).await.ok();
 
+        // A lost compare-and-swap returns early, so reaching this point means
+        // our commit landed and the aged-out files are ours to reclaim — a
+        // concurrent winner's files are never touched. Best effort: a failed
+        // delete only leaves an orphan, never corrupts state.
         self.swap_metadata_location(&identifier, &previous_metadata_location, &metadata_location)
             .await?;
+
+        if delete_after_commit {
+            for path in expired_metadata_files {
+                let _ = object_store.delete(&strip_prefix(&path).into()).await;
+            }
+        }
 
         self.cache.write().unwrap().insert(
             identifier.clone(),
@@ -1131,6 +1176,95 @@ pub mod tests {
         let version = version_hint_content(&keys[0].clone().0);
 
         assert_eq!(std::str::from_utf8(&version_hint).unwrap(), version);
+    }
+
+    /// With `write.metadata.delete-after-commit.enabled` + a small
+    /// `write.metadata.previous-versions-max`, superseded metadata files are
+    /// reclaimed on commit instead of accumulating forever. Uses an in-memory
+    /// sqlite catalog + in-memory object store (no containers).
+    #[tokio::test]
+    async fn delete_after_commit_prunes_old_metadata_files() {
+        use futures::TryStreamExt;
+        use iceberg_rust::object_store::Bucket;
+        use iceberg_rust::spec::schema::Schema;
+        use iceberg_rust::spec::types::{PrimitiveType, StructField, Type};
+        use iceberg_rust::table::Table;
+
+        let catalog = Arc::new(
+            SqlCatalog::new("sqlite://", "warehouse", ObjectStoreBuilder::memory())
+                .await
+                .unwrap(),
+        );
+
+        catalog
+            .create_namespace(&Namespace::try_new(&["ns".to_string()]).unwrap(), None)
+            .await
+            .unwrap();
+
+        let schema = Schema::builder()
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        let mut table = Table::builder()
+            .with_name("t")
+            .with_location("/warehouse/ns/t")
+            .with_schema(schema)
+            .build(&["ns".to_string()], catalog.clone())
+            .await
+            .unwrap();
+
+        // Keep only one previous metadata file and reclaim the rest.
+        table
+            .new_transaction(None)
+            .update_properties(vec![
+                (
+                    "write.metadata.delete-after-commit.enabled".to_string(),
+                    "true".to_string(),
+                ),
+                (
+                    "write.metadata.previous-versions-max".to_string(),
+                    "1".to_string(),
+                ),
+            ])
+            .commit()
+            .await
+            .unwrap();
+
+        // Several more commits, each writing a fresh metadata file.
+        for i in 0..5 {
+            table
+                .new_transaction(None)
+                .update_properties(vec![("marker".to_string(), i.to_string())])
+                .commit()
+                .await
+                .unwrap();
+        }
+
+        let object_store = catalog.default_object_store(Bucket::Local);
+        let metadata_files = object_store
+            .list(Some(&strip_prefix("/warehouse/ns/t/metadata").into()))
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|meta| meta.location.as_ref().ends_with(".metadata.json"))
+            .count();
+
+        // Without pruning this would be one file per version (7); with
+        // previous-versions-max = 1 only the current + one previous survive.
+        assert!(
+            metadata_files <= 2,
+            "expected metadata files pruned to <= 2, found {metadata_files}"
+        );
     }
 
     /// Two catalog instances over the same database — the shape of any
