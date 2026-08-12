@@ -58,6 +58,7 @@ use iceberg_rust_spec::{
         WRITE_PARQUET_DICT_ENCODING_ENABLED_COLUMN_PREFIX, WRITE_PARQUET_DICT_SIZE_BYTES,
         WRITE_PARQUET_PAGE_ROW_LIMIT, WRITE_PARQUET_PAGE_SIZE_BYTES, WRITE_PARQUET_PAGE_VERSION,
         WRITE_PARQUET_ROW_GROUP_SIZE_BYTES, WRITE_PARQUET_STATS_ENABLED_COLUMN_PREFIX,
+        WRITE_TARGET_FILE_SIZE_BYTES,
     },
     util::strip_prefix,
 };
@@ -81,8 +82,21 @@ use crate::{
 
 use super::partition::partition_record_batch;
 
-const MAX_PARQUET_SIZE: usize = 512_000_000;
-const COMPRESSION_FACTOR: usize = 200;
+/// Target size of a written data file, per the spec's default for
+/// `write.target-file-size-bytes`.
+const DEFAULT_TARGET_FILE_SIZE_BYTES: usize = 512 * 1024 * 1024;
+
+/// The on-disk size at which a data file is rolled.
+///
+/// A zero or unparsable value falls back to the default; a zero target would
+/// roll a new file for every batch.
+fn target_file_size(table_properties: &HashMap<String, String>) -> usize {
+    table_properties
+        .get(WRITE_TARGET_FILE_SIZE_BYTES)
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_TARGET_FILE_SIZE_BYTES)
+}
 
 /// Zstd level used when the table names zstd without a level, and the level
 /// the writer falls back to when a table says nothing about compression.
@@ -365,17 +379,19 @@ async fn write_parquet_files(
     )
     .await?;
 
+    let target_file_size = target_file_size(table_properties);
+
     // Structure to hold writer state
     struct WriterState {
         writer: (String, AsyncArrowWriter<BufWriter>),
-        bytes_written: usize,
+        rows_written: usize,
     }
 
     let final_state = batches
         .try_fold(
             WriterState {
                 writer: initial_writer,
-                bytes_written: 0,
+                rows_written: 0,
             },
             |mut state, batch| {
                 let object_store = object_store.clone();
@@ -386,10 +402,14 @@ async fn write_parquet_files(
                 let table_properties = table_properties_owned.clone();
 
                 async move {
-                    let batch_size = record_batch_size(&batch);
-                    let new_size = state.bytes_written + batch_size;
+                    // Roll on the file's real on-disk size: what the writer has
+                    // flushed plus the row group it still holds. The check runs
+                    // before writing, so every file receives at least one batch
+                    // and no empty file is ever emitted.
+                    let file_size =
+                        state.writer.1.bytes_written() + state.writer.1.in_progress_size();
 
-                    if new_size > COMPRESSION_FACTOR * MAX_PARQUET_SIZE {
+                    if file_size >= target_file_size {
                         // Send current writer to channel
                         let finished_writer = state.writer;
                         let file = finished_writer.1.close().await?;
@@ -408,11 +428,9 @@ async fn write_parquet_files(
                         .await?;
 
                         state.writer = new_writer;
-                        state.bytes_written = batch_size;
-                    } else {
-                        state.bytes_written = new_size;
                     }
 
+                    state.rows_written += batch.num_rows();
                     state.writer.1.write(&batch).await?;
                     Ok(state)
                 }
@@ -427,7 +445,7 @@ async fn write_parquet_files(
         .map_err(|err| ArrowError::ComputeError(err.to_string()))?;
     writer_sender.close_channel();
 
-    if final_state.bytes_written == 0 {
+    if final_state.rows_written == 0 {
         return Ok(Vec::new());
     }
 
@@ -782,24 +800,47 @@ pub fn generate_file_path(data_location: &str, partition_path: Option<String>) -
     base + separator + &path + &Uuid::now_v1(&rand).to_string() + ".parquet"
 }
 
-/// Calculates the approximate size in bytes of an Arrow record batch.
-///
-/// This function estimates the memory footprint of a record batch by multiplying
-/// the total size of all fields by the number of rows.
-///
-/// # Arguments
-/// * `batch` - The record batch to calculate size for
-///
-/// # Returns
-/// * `usize` - Estimated size of the record batch in bytes
-#[inline]
-fn record_batch_size(batch: &RecordBatch) -> usize {
-    batch
-        .schema()
-        .fields()
-        .iter()
-        .fold(0, |acc, x| acc + x.size())
-        * batch.num_rows()
+#[cfg(test)]
+mod target_file_size_tests {
+    use super::*;
+
+    fn properties(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    /// A table that says nothing gets the spec's 512 MiB default.
+    #[test]
+    fn the_default_target_is_the_spec_default() {
+        assert_eq!(
+            target_file_size(&HashMap::new()),
+            DEFAULT_TARGET_FILE_SIZE_BYTES
+        );
+        assert_eq!(DEFAULT_TARGET_FILE_SIZE_BYTES, 536_870_912);
+    }
+
+    #[test]
+    fn an_explicit_target_is_honored() {
+        assert_eq!(
+            target_file_size(&properties(&[(WRITE_TARGET_FILE_SIZE_BYTES, "134217728")])),
+            134_217_728
+        );
+    }
+
+    /// A zero target would roll a new file for every batch, and an unparsable
+    /// one says nothing; both fall back rather than break the write.
+    #[test]
+    fn unusable_targets_fall_back_to_the_default() {
+        for value in ["0", "-1", "lots", ""] {
+            assert_eq!(
+                target_file_size(&properties(&[(WRITE_TARGET_FILE_SIZE_BYTES, value)])),
+                DEFAULT_TARGET_FILE_SIZE_BYTES,
+                "target {value:?} should have fallen back"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

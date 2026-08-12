@@ -98,6 +98,8 @@ pub const WRITE_METADATA_METRICS_COLUMN_PREFIX: &str = "write.metadata.metrics.c
 /// it are only measured when named explicitly. Defaults to 100.
 pub const WRITE_METADATA_METRICS_MAX_INFERRED_COLUMN_DEFAULTS: &str =
     "write.metadata.metrics.max-inferred-column-defaults";
+/// Target on-disk size of a written data file. Defaults to 512 MiB.
+pub const WRITE_TARGET_FILE_SIZE_BYTES: &str = "write.target-file-size-bytes";
 /// Codec for `metadata.json`: `none` (default) or `gzip`. A gzipped metadata
 /// file is named `*.gz.metadata.json`, which is how readers detect it.
 pub const WRITE_METADATA_COMPRESSION_CODEC: &str = "write.metadata.compression-codec";
