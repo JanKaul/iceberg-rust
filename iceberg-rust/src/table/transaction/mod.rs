@@ -18,7 +18,9 @@
 use std::collections::HashMap;
 use tracing::{debug, instrument};
 
-use iceberg_rust_spec::spec::{manifest::DataFile, schema::Schema, snapshot::SnapshotReference};
+use iceberg_rust_spec::spec::{
+    manifest::DataFile, schema::Schema, snapshot::SnapshotReference, sort::SortOrder,
+};
 
 use crate::table::transaction::append::append_summary;
 use crate::table::transaction::operation::SequenceGroup;
@@ -39,8 +41,9 @@ pub(crate) static OVERWRITE_INDEX: usize = 5;
 pub(crate) static UPDATE_PROPERTIES_INDEX: usize = 6;
 pub(crate) static SET_SNAPSHOT_REF_INDEX: usize = 7;
 pub(crate) static EXPIRE_SNAPSHOTS_INDEX: usize = 8;
+pub(crate) static REPLACE_SORT_ORDER_INDEX: usize = 9;
 
-pub(crate) static NUM_OPERATIONS: usize = 9;
+pub(crate) static NUM_OPERATIONS: usize = 10;
 
 /// A transaction that can perform multiple operations on a table atomically
 ///
@@ -100,6 +103,24 @@ impl<'table> TableTransaction<'table> {
     /// The specified partition specification must already exist in the table metadata.
     pub fn set_default_spec(mut self, spec_id: i32) -> Self {
         self.operations[SET_DEFAULT_SPEC_INDEX] = Some(Operation::SetDefaultSpec(spec_id));
+        self
+    }
+    /// Declares a sort order on the table and makes it the default
+    ///
+    /// The order is added to the table metadata under its own `order_id`
+    /// (replacing any existing order with that id) and becomes the default
+    /// order that subsequent sorted writes attest their files with. Existing
+    /// data files keep whatever `sort_order_id` they were written with — this
+    /// operation changes the declared intent, not the files.
+    ///
+    /// # Arguments
+    /// * `sort_order` - The sort order to declare; must not use order id `0`
+    ///   with fields, since that id is reserved for the unsorted order
+    ///
+    /// # Returns
+    /// * `Self` - The transaction builder for method chaining
+    pub fn replace_sort_order(mut self, sort_order: SortOrder) -> Self {
+        self.operations[REPLACE_SORT_ORDER_INDEX] = Some(Operation::ReplaceSortOrder(sort_order));
         self
     }
     /// Appends new data files to the table

@@ -22,6 +22,7 @@ use iceberg_rust_spec::spec::{
     snapshot::{
         generate_snapshot_id, SnapshotBuilder, SnapshotReference, SnapshotRetention, Summary,
     },
+    sort::{SortOrder, DEFAULT_SORT_ORDER_ID},
 };
 use iceberg_rust_spec::table_metadata::FormatVersion;
 use iceberg_rust_spec::util::strip_prefix;
@@ -65,8 +66,8 @@ pub enum Operation {
     UpdateProperties(Vec<(String, String)>),
     /// Set Ref
     SetSnapshotRef((String, SnapshotReference)),
-    /// Replace the sort order
-    // ReplaceSortOrder,
+    /// Declare a sort order and make it the default
+    ReplaceSortOrder(SortOrder),
     // /// Update the table location
     // UpdateLocation,
     /// Append new files to the table
@@ -844,6 +845,38 @@ impl Operation {
             Operation::SetDefaultSpec(spec_id) => {
                 debug!("Executing SetDefaultSpec operation: spec_id={}", spec_id);
                 Ok((None, vec![TableUpdate::SetDefaultSpec { spec_id }]))
+            }
+            Operation::ReplaceSortOrder(sort_order) => {
+                debug!(
+                    "Executing ReplaceSortOrder operation: order_id={}",
+                    sort_order.order_id
+                );
+                if sort_order.order_id == DEFAULT_SORT_ORDER_ID && !sort_order.fields.is_empty() {
+                    return Err(Error::InvalidFormat(format!(
+                        "sort order with fields uses order id {DEFAULT_SORT_ORDER_ID}, which is reserved for the unsorted order"
+                    )));
+                }
+                let schema = table_metadata.current_schema()?;
+                for field in &sort_order.fields {
+                    if !schema.fields().iter().any(|f| f.id == field.source_id) {
+                        return Err(Error::NotFound(format!(
+                            "Sort order field references non-existent schema field ID {}",
+                            field.source_id
+                        )));
+                    }
+                }
+                let sort_order_id = sort_order.order_id;
+                Ok((
+                    // Guard against a concurrent writer having moved the
+                    // default in the meantime.
+                    Some(TableRequirement::AssertDefaultSortOrderId {
+                        default_sort_order_id: table_metadata.default_sort_order_id,
+                    }),
+                    vec![
+                        TableUpdate::AddSortOrder { sort_order },
+                        TableUpdate::SetDefaultSortOrder { sort_order_id },
+                    ],
+                ))
             }
             Operation::ExpireSnapshots {
                 older_than,

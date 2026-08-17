@@ -134,6 +134,14 @@ impl CreateTableBuilder {
 
         // Validate sort order references valid schema fields
         if let Some(Some(order)) = &self.write_order {
+            // Order id 0 is reserved for the unsorted order, so a sort order
+            // with fields must carry its own id.
+            if order.order_id == DEFAULT_SORT_ORDER_ID && !order.fields.is_empty() {
+                return Err(Error::InvalidFormat(format!(
+                    "Sort order for table '{}' has fields but uses order id {}, which is reserved for the unsorted order",
+                    name, DEFAULT_SORT_ORDER_ID
+                )));
+            }
             for field in &order.fields {
                 let source_id = field.source_id;
                 if !schema.fields().iter().any(|f| f.id == source_id) {
@@ -189,6 +197,8 @@ impl TryInto<TableMetadata> for CreateTable {
             .and_then(|x| x.fields().iter().map(|x| *x.field_id()).max())
             .unwrap_or(0);
 
+        let write_order = self.write_order.unwrap_or_default();
+
         Ok(TableMetadata {
             format_version: Default::default(),
             table_uuid: Uuid::new_v4(),
@@ -214,11 +224,10 @@ impl TryInto<TableMetadata> for CreateTable {
             snapshots: HashMap::new(),
             snapshot_log: Vec::new(),
             metadata_log: Vec::new(),
-            sort_orders: HashMap::from_iter(vec![(
-                DEFAULT_SORT_ORDER_ID,
-                self.write_order.unwrap_or_default(),
-            )]),
-            default_sort_order_id: DEFAULT_SORT_ORDER_ID,
+            // The declared order keeps its own id and becomes the default,
+            // so a table created with a sort order reports it as such.
+            default_sort_order_id: write_order.order_id,
+            sort_orders: HashMap::from_iter(vec![(write_order.order_id, write_order)]),
             refs: HashMap::new(),
             next_row_id: 0,
         })
