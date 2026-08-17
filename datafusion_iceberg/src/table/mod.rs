@@ -45,7 +45,10 @@ use crate::{
     pruning_statistics::{transform_predicate, PruneDataFiles, PruneManifests},
     statistics::manifest_statistics,
 };
+use datafusion::arrow::compute::SortOptions;
 use datafusion::common::{NullEquality, Statistics};
+use datafusion::datasource::physical_plan::FileScanConfig;
+use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
 use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::physical_plan::ColumnStatistics;
 use datafusion::{
@@ -84,7 +87,13 @@ use datafusion::{
     scalar::ScalarValue,
     sql::parser::DFParserBuilder,
 };
-use iceberg_rust::spec::{manifest::DataFile, schema::Schema, view_metadata::ViewRepresentation};
+use iceberg_rust::spec::{
+    manifest::DataFile,
+    partition::Transform,
+    schema::Schema,
+    sort::{NullOrder, SortDirection, SortOrder},
+    view_metadata::ViewRepresentation,
+};
 use iceberg_rust::{
     catalog::tabular::Tabular, error::Error, materialized_view::MaterializedView, table::Table,
     view::View,
@@ -494,6 +503,15 @@ async fn table_scan(
 
     let file_schema: SchemaRef = Arc::new((schema.fields()).try_into().unwrap());
 
+    // The ordering the table declares, if any, expressed on the file schema.
+    // Files attest it individually (manifest `sort_order_id`), so the claim is
+    // only ever made for the files that carry the attestation.
+    let declared_ordering = table
+        .metadata()
+        .default_sort_order()
+        .ok()
+        .and_then(|order| declared_output_ordering(order, &schema, &file_schema));
+
     // If no projection was specified default to projecting all the fields
     let projection = projection
         .cloned()
@@ -693,13 +711,13 @@ async fn table_scan(
         });
     }
 
-    let file_source = {
-        let table_schema = TableSchema::new(
-            file_schema.clone(),
-            table_partition_cols.iter().cloned().map(Arc::new).collect(),
-        );
-        Arc::new(ParquetSource::new(table_schema))
-    };
+    let table_schema = TableSchema::new(
+        file_schema.clone(),
+        table_partition_cols.iter().cloned().map(Arc::new).collect(),
+    );
+    // File schema plus partition columns: what scan orderings are expressed on.
+    let scan_schema: SchemaRef = table_schema.table_schema().clone();
+    let file_source = Arc::new(ParquetSource::new(table_schema));
 
     // Create plan for every partition with delete files
     let mut plans = stream::iter(delete_file_groups.into_iter())
@@ -927,38 +945,59 @@ async fn table_scan(
         .try_collect::<Vec<_>>()
         .await?;
 
-    // Create plan for partitions without delete files
-    let file_groups: Vec<_> = data_file_groups
-        .into_values()
-        .map(|x| {
-            x.into_iter()
-                .map(|x| {
-                    let last_updated_ms = table.metadata().last_updated_ms;
-                    let manifest_path = if enable_manifest_file_path_column {
-                        Some(x.0)
-                    } else {
-                        None
-                    };
-                    generate_partitioned_file(
-                        &schema,
-                        &x.1,
-                        last_updated_ms,
-                        enable_data_file_path_column,
-                        manifest_path,
-                    )
-                    .unwrap()
-                })
-                .collect()
-        })
-        .collect();
+    // Create plan for partitions without delete files.
+    //
+    // Files that attest the table's declared sort order (manifest
+    // `sort_order_id`) are scanned separately from those that do not, so the
+    // ordering claim covers exactly the files that honor it: the attested scan
+    // carries `output_ordering` (and can be regrouped by statistics into
+    // non-overlapping groups), the unattested scan claims nothing. A mixed
+    // table therefore keeps its explicit sort while a fully attested one can
+    // drop it — never the other way round.
+    let mut attested_groups: Vec<FileGroup> = Vec::new();
+    let mut unattested_groups: Vec<FileGroup> = Vec::new();
+    for entries in data_file_groups.into_values() {
+        let mut attested = Vec::new();
+        let mut unattested = Vec::new();
+        for (manifest_path, entry) in entries {
+            let last_updated_ms = table.metadata().last_updated_ms;
+            let manifest_path = if enable_manifest_file_path_column {
+                Some(manifest_path)
+            } else {
+                None
+            };
+            let is_attested = declared_ordering
+                .as_ref()
+                .is_some_and(|(order_id, _)| entry.data_file().sort_order_id() == &Some(*order_id));
+            let file = generate_partitioned_file(
+                &schema,
+                &entry,
+                last_updated_ms,
+                enable_data_file_path_column,
+                manifest_path,
+            )?;
+            if is_attested {
+                attested.push(file);
+            } else {
+                unattested.push(file);
+            }
+        }
+        if !attested.is_empty() {
+            attested_groups.push(FileGroup::new(attested));
+        }
+        if !unattested.is_empty() {
+            unattested_groups.push(FileGroup::new(unattested));
+        }
+    }
 
-    if !file_groups.is_empty() {
-        let file_scan_config = FileScanConfigBuilder::new(object_store_url, file_source)
-            .with_file_groups(file_groups)
-            .with_statistics(statistics)
-            .with_projection_indices(Some(projection.clone()))?
-            .with_limit(limit)
-            .build();
+    if !unattested_groups.is_empty() {
+        let file_scan_config =
+            FileScanConfigBuilder::new(object_store_url.clone(), file_source.clone())
+                .with_file_groups(unattested_groups)
+                .with_statistics(statistics.clone())
+                .with_projection_indices(Some(projection.clone()))?
+                .with_limit(limit)
+                .build();
 
         let other_plan = ParquetFormat::default()
             .create_physical_plan(session, file_scan_config)
@@ -970,6 +1009,27 @@ async fn table_scan(
         plans.push(other_plan);
     }
 
+    if let (false, Some((_, ordering))) = (attested_groups.is_empty(), &declared_ordering) {
+        let file_groups =
+            regroup_attested_files_by_statistics(session, &scan_schema, attested_groups, ordering);
+        let file_scan_config = FileScanConfigBuilder::new(object_store_url, file_source)
+            .with_file_groups(file_groups)
+            .with_statistics(statistics)
+            .with_output_ordering(vec![ordering.clone()])
+            .with_projection_indices(Some(projection.clone()))?
+            .with_limit(limit)
+            .build();
+
+        let sorted_plan = ParquetFormat::default()
+            .create_physical_plan(session, file_scan_config)
+            .instrument(tracing::debug_span!(
+                "datafusion_iceberg::create_physical_plan_scan_sorted_data_files"
+            ))
+            .await?;
+
+        plans.push(sorted_plan);
+    }
+
     match plans.len() {
         0 => {
             let projected_schema = arrow_schema.project(&projection)?;
@@ -977,6 +1037,79 @@ async fn table_scan(
         }
         1 => Ok(plans.remove(0)),
         _ => Ok(UnionExec::try_new(plans)?),
+    }
+}
+
+/// Maps a table sort order onto a DataFusion ordering over `file_schema`.
+///
+/// Only the leading run of identity-transformed fields is claimed: rows
+/// sorted by `(a, b, bucket(c))` are sorted by `(a, b)`, but Parquet
+/// statistics cannot reason about a transformed value, and a claim on `c`
+/// itself would be false. Returns `None` for an order without a usable
+/// leading field (including the unsorted order), paired with the order id
+/// files must attest to be covered by the claim.
+fn declared_output_ordering(
+    sort_order: &SortOrder,
+    schema: &Schema,
+    file_schema: &SchemaRef,
+) -> Option<(i32, LexOrdering)> {
+    let sort_exprs: Vec<PhysicalSortExpr> = sort_order
+        .fields
+        .iter()
+        .take_while(|field| field.transform == Transform::Identity)
+        .map(|field| {
+            let name = &schema.get(field.source_id as usize)?.name;
+            let index = file_schema.index_of(name).ok()?;
+            Some(PhysicalSortExpr::new(
+                Arc::new(Column::new(name, index)),
+                SortOptions {
+                    descending: field.direction == SortDirection::Descending,
+                    nulls_first: field.null_order == NullOrder::First,
+                },
+            ))
+        })
+        .map_while(|expr| expr)
+        .collect();
+    LexOrdering::new(sort_exprs).map(|ordering| (sort_order.order_id, ordering))
+}
+
+/// Regroups attested files into non-overlapping, statistics-ordered groups
+/// when the session asks for it (`split_file_groups_by_statistics`), the same
+/// way DataFusion's listing table does. Falls back to the partition-shaped
+/// groups if the split is off, fails (e.g. a file without bounds on a sort
+/// column), or would exceed `target_partitions`; the ordering claim stays
+/// valid either way because DataFusion re-validates it against the file
+/// statistics of each group at plan time.
+fn regroup_attested_files_by_statistics(
+    session: &SessionState,
+    table_schema: &SchemaRef,
+    file_groups: Vec<FileGroup>,
+    ordering: &LexOrdering,
+) -> Vec<FileGroup> {
+    let options = session.config_options();
+    if !options.execution.split_file_groups_by_statistics {
+        return file_groups;
+    }
+    let target_partitions = options.execution.target_partitions;
+    match FileScanConfig::split_groups_by_statistics_with_target_partitions(
+        table_schema,
+        &file_groups,
+        ordering,
+        target_partitions,
+    ) {
+        Ok(new_groups) if new_groups.len() <= target_partitions => new_groups,
+        Ok(new_groups) => {
+            tracing::debug!(
+                groups = new_groups.len(),
+                target_partitions,
+                "statistics split produced more file groups than target partitions; keeping partition groups"
+            );
+            file_groups
+        }
+        Err(error) => {
+            tracing::debug!(%error, "failed to split attested file groups by statistics");
+            file_groups
+        }
     }
 }
 
