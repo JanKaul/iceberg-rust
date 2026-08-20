@@ -36,6 +36,27 @@ use crate::file_format::metrics::{
 pub const ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY: &str =
     "iceberg.estimate-int64-distinct-count";
 
+/// Parquet file-level KV metadata key recording the id of the table sort order
+/// the file's rows honor. Written by the sorted write path together with the
+/// row groups' `sorting_columns`, and lifted into the manifest entry's
+/// `sort_order_id` by [`parquet_to_datafile`], so the attestation travels with
+/// the file itself rather than being asserted at commit time.
+pub const ICEBERG_SORT_ORDER_ID_META_KEY: &str = "iceberg.sort-order-id";
+
+/// The sort order id a Parquet file attests in its footer, if any.
+///
+/// Returns `None` when the file carries no [`ICEBERG_SORT_ORDER_ID_META_KEY`]
+/// entry or when the entry does not parse as an integer.
+pub fn attested_sort_order_id(file_metadata: &ParquetMetaData) -> Option<i32> {
+    file_metadata
+        .file_metadata()
+        .key_value_metadata()?
+        .iter()
+        .find(|kv| kv.key == ICEBERG_SORT_ORDER_ID_META_KEY)
+        .and_then(|kv| kv.value.as_deref())
+        .and_then(|value| value.parse::<i32>().ok())
+}
+
 /// Read datafile statistics from parquetfile
 #[instrument(name = "iceberg_rust::file_format::parquet::parquet_to_datafile", level = "debug", skip(file_metadata, schema, partition_fields, table_properties), fields(
     location = location,
@@ -419,6 +440,13 @@ pub fn parquet_to_datafile(
 
     if let Some(equality_ids) = equality_ids {
         builder.with_equality_ids(Some(equality_ids.to_vec()));
+    }
+
+    // A file written under a declared sort order attests it in its footer;
+    // carry that into the manifest so readers can trust the ordering without
+    // opening the file.
+    if let Some(sort_order_id) = attested_sort_order_id(file_metadata) {
+        builder.with_sort_order_id(Some(sort_order_id));
     }
 
     let content = builder.build()?;

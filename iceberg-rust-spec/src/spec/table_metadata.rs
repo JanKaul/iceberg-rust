@@ -255,6 +255,21 @@ impl TableMetadata {
             .ok_or_else(|| Error::InvalidFormat("partition spec".to_string()))
     }
 
+    /// Gets the default sort order for the table
+    ///
+    /// Order id `0` is the spec's "unsorted" order; callers that want to know
+    /// whether the table declares an ordering at all should check
+    /// [`SortOrder::fields`] for emptiness rather than the id.
+    ///
+    /// # Returns
+    /// * `Result<&SortOrder, Error>` - The default sort order, or an error if it cannot be found
+    #[inline]
+    pub fn default_sort_order(&self) -> Result<&SortOrder, Error> {
+        self.sort_orders
+            .get(&self.default_sort_order_id)
+            .ok_or_else(|| Error::InvalidFormat("sort order".to_string()))
+    }
+
     /// Gets the current partition fields, binding them to their source schema fields
     ///
     /// # Returns

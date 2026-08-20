@@ -49,7 +49,13 @@ use arrow::{datatypes::Schema as ArrowSchema, error::ArrowError, record_batch::R
 use futures::Stream;
 use iceberg_rust_spec::{
     partition::BoundPartitionField,
-    spec::{manifest::DataFile, schema::Schema, values::Value},
+    spec::{
+        manifest::DataFile,
+        partition::Transform,
+        schema::Schema,
+        sort::{NullOrder, SortDirection, SortOrder},
+        values::Value,
+    },
     table_metadata::{
         self, WRITE_DATA_PATH, WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED,
         WRITE_OBJECT_STORAGE_ENABLED, WRITE_PARQUET_BLOOM_FILTER_ENABLED_COLUMN_PREFIX,
@@ -63,10 +69,10 @@ use iceberg_rust_spec::{
     util::strip_prefix,
 };
 use parquet::{
-    arrow::AsyncArrowWriter,
+    arrow::{ArrowSchemaConverter, AsyncArrowWriter},
     basic::{BrotliLevel, Compression, GzipLevel, ZstdLevel},
     file::{
-        metadata::{KeyValue, ParquetMetaData},
+        metadata::{KeyValue, ParquetMetaData, SortingColumn},
         properties::{EnabledStatistics, WriterProperties, WriterVersion},
     },
     schema::types::ColumnPath,
@@ -75,7 +81,10 @@ use uuid::Uuid;
 
 use crate::{
     error::Error,
-    file_format::parquet::{parquet_to_datafile, ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY},
+    file_format::parquet::{
+        parquet_to_datafile, ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY,
+        ICEBERG_SORT_ORDER_ID_META_KEY,
+    },
     object_store::Bucket,
     table::Table,
 };
@@ -128,7 +137,59 @@ pub async fn write_parquet_partitioned(
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
     branch: Option<&str>,
 ) -> Result<Vec<DataFile>, ArrowError> {
-    store_parquet_partitioned(table, batches, branch, None).await
+    store_parquet_partitioned(table, batches, branch, None, InputOrdering::Unspecified).await
+}
+
+#[instrument(skip(table, batches), fields(table_name = %table.identifier().name()))]
+/// Writes Arrow record batches that are already sorted by the table's default
+/// sort order as partitioned Parquet files, attesting that order on every file.
+///
+/// The caller promises that the rows of `batches`, taken in stream order, are
+/// sorted by the table's default [`SortOrder`]. Rows are routed to partitions
+/// and rolled into files in stream order, so every written file is sorted too;
+/// each file records the order in its Parquet footer (per-row-group
+/// `sorting_columns` for identity-transformed fields plus a
+/// `iceberg.sort-order-id` key/value entry) and its manifest entry carries the
+/// matching `sort_order_id`. Readers use that attestation to skip sorts, so a
+/// caller that cannot guarantee the order MUST use
+/// [`write_parquet_partitioned`] instead: a false attestation yields wrong
+/// query results, not a slower query.
+///
+/// A table whose default sort order has no fields is written unattested,
+/// exactly like [`write_parquet_partitioned`].
+///
+/// # Arguments
+/// * `table` - The Iceberg table to write data for
+/// * `batches` - Stream of record batches, sorted by the table's default sort order
+/// * `branch` - Optional branch name to write to
+///
+/// # Returns
+/// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written data files
+///
+/// # Errors
+/// Returns an error under the same conditions as [`write_parquet_partitioned`].
+pub async fn write_sorted_parquet_partitioned(
+    table: &Table,
+    batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
+    branch: Option<&str>,
+) -> Result<Vec<DataFile>, ArrowError> {
+    store_parquet_partitioned(
+        table,
+        batches,
+        branch,
+        None,
+        InputOrdering::SortedByDefaultOrder,
+    )
+    .await
+}
+
+/// What the caller promises about the order of the rows handed to a write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputOrdering {
+    /// Nothing is known about the order; files are written unattested.
+    Unspecified,
+    /// Rows are sorted by the table's default sort order; files attest it.
+    SortedByDefaultOrder,
 }
 
 #[instrument(skip(table, batches), fields(table_name = %table.identifier().name(), equality_ids = ?equality_ids))]
@@ -159,7 +220,14 @@ pub async fn write_equality_deletes_parquet_partitioned(
     branch: Option<&str>,
     equality_ids: &[i32],
 ) -> Result<Vec<DataFile>, ArrowError> {
-    store_parquet_partitioned(table, batches, branch, Some(equality_ids)).await
+    store_parquet_partitioned(
+        table,
+        batches,
+        branch,
+        Some(equality_ids),
+        InputOrdering::Unspecified,
+    )
+    .await
 }
 
 #[instrument(skip(table, batches), fields(table_name = %table.identifier().name(), equality_ids = ?equality_ids))]
@@ -189,10 +257,20 @@ async fn store_parquet_partitioned(
     batches: impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static,
     branch: Option<&str>,
     equality_ids: Option<&[i32]>,
+    input_ordering: InputOrdering,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let metadata = table.metadata();
     let object_store = table.object_store();
     let schema = Arc::new(metadata.current_schema().map_err(Error::from)?.clone());
+    // Only data files can attest an order: delete files are projected onto the
+    // equality columns, and an order without fields says nothing.
+    let sort_order: Option<Arc<SortOrder>> = match input_ordering {
+        InputOrdering::SortedByDefaultOrder if equality_ids.is_none() => {
+            let order = metadata.default_sort_order().map_err(Error::from)?;
+            (!order.fields.is_empty()).then(|| Arc::new(order.clone()))
+        }
+        _ => None,
+    };
     // project the schema on to the equality_ids for equality deletes
     let schema = if let Some(equality_ids) = equality_ids {
         Arc::new(schema.project(equality_ids))
@@ -238,6 +316,7 @@ async fn store_parquet_partitioned(
             object_store.clone(),
             equality_ids,
             &metadata.properties,
+            sort_order.as_deref(),
         )
         .await?;
         Ok(files)
@@ -276,6 +355,7 @@ async fn store_parquet_partitioned(
                         let partition_spec = partition_spec.clone();
                         let equality_ids = equality_ids.map(Vec::from);
                         let table_properties = table_properties.clone();
+                        let sort_order = sort_order.clone();
                         let partition_path = if metadata
                             .properties
                             .get(WRITE_OBJECT_STORAGE_ENABLED)
@@ -302,6 +382,7 @@ async fn store_parquet_partitioned(
                                 object_store.clone(),
                                 equality_ids.as_deref(),
                                 &table_properties,
+                                sort_order.as_deref(),
                             )
                             .await?;
                             Ok::<_, Error>(files)
@@ -343,6 +424,7 @@ type ArrowReciever = Receiver<(String, ParquetMetaData)>;
 /// * `batches` - Stream of record batches to write
 /// * `object_store` - Object store to write files to
 /// * `equality_ids` - Optional list of field IDs for equality deletes
+/// * `sort_order` - The sort order the batches honor and the files attest, if any
 ///
 /// # Returns
 /// * `Result<Vec<DataFile>, ArrowError>` - List of metadata for the written files
@@ -364,10 +446,15 @@ async fn write_parquet_files(
     object_store: Arc<dyn ObjectStore>,
     equality_ids: Option<&[i32]>,
     table_properties: &HashMap<String, String>,
+    sort_order: Option<&SortOrder>,
 ) -> Result<Vec<DataFile>, ArrowError> {
     let bucket = Bucket::from_path(data_location)?;
     let (mut writer_sender, writer_reciever): (ArrowSender, ArrowReciever) = channel(0);
     let table_properties_owned = Arc::new(table_properties.clone());
+    let sort_attestation = sort_order
+        .map(|order| SortAttestation::new(order, schema, arrow_schema))
+        .transpose()?
+        .map(Arc::new);
 
     // Create initial writer
     let initial_writer = create_arrow_writer(
@@ -376,6 +463,7 @@ async fn write_parquet_files(
         arrow_schema,
         object_store.clone(),
         table_properties,
+        sort_attestation.as_deref(),
     )
     .await?;
 
@@ -400,6 +488,7 @@ async fn write_parquet_files(
                 let arrow_schema = arrow_schema.clone();
                 let mut writer_sender = writer_sender.clone();
                 let table_properties = table_properties_owned.clone();
+                let sort_attestation = sort_attestation.clone();
 
                 async move {
                     // Roll on the file's real on-disk size: what the writer has
@@ -424,6 +513,7 @@ async fn write_parquet_files(
                             &arrow_schema,
                             object_store,
                             &table_properties,
+                            sort_attestation.as_deref(),
                         )
                         .await?;
 
@@ -517,6 +607,8 @@ pub fn generate_partition_path(
 /// * `partition_path` - Optional partition path component
 /// * `schema` - Arrow schema for the record batches
 /// * `object_store` - Object store to write files to
+/// * `table_properties` - Table properties that tune the Parquet writer
+/// * `sort_attestation` - The sort order to record in the file footer, if any
 ///
 /// # Returns
 /// * `Result<(String, AsyncArrowWriter<BufWriter>), ArrowError>` - The file path and configured writer
@@ -532,6 +624,7 @@ async fn create_arrow_writer(
     schema: &arrow::datatypes::Schema,
     object_store: Arc<dyn ObjectStore>,
     table_properties: &HashMap<String, String>,
+    sort_attestation: Option<&SortAttestation>,
 ) -> Result<(String, AsyncArrowWriter<BufWriter>), ArrowError> {
     let parquet_path = generate_file_path(data_location, partition_path);
 
@@ -547,11 +640,22 @@ async fn create_arrow_writer(
     props_builder = apply_writer_properties(props_builder, table_properties);
     props_builder = apply_bloom_filter_properties(props_builder, table_properties);
     props_builder = apply_column_write_properties(props_builder, table_properties);
+    let mut key_value_metadata = Vec::new();
     if estimate_distinct_count {
-        props_builder = props_builder.set_key_value_metadata(Some(vec![KeyValue::new(
+        key_value_metadata.push(KeyValue::new(
             ICEBERG_ESTIMATE_INT64_DISTINCT_COUNT_META_KEY.to_owned(),
             "true".to_owned(),
-        )]));
+        ));
+    }
+    if let Some(attestation) = sort_attestation {
+        key_value_metadata.push(KeyValue::new(
+            ICEBERG_SORT_ORDER_ID_META_KEY.to_owned(),
+            attestation.order_id.to_string(),
+        ));
+        props_builder = props_builder.set_sorting_columns(attestation.sorting_columns.clone());
+    }
+    if !key_value_metadata.is_empty() {
+        props_builder = props_builder.set_key_value_metadata(Some(key_value_metadata));
     }
 
     Ok((
@@ -562,6 +666,77 @@ async fn create_arrow_writer(
             Some(props_builder.build()),
         )?,
     ))
+}
+
+/// How a declared sort order is recorded in the Parquet files of one write.
+///
+/// The `iceberg.sort-order-id` footer entry always names the order; the
+/// per-row-group `sorting_columns` are only emitted when every sort field is
+/// an identity transform on a top-level primitive column, since Parquet has
+/// no way to describe an order over transformed values or nested leaves. A
+/// partial `sorting_columns` list would claim a *different* (prefix) order
+/// than the one the file honors, so it is all or nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SortAttestation {
+    order_id: i32,
+    sorting_columns: Option<Vec<SortingColumn>>,
+}
+
+impl SortAttestation {
+    fn new(
+        sort_order: &SortOrder,
+        schema: &Schema,
+        arrow_schema: &ArrowSchema,
+    ) -> Result<Self, ArrowError> {
+        Ok(Self {
+            order_id: sort_order.order_id,
+            sorting_columns: sorting_columns_for(sort_order, schema, arrow_schema)?,
+        })
+    }
+}
+
+/// Maps a sort order onto Parquet `sorting_columns`, or `None` when the order
+/// cannot be expressed in Parquet terms (see [`SortAttestation`]).
+///
+/// # Errors
+/// Returns an error if a sort field references a column missing from the
+/// schema, since that means the caller's promise cannot even be stated.
+fn sorting_columns_for(
+    sort_order: &SortOrder,
+    schema: &Schema,
+    arrow_schema: &ArrowSchema,
+) -> Result<Option<Vec<SortingColumn>>, ArrowError> {
+    let descriptor = ArrowSchemaConverter::new().convert(arrow_schema)?;
+    let mut columns = Vec::with_capacity(sort_order.fields.len());
+    for field in &sort_order.fields {
+        if field.transform != Transform::Identity {
+            return Ok(None);
+        }
+        let name = schema
+            .get(field.source_id as usize)
+            .map(|f| f.name.as_str())
+            .ok_or_else(|| {
+                ArrowError::SchemaError(format!(
+                    "sort order {} references field id {} that is not in the table schema",
+                    sort_order.order_id, field.source_id
+                ))
+            })?;
+        // A top-level primitive column is exactly one Parquet leaf whose path
+        // is its own name; anything nested has a longer path.
+        let Some(column_idx) = descriptor
+            .columns()
+            .iter()
+            .position(|column| column.path().parts() == [name])
+        else {
+            return Ok(None);
+        };
+        columns.push(SortingColumn {
+            column_idx: column_idx as i32,
+            descending: field.direction == SortDirection::Descending,
+            nulls_first: field.null_order == NullOrder::First,
+        });
+    }
+    Ok(Some(columns))
 }
 
 /// Applies per-column bloom-filter table properties to the writer builder.
