@@ -10,7 +10,7 @@ license = "Apache-2.0"
 repository = "https://github.com/JanKaul/iceberg-rust"
 
 [dependencies]
-arrow-schema.workspace = true
+arrow.workspace = true
 datafusion-common.workspace = true
 datafusion-execution.workspace = true
 datafusion-expr.workspace = true

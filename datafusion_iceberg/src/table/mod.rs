@@ -72,9 +72,11 @@ use datafusion::{
         TableProvider, ViewTable,
     },
     execution::{context::SessionState, TaskContext},
-    logical_expr::{TableProviderFilterPushDown, TableType},
+    logical_expr::{
+        physical_planning_context::PhysicalPlanningContext, TableProviderFilterPushDown, TableType,
+    },
     physical_expr::create_physical_expr,
-    physical_optimizer::pruning::PruningPredicate,
+    physical_optimizer::pruning::PruningPredicateBuilder,
     physical_plan::{
         expressions::Column,
         joins::{HashJoinExec, PartitionMode},
@@ -495,6 +497,7 @@ async fn table_scan(
                 &predicate,
                 &arrow_schema.as_ref().clone().try_into()?,
                 session.execution_props(),
+                &PhysicalPlanningContext::default(),
             )
         })
         .transpose()?;
@@ -574,38 +577,40 @@ async fn table_scan(
             .map_err(DataFusionIcebergError::from)?;
 
         // If there is a filter expression on the partition column, the manifest files to read are pruned.
-        let data_files: Vec<(ManifestPath, ManifestEntry)> = if let Some(predicate) =
-            partition_predicates
-        {
-            let physical_partition_predicate = create_physical_expr(
-                &predicate,
-                &partition_schema.clone().try_into()?,
-                session.execution_props(),
-            )?;
-            let pruning_predicate =
-                PruningPredicate::try_new(physical_partition_predicate, partition_schema.clone())?;
-            let manifests_to_prune =
-                pruning_predicate.prune(&PruneManifests::new(partition_fields, &manifests))?;
+        let data_files: Vec<(ManifestPath, ManifestEntry)> =
+            if let Some(predicate) = partition_predicates {
+                let physical_partition_predicate = create_physical_expr(
+                    &predicate,
+                    &partition_schema.clone().try_into()?,
+                    session.execution_props(),
+                    &PhysicalPlanningContext::default(),
+                )?;
+                let pruning_predicate = PruningPredicateBuilder::new()
+                    .with_file_schema(partition_schema.clone())
+                    .try_build(physical_partition_predicate)?;
+                let manifests_to_prune =
+                    pruning_predicate.prune(&PruneManifests::new(partition_fields, &manifests))?;
 
-            table
-                .datafiles(&manifests, Some(manifests_to_prune), sequence_number_range)
-                .await
-                .map_err(DataFusionIcebergError::from)?
-                .try_collect()
-                .await
-                .map_err(DataFusionIcebergError::from)?
-        } else {
-            table
-                .datafiles(&manifests, None, sequence_number_range)
-                .await
-                .map_err(DataFusionIcebergError::from)?
-                .try_collect()
-                .await
-                .map_err(DataFusionIcebergError::from)?
-        };
+                table
+                    .datafiles(&manifests, Some(manifests_to_prune), sequence_number_range)
+                    .await
+                    .map_err(DataFusionIcebergError::from)?
+                    .try_collect()
+                    .await
+                    .map_err(DataFusionIcebergError::from)?
+            } else {
+                table
+                    .datafiles(&manifests, None, sequence_number_range)
+                    .await
+                    .map_err(DataFusionIcebergError::from)?
+                    .try_collect()
+                    .await
+                    .map_err(DataFusionIcebergError::from)?
+            };
 
-        let pruning_predicate =
-            PruningPredicate::try_new(physical_predicate, arrow_schema.clone())?;
+        let pruning_predicate = PruningPredicateBuilder::new()
+            .with_file_schema(arrow_schema.clone())
+            .try_build(physical_predicate)?;
         // After the first pruning stage the data_files are pruned again based on the pruning statistics in the manifest files.
         let files_to_prune =
             pruning_predicate.prune(&PruneDataFiles::new(&schema, &arrow_schema, &data_files))?;
@@ -711,10 +716,15 @@ async fn table_scan(
         });
     }
 
-    let table_schema = TableSchema::new(
-        file_schema.clone(),
-        table_partition_cols.iter().cloned().map(Arc::new).collect(),
-    );
+    let table_schema = TableSchema::builder(file_schema.clone())
+        .with_table_partition_cols(
+            table_partition_cols
+                .iter()
+                .cloned()
+                .map(Arc::new)
+                .collect::<Vec<_>>(),
+        )
+        .build();
     // File schema plus partition columns: what scan orderings are expressed on.
     let scan_schema: SchemaRef = table_schema.table_schema().clone();
     let file_source = Arc::new(ParquetSource::new(table_schema));
@@ -1257,6 +1267,7 @@ fn generate_partitioned_file(
         metadata_size_hint: None,
         ordering: None,
         table_reference: None,
+        arrow_schema: None,
     };
     Ok(file)
 }
@@ -1567,8 +1578,8 @@ async fn row_count_demuxer(
 ) -> Result<(), DataFusionError> {
     let exec_options = &context.session_config().options().execution;
 
-    let max_rows_per_file = exec_options.soft_max_rows_per_output_file;
-    let minimum_parallel_files = exec_options.minimum_parallel_output_files;
+    let max_rows_per_file = exec_options.soft_max_rows_per_output_file.get();
+    let minimum_parallel_files = exec_options.minimum_parallel_output_files.get();
 
     let mut open_file_streams = Vec::with_capacity(minimum_parallel_files);
 

@@ -13,11 +13,14 @@ use std::{
 use async_trait::async_trait;
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::SchemaRef},
-    common::DFSchemaRef,
+    catalog::Session,
+    common::{tree_node::TreeNodeRecursion, DFSchemaRef},
     error::DataFusionError,
-    execution::{RecordBatchStream, SendableRecordBatchStream, SessionState},
+    execution::{RecordBatchStream, SendableRecordBatchStream},
+    logical_expr::physical_planning_context::PhysicalPlanningContext,
     physical_plan::{
-        stream::RecordBatchStreamAdapter, DisplayAs, ExecutionPlan, Partitioning, PlanProperties,
+        stream::RecordBatchStreamAdapter, DisplayAs, ExecutionPlan, Partitioning, PhysicalExpr,
+        PlanProperties,
     },
     physical_planner::{ExtensionPlanner, PhysicalPlanner},
 };
@@ -179,6 +182,13 @@ impl ExecutionPlan for PhysicalForkNode {
         vec![&self.input]
     }
 
+    fn apply_expressions(
+        &self,
+        _f: &mut dyn FnMut(&Arc<dyn PhysicalExpr>) -> Result<TreeNodeRecursion, DataFusionError>,
+    ) -> Result<TreeNodeRecursion, DataFusionError> {
+        Ok(TreeNodeRecursion::Continue)
+    }
+
     fn with_new_children(
         self: Arc<Self>,
         mut children: Vec<Arc<dyn ExecutionPlan>>,
@@ -296,7 +306,8 @@ impl ExtensionPlanner for ForkNodePlanner {
         node: &dyn UserDefinedLogicalNode,
         logical_inputs: &[&LogicalPlan],
         physical_inputs: &[Arc<dyn ExecutionPlan>],
-        _session_state: &SessionState,
+        _session: &dyn Session,
+        _planning_ctx: &PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
         if let Some(fork_node) = node.as_any().downcast_ref::<ForkNode>() {
             assert_eq!(physical_inputs.len(), 1);

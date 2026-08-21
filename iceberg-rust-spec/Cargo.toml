@@ -10,7 +10,7 @@ description = "Unofficial implementation of the Iceberg table format specificati
 
 [dependencies]
 apache-avro = { workspace = true }
-arrow-schema = { workspace = true }
+arrow = { workspace = true }
 chrono = { workspace = true }
 derive-getters = { workspace = true }
 derive_builder = { workspace = true }
