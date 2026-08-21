@@ -1,8 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
-    arrow::error::ArrowError, catalog::TableProvider, common::tree_node::TreeNode,
-    execution::SessionStateBuilder, prelude::SessionContext, sql::TableReference,
+    arrow::error::ArrowError,
+    catalog::TableProvider,
+    common::{tree_node::TreeNode, TableReference},
+    execution::SessionStateBuilder,
+    prelude::SessionContext,
 };
 use datafusion_expr::LogicalPlan;
 use delta_queries::{

@@ -7,14 +7,13 @@ use std::{
 use datafusion::common::NullEquality;
 use datafusion::{
     catalog::TableProvider,
-    common::{tree_node::Transformed, Column, DFSchema},
+    common::{tree_node::Transformed, Column, DFSchema, TableReference},
     datasource::{empty::EmptyTable, DefaultTableSource},
     error::DataFusionError,
-    sql::TableReference,
 };
 use datafusion_expr::{
     build_join_schema, expr::Alias, Aggregate, Expr, Filter, Join, JoinConstraint, JoinType,
-    LogicalPlan, Projection, SubqueryAlias, TableScan, Union,
+    LogicalPlan, Projection, SubqueryAlias, TableScanBuilder, Union,
 };
 use iceberg_rust::error::Error;
 
@@ -38,13 +37,13 @@ pub(crate) fn delta_transform_down(
 ) -> Result<Transformed<LogicalPlan>, DataFusionError> {
     let storage_table_reference = storage_table.0;
 
-    let storage_table_scan = Arc::new(LogicalPlan::TableScan(TableScan::try_new(
-        storage_table_reference.clone(),
-        Arc::new(DefaultTableSource::new(storage_table.1)),
-        None,
-        Vec::new(),
-        None,
-    )?));
+    let storage_table_scan = Arc::new(LogicalPlan::TableScan(
+        TableScanBuilder::new(
+            storage_table_reference.clone(),
+            Arc::new(DefaultTableSource::new(storage_table.1)),
+        )
+        .build()?,
+    ));
 
     let storage_table_schema = storage_table_scan.schema().clone();
     match &plan {
@@ -549,9 +548,9 @@ mod tests {
     use std::{ops::Deref, sync::Arc};
 
     use datafusion::common::tree_node::TreeNode;
+    use datafusion::common::TableReference;
     use datafusion::datasource::empty::EmptyTable;
     use datafusion::prelude::SessionContext;
-    use datafusion::sql::TableReference;
     use datafusion_expr::LogicalPlan;
     use iceberg_rust::catalog::Catalog;
     use iceberg_rust::object_store::ObjectStoreBuilder;

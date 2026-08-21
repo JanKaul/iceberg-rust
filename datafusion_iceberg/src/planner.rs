@@ -14,18 +14,17 @@ use crate::{
 };
 use datafusion::{
     arrow::datatypes::{DataType, Schema as ArrowSchema},
-    catalog::CatalogProvider,
-    common::{tree_node::Transformed, SchemaReference},
+    catalog::{CatalogProvider, Session},
+    common::{tree_node::Transformed, SchemaReference, TableReference},
     error::DataFusionError,
-    execution::context::{QueryPlanner, SessionState},
+    execution::context::QueryPlanner,
     logical_expr::{
-        CreateExternalTable, DdlStatement, Extension, InvariantLevel, LogicalPlan,
-        UserDefinedLogicalNode,
+        physical_planning_context::PhysicalPlanningContext, CreateExternalTable, DdlStatement,
+        Extension, InvariantLevel, LogicalPlan, UserDefinedLogicalNode,
     },
     physical_plan::{empty::EmptyExec, ExecutionPlan},
     physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner},
     scalar::ScalarValue,
-    sql::TableReference,
 };
 use iceberg_rust::{
     catalog::{tabular::Tabular, CatalogList},
@@ -72,11 +71,9 @@ impl QueryPlanner for IcebergQueryPlanner {
     async fn create_physical_plan(
         &self,
         logical_plan: &LogicalPlan,
-        session_state: &SessionState,
+        session: &dyn Session,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-        self.0
-            .create_physical_plan(logical_plan, session_state)
-            .await
+        self.0.create_physical_plan(logical_plan, session).await
     }
 }
 
@@ -85,7 +82,7 @@ pub fn iceberg_transform(node: LogicalPlan) -> Result<Transformed<LogicalPlan>, 
         LogicalPlan::Ddl(DdlStatement::CreateExternalTable(table)) => {
             if table.file_type.to_lowercase() == "iceberg" {
                 Ok(Transformed::yes(LogicalPlan::Extension(Extension {
-                    node: Arc::new(CreateIcebergTable(table)),
+                    node: Arc::new(CreateIcebergTable(*table)),
                 })))
             } else {
                 Ok(Transformed::no(LogicalPlan::Ddl(
@@ -127,18 +124,19 @@ impl ExtensionPlanner for IcebergExtensionPlanner {
         node: &dyn UserDefinedLogicalNode,
         _logical_inputs: &[&LogicalPlan],
         _physical_inputs: &[Arc<dyn ExecutionPlan>],
-        session_state: &SessionState,
+        session: &dyn Session,
+        _planning_ctx: &PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
         if let Some(node) = node.as_any().downcast_ref::<CreateIcebergTable>() {
-            plan_create_table(node, session_state).await
+            plan_create_table(node, session).await
         } else if let Some(node) = node.as_any().downcast_ref::<CreateIcebergView>() {
-            plan_create_view(node, session_state).await
+            plan_create_view(node, session).await
         } else if let Some(node) = node.as_any().downcast_ref::<CreateIcebergNamespace>() {
-            plan_create_namespace(node, session_state).await
+            plan_create_namespace(node, session).await
         } else if let Some(node) = node.as_any().downcast_ref::<DropIcebergTable>() {
-            plan_drop_table(node, session_state).await
+            plan_drop_table(node, session).await
         } else if let Some(node) = node.as_any().downcast_ref::<DropIcebergNamespace>() {
-            plan_drop_namespace(node, session_state).await
+            plan_drop_namespace(node, session).await
         } else {
             return Ok(None);
         }
@@ -147,13 +145,13 @@ impl ExtensionPlanner for IcebergExtensionPlanner {
 
 async fn plan_create_table(
     node: &CreateIcebergTable,
-    session_state: &SessionState,
+    session: &dyn Session,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
     let table_ref = &node.0.name.to_string();
 
     let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
 
-    let catalog_list = session_state.catalog_list();
+    let catalog_list = session.catalog_list();
     let catalog_name = &identifier.catalog;
     let namespace_name = &identifier.schema;
     let table_name: &str = &identifier.table;
@@ -206,9 +204,15 @@ async fn plan_create_table(
         .build()
         .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
+    let [location] = node.0.locations.as_slice() else {
+        return Err(DataFusionError::Plan(
+            "Iceberg tables must be created with exactly one LOCATION.".to_owned(),
+        ));
+    };
+
     Table::builder()
         .with_name(table_name)
-        .with_location(&node.0.location)
+        .with_location(location)
         .with_schema(Schema::from_struct_type(schema, DEFAULT_SCHEMA_ID, None))
         .with_partition_spec(partition_spec)
         .with_properties(node.0.options.clone())
@@ -223,13 +227,13 @@ async fn plan_create_table(
 
 async fn plan_create_view(
     node: &CreateIcebergView,
-    session_state: &SessionState,
+    session: &dyn Session,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
     let table_ref = &node.0.name.to_string();
 
     let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
 
-    let catalog_list = session_state.catalog_list();
+    let catalog_list = session.catalog_list();
     let catalog_name = &identifier.catalog;
     let namespace_name = &identifier.schema;
     let table_name: &str = &identifier.table;
@@ -347,7 +351,7 @@ async fn plan_create_view(
 
 async fn plan_create_namespace(
     node: &CreateIcebergNamespace,
-    session_state: &SessionState,
+    session: &dyn Session,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
     let (catalog_name, namespace_name) =
         node.0
@@ -359,7 +363,7 @@ async fn plan_create_namespace(
                 &node.0.schema_name
             )))?;
 
-    let catalog_list = session_state.catalog_list();
+    let catalog_list = session.catalog_list();
     let datafusion_catalog = catalog_list
         .catalog(catalog_name)
         .ok_or(DataFusionError::Plan(format!(
@@ -393,13 +397,13 @@ async fn plan_create_namespace(
 
 async fn plan_drop_table(
     node: &DropIcebergTable,
-    session_state: &SessionState,
+    session: &dyn Session,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
     let table_ref = &node.0.name.to_string();
 
     let identifier = TableReference::parse_str(table_ref).resolve("datafusion", "public");
 
-    let catalog_list = session_state.catalog_list();
+    let catalog_list = session.catalog_list();
     let catalog_name = &identifier.catalog;
     let namespace_name = &identifier.schema;
     let table_name: &str = &identifier.table;
@@ -431,14 +435,14 @@ async fn plan_drop_table(
 
 async fn plan_drop_namespace(
     node: &DropIcebergNamespace,
-    session_state: &SessionState,
+    session: &dyn Session,
 ) -> Result<Option<Arc<dyn ExecutionPlan>>, DataFusionError> {
     let (catalog_name, namespace_name) = match &node.0.name {
         SchemaReference::Bare { schema } => ("datafusion".to_owned(), schema.to_string()),
         SchemaReference::Full { schema, catalog } => (catalog.to_string(), schema.to_string()),
     };
 
-    let catalog_list = session_state.catalog_list();
+    let catalog_list = session.catalog_list();
     let datafusion_catalog = catalog_list
         .catalog(&catalog_name)
         .ok_or(DataFusionError::Plan(format!(

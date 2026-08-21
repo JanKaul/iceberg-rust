@@ -8,7 +8,7 @@ use crate::{
     spec::types::{PrimitiveType, StructField, StructType, Type},
     types::ListType,
 };
-use arrow_schema::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
+use arrow::datatypes::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
 
 use crate::error::Error;
 
@@ -553,7 +553,7 @@ mod tests {
         );
     }
 
-    use arrow_schema::DataType;
+    use arrow::datatypes::DataType;
     use std::sync::Arc;
 
     #[test]

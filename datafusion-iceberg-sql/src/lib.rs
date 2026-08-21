@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow_schema::SchemaRef;
+use arrow::datatypes::SchemaRef;
 use datafusion_expr::TableSource;
 use iceberg_rust::catalog::tabular::Tabular;
 

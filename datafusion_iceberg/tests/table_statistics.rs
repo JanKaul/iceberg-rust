@@ -7,6 +7,7 @@ use datafusion::{
         ScalarValue,
     },
     execution::{context::SessionContext, SessionStateBuilder},
+    physical_plan::{StatisticsArgs, StatisticsContext},
 };
 use datafusion_expr::ScalarUDF;
 use iceberg_rust::object_store::ObjectStoreBuilder;
@@ -137,7 +138,12 @@ async fn test_table_statistics() {
 
     let physical_plan = sql.create_physical_plan().await.unwrap();
 
-    let stats = physical_plan.partition_statistics(None).unwrap();
+    let stats = StatisticsContext::new()
+        .compute(
+            physical_plan.as_ref(),
+            &StatisticsArgs::new().with_partition(None),
+        )
+        .unwrap();
 
     // Validate table-level statistics
     assert_eq!(

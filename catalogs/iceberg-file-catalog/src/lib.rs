@@ -830,7 +830,10 @@ impl CatalogList for FileCatalogList {
 pub mod tests {
     use datafusion::{
         arrow::array::{Float64Array, Int64Array},
-        common::tree_node::{TransformedResult, TreeNode},
+        common::{
+            config::ConfigNonZeroUsize,
+            tree_node::{TransformedResult, TreeNode},
+        },
         execution::SessionStateBuilder,
         prelude::{SessionConfig, SessionContext},
     };
@@ -915,7 +918,8 @@ pub mod tests {
 
         let mut config = SessionConfig::default();
 
-        config.options_mut().execution.minimum_parallel_output_files = 1;
+        config.options_mut().execution.minimum_parallel_output_files =
+            ConfigNonZeroUsize::try_new(1).unwrap();
         config
             .options_mut()
             .execution

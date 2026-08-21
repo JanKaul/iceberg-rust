@@ -772,7 +772,8 @@ fn apply_bloom_filter_properties(
             // A zero or negative ndv can't size a filter; ignore it and keep
             // the default rather than fail the write.
             if let Some(ndv) = value.parse::<u64>().ok().filter(|ndv| *ndv > 0) {
-                props_builder = props_builder.set_column_bloom_filter_ndv(column_path(column), ndv);
+                props_builder =
+                    props_builder.set_column_bloom_filter_max_ndv(column_path(column), ndv);
             }
         }
     }
@@ -1174,10 +1175,11 @@ mod writer_properties_tests {
 
         assert_eq!(
             props.bloom_filter_properties(&ColumnPath::from("trace_id")),
-            Some(&parquet::file::properties::BloomFilterProperties {
-                fpp: 0.001,
-                ndv: parquet::file::properties::DEFAULT_BLOOM_FILTER_NDV,
-            })
+            Some(
+                &parquet::file::properties::BloomFilterProperties::builder()
+                    .with_fpp(0.001)
+                    .build()
+            )
         );
     }
 
@@ -1200,10 +1202,11 @@ mod writer_properties_tests {
 
         assert_eq!(
             props.bloom_filter_properties(&ColumnPath::from("trace_id")),
-            Some(&parquet::file::properties::BloomFilterProperties {
-                fpp: parquet::file::properties::DEFAULT_BLOOM_FILTER_FPP,
-                ndv: 1_000_000,
-            })
+            Some(
+                &parquet::file::properties::BloomFilterProperties::builder()
+                    .with_max_ndv(1_000_000)
+                    .build()
+            )
         );
     }
 
@@ -1227,7 +1230,7 @@ mod writer_properties_tests {
 
             let ndv = props
                 .bloom_filter_properties(&ColumnPath::from("trace_id"))
-                .map(|properties| properties.ndv);
+                .map(|properties| properties.ndv());
             assert_eq!(
                 ndv,
                 Some(parquet::file::properties::DEFAULT_BLOOM_FILTER_NDV),
@@ -1256,7 +1259,7 @@ mod writer_properties_tests {
 
             let fpp = props
                 .bloom_filter_properties(&ColumnPath::from("trace_id"))
-                .map(|properties| properties.fpp);
+                .map(|properties| properties.fpp());
             assert_eq!(
                 fpp,
                 Some(parquet::file::properties::DEFAULT_BLOOM_FILTER_FPP),
