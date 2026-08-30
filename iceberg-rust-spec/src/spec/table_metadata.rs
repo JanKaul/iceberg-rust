@@ -492,7 +492,7 @@ pub mod _serde {
             partition::{PartitionField, PartitionSpec},
             schema,
             snapshot::{
-                _serde::{SnapshotV1, SnapshotV2},
+                _serde::{SnapshotV1, SnapshotV2, SnapshotV3},
                 SnapshotReference, SnapshotRetention,
             },
             sort,
@@ -551,12 +551,9 @@ pub mod _serde {
         /// ID of the main branch in refs.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub current_snapshot_id: Option<i64>,
-        ///A list of valid snapshots. Valid snapshots are snapshots for which all
-        /// data files exist in the file system. A data file must not be deleted
-        /// from the file system until the last snapshot in which it was listed is
-        /// garbage collected.
+        /// Snapshots with required Iceberg v3 row-lineage fields.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub snapshots: Option<Vec<SnapshotV2>>,
+        pub snapshots: Option<Vec<SnapshotV3>>,
         /// A list (optional) of timestamp and snapshot ID pairs that encodes changes
         /// to the current snapshot for the table. Each time the current-snapshot-id
         /// is changed, a new entry should be added with the last-updated-ms

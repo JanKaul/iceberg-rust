@@ -57,6 +57,12 @@ pub struct Snapshot {
     /// ID of the table’s current schema when the snapshot was created.
     #[builder(setter(strip_option), default)]
     schema_id: Option<i32>,
+    /// First row ID assigned by this Iceberg v3 snapshot.
+    #[builder(setter(strip_option), default)]
+    first_row_id: Option<i64>,
+    /// Number of rows assigned IDs by this Iceberg v3 snapshot.
+    #[builder(setter(strip_option), default)]
+    added_rows: Option<i64>,
 }
 
 /// Generates a random snapshot ID using a cryptographically secure random number generator.
@@ -96,8 +102,26 @@ pub(crate) mod _serde {
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
     #[serde(untagged)]
     pub(super) enum SnapshotEnum {
+        V3(SnapshotV3),
         V2(SnapshotV2),
         V1(SnapshotV1),
+    }
+
+    #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+    #[serde(rename_all = "kebab-case")]
+    /// A version 3 snapshot with required row-lineage bounds.
+    pub struct SnapshotV3 {
+        pub snapshot_id: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub parent_snapshot_id: Option<i64>,
+        pub sequence_number: i64,
+        pub timestamp_ms: i64,
+        pub manifest_list: String,
+        pub summary: Summary,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub schema_id: Option<i32>,
+        pub first_row_id: i64,
+        pub added_rows: i64,
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -156,6 +180,7 @@ pub(crate) mod _serde {
     impl From<SnapshotEnum> for Snapshot {
         fn from(value: SnapshotEnum) -> Self {
             match value {
+                SnapshotEnum::V3(value) => value.into(),
                 SnapshotEnum::V2(value) => value.into(),
                 SnapshotEnum::V1(value) => value.into(),
             }
@@ -164,7 +189,47 @@ pub(crate) mod _serde {
 
     impl From<Snapshot> for SnapshotEnum {
         fn from(value: Snapshot) -> Self {
-            SnapshotEnum::V2(value.into())
+            if value.first_row_id.is_some() && value.added_rows.is_some() {
+                SnapshotEnum::V3(value.into())
+            } else {
+                SnapshotEnum::V2(value.into())
+            }
+        }
+    }
+
+    impl From<SnapshotV3> for Snapshot {
+        fn from(value: SnapshotV3) -> Self {
+            Snapshot {
+                snapshot_id: value.snapshot_id,
+                parent_snapshot_id: value.parent_snapshot_id,
+                sequence_number: value.sequence_number,
+                timestamp_ms: value.timestamp_ms,
+                manifest_list: value.manifest_list,
+                summary: value.summary,
+                schema_id: value.schema_id,
+                first_row_id: Some(value.first_row_id),
+                added_rows: Some(value.added_rows),
+            }
+        }
+    }
+
+    impl From<Snapshot> for SnapshotV3 {
+        fn from(value: Snapshot) -> Self {
+            SnapshotV3 {
+                snapshot_id: value.snapshot_id,
+                parent_snapshot_id: value.parent_snapshot_id,
+                sequence_number: value.sequence_number,
+                timestamp_ms: value.timestamp_ms,
+                manifest_list: value.manifest_list,
+                summary: value.summary,
+                schema_id: value.schema_id,
+                first_row_id: value
+                    .first_row_id
+                    .expect("v3 snapshot serialization requires first-row-id"),
+                added_rows: value
+                    .added_rows
+                    .expect("v3 snapshot serialization requires added-rows"),
+            }
         }
     }
 
@@ -181,6 +246,8 @@ pub(crate) mod _serde {
                     other: HashMap::new(),
                 }),
                 schema_id: v1.schema_id,
+                first_row_id: None,
+                added_rows: None,
             }
         }
     }
@@ -209,6 +276,8 @@ pub(crate) mod _serde {
                 manifest_list: value.manifest_list,
                 summary: value.summary,
                 schema_id: value.schema_id,
+                first_row_id: None,
+                added_rows: None,
             }
         }
     }
@@ -225,6 +294,33 @@ pub(crate) mod _serde {
                 schema_id: value.schema_id,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v3_snapshot_roundtrip_preserves_row_lineage() {
+        let snapshot = SnapshotBuilder::default()
+            .with_snapshot_id(7)
+            .with_sequence_number(3)
+            .with_timestamp_ms(1000)
+            .with_manifest_list("s3://bucket/metadata/snap.avro".to_string())
+            .with_summary(Summary::default())
+            .with_first_row_id(40)
+            .with_added_rows(12)
+            .build()
+            .unwrap();
+
+        let json = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(json["first-row-id"], 40);
+        assert_eq!(json["added-rows"], 12);
+
+        let restored: Snapshot = serde_json::from_value(json).unwrap();
+        assert_eq!(*restored.first_row_id(), Some(40));
+        assert_eq!(*restored.added_rows(), Some(12));
     }
 }
 

@@ -628,6 +628,9 @@ pub struct DataFile {
     /// ID representing sort order for this file
     #[builder(default)]
     sort_order_id: Option<i32>,
+    /// First row ID stored directly on this data file, if not inherited from its manifest.
+    #[builder(default)]
+    first_row_id: Option<i64>,
     /// V3 deletion-vector pointer: location of the data file the DV applies to.
     #[builder(default)]
     referenced_data_file: Option<String>,
@@ -677,6 +680,7 @@ impl DataFile {
             split_offsets: value.split_offsets,
             equality_ids: value.equality_ids,
             sort_order_id: value.sort_order_id,
+            first_row_id: value.first_row_id,
             referenced_data_file: value.referenced_data_file,
             content_offset: value.content_offset,
             content_size_in_bytes: value.content_size_in_bytes,
@@ -714,6 +718,7 @@ impl DataFile {
             split_offsets: value.split_offsets,
             equality_ids: value.equality_ids,
             sort_order_id: value.sort_order_id,
+            first_row_id: None,
             referenced_data_file: None,
             content_offset: None,
             content_size_in_bytes: None,
@@ -751,6 +756,7 @@ impl DataFile {
             split_offsets: value.split_offsets,
             equality_ids: None,
             sort_order_id: value.sort_order_id,
+            first_row_id: None,
             referenced_data_file: None,
             content_offset: None,
             content_size_in_bytes: None,
@@ -793,6 +799,8 @@ pub struct DataFileV3 {
     pub equality_ids: Option<Vec<i32>>,
     /// ID representing sort order for this file
     pub sort_order_id: Option<i32>,
+    /// First row ID stored directly on this data file.
+    pub first_row_id: Option<i64>,
     /// Location of the data file the deletion vector applies to.
     pub referenced_data_file: Option<String>,
     /// Byte offset of the deletion-vector blob inside the Puffin file.
@@ -900,6 +908,7 @@ impl From<DataFile> for DataFileV3 {
             split_offsets: value.split_offsets,
             equality_ids: value.equality_ids,
             sort_order_id: value.sort_order_id,
+            first_row_id: value.first_row_id,
             referenced_data_file: value.referenced_data_file,
             content_offset: value.content_offset,
             content_size_in_bytes: value.content_size_in_bytes,
@@ -1531,6 +1540,15 @@ impl DataFileV3 {
                     "field-id": 140
                 },
                 {
+                    "name": "first_row_id",
+                    "type": [
+                        "null",
+                        "long"
+                    ],
+                    "default": null,
+                    "field-id": 142
+                },
+                {
                     "name": "referenced_data_file",
                     "type": [
                         "null",
@@ -1913,6 +1931,7 @@ mod tests {
                 split_offsets: None,
                 equality_ids: None,
                 sort_order_id: None,
+                first_row_id: None,
                 referenced_data_file: None,
                 content_offset: None,
                 content_size_in_bytes: None,
@@ -2039,6 +2058,7 @@ mod tests {
                 split_offsets: None,
                 equality_ids: None,
                 sort_order_id: None,
+                first_row_id: Some(0),
                 referenced_data_file: None,
                 content_offset: None,
                 content_size_in_bytes: None,
@@ -2163,6 +2183,7 @@ mod tests {
                 split_offsets: None,
                 equality_ids: None,
                 sort_order_id: None,
+                first_row_id: None,
                 referenced_data_file: Some("s3://bucket/data/file-0001.parquet".to_string()),
                 content_offset: Some(64),
                 content_size_in_bytes: Some(512),
@@ -2253,6 +2274,7 @@ mod tests {
                 split_offsets: None,
                 equality_ids: None,
                 sort_order_id: None,
+                first_row_id: None,
                 referenced_data_file: None,
                 content_offset: None,
                 content_size_in_bytes: None,

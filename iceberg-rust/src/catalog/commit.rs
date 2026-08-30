@@ -15,7 +15,7 @@ use iceberg_rust_spec::{
         schema::Schema,
         snapshot::{Snapshot, SnapshotReference},
         sort::SortOrder,
-        table_metadata::TableMetadata,
+        table_metadata::{FormatVersion, TableMetadata},
         view_metadata::{GeneralViewMetadata, Version},
     },
     table_metadata::SnapshotLog,
@@ -493,6 +493,27 @@ pub fn apply_table_updates(
                 }
             }
             TableUpdate::AddSnapshot { snapshot } => {
+                if metadata.format_version == FormatVersion::V3 {
+                    let first_row_id = (*snapshot.first_row_id()).ok_or_else(|| {
+                        Error::InvalidFormat("v3 snapshot first-row-id".to_string())
+                    })?;
+                    let added_rows = (*snapshot.added_rows()).ok_or_else(|| {
+                        Error::InvalidFormat("v3 snapshot added-rows".to_string())
+                    })?;
+                    if first_row_id < 0 || added_rows < 0 {
+                        return Err(Error::InvalidFormat(
+                            "v3 row lineage values must be non-negative".to_string(),
+                        ));
+                    }
+                    if first_row_id != metadata.next_row_id {
+                        return Err(Error::InvalidFormat(
+                            "v3 snapshot first-row-id does not match next-row-id".to_string(),
+                        ));
+                    }
+                    metadata.next_row_id = first_row_id
+                        .checked_add(added_rows)
+                        .ok_or_else(|| Error::InvalidFormat("next row id overflow".to_string()))?;
+                }
                 metadata.snapshot_log.push(SnapshotLog {
                     snapshot_id: *snapshot.snapshot_id(),
                     timestamp_ms: *snapshot.timestamp_ms(),

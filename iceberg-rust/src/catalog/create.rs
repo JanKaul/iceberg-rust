@@ -23,7 +23,7 @@ use iceberg_rust_spec::{
         partition::{PartitionSpec, DEFAULT_PARTITION_SPEC_ID},
         schema::{Schema, DEFAULT_SCHEMA_ID},
         sort::{SortOrder, DEFAULT_SORT_ORDER_ID},
-        table_metadata::TableMetadata,
+        table_metadata::{FormatVersion, TableMetadata},
         view_metadata::{Version, ViewMetadata, DEFAULT_VERSION_ID},
     },
     view_metadata::Materialization,
@@ -189,6 +189,15 @@ impl CreateTableBuilder {
 impl TryInto<TableMetadata> for CreateTable {
     type Error = Error;
     fn try_into(self) -> Result<TableMetadata, Self::Error> {
+        let format_version = self
+            .properties
+            .as_ref()
+            .and_then(|properties| properties.get("format-version"))
+            .map(|version| version.parse::<u8>())
+            .transpose()?
+            .map(FormatVersion::try_from)
+            .transpose()?
+            .unwrap_or_default();
         let last_column_id = self.schema.fields().iter().map(|x| x.id).max().unwrap_or(0);
 
         let last_partition_id = self
@@ -200,7 +209,7 @@ impl TryInto<TableMetadata> for CreateTable {
         let write_order = self.write_order.unwrap_or_default();
 
         Ok(TableMetadata {
-            format_version: Default::default(),
+            format_version,
             table_uuid: Uuid::new_v4(),
             location: self
                 .location
@@ -768,6 +777,22 @@ mod tests {
         assert_eq!(metadata.default_spec_id, DEFAULT_PARTITION_SPEC_ID);
         assert_eq!(metadata.default_sort_order_id, DEFAULT_SORT_ORDER_ID);
         assert_eq!(metadata.last_column_id, 3); // Max field ID from schema
+    }
+
+    #[test]
+    fn test_create_table_uses_format_version_property() {
+        let mut builder = CreateTableBuilder::default();
+        let create_table = builder
+            .with_name("test_table")
+            .with_location("/test/location")
+            .with_schema(create_test_schema())
+            .with_property(("format-version".to_string(), "3".to_string()))
+            .create()
+            .unwrap();
+
+        let metadata: TableMetadata = create_table.try_into().unwrap();
+        assert_eq!(metadata.format_version, FormatVersion::V3);
+        assert_eq!(metadata.next_row_id, 0);
     }
 
     #[test]
