@@ -109,7 +109,8 @@ pub(crate) mod _serde {
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
     #[serde(rename_all = "kebab-case")]
-    /// A version 3 snapshot with required row-lineage bounds.
+    /// A version 3 snapshot. Row-lineage bounds may be absent on snapshots
+    /// created before a table was upgraded to format v3.
     pub struct SnapshotV3 {
         pub snapshot_id: i64,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,8 +121,10 @@ pub(crate) mod _serde {
         pub summary: Summary,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub schema_id: Option<i32>,
-        pub first_row_id: i64,
-        pub added_rows: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub first_row_id: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub added_rows: Option<i64>,
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -207,8 +210,8 @@ pub(crate) mod _serde {
                 manifest_list: value.manifest_list,
                 summary: value.summary,
                 schema_id: value.schema_id,
-                first_row_id: Some(value.first_row_id),
-                added_rows: Some(value.added_rows),
+                first_row_id: value.first_row_id,
+                added_rows: value.added_rows,
             }
         }
     }
@@ -223,12 +226,8 @@ pub(crate) mod _serde {
                 manifest_list: value.manifest_list,
                 summary: value.summary,
                 schema_id: value.schema_id,
-                first_row_id: value
-                    .first_row_id
-                    .expect("v3 snapshot serialization requires first-row-id"),
-                added_rows: value
-                    .added_rows
-                    .expect("v3 snapshot serialization requires added-rows"),
+                first_row_id: value.first_row_id,
+                added_rows: value.added_rows,
             }
         }
     }
