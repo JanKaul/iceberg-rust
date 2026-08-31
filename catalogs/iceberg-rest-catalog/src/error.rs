@@ -3,6 +3,16 @@ use reqwest::StatusCode;
 
 use crate::apis::{self, catalog_api_api::CreateNamespaceError, ResponseContent};
 
+pub(crate) fn commit_error<T>(error: apis::Error<T>, identifier: &str) -> Error {
+    match error {
+        apis::Error::ResponseError(ResponseContent {
+            status: StatusCode::CONFLICT,
+            ..
+        }) => Error::CommitConflict(identifier.to_owned()),
+        error => error.into(),
+    }
+}
+
 /**
 Error conversion
 */
@@ -24,5 +34,38 @@ impl<T> From<apis::Error<T>> for Error {
             apis::Error::AWSV4SignatureError(err) => Error::External(Box::new(err)),
             apis::Error::OAuthToken(err) => err,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_table_conflict_is_structured_commit_conflict() {
+        let error = commit_error(
+            apis::Error::<()>::ResponseError(ResponseContent {
+                status: StatusCode::CONFLICT,
+                content: "concurrent commit".to_string(),
+                entity: None,
+            }),
+            "catalog.namespace.table",
+        );
+
+        assert!(
+            matches!(error, Error::CommitConflict(identifier) if identifier == "catalog.namespace.table")
+        );
+    }
+
+    #[test]
+    fn generic_conflict_remains_a_response_error() {
+        let error: Error = apis::Error::<()>::ResponseError(ResponseContent {
+            status: StatusCode::CONFLICT,
+            content: "concurrent commit".to_string(),
+            entity: None,
+        })
+        .into();
+
+        assert!(matches!(error, Error::InvalidFormat(_)));
     }
 }
