@@ -583,6 +583,56 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         ))
     }
 
+    /// Creates a manifest-list writer for an overwrite that only removes data files.
+    ///
+    /// Unlike [`Self::from_existing_without_overwrites`], this path does not select a
+    /// manifest for new files and therefore does not require partition bounds from an
+    /// added data file. Manifests containing files to remove are returned for filtering;
+    /// every other manifest is copied to the new manifest list unchanged.
+    pub(crate) fn from_existing_for_deletion(
+        bytes: &[u8],
+        manifests_to_overwrite: &HashSet<String>,
+        schema: &'schema AvroSchema,
+        table_metadata: &'metadata TableMetadata,
+    ) -> Result<(Self, Vec<ManifestListEntry>), Error> {
+        let manifest_list_reader = ManifestListReader::new(bytes, table_metadata)?;
+        let mut writer = AvroWriter::new(schema, Vec::new());
+        let mut manifests = Vec::new();
+        let mut file_count_all_entries = 0usize;
+
+        for manifest in manifest_list_reader {
+            let manifest = manifest?;
+            let file_count = manifest
+                .added_files_count
+                .unwrap_or(0)
+                .checked_add(manifest.existing_files_count.unwrap_or(0))
+                .ok_or_else(|| Error::InvalidFormat("manifest file count".to_string()))?;
+            file_count_all_entries = file_count_all_entries
+                .checked_add(file_count.try_into()?)
+                .ok_or_else(|| Error::InvalidFormat("manifest file count".to_string()))?;
+
+            if manifests_to_overwrite.contains(&manifest.manifest_path) {
+                manifests.push(manifest);
+            } else {
+                writer.append_ser(manifest)?;
+            }
+        }
+
+        Ok((
+            Self {
+                table_metadata,
+                writer,
+                selected_data_manifest: None,
+                selected_delete_manifest: None,
+                bounding_partition_values: Rectangle::new(Vec4::new(), Vec4::new()),
+                n_existing_files: file_count_all_entries,
+                commit_uuid: uuid::Uuid::new_v4().to_string(),
+                manifest_count: 0,
+            },
+            manifests,
+        ))
+    }
+
     /// Calculates the optimal number of manifest splits for the given number of data files.
     ///
     /// This method determines how many manifest files should be created to optimize

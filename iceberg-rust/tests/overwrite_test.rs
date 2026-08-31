@@ -363,6 +363,141 @@ async fn test_table_transaction_overwrite() {
     assert!(total_rows == 7, "Should have exactly 4 us-west rows");
 }
 
+#[tokio::test]
+async fn test_overwrite_removes_files_without_replacements() {
+    let object_store = ObjectStoreBuilder::memory();
+    let catalog: Arc<dyn Catalog> = Arc::new(
+        SqlCatalog::new("sqlite://", "warehouse", object_store.clone())
+            .await
+            .unwrap(),
+    );
+    let schema = {
+        let mut builder = Schema::builder();
+        builder
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "region".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .with_struct_field(StructField {
+                id: 3,
+                name: "value".to_string(),
+                required: false,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap()
+    };
+    let partition_spec = PartitionSpec::builder()
+        .with_partition_field(PartitionField::new(2, 1000, "region", Transform::Identity))
+        .build()
+        .unwrap();
+    let mut table = Table::builder()
+        .with_name("test_delete_only_overwrite")
+        .with_location("/test/test_delete_only_overwrite")
+        .with_schema(schema)
+        .with_partition_spec(partition_spec)
+        .build(&["test".to_owned()], catalog)
+        .await
+        .unwrap();
+
+    let files = write_parquet_partitioned(
+        &table,
+        stream::iter(vec![Ok(create_initial_record_batch())]),
+        None,
+    )
+    .await
+    .unwrap();
+    table
+        .new_transaction(None)
+        .append_data(files)
+        .commit()
+        .await
+        .unwrap();
+
+    let old_snapshot_id = *table
+        .metadata()
+        .current_snapshot(None)
+        .unwrap()
+        .unwrap()
+        .snapshot_id();
+    let files_to_remove = create_files_to_overwrite_for_partition(&table, "us-east")
+        .await
+        .unwrap();
+    assert!(!files_to_remove.is_empty());
+
+    table
+        .new_transaction(None)
+        .overwrite(Vec::new(), files_to_remove)
+        .commit()
+        .await
+        .expect("delete-only overwrite should commit");
+
+    let current_snapshot = table.metadata().current_snapshot(None).unwrap().unwrap();
+    assert_ne!(*current_snapshot.snapshot_id(), old_snapshot_id);
+    assert_eq!(
+        format!("{:?}", current_snapshot.summary().operation),
+        "Overwrite"
+    );
+    assert_eq!(
+        current_snapshot
+            .summary()
+            .other
+            .get("total-records")
+            .map(String::as_str),
+        Some("2")
+    );
+
+    let manifests = table.manifests(None, None).await.unwrap();
+    let entries = table
+        .datafiles(&manifests, None, (None, None))
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    let live_entries = entries
+        .into_iter()
+        .map(|result| result.unwrap().1)
+        .collect::<Vec<_>>();
+    let batches = read(live_entries.into_iter(), table.object_store())
+        .await
+        .collect::<Vec<_>>()
+        .await;
+    let mut ids = batches
+        .into_iter()
+        .flat_map(|batch| {
+            let batch = batch.unwrap();
+            let ids = batch
+                .column_by_name("id")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap();
+            (0..batch.num_rows())
+                .map(|index| ids.value(index))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    assert_eq!(ids, vec![3, 4]);
+}
+
 /// Helper function to create a partition spec partitioned by region
 /// Helper function to create Arrow schema matching the Iceberg schema
 fn create_arrow_schema() -> ArrowSchema {
