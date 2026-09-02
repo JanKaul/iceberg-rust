@@ -20,6 +20,7 @@ use iceberg_rust::catalog::Catalog;
 use iceberg_rust::error::Error;
 use iceberg_rust::file_format::parquet::parquet_to_datafile;
 use iceberg_rust::object_store::ObjectStoreBuilder;
+use iceberg_rust::spec::decimal::decimal_from_i128_with_scale;
 use iceberg_rust::spec::manifest::DataFile;
 use iceberg_rust::spec::namespace::Namespace;
 use iceberg_rust::spec::partition::{BoundPartitionField, PartitionField, Transform};
@@ -30,7 +31,6 @@ use iceberg_rust::table::Table;
 use iceberg_sql_catalog::SqlCatalog;
 use parquet::arrow::ArrowWriter;
 use parquet::file::reader::{FileReader, SerializedFileReader};
-use rust_decimal::Decimal;
 use uuid::Uuid;
 
 /// Build an in-memory catalog with a single `public.t(id INT, amount DECIMAL(18,2))`
@@ -290,7 +290,7 @@ fn parquet_stats_and_partition_value_decode_correctly() {
         .flatten()
         .expect("partition value should have been inferred from stats");
 
-    let amount = Value::Decimal(Decimal::from_i128_with_scale(amount_val, 2));
+    let amount = Value::Decimal(decimal_from_i128_with_scale(amount_val, 2));
     assert_eq!(partition_value, amount);
 
     let uuid_val = Value::UUID(Uuid::parse_str(uuid_str).unwrap());

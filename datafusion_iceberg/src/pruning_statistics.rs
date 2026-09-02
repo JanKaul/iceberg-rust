@@ -36,6 +36,7 @@ use iceberg_rust::{
     arrow::transform::transform_arrow,
     error::Error,
     spec::{
+        decimal::{decimal_mantissa, decimal_scale, Decimal},
         manifest::ManifestEntry,
         manifest_list::ManifestListEntry,
         partition::{BoundPartitionField, Transform},
@@ -44,7 +45,6 @@ use iceberg_rust::{
     },
     table::ManifestPath,
 };
-use rust_decimal::Decimal;
 
 pub(crate) struct PruneManifests<'table, 'manifests> {
     partition_fields: &'table [BoundPartitionField<'table>],
@@ -291,7 +291,7 @@ fn any_iter_to_array(
                 ScalarValue::Decimal128(
                     opt.and_then(|value| {
                         let d = *value.downcast::<Decimal>().ok()?;
-                        (d.scale() == scale as u32).then(|| d.mantissa())
+                        (decimal_scale(&d) == scale as u32).then(|| decimal_mantissa(&d))
                     }),
                     precision,
                     scale,
@@ -510,7 +510,7 @@ mod tests {
     };
     use datafusion::arrow::datatypes::Field;
     use datafusion::common::config::ConfigOptions;
-    use rust_decimal::Decimal;
+    use iceberg_rust::spec::decimal::decimal_from_i128_with_scale;
     use std::sync::Arc;
 
     /// Helper: invoke `DateTransform` directly with a transform name and scalar value.
@@ -751,7 +751,7 @@ mod tests {
     #[test]
     fn any_iter_to_array_decimal128() {
         let iter = vec![
-            Some(Value::Decimal(Decimal::new(12345, 2)).into_any()),
+            Some(Value::Decimal(decimal_from_i128_with_scale(12345, 2)).into_any()),
             None,
         ]
         .into_iter();
@@ -766,7 +766,9 @@ mod tests {
     #[test]
     fn any_iter_to_array_decimal128_scale_mismatch_is_null() {
         // Stored scale (2) != column scale (4): emit null rather than misread the mantissa.
-        let iter = std::iter::once(Some(Value::Decimal(Decimal::new(12345, 2)).into_any()));
+        let iter = std::iter::once(Some(
+            Value::Decimal(decimal_from_i128_with_scale(12345, 2)).into_any(),
+        ));
         let array = any_iter_to_array(iter, &DataType::Decimal128(10, 4)).unwrap();
         let dec = array.as_any().downcast_ref::<Decimal128Array>().unwrap();
         assert!(dec.is_null(0));

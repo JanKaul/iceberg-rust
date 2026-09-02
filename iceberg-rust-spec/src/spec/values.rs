@@ -33,7 +33,6 @@ use datetime::{
 };
 use itertools::Itertools;
 use ordered_float::OrderedFloat;
-use rust_decimal::Decimal;
 use serde::{
     de::{MapAccess, Visitor},
     ser::SerializeStruct,
@@ -46,9 +45,16 @@ use uuid::Uuid;
 use crate::error::Error;
 
 use super::{
+    decimal::{
+        decimal_from_i128_with_scale, decimal_mantissa, decimal_scale, i128_to_be_bytes_min,
+        Decimal,
+    },
     partition::{PartitionField, Transform},
     types::{PrimitiveType, StructType, Type},
 };
+
+#[cfg(test)]
+use super::decimal::decimal_from_str_exact;
 
 pub static YEARS_BEFORE_UNIX_EPOCH: i32 = 1970;
 
@@ -133,12 +139,7 @@ impl From<Value> for ByteBuf {
             Value::UUID(val) => ByteBuf::from(val.as_u128().to_be_bytes()),
             Value::Fixed(_, val) => ByteBuf::from(val),
             Value::Binary(val) => ByteBuf::from(val),
-            Value::Decimal(val) => {
-                // rust_decimal mantissa is 96 bits
-                // so we can remove the first 32 bits of the i128 representation
-                let bytes = val.mantissa().to_be_bytes()[4..].to_vec();
-                ByteBuf::from(bytes)
-            }
+            Value::Decimal(val) => ByteBuf::from(i128_to_be_bytes_min(decimal_mantissa(&val))),
             _ => todo!(),
         }
     }
@@ -528,7 +529,7 @@ impl Value {
                     } else {
                         return Err(Error::Type("decimal".to_string(), "bytes".to_string()));
                     };
-                    Ok(Value::Decimal(Decimal::from_i128_with_scale(val, *scale)))
+                    Ok(Value::Decimal(decimal_from_i128_with_scale(val, *scale)))
                 }
                 PrimitiveType::TimestampNs
                 | PrimitiveType::TimestamptzNs
@@ -719,7 +720,7 @@ impl Value {
             Value::UUID(_) => Type::Primitive(PrimitiveType::Uuid),
             Value::Decimal(dec) => Type::Primitive(PrimitiveType::Decimal {
                 precision: 38,
-                scale: dec.scale(),
+                scale: decimal_scale(dec),
             }),
             _ => unimplemented!(),
         }
@@ -1413,15 +1414,12 @@ mod tests {
 
     #[test]
     fn avro_bytes_decimal() {
-        let value = Value::Decimal(Decimal::from_str_exact("104899.50").unwrap());
+        let value = Value::Decimal(decimal_from_str_exact("104899.50").unwrap());
 
         // Test serialization
         let byte_buf: ByteBuf = value.clone().into();
         let bytes: Vec<u8> = byte_buf.into_vec();
-        assert_eq!(
-            bytes,
-            vec![0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 160u8, 16u8, 94u8]
-        );
+        assert_eq!(bytes, vec![0u8, 160u8, 16u8, 94u8]);
 
         // Test deserialization
         check_avro_bytes_serde(
@@ -1447,9 +1445,11 @@ mod tests {
 
     #[test]
     fn decimal_native_little_endian_hint_round_trips() {
-        let decimal = Decimal::from_str_exact("104899.50").unwrap();
+        let decimal = decimal_from_str_exact("104899.50").unwrap();
         let value = Value::Decimal(decimal);
-        let bytes = (decimal.mantissa() as i64).to_le_bytes();
+        let bytes = i64::try_from(decimal_mantissa(&decimal))
+            .unwrap()
+            .to_le_bytes();
 
         let decoded = Value::try_from_bytes_with_hint(
             &bytes,
@@ -1461,6 +1461,24 @@ mod tests {
         )
         .unwrap();
         assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn decimal_precision_38_spec_bytes_round_trip() {
+        let decimal_type = Type::Primitive(PrimitiveType::Decimal {
+            precision: 38,
+            scale: 0,
+        });
+
+        for text in [
+            "99999999999999999999999999999999999999",
+            "-99999999999999999999999999999999999999",
+        ] {
+            let value = Value::Decimal(decimal_from_str_exact(text).unwrap());
+            let bytes: ByteBuf = value.clone().into();
+            let decoded = Value::try_from_bytes(&bytes, &decimal_type).unwrap();
+            assert_eq!(decoded, value);
+        }
     }
 
     #[test]
@@ -1801,7 +1819,7 @@ mod tests {
     fn test_identity_cast_returns_same_value_for_every_supported_primitive_variant() {
         // Same-type Value::cast is a no-op. Decimal datatype() hardcodes precision=38, so
         // the identity cast must target precision=38 too.
-        let dec_38_2 = Decimal::from_i128_with_scale(1234, 2);
+        let dec_38_2 = decimal_from_i128_with_scale(1234, 2);
         let cases = vec![
             Value::Boolean(true),
             Value::Int(123),
@@ -1943,7 +1961,7 @@ mod tests {
 
     #[test]
     fn test_decimal_value_rejects_every_non_decimal_target_type() {
-        let value = Value::Decimal(Decimal::from_i128_with_scale(3411, 2));
+        let value = Value::Decimal(decimal_from_i128_with_scale(3411, 2));
         // Decimal datatype() hardcodes precision=38 so identity uses precision=38; any other
         // decimal precision/scale variant is therefore "not the same type" but still allowed.
         let targets = all_other_primitive_types(&[PrimitiveType::Decimal {

@@ -6,6 +6,7 @@ use datafusion::{
 use iceberg_rust::error::Error;
 use iceberg_rust::file_format::parquet::estimate_distinct_count;
 use iceberg_rust::spec::{
+    decimal::{decimal_mantissa, decimal_scale},
     manifest::{ManifestEntry, Status},
     schema::Schema,
     types::{PrimitiveType, Type},
@@ -147,11 +148,11 @@ fn convert_value_to_scalar_value(value: Value, field_type: &Type) -> Result<Scal
                 _ => {
                     // Fallback: use the decimal's own scale and assume max precision
                     // This matches the behavior in Value::datatype()
-                    (38, decimal.scale() as i8)
+                    (38, decimal_scale(&decimal) as i8)
                 }
             };
             Ok(ScalarValue::Decimal128(
-                Some(decimal.mantissa()),
+                Some(decimal_mantissa(&decimal)),
                 precision,
                 scale,
             ))
@@ -206,5 +207,28 @@ fn new_distinct_count(acc: &ColumnStatistics, x: &ColumnStatistics) -> Precision
         }
         (Precision::Absent, Precision::Exact(_), _, _, _, _) => x.distinct_count,
         _ => acc.distinct_count.add(&x.distinct_count),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iceberg_rust::spec::decimal::decimal_from_i128_with_scale;
+
+    #[test]
+    fn converts_precision_38_decimal_bound_to_datafusion() {
+        let mantissa = 99_999_999_999_999_999_999_999_999_999_999_999_999_i128;
+        let field_type = Type::Primitive(PrimitiveType::Decimal {
+            precision: 38,
+            scale: 0,
+        });
+
+        let scalar = convert_value_to_scalar_value(
+            Value::Decimal(decimal_from_i128_with_scale(mantissa, 0)),
+            &field_type,
+        )
+        .unwrap();
+
+        assert_eq!(scalar, ScalarValue::Decimal128(Some(mantissa), 38, 0));
     }
 }

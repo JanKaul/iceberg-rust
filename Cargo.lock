@@ -1374,6 +1374,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bnum"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f781dba93de3a5ef6dc5b17c9958b208f6f3f021623b360fb605ea51ce443f10"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
+
+[[package]]
 name = "bollard"
 version = "0.19.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2715,7 +2725,6 @@ dependencies = [
  "regex",
  "reqwest",
  "rstest 0.26.1",
- "rust_decimal",
  "serde_json",
  "sqlx",
  "tempfile",
@@ -2978,6 +2987,18 @@ name = "fallible-streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+
+[[package]]
+name = "fastnum"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "020d1b59a944bc239d79903fbac2eda2365138b44890c27979562f6592059dcd"
+dependencies = [
+ "bnum",
+ "num-integer",
+ "num-traits",
+ "serde",
+]
 
 [[package]]
 name = "fastrand"
@@ -3802,12 +3823,12 @@ dependencies = [
  "chrono",
  "derive-getters",
  "derive_builder",
+ "fastnum",
  "getrandom 0.4.2",
  "itertools 0.14.0",
  "murmur3",
  "ordered-float 5.3.0",
  "rstest 0.23.0",
- "rust_decimal",
  "serde",
  "serde_bytes",
  "serde_derive",
@@ -5756,6 +5777,15 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-big-array"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11fc7cc2c76d73e0f27ee52abbd64eec84d46f370c88371120433196934e4b7f"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
