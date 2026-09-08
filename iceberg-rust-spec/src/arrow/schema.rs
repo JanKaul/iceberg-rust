@@ -5,7 +5,7 @@
 use std::{collections::HashMap, convert::TryInto, ops::Deref, sync::Arc};
 
 use crate::{
-    spec::types::{PrimitiveType, StructField, StructType, Type},
+    spec::types::{MapType, PrimitiveType, StructField, StructType, Type},
     types::ListType,
 };
 use arrow_schema::{DataType, Field, Fields, Schema as ArrowSchema, TimeUnit};
@@ -188,6 +188,30 @@ impl TryFrom<&DataType> for Type {
                 element_required: !field.is_nullable(),
                 element: Box::new(field.data_type().try_into()?),
             })),
+            DataType::Map(entries, _) => {
+                let DataType::Struct(fields) = entries.data_type() else {
+                    return Err(Error::NotSupported(
+                        "Arrow Map entries must be a Struct".to_string(),
+                    ));
+                };
+                let [key, value] = fields.as_ref() else {
+                    return Err(Error::NotSupported(
+                        "Arrow Map entries must contain key and value fields".to_string(),
+                    ));
+                };
+                if key.is_nullable() {
+                    return Err(Error::NotSupported(
+                        "Arrow Map keys must be non-nullable".to_string(),
+                    ));
+                }
+                Ok(Type::Map(MapType {
+                    key_id: get_field_id(key)?,
+                    value_id: get_field_id(value)?,
+                    value_required: !value.is_nullable(),
+                    key: Box::new(key.data_type().try_into()?),
+                    value: Box::new(value.data_type().try_into()?),
+                }))
+            }
             x => Err(Error::NotSupported(format!(
                 "Arrow datatype {x} is not supported."
             ))),
@@ -230,6 +254,32 @@ pub fn new_fields_with_ids(fields: &Fields, index: &mut i32) -> Fields {
                                 element_id.to_string(),
                             )]),
                         ))),
+                        field.is_nullable(),
+                    )
+                    .with_metadata(HashMap::from_iter(vec![(
+                        PARQUET_FIELD_ID_META_KEY.to_string(),
+                        id.to_string(),
+                    )]))
+                }
+                DataType::Map(entries, sorted) => {
+                    let DataType::Struct(entry_fields) = entries.data_type() else {
+                        return field
+                            .deref()
+                            .clone()
+                            .with_metadata(HashMap::from_iter(vec![(
+                                PARQUET_FIELD_ID_META_KEY.to_string(),
+                                id.to_string(),
+                            )]));
+                    };
+                    let entries = Field::new(
+                        entries.name(),
+                        DataType::Struct(new_fields_with_ids(entry_fields, index)),
+                        entries.is_nullable(),
+                    )
+                    .with_metadata(entries.metadata().clone());
+                    Field::new(
+                        field.name(),
+                        DataType::Map(Arc::new(entries), *sorted),
                         field.is_nullable(),
                     )
                     .with_metadata(HashMap::from_iter(vec![(
@@ -428,6 +478,48 @@ mod tests {
         } else {
             panic!("Expected map field");
         }
+
+        assert_eq!(StructType::try_from(&arrow_schema).unwrap(), struct_type);
+    }
+
+    #[test]
+    fn new_fields_with_ids_assigns_map_key_and_value_ids() {
+        let map = Field::new(
+            "attributes",
+            DataType::Map(
+                Arc::new(Field::new(
+                    "entries",
+                    DataType::Struct(Fields::from(vec![
+                        Field::new("key", DataType::Utf8View, false),
+                        Field::new("value", DataType::Int64, true),
+                    ])),
+                    false,
+                )),
+                false,
+            ),
+            true,
+        );
+
+        let fields = new_fields_with_ids(&Fields::from(vec![map]), &mut 0);
+        assert_eq!(get_field_id(&fields[0]).unwrap(), 1);
+        let DataType::Map(entries, _) = fields[0].data_type() else {
+            panic!("expected map");
+        };
+        let DataType::Struct(entries) = entries.data_type() else {
+            panic!("expected map entries struct");
+        };
+        assert_eq!(get_field_id(&entries[0]).unwrap(), 2);
+        assert_eq!(get_field_id(&entries[1]).unwrap(), 3);
+
+        let schema = ArrowSchema::new(fields);
+        let iceberg = StructType::try_from(&schema).unwrap();
+        let Type::Map(map) = &iceberg[0].field_type else {
+            panic!("expected Iceberg map");
+        };
+        assert_eq!(map.key_id, 2);
+        assert_eq!(map.value_id, 3);
+        assert_eq!(*map.key, Type::Primitive(PrimitiveType::String));
+        assert_eq!(*map.value, Type::Primitive(PrimitiveType::Long));
     }
 
     #[test]
