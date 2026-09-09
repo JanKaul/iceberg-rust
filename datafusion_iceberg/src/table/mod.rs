@@ -93,6 +93,7 @@ use iceberg_rust::spec::{
     manifest::DataFile,
     partition::Transform,
     schema::Schema,
+    sort,
     sort::{NullOrder, SortDirection, SortOrder},
     view_metadata::ViewRepresentation,
 };
@@ -742,6 +743,7 @@ async fn table_scan(
                 .remove(&partition_value)
                 .unwrap_or_default();
 
+            let file_schema = Arc::clone(&file_schema);
             async move {
                 // Sort data & delete files by sequence_number
                 delete_files.equality_deletes.sort_by(|x, y| {
@@ -805,10 +807,12 @@ async fn table_scan(
                             };
                             let data_file = generate_partitioned_file(
                                 schema,
+                                &file_schema,
                                 &data_manifest.1,
                                 last_updated_ms,
                                 enable_data_file_path_column,
                                 manifest_path,
+                                &table.metadata().sort_orders,
                             )
                             .unwrap();
                             data_files.push(data_file);
@@ -860,10 +864,12 @@ async fn table_scan(
                             };
                             let delete_file = generate_partitioned_file(
                                 &delete_schema,
+                                &delete_file_schema,
                                 &delete_manifest.1,
                                 last_updated_ms,
                                 enable_data_file_path_column,
                                 manifest_path,
+                                &table.metadata().sort_orders,
                             )?;
 
                             let mut delete_source = ParquetSource::new(delete_file_schema);
@@ -955,10 +961,12 @@ async fn table_scan(
                         };
                         generate_partitioned_file(
                             schema,
+                            &file_schema,
                             &x.1,
                             last_updated_ms,
                             enable_data_file_path_column,
                             manifest_path,
+                            &table.metadata().sort_orders,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -1012,11 +1020,14 @@ async fn table_scan(
                 .is_some_and(|(order_id, _)| entry.data_file().sort_order_id() == &Some(*order_id));
             let file = generate_partitioned_file(
                 &schema,
+                &file_schema,
                 &entry,
                 last_updated_ms,
                 enable_data_file_path_column,
                 manifest_path,
+                &table.metadata().sort_orders,
             )?;
+
             if is_attested {
                 attested.push(file);
             } else {
@@ -1250,13 +1261,15 @@ impl DataSink for IcebergDataSink {
 }
 
 fn generate_partitioned_file(
-    schema: &Schema,
+    iceberg_schema: &Schema,
+    arrow_schema: &SchemaRef,
     manifest: &ManifestEntry,
     last_updated_ms: i64,
     enable_data_file_path: bool,
     manifest_file_path: Option<ManifestPath>,
+    sort_orders: &HashMap<i32, sort::SortOrder>,
 ) -> Result<PartitionedFile, DataFusionError> {
-    let manifest_statistics = manifest_statistics(schema, manifest);
+    let manifest_statistics = manifest_statistics(iceberg_schema, manifest);
     let mut partition_values = manifest
         .data_file()
         .partition()
@@ -1289,7 +1302,7 @@ fn generate_partitioned_file(
         e_tag: None,
         version: None,
     };
-    let file = PartitionedFile {
+    let mut file = PartitionedFile {
         object_meta,
         partition_values,
         range: None,
@@ -1300,6 +1313,17 @@ fn generate_partitioned_file(
         table_reference: None,
         arrow_schema: None,
     };
+
+    if let Some(sort_order_id) = manifest.data_file().sort_order_id() {
+        if let Some(sort_order) = sort_orders.get(sort_order_id) {
+            if let Some((_, file_ordering)) =
+                declared_output_ordering(sort_order, iceberg_schema, arrow_schema)
+            {
+                file = file.with_ordering(Some(file_ordering));
+            }
+        }
+    }
+
     Ok(file)
 }
 
@@ -1664,15 +1688,26 @@ struct PartitionDeleteFileIndex {
 mod tests {
 
     use datafusion::{
-        arrow::array::Int64Array, execution::object_store::ObjectStoreUrl, prelude::SessionContext,
+        arrow::{
+            array::{Int64Array, StringArray},
+            datatypes::{DataType, Field, Schema as ArrowSchema},
+            record_batch::RecordBatch,
+        },
+        datasource::{physical_plan::FileScanConfig, source::DataSourceExec, TableProvider},
+        execution::object_store::ObjectStoreUrl,
+        physical_plan::expressions::Column as PhysicalColumn,
+        prelude::SessionContext,
     };
+    use futures::stream;
     use iceberg_rust::{
+        arrow::write::write_sorted_parquet_partitioned,
         catalog::tabular::Tabular,
         object_store::ObjectStoreBuilder,
         spec::{
             namespace::Namespace,
             partition::{PartitionField, Transform},
             schema::Schema,
+            sort::{NullOrder, SortDirection, SortField, SortOrderBuilder},
             types::{PrimitiveType, StructField, Type},
         },
     };
@@ -3044,6 +3079,128 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[tokio::test]
+    pub async fn test_datafusion_table_scan_exposes_manifest_sort_order() {
+        let object_store = ObjectStoreBuilder::memory();
+
+        let catalog: Arc<dyn Catalog> = Arc::new(
+            SqlCatalog::new("sqlite://", "test", object_store)
+                .await
+                .unwrap(),
+        );
+
+        let schema = Schema::builder()
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "name".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::String),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+
+        let sort_order = SortOrderBuilder::default()
+            .with_order_id(1)
+            .with_sort_field(SortField {
+                source_id: 1,
+                transform: Transform::Identity,
+                direction: SortDirection::Ascending,
+                null_order: NullOrder::First,
+            })
+            .build()
+            .unwrap();
+
+        let mut table = Table::builder()
+            .with_name("sorted_orders")
+            .with_location("/test/sorted_orders")
+            .with_schema(schema)
+            .with_sort_order(sort_order)
+            .build(&["test".to_owned()], catalog)
+            .await
+            .expect("Failed to create table");
+
+        let arrow_schema = Arc::new(ArrowSchema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("name", DataType::Utf8, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            arrow_schema,
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2, 3])),
+                Arc::new(StringArray::from(vec!["a", "b", "c"])),
+            ],
+        )
+        .unwrap();
+
+        // Written through `write_sorted_parquet_partitioned`, so the file attests
+        // the table's declared sort order in its manifest entry.
+        let files = write_sorted_parquet_partitioned(&table, stream::iter(vec![Ok(batch)]), None)
+            .await
+            .expect("Failed to write sorted data file");
+
+        table
+            .new_transaction(None)
+            .append_data(files)
+            .commit()
+            .await
+            .expect("Failed to commit sorted data file");
+
+        let table = Arc::new(DataFusionTable::from(table));
+
+        let ctx = SessionContext::new();
+        let session_state = ctx.state();
+
+        let plan = table
+            .scan(&session_state, None, &[], None)
+            .await
+            .expect("Failed to create scan plan");
+
+        let data_source_exec = plan
+            .downcast_ref::<DataSourceExec>()
+            .expect("Scan plan should be a DataSourceExec");
+        let file_scan_config = data_source_exec
+            .data_source()
+            .downcast_ref::<FileScanConfig>()
+            .expect("Data source should be a FileScanConfig");
+
+        let file = file_scan_config
+            .file_groups
+            .iter()
+            .flat_map(|group| group.files())
+            .next()
+            .expect("Scan should produce at least one file");
+
+        let ordering = file
+            .ordering
+            .as_ref()
+            .expect("PartitionedFile::ordering should carry the manifest's declared sort order");
+
+        assert_eq!(ordering.len(), 1);
+        let sort_expr = ordering.first();
+        assert!(!sort_expr.options.descending);
+        assert!(sort_expr.options.nulls_first);
+        assert_eq!(
+            sort_expr
+                .expr
+                .downcast_ref::<PhysicalColumn>()
+                .unwrap()
+                .name(),
+            "id"
+        );
     }
 
     #[test]
