@@ -699,7 +699,7 @@ pub mod tests {
     use tokio::time::sleep;
 
     use crate::{
-        apis::configuration::Configuration,
+        apis::configuration::{Configuration, ConfigurationBuilder},
         catalog::{access_delegation_headers, RestCatalog},
     };
 
@@ -708,7 +708,7 @@ pub mod tests {
             base_path: url.to_owned(),
             user_agent: None,
             client: reqwest::Client::new(),
-            access_delegation: None,
+            access_delegation: Some("vended-credentials".to_owned()),
             basic_auth: None,
             oauth_access_token: None,
             bearer_access_token: None,
@@ -718,14 +718,31 @@ pub mod tests {
     }
 
     #[test]
-    fn access_delegation_header_is_opt_in() {
-        assert!(access_delegation_headers(None).is_empty());
+    fn access_delegation_header_is_enabled_by_default() {
+        let default_configuration = Configuration::default();
         assert_eq!(
-            access_delegation_headers(Some("vended-credentials"))
+            default_configuration.access_delegation.as_deref(),
+            Some("vended-credentials")
+        );
+
+        let builder_configuration = ConfigurationBuilder::default()
+            .base_path("https://localhost".to_owned())
+            .build()
+            .unwrap();
+        assert_eq!(
+            builder_configuration.access_delegation.as_deref(),
+            Some("vended-credentials")
+        );
+
+        assert_eq!(
+            access_delegation_headers(default_configuration.access_delegation.as_deref())
                 .get("X-Iceberg-Access-Delegation")
                 .map(String::as_str),
             Some("vended-credentials")
         );
+
+        // An explicit `None` remains available for catalogs without delegation support.
+        assert!(access_delegation_headers(None).is_empty());
     }
 
     #[tokio::test]
