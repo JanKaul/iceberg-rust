@@ -638,7 +638,7 @@ impl Operation {
 
                 let n_data_files = data_files.len();
 
-                if n_data_files == 0 {
+                if n_data_files == 0 && files_to_overwrite.is_empty() {
                     return Ok((None, Vec::new()));
                 }
 
@@ -679,14 +679,22 @@ impl Operation {
                     )));
                 }
 
-                let (mut manifest_list_writer, manifests_to_overwrite) =
+                let (mut manifest_list_writer, manifests_to_overwrite) = if n_data_files == 0 {
+                    ManifestListWriter::from_existing_for_deletion(
+                        &bytes,
+                        &manifests_to_overwrite,
+                        manifest_list_schema,
+                        table_metadata,
+                    )?
+                } else {
                     ManifestListWriter::from_existing_without_overwrites(
                         &bytes,
                         data_files_iter,
                         &manifests_to_overwrite,
                         manifest_list_schema,
                         table_metadata,
-                    )?;
+                    )?
+                };
 
                 let mut filtered_stats = manifest_list_writer
                     .append_and_filter(
@@ -696,61 +704,52 @@ impl Operation {
                     )
                     .await?;
 
-                let n_splits =
-                    manifest_list_writer.n_splits(n_data_files, ManifestListContent::Data);
-
-                let new_datafile_iter = data_files.into_iter().map(|data_file| {
-                    ManifestEntry::builder()
-                        .with_format_version(table_metadata.format_version)
-                        .with_status(Status::Added)
-                        .with_data_file(data_file)
-                        .build()
-                        .map_err(Error::from)
-                });
-
                 let snapshot_id = generate_snapshot_id();
 
-                let selected_manifest_location = manifest_list_writer
-                    .selected_data_manifest()
-                    .map(|x| x.manifest_path.clone())
-                    .ok_or(Error::NotFound("Selected manifest".to_owned()))?;
-
-                let files_to_filter =
-                    files_to_overwrite
+                if n_data_files > 0 {
+                    let n_splits =
+                        manifest_list_writer.n_splits(n_data_files, ManifestListContent::Data);
+                    let new_datafile_iter = data_files.into_iter().map(|data_file| {
+                        ManifestEntry::builder()
+                            .with_format_version(table_metadata.format_version)
+                            .with_status(Status::Added)
+                            .with_data_file(data_file)
+                            .build()
+                            .map_err(Error::from)
+                    });
+                    let selected_manifest_location = manifest_list_writer
+                        .selected_data_manifest()
+                        .map(|x| x.manifest_path.clone())
+                        .ok_or(Error::NotFound("Selected manifest".to_owned()))?;
+                    let files_to_filter = files_to_overwrite
                         .get(&selected_manifest_location)
-                        .map(|filter_files| {
-                            filter_files
-                                .iter()
-                                .map(ToOwned::to_owned)
-                                .collect::<HashSet<String>>()
-                        });
+                        .map(|filter_files| filter_files.iter().cloned().collect::<HashSet<_>>());
 
-                // Write manifest files
-                // Split manifest file if limit is exceeded
-                let selected_filter_stats = if n_splits == 0 {
-                    manifest_list_writer
-                        .append_filtered(
-                            new_datafile_iter,
-                            snapshot_id,
-                            files_to_filter.clone(),
-                            object_store.clone(),
-                            ManifestListContent::Data,
-                        )
-                        .await?
-                } else {
-                    manifest_list_writer
-                        .append_multiple_filtered(
-                            new_datafile_iter,
-                            snapshot_id,
-                            n_splits,
-                            files_to_filter.clone(),
-                            object_store.clone(),
-                            ManifestListContent::Data,
-                        )
-                        .await?
-                };
-                if let Some(selected_filter_stats) = selected_filter_stats {
-                    filtered_stats.append(selected_filter_stats);
+                    let selected_filter_stats = if n_splits == 0 {
+                        manifest_list_writer
+                            .append_filtered(
+                                new_datafile_iter,
+                                snapshot_id,
+                                files_to_filter,
+                                object_store.clone(),
+                                ManifestListContent::Data,
+                            )
+                            .await?
+                    } else {
+                        manifest_list_writer
+                            .append_multiple_filtered(
+                                new_datafile_iter,
+                                snapshot_id,
+                                n_splits,
+                                files_to_filter,
+                                object_store.clone(),
+                                ManifestListContent::Data,
+                            )
+                            .await?
+                    };
+                    if let Some(selected_filter_stats) = selected_filter_stats {
+                        filtered_stats.append(selected_filter_stats);
+                    }
                 }
 
                 let new_manifest_list_location = manifest_list_writer
