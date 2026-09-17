@@ -505,9 +505,9 @@ pub fn apply_table_updates(
                             "v3 row lineage values must be non-negative".to_string(),
                         ));
                     }
-                    if first_row_id != metadata.next_row_id {
+                    if first_row_id < metadata.next_row_id {
                         return Err(Error::InvalidFormat(
-                            "v3 snapshot first-row-id does not match next-row-id".to_string(),
+                            "v3 snapshot first-row-id is lower than next-row-id".to_string(),
                         ));
                     }
                     metadata.next_row_id = first_row_id

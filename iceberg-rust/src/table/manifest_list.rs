@@ -663,6 +663,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                 n_existing_files: file_count_all_entries,
                 commit_uuid: uuid::Uuid::new_v4().to_string(),
                 manifest_count: 0,
+                next_row_id: None,
             },
             manifests,
         ))

@@ -1412,6 +1412,51 @@ mod tests {
         assert_eq!(metadata.next_row_id, 22);
     }
 
+    #[test]
+    fn v3_commit_accepts_forward_row_id_gaps_but_rejects_overlap() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        metadata.format_version = FormatVersion::V3;
+        metadata.next_row_id = 10;
+
+        let gap_snapshot = SnapshotBuilder::default()
+            .with_snapshot_id(1)
+            .with_sequence_number(1)
+            .with_timestamp_ms(1)
+            .with_manifest_list("s3://tests/table/metadata/gap.avro".to_string())
+            .with_summary(Summary::default())
+            .with_first_row_id(15)
+            .with_added_rows(3)
+            .build()
+            .unwrap();
+        crate::catalog::commit::apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::AddSnapshot {
+                snapshot: gap_snapshot,
+            }],
+        )
+        .unwrap();
+        assert_eq!(metadata.next_row_id, 18);
+
+        let overlapping_snapshot = SnapshotBuilder::default()
+            .with_snapshot_id(2)
+            .with_sequence_number(2)
+            .with_timestamp_ms(2)
+            .with_manifest_list("s3://tests/table/metadata/overlap.avro".to_string())
+            .with_summary(Summary::default())
+            .with_first_row_id(17)
+            .with_added_rows(1)
+            .build()
+            .unwrap();
+        let result = crate::catalog::commit::apply_table_updates(
+            &mut metadata,
+            vec![TableUpdate::AddSnapshot {
+                snapshot: overlapping_snapshot,
+            }],
+        );
+        assert!(matches!(result, Err(Error::InvalidFormat(_))));
+        assert_eq!(metadata.next_row_id, 18);
+    }
+
     #[tokio::test]
     async fn v3_manifest_rewrites_remain_rejected() {
         let mut metadata = sample_metadata(&[], None, &[]);
