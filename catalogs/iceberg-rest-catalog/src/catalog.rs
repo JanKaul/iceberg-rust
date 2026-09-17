@@ -327,10 +327,8 @@ impl Catalog for RestCatalog {
             )),
             Err(apis::Error::ResponseError(content)) => {
                 if content.status == 404 || content.status == 406 {
-                    let headers = HashMap::from([(
-                        "X-Iceberg-Access-Delegation".to_owned(),
-                        "vended-credentials".to_owned(),
-                    )]);
+                    let headers =
+                        access_delegation_headers(self.configuration.access_delegation.as_deref());
 
                     let response = catalog_api_api::load_table(
                         &self.configuration,
@@ -381,7 +379,7 @@ impl Catalog for RestCatalog {
             self.name.as_deref(),
             &identifier.namespace().to_string(),
             create_table,
-            None,
+            self.configuration.access_delegation.as_deref(),
         )
         .map_err(Into::<Error>::into)
         .await?;
@@ -642,6 +640,12 @@ impl CatalogList for RestNoPrefixCatalogList {
     }
 }
 
+fn access_delegation_headers(value: Option<&str>) -> HashMap<String, String> {
+    value
+        .map(|value| HashMap::from([("X-Iceberg-Access-Delegation".to_owned(), value.to_owned())]))
+        .unwrap_or_default()
+}
+
 fn object_store_from_response(
     response: &models::LoadTableResult,
 ) -> Result<Option<Arc<dyn ObjectStore>>, Error> {
@@ -694,13 +698,17 @@ pub mod tests {
     use testcontainers_modules::localstack::LocalStack;
     use tokio::time::sleep;
 
-    use crate::{apis::configuration::Configuration, catalog::RestCatalog};
+    use crate::{
+        apis::configuration::Configuration,
+        catalog::{access_delegation_headers, RestCatalog},
+    };
 
     fn configuration(url: &str) -> Configuration {
         Configuration {
             base_path: url.to_owned(),
             user_agent: None,
             client: reqwest::Client::new(),
+            access_delegation: None,
             basic_auth: None,
             oauth_access_token: None,
             bearer_access_token: None,
@@ -708,6 +716,18 @@ pub mod tests {
             aws_v4_key: None,
         }
     }
+
+    #[test]
+    fn access_delegation_header_is_opt_in() {
+        assert!(access_delegation_headers(None).is_empty());
+        assert_eq!(
+            access_delegation_headers(Some("vended-credentials"))
+                .get("X-Iceberg-Access-Delegation")
+                .map(String::as_str),
+            Some("vended-credentials")
+        );
+    }
+
     #[tokio::test]
     async fn test_create_update_drop_table() {
         let container_host = if is_podman() {

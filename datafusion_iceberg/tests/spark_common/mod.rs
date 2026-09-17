@@ -80,6 +80,7 @@ fn configuration(host: &str, port: u16) -> Configuration {
         base_path: format!("http://{host}:{port}"),
         user_agent: None,
         client: reqwest::Client::new(),
+        access_delegation: None,
         basic_auth: None,
         oauth_access_token: None,
         bearer_access_token: None,

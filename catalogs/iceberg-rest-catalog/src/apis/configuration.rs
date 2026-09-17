@@ -31,6 +31,9 @@ pub struct Configuration {
     pub user_agent: Option<String>,
     #[builder(default = "reqwest::Client::new()")]
     pub client: reqwest::Client,
+    /// Optional `X-Iceberg-Access-Delegation` request header value.
+    #[builder(setter(into, strip_option), default)]
+    pub access_delegation: Option<String>,
     #[builder(setter(into, strip_option), default)]
     pub basic_auth: Option<BasicAuth>,
     #[builder(setter(strip_option), default)]
@@ -48,6 +51,7 @@ impl std::fmt::Debug for Configuration {
         f.debug_struct("Configuration")
             .field("base_path", &self.base_path)
             .field("user_agent", &self.user_agent)
+            .field("access_delegation", &self.access_delegation)
             .field("basic_auth", &self.basic_auth)
             .field(
                 "oauth_access_token",
@@ -126,6 +130,7 @@ impl Default for Configuration {
             base_path: "https://localhost".to_owned(),
             user_agent: Some("OpenAPI-Generator/0.0.1/rust".to_owned()),
             client: reqwest::Client::new(),
+            access_delegation: None,
             basic_auth: None,
             oauth_access_token: None,
             bearer_access_token: None,
