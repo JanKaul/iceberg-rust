@@ -1227,6 +1227,19 @@ impl DataSink for IcebergDataSink {
 
         let metadata_files =
             write_parquet_data_files(&table, data, context, self.0.branch.as_deref()).await?;
+        let written_rows = metadata_files.iter().try_fold(0_u64, |total, file| {
+            let file_rows = u64::try_from(*file.record_count()).map_err(|_| {
+                DataFusionError::Execution(format!(
+                    "Iceberg data file has a negative record count: {}",
+                    file.record_count()
+                ))
+            })?;
+            total.checked_add(file_rows).ok_or_else(|| {
+                DataFusionError::Execution(
+                    "Iceberg write row count exceeds the supported u64 range".to_string(),
+                )
+            })
+        })?;
 
         table
             .new_transaction(self.0.branch.as_deref())
@@ -1239,7 +1252,7 @@ impl DataSink for IcebergDataSink {
         let mut lock = self.0.tabular.write().unwrap();
         *lock = Tabular::Table(table);
 
-        Ok(0)
+        Ok(written_rows)
     }
     fn metrics(&self) -> Option<MetricsSet> {
         None
@@ -1665,6 +1678,7 @@ mod tests {
 
     use datafusion::{
         arrow::array::Int64Array, execution::object_store::ObjectStoreUrl, prelude::SessionContext,
+        scalar::ScalarValue,
     };
     use iceberg_rust::{
         catalog::tabular::Tabular,
@@ -1764,20 +1778,25 @@ mod tests {
 
         ctx.register_table("orders", table.clone()).unwrap();
 
-        ctx.sql(
-            "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES
+        let insert_result = ctx
+            .sql(
+                "INSERT INTO orders (id, customer_id, product_id, date, amount) VALUES
                 (1, 1, 1, '2020-01-01', 1),
                 (2, 2, 1, '2020-01-01', 1),
                 (3, 3, 1, '2020-01-01', 3),
                 (4, 1, 2, '2020-02-02', 1),
                 (5, 1, 1, '2020-02-02', 2),
                 (6, 3, 3, '2020-02-02', 3);",
-        )
-        .await
-        .expect("Failed to create query plan for insert")
-        .collect()
-        .await
-        .expect("Failed to insert values into table");
+            )
+            .await
+            .expect("Failed to create query plan for insert")
+            .collect()
+            .await
+            .expect("Failed to insert values into table");
+        assert_eq!(
+            ScalarValue::try_from_array(insert_result[0].column(0), 0).unwrap(),
+            ScalarValue::UInt64(Some(6))
+        );
 
         let batches = ctx
             .sql("select product_id, sum(amount) from orders where customer_id = 1 group by product_id;")
