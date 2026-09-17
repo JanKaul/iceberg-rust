@@ -4,6 +4,7 @@ use crate::{
         catalog_api_api::{self, NamespaceExistsError},
         configuration::{self, Configuration},
     },
+    error::commit_error,
     models::{self, StorageCredential},
 };
 use async_trait::async_trait;
@@ -408,7 +409,7 @@ impl Catalog for RestCatalog {
             commit,
         )
         .await
-        .map_err(Into::<Error>::into)?;
+        .map_err(|error| commit_error(error, &identifier.to_string()))?;
 
         let Some(object_store) = self.cache.read().unwrap().get(&identifier).cloned() else {
             return Err(Error::NotFound(format!(
