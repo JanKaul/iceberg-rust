@@ -285,6 +285,26 @@ impl Catalog for RestCatalog {
         .await
         .map_err(Into::<Error>::into)
     }
+    /// Rename a table through the Iceberg REST catalog's atomic endpoint.
+    async fn rename_table(
+        &self,
+        source: &Identifier,
+        destination: &Identifier,
+    ) -> Result<(), Error> {
+        catalog_api_api::rename_table(
+            &self.configuration,
+            self.name.as_deref(),
+            models::RenameTableRequest::new(source.clone(), destination.clone()),
+        )
+        .await
+        .map_err(Into::<Error>::into)?;
+
+        let mut cache = self.cache.write().unwrap();
+        if let Some(object_store) = cache.remove(source) {
+            cache.insert(destination.clone(), object_store);
+        }
+        Ok(())
+    }
     /// Drop a table and delete all data and metadata files.
     async fn drop_view(&self, identifier: &Identifier) -> Result<(), Error> {
         catalog_api_api::drop_view(
@@ -939,6 +959,24 @@ pub mod tests {
         }
 
         assert!(once);
+
+        let source = Identifier::new(&["tpch".to_owned()], "lineitem");
+        let destination = Identifier::new(&["tpch".to_owned()], "lineitem_renamed");
+        iceberg_catalog
+            .rename_table(&source, &destination)
+            .await
+            .expect("Failed to rename table");
+        assert!(!iceberg_catalog.tabular_exists(&source).await.unwrap());
+        assert!(iceberg_catalog.tabular_exists(&destination).await.unwrap());
+        assert_eq!(
+            iceberg_catalog
+                .clone()
+                .load_tabular(&destination)
+                .await
+                .unwrap()
+                .identifier(),
+            &destination
+        );
     }
 
     // -----------------------------------------------------------------------

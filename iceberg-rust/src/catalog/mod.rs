@@ -201,6 +201,17 @@ pub trait Catalog: Send + Sync + Debug {
     /// * The catalog fails to delete the table metadata
     /// * The data files cannot be deleted
     async fn drop_table(&self, identifier: &Identifier) -> Result<(), Error>;
+    /// Renames a table without changing its data or metadata location.
+    ///
+    /// Catalog implementations that cannot atomically update the identifier
+    /// should keep the default and report the operation as unsupported.
+    async fn rename_table(
+        &self,
+        _source: &Identifier,
+        _destination: &Identifier,
+    ) -> Result<(), Error> {
+        Err(Error::NotSupported("rename table".to_owned()))
+    }
     /// Drops a view from the catalog and deletes its metadata.
     ///
     /// # Arguments
