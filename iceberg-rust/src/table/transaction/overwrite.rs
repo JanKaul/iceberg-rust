@@ -4,7 +4,7 @@ use iceberg_rust_spec::manifest_list::ManifestListEntry;
 
 use crate::{
     error::Error,
-    table::manifest_list::ManifestListReader,
+    table::manifest_list::{append_manifest, ManifestListReader, RowIdAssigner},
     util::{summary_to_rectangle, Rectangle},
 };
 
@@ -19,6 +19,7 @@ pub(crate) struct OverwriteManifest {
 pub(crate) fn select_manifest_without_overwrites_partitioned(
     manifest_list_reader: ManifestListReader<&[u8]>,
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
+    mut row_id_assigner: Option<&mut RowIdAssigner>,
     bounding_partition_values: &Rectangle,
     overwrites: &HashSet<String>,
 ) -> Result<OverwriteManifest, Error> {
@@ -48,7 +49,7 @@ pub(crate) fn select_manifest_without_overwrites_partitioned(
                 let old = selected_state.replace((bounds, manifest));
                 if let Some((_, old)) = old {
                     if !overwrites.contains(&old.manifest_path) {
-                        manifest_list_writer.append_ser(old)?;
+                        append_manifest(manifest_list_writer, row_id_assigner.as_deref_mut(), old)?;
                     } else {
                         manifests_to_overwrite.push(old);
                     }
@@ -57,7 +58,11 @@ pub(crate) fn select_manifest_without_overwrites_partitioned(
             }
             _ => {
                 if !overwrites.contains(&manifest.manifest_path) {
-                    manifest_list_writer.append_ser(manifest)?;
+                    append_manifest(
+                        manifest_list_writer,
+                        row_id_assigner.as_deref_mut(),
+                        manifest,
+                    )?;
                 } else {
                     manifests_to_overwrite.push(manifest);
                 }
@@ -79,6 +84,7 @@ pub(crate) fn select_manifest_without_overwrites_partitioned(
 pub(crate) fn select_manifest_without_overwrites_unpartitioned(
     manifest_list_reader: ManifestListReader<&[u8]>,
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
+    mut row_id_assigner: Option<&mut RowIdAssigner>,
     overwrites: &HashSet<String>,
 ) -> Result<OverwriteManifest, Error> {
     let mut selected_state = None;
@@ -105,7 +111,7 @@ pub(crate) fn select_manifest_without_overwrites_unpartitioned(
             let old = selected_state.replace((Some(row_count), manifest));
             if let Some((_, old)) = old {
                 if !overwrites.contains(&old.manifest_path) {
-                    manifest_list_writer.append_ser(old)?;
+                    append_manifest(manifest_list_writer, row_id_assigner.as_deref_mut(), old)?;
                 } else {
                     manifests_to_overwrite.push(old);
                 }
@@ -113,7 +119,11 @@ pub(crate) fn select_manifest_without_overwrites_unpartitioned(
             continue;
         } else {
             if !overwrites.contains(&manifest.manifest_path) {
-                manifest_list_writer.append_ser(manifest)?;
+                append_manifest(
+                    manifest_list_writer,
+                    row_id_assigner.as_deref_mut(),
+                    manifest,
+                )?;
             } else {
                 manifests_to_overwrite.push(manifest);
             }

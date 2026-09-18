@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::{
     error::Error,
-    table::manifest_list::ManifestListReader,
+    table::manifest_list::{append_manifest, ManifestListReader, RowIdAssigner},
     util::{cmp_with_priority, partition_struct_to_vec, summary_to_rectangle, try_sub, Rectangle},
 };
 
@@ -120,6 +120,7 @@ pub(crate) struct SelectedManifest {
 pub(crate) fn select_manifest_partitioned(
     manifest_list_reader: ManifestListReader<&[u8]>,
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
+    mut row_id_assigner: Option<&mut RowIdAssigner>,
     bounding_partition_values: &Rectangle,
 ) -> Result<SelectedManifest, Error> {
     let mut selected_data_state = None;
@@ -140,37 +141,65 @@ pub(crate) fn select_manifest_partitioned(
 
         match manifest.content {
             iceberg_rust_spec::manifest_list::Content::Data => {
-                let Some((selected_bounds, selected_manifest)) = &selected_data_state else {
+                let Some((selected_bounds, _)) = &selected_data_state else {
                     selected_data_state = Some((bounds, manifest));
                     continue;
                 };
 
                 match selected_bounds.cmp_with_priority(&bounds)? {
                     Ordering::Greater => {
-                        manifest_list_writer.append_ser(selected_manifest)?;
-                        selected_data_state = Some((bounds, manifest));
+                        let (_, selected_manifest) = selected_data_state
+                            .replace((bounds, manifest))
+                            .ok_or_else(|| {
+                                Error::InvalidFormat(
+                                    "selected data manifest is missing".to_string(),
+                                )
+                            })?;
+                        append_manifest(
+                            manifest_list_writer,
+                            row_id_assigner.as_deref_mut(),
+                            selected_manifest,
+                        )?;
                         continue;
                     }
                     _ => {
-                        manifest_list_writer.append_ser(manifest)?;
+                        append_manifest(
+                            manifest_list_writer,
+                            row_id_assigner.as_deref_mut(),
+                            manifest,
+                        )?;
                         continue;
                     }
                 }
             }
             iceberg_rust_spec::manifest_list::Content::Deletes => {
-                let Some((selected_bounds, selected_manifest)) = &selected_delete_state else {
+                let Some((selected_bounds, _)) = &selected_delete_state else {
                     selected_delete_state = Some((bounds, manifest));
                     continue;
                 };
 
                 match selected_bounds.cmp_with_priority(&bounds)? {
                     Ordering::Greater => {
-                        manifest_list_writer.append_ser(selected_manifest)?;
-                        selected_delete_state = Some((bounds, manifest));
+                        let (_, selected_manifest) = selected_delete_state
+                            .replace((bounds, manifest))
+                            .ok_or_else(|| {
+                                Error::InvalidFormat(
+                                    "selected delete manifest is missing".to_string(),
+                                )
+                            })?;
+                        append_manifest(
+                            manifest_list_writer,
+                            row_id_assigner.as_deref_mut(),
+                            selected_manifest,
+                        )?;
                         continue;
                     }
                     _ => {
-                        manifest_list_writer.append_ser(manifest)?;
+                        append_manifest(
+                            manifest_list_writer,
+                            row_id_assigner.as_deref_mut(),
+                            manifest,
+                        )?;
                         continue;
                     }
                 }
@@ -191,6 +220,7 @@ pub(crate) fn select_manifest_partitioned(
 pub(crate) fn select_manifest_unpartitioned(
     manifest_list_reader: ManifestListReader<&[u8]>,
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
+    mut row_id_assigner: Option<&mut RowIdAssigner>,
 ) -> Result<SelectedManifest, Error> {
     let mut selected_data_state = None;
     let mut selected_delete_state = None;
@@ -203,7 +233,7 @@ pub(crate) fn select_manifest_unpartitioned(
 
         match manifest.content {
             iceberg_rust_spec::manifest_list::Content::Data => {
-                let Some((selected_row_count, selected_manifest)) = &selected_data_state else {
+                let Some((selected_row_count, _)) = &selected_data_state else {
                     selected_data_state = Some((row_count, manifest));
                     continue;
                 };
@@ -215,16 +245,28 @@ pub(crate) fn select_manifest_unpartitioned(
                 };
 
                 if selected_row_count.is_some_and(|x| x > row_count) {
-                    manifest_list_writer.append_ser(selected_manifest)?;
-                    selected_data_state = Some((Some(row_count), manifest));
+                    let (_, selected_manifest) = selected_data_state
+                        .replace((Some(row_count), manifest))
+                        .ok_or_else(|| {
+                            Error::InvalidFormat("selected data manifest is missing".to_string())
+                        })?;
+                    append_manifest(
+                        manifest_list_writer,
+                        row_id_assigner.as_deref_mut(),
+                        selected_manifest,
+                    )?;
                     continue;
                 } else {
-                    manifest_list_writer.append_ser(manifest)?;
+                    append_manifest(
+                        manifest_list_writer,
+                        row_id_assigner.as_deref_mut(),
+                        manifest,
+                    )?;
                     continue;
                 }
             }
             iceberg_rust_spec::manifest_list::Content::Deletes => {
-                let Some((selected_row_count, selected_manifest)) = &selected_delete_state else {
+                let Some((selected_row_count, _)) = &selected_delete_state else {
                     selected_delete_state = Some((row_count, manifest));
                     continue;
                 };
@@ -236,11 +278,23 @@ pub(crate) fn select_manifest_unpartitioned(
                 };
 
                 if selected_row_count.is_some_and(|x| x > row_count) {
-                    manifest_list_writer.append_ser(selected_manifest)?;
-                    selected_delete_state = Some((Some(row_count), manifest));
+                    let (_, selected_manifest) = selected_delete_state
+                        .replace((Some(row_count), manifest))
+                        .ok_or_else(|| {
+                            Error::InvalidFormat("selected delete manifest is missing".to_string())
+                        })?;
+                    append_manifest(
+                        manifest_list_writer,
+                        row_id_assigner.as_deref_mut(),
+                        selected_manifest,
+                    )?;
                     continue;
                 } else {
-                    manifest_list_writer.append_ser(manifest)?;
+                    append_manifest(
+                        manifest_list_writer,
+                        row_id_assigner.as_deref_mut(),
+                        manifest,
+                    )?;
                     continue;
                 }
             }
