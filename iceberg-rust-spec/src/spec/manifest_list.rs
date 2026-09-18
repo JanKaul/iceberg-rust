@@ -68,6 +68,8 @@ pub struct ManifestListEntry {
     pub partitions: Option<Vec<FieldSummary>>,
     /// Implementation-specific key metadata for encryption
     pub key_metadata: Option<ByteBuf>,
+    /// First row ID assigned to newly added rows in this Iceberg v3 data manifest.
+    pub first_row_id: Option<i64>,
 }
 
 /// Entry in manifest file.
@@ -152,6 +154,9 @@ mod _serde {
         pub partitions: Option<Vec<FieldSummarySerde>>,
         /// Implementation-specific key metadata for encryption
         pub key_metadata: Option<ByteBuf>,
+        /// First row ID assigned to newly added rows in this manifest.
+        #[serde(default)]
+        pub first_row_id: Option<i64>,
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -256,6 +261,7 @@ mod _serde {
                     .partitions
                     .map(|v| v.into_iter().map(Into::into).collect()),
                 key_metadata: value.key_metadata,
+                first_row_id: value.first_row_id,
             }
         }
     }
@@ -391,6 +397,7 @@ impl ManifestListEntry {
                 })
                 .transpose()?,
             key_metadata: entry.key_metadata,
+            first_row_id: entry.first_row_id,
         })
     }
 
@@ -435,6 +442,7 @@ impl ManifestListEntry {
                 })
                 .transpose()?,
             key_metadata: entry.key_metadata,
+            first_row_id: None,
         })
     }
 
@@ -479,6 +487,7 @@ impl ManifestListEntry {
                 })
                 .transpose()?,
             key_metadata: entry.key_metadata,
+            first_row_id: None,
         })
     }
 }
@@ -784,10 +793,22 @@ pub fn manifest_list_schema_v2() -> &'static AvroSchema {
     })
 }
 
-/// Manifest list Avro schema for V3 tables. Initially identical to the V2 schema.
+/// Manifest list Avro schema for V3 tables.
 pub fn manifest_list_schema_v3() -> &'static AvroSchema {
     static MANIFEST_LIST_SCHEMA_V3: OnceLock<AvroSchema> = OnceLock::new();
-    MANIFEST_LIST_SCHEMA_V3.get_or_init(|| manifest_list_schema_v2().clone())
+    MANIFEST_LIST_SCHEMA_V3.get_or_init(|| {
+        let mut schema = serde_json::to_value(manifest_list_schema_v2()).unwrap();
+        schema["fields"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "name": "first_row_id",
+                "type": ["null", "long"],
+                "default": null,
+                "field-id": 520
+            }));
+        AvroSchema::parse(&schema).unwrap()
+    })
 }
 
 /// Convert an avro value result to a manifest list version according to the provided format version
@@ -825,6 +846,14 @@ mod tests {
         table_metadata::TableMetadataBuilder,
         types::{PrimitiveType, StructField},
     };
+
+    fn schema_has_field(schema: &AvroSchema, name: &str) -> bool {
+        serde_json::to_value(schema).unwrap()["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field["name"] == name)
+    }
 
     #[test]
     pub fn test_manifest_list_v2() {
@@ -880,9 +909,11 @@ mod tests {
                 upper_bound: Some(Value::Int(76890)),
             }]),
             key_metadata: None,
+            first_row_id: None,
         };
 
         let schema = manifest_list_schema_v2();
+        assert!(!schema_has_field(schema, "first_row_id"));
 
         let mut writer = apache_avro::Writer::new(schema, Vec::new());
 
@@ -957,9 +988,11 @@ mod tests {
                 upper_bound: Some(Value::Int(76890)),
             }]),
             key_metadata: None,
+            first_row_id: Some(42),
         };
 
         let schema = manifest_list_schema_v3();
+        assert!(schema_has_field(schema, "first_row_id"));
 
         let mut writer = apache_avro::Writer::new(schema, Vec::new());
 
@@ -1034,6 +1067,7 @@ mod tests {
                 upper_bound: Some(Value::Int(76890)),
             }]),
             key_metadata: None,
+            first_row_id: None,
         };
 
         let schema = manifest_list_schema_v1();

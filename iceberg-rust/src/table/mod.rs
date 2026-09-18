@@ -22,7 +22,7 @@ use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::util::{self};
 use iceberg_rust_spec::{
     spec::{
-        manifest::{Content, ManifestEntry},
+        manifest::{Content, FirstRowIdInheritance, ManifestEntry},
         manifest_list::ManifestListEntry,
         schema::Schema,
         table_metadata::TableMetadata,
@@ -327,6 +327,7 @@ async fn datafiles(
             let object_store = object_store.clone();
             let manifest_path = file.manifest_path.clone();
             let manifest_sequence_number = file.sequence_number;
+            let manifest_first_row_id = file.first_row_id;
             async move {
                 let path: Path = util::strip_prefix(&manifest_path).into();
                 let bytes = Cursor::new(Vec::from(
@@ -337,7 +338,15 @@ async fn datafiles(
                         .await?,
                 ));
 
+                let mut first_row_id_inheritance =
+                    FirstRowIdInheritance::for_committed_manifest(manifest_first_row_id);
+
                 ManifestReader::new(bytes)?
+                    .map(move |entry| {
+                        let mut entry = entry?;
+                        first_row_id_inheritance.apply(&mut entry)?;
+                        Ok(entry)
+                    })
                     .filter_map_ok(|mut x| {
                         let sequence_number = if let Some(sequence_number) = x.sequence_number() {
                             *sequence_number

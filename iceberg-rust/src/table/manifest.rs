@@ -274,6 +274,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             deleted_rows_count: Some(0),
             partitions: None,
             key_metadata: None,
+            first_row_id: None,
         };
 
         Ok(ManifestWriter {
