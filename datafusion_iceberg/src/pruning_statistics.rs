@@ -291,7 +291,11 @@ fn any_iter_to_array(
                 ScalarValue::Decimal128(
                     opt.and_then(|value| {
                         let d = *value.downcast::<Decimal>().ok()?;
-                        (decimal_scale(&d) == scale as u32).then(|| decimal_mantissa(&d))
+                        if decimal_scale(&d) == scale as u32 {
+                            decimal_mantissa(&d).ok()
+                        } else {
+                            None
+                        }
                     }),
                     precision,
                     scale,
@@ -751,7 +755,7 @@ mod tests {
     #[test]
     fn any_iter_to_array_decimal128() {
         let iter = vec![
-            Some(Value::Decimal(decimal_from_i128_with_scale(12345, 2)).into_any()),
+            Some(Value::Decimal(decimal_from_i128_with_scale(12345, 2).unwrap()).into_any()),
             None,
         ]
         .into_iter();
@@ -767,7 +771,7 @@ mod tests {
     fn any_iter_to_array_decimal128_scale_mismatch_is_null() {
         // Stored scale (2) != column scale (4): emit null rather than misread the mantissa.
         let iter = std::iter::once(Some(
-            Value::Decimal(decimal_from_i128_with_scale(12345, 2)).into_any(),
+            Value::Decimal(decimal_from_i128_with_scale(12345, 2).unwrap()).into_any(),
         ));
         let array = any_iter_to_array(iter, &DataType::Decimal128(10, 4)).unwrap();
         let dec = array.as_any().downcast_ref::<Decimal128Array>().unwrap();

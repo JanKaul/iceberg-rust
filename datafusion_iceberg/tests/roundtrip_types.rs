@@ -290,7 +290,7 @@ fn parquet_stats_and_partition_value_decode_correctly() {
         .flatten()
         .expect("partition value should have been inferred from stats");
 
-    let amount = Value::Decimal(decimal_from_i128_with_scale(amount_val, 2));
+    let amount = Value::Decimal(decimal_from_i128_with_scale(amount_val, 2).unwrap());
     assert_eq!(partition_value, amount);
 
     let uuid_val = Value::UUID(Uuid::parse_str(uuid_str).unwrap());

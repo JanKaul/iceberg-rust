@@ -45,16 +45,13 @@ use uuid::Uuid;
 use crate::error::Error;
 
 use super::{
-    decimal::{
-        decimal_from_i128_with_scale, decimal_mantissa, decimal_scale, i128_to_be_bytes_min,
-        Decimal,
-    },
+    decimal::{decimal_from_i128_with_scale, decimal_scale, decimal_to_be_bytes_min, Decimal},
     partition::{PartitionField, Transform},
     types::{PrimitiveType, StructType, Type},
 };
 
 #[cfg(test)]
-use super::decimal::decimal_from_str_exact;
+use super::decimal::{decimal_from_str_exact, decimal_mantissa};
 
 pub static YEARS_BEFORE_UNIX_EPOCH: i32 = 1970;
 
@@ -139,7 +136,7 @@ impl From<Value> for ByteBuf {
             Value::UUID(val) => ByteBuf::from(val.as_u128().to_be_bytes()),
             Value::Fixed(_, val) => ByteBuf::from(val),
             Value::Binary(val) => ByteBuf::from(val),
-            Value::Decimal(val) => ByteBuf::from(i128_to_be_bytes_min(decimal_mantissa(&val))),
+            Value::Decimal(val) => ByteBuf::from(decimal_to_be_bytes_min(&val)),
             _ => todo!(),
         }
     }
@@ -529,7 +526,7 @@ impl Value {
                     } else {
                         return Err(Error::Type("decimal".to_string(), "bytes".to_string()));
                     };
-                    Ok(Value::Decimal(decimal_from_i128_with_scale(val, *scale)))
+                    Ok(Value::Decimal(decimal_from_i128_with_scale(val, *scale)?))
                 }
                 PrimitiveType::TimestampNs
                 | PrimitiveType::TimestamptzNs
@@ -1447,7 +1444,7 @@ mod tests {
     fn decimal_native_little_endian_hint_round_trips() {
         let decimal = decimal_from_str_exact("104899.50").unwrap();
         let value = Value::Decimal(decimal);
-        let bytes = i64::try_from(decimal_mantissa(&decimal))
+        let bytes = i64::try_from(decimal_mantissa(&decimal).unwrap())
             .unwrap()
             .to_le_bytes();
 
@@ -1819,7 +1816,7 @@ mod tests {
     fn test_identity_cast_returns_same_value_for_every_supported_primitive_variant() {
         // Same-type Value::cast is a no-op. Decimal datatype() hardcodes precision=38, so
         // the identity cast must target precision=38 too.
-        let dec_38_2 = decimal_from_i128_with_scale(1234, 2);
+        let dec_38_2 = decimal_from_i128_with_scale(1234, 2).unwrap();
         let cases = vec![
             Value::Boolean(true),
             Value::Int(123),
@@ -1961,7 +1958,7 @@ mod tests {
 
     #[test]
     fn test_decimal_value_rejects_every_non_decimal_target_type() {
-        let value = Value::Decimal(decimal_from_i128_with_scale(3411, 2));
+        let value = Value::Decimal(decimal_from_i128_with_scale(3411, 2).unwrap());
         // Decimal datatype() hardcodes precision=38 so identity uses precision=38; any other
         // decimal precision/scale variant is therefore "not the same type" but still allowed.
         let targets = all_other_primitive_types(&[PrimitiveType::Decimal {

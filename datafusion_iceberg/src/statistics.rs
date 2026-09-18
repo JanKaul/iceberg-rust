@@ -152,7 +152,7 @@ fn convert_value_to_scalar_value(value: Value, field_type: &Type) -> Result<Scal
                 }
             };
             Ok(ScalarValue::Decimal128(
-                Some(decimal_mantissa(&decimal)),
+                Some(decimal_mantissa(&decimal)?),
                 precision,
                 scale,
             ))
@@ -224,7 +224,7 @@ mod tests {
         });
 
         let scalar = convert_value_to_scalar_value(
-            Value::Decimal(decimal_from_i128_with_scale(mantissa, 0)),
+            Value::Decimal(decimal_from_i128_with_scale(mantissa, 0).unwrap()),
             &field_type,
         )
         .unwrap();
