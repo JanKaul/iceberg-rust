@@ -22,7 +22,7 @@ use futures::{stream, Stream, StreamExt, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::util::{self};
 use iceberg_rust_spec::{
     spec::{
-        manifest::{Content, FirstRowIdInheritance, ManifestEntry},
+        manifest::{Content, FirstRowIdInheritance, ManifestEntry, Status},
         manifest_list::ManifestListEntry,
         schema::Schema,
         table_metadata::TableMetadata,
@@ -342,6 +342,10 @@ async fn datafiles(
                     FirstRowIdInheritance::for_committed_manifest(manifest_first_row_id);
 
                 ManifestReader::new(bytes)?
+                    .filter_map(|entry| match entry {
+                        Ok(entry) if *entry.status() == Status::Deleted => None,
+                        entry => Some(entry),
+                    })
                     .map(move |entry| {
                         let mut entry = entry?;
                         first_row_id_inheritance.apply(&mut entry)?;

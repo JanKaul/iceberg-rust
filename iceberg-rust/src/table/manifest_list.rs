@@ -666,6 +666,47 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 
         let mut row_id_assigner = (table_metadata.format_version == FormatVersion::V3)
             .then(|| RowIdAssigner::new(table_metadata.next_row_id));
+
+        // V3 manifests carry row-ID inheritance state. Preserve unaffected
+        // manifests by path and materialize inherited IDs only in the affected
+        // manifests rewritten below.
+        if table_metadata.format_version == FormatVersion::V3 {
+            let mut manifests = Vec::new();
+            let mut file_count_all_entries = 0usize;
+            for manifest in manifest_list_reader {
+                let manifest = manifest?;
+                let file_count = manifest
+                    .added_files_count
+                    .unwrap_or(0)
+                    .checked_add(manifest.existing_files_count.unwrap_or(0))
+                    .ok_or_else(|| Error::InvalidFormat("manifest file count".to_string()))?;
+                file_count_all_entries = file_count_all_entries
+                    .checked_add(file_count.try_into()?)
+                    .ok_or_else(|| Error::InvalidFormat("manifest file count".to_string()))?;
+
+                if manifests_to_overwrite.contains(&manifest.manifest_path) {
+                    manifests.push(manifest);
+                } else {
+                    append_manifest(&mut writer, row_id_assigner.as_mut(), manifest)?;
+                }
+            }
+
+            return Ok((
+                Self {
+                    table_metadata,
+                    writer,
+                    selected_data_manifest: None,
+                    selected_delete_manifest: None,
+                    bounding_partition_values,
+                    n_existing_files: file_count_all_entries,
+                    commit_uuid,
+                    manifest_count: 0,
+                    row_id_assigner,
+                },
+                manifests,
+            ));
+        }
+
         let OverwriteManifest {
             manifest,
             file_count_all_entries,
@@ -995,6 +1036,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                             manifest_bytes.as_ref(),
                             manifest,
                             &filter,
+                            snapshot_id,
                             &manifest_schema,
                             self.table_metadata,
                         )?;
@@ -1026,8 +1068,8 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
             manifest_writer.append(manifest_entry?)?;
         }
 
-        if let Some(filtered_stats) = filtered_stats {
-            manifest_writer.apply_filtered_stats(&filtered_stats);
+        if let Some(ref filtered_stats) = filtered_stats {
+            manifest_writer.apply_filtered_stats(filtered_stats);
         }
 
         let (manifest, future) = manifest_writer.finish_concurrently(object_store.clone())?;
@@ -1388,9 +1430,10 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     /// * `manifests_to_overwrite` - Vector of manifest list entries to process and filter
     /// * `data_files_to_filter` - Map from manifest path to list of data file paths to exclude
     /// * `object_store` - The object store for reading existing and writing new manifest files
+    /// * `snapshot_id` - Snapshot ID recorded on rewritten manifest entries
     ///
     /// # Returns
-    /// * `Result<(), Error>` - Ok if all manifests were successfully processed and filtered
+    /// * Statistics and deleted entries collected from the filtered manifests
     ///
     /// # Errors
     /// Returns an error if:
@@ -1412,6 +1455,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
     ///     manifests_to_overwrite,
     ///     &data_files_to_filter,
     ///     object_store,
+    ///     snapshot_id,
     /// ).await?;
     /// ```
     ///
@@ -1425,6 +1469,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         manifests_to_overwrite: Vec<ManifestListEntry>,
         data_files_to_filter: &HashMap<String, Vec<String>>,
         object_store: Arc<dyn ObjectStore>,
+        snapshot_id: i64,
     ) -> Result<FilteredManifestStats, Error> {
         let partition_fields = self.table_metadata.current_partition_fields()?;
 
@@ -1460,6 +1505,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
                         &bytes,
                         manifest,
                         &data_files_to_filter,
+                        snapshot_id,
                         &manifest_schema,
                         table_metadata,
                     )?;
@@ -1475,9 +1521,7 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
         let mut removed_stats = FilteredManifestStats::default();
         for manifest_res in join_all(futures).await {
             let (manifest, filtered_stats) = manifest_res?;
-            removed_stats.removed_data_files += filtered_stats.removed_data_files;
-            removed_stats.removed_records += filtered_stats.removed_records;
-            removed_stats.removed_file_size_bytes += filtered_stats.removed_file_size_bytes;
+            removed_stats.append(filtered_stats);
 
             if manifest.added_files_count.unwrap_or(0) > 0
                 || manifest.existing_files_count.unwrap_or(0) > 0
