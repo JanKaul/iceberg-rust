@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{as_primitive_array, downcast_array, Array, ArrayRef, PrimitiveArray, StringArray},
+    array::{as_primitive_array, Array, ArrayRef, AsArray, PrimitiveArray},
     buffer::ScalarBuffer,
     compute::{binary, cast, date_part, unary, DatePart},
     datatypes::{
@@ -165,21 +165,28 @@ pub fn transform_arrow(array: ArrayRef, transform: &Transform) -> Result<ArrayRe
                 },
             )))
         }
-        (DataType::Utf8, Transform::Bucket(m)) => {
+        (DataType::Utf8 | DataType::Utf8View, Transform::Bucket(m)) => {
             let nulls = array.nulls();
-            let local_array: StringArray = downcast_array::<StringArray>(&array);
+            let bucket = |value: &str| {
+                (murmur3::murmur3_32(&mut value.as_bytes(), 0)
+                    .expect("murmur3 hash failled for some reason") as i32)
+                    .rem_euclid(*m as i32)
+            };
+            let buckets: Vec<i32> = match array.data_type() {
+                DataType::Utf8 => array
+                    .as_string::<i32>()
+                    .iter()
+                    .map(|a| a.map_or(0, bucket))
+                    .collect(),
+                _ => array
+                    .as_string_view()
+                    .iter()
+                    .map(|a| a.map_or(0, bucket))
+                    .collect(),
+            };
 
             Ok(Arc::new(PrimitiveArray::<Int32Type>::new(
-                ScalarBuffer::from_iter(local_array.iter().map(|a| {
-                    if let Some(value) = a {
-                        murmur3::murmur3_32(&mut value.as_bytes(), 0)
-                            .expect("murmur3 hash failled for some reason")
-                            as i32
-                    } else {
-                        0
-                    }
-                    .rem_euclid(*m as i32)
-                })),
+                ScalarBuffer::from(buckets),
                 nulls.cloned(),
             )))
         }
@@ -566,6 +573,20 @@ mod tests {
     fn test_utf8_bucket_transform() {
         let array =
             Arc::new(arrow::array::StringArray::from(vec![Some("iceberg"), None])) as ArrayRef;
+        let result = transform_arrow(array, &Transform::Bucket(1000)).unwrap();
+        let expected = Arc::new(arrow::array::Int32Array::from(vec![
+            Some(1_210_000_089i32.rem_euclid(1000)),
+            None,
+        ])) as ArrayRef;
+        assert_eq!(&expected, &result);
+    }
+
+    #[test]
+    fn test_utf8_view_bucket_transform() {
+        let array = Arc::new(arrow::array::StringViewArray::from(vec![
+            Some("iceberg"),
+            None,
+        ])) as ArrayRef;
         let result = transform_arrow(array, &Transform::Bucket(1000)).unwrap();
         let expected = Arc::new(arrow::array::Int32Array::from(vec![
             Some(1_210_000_089i32.rem_euclid(1000)),

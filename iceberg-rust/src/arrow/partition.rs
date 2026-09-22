@@ -16,7 +16,7 @@ use arrow::{
         PrimitiveArray, StringArray,
     },
     compute::{
-        and, filter, filter_record_batch,
+        and, cast, filter, filter_record_batch,
         kernels::cmp::{distinct, eq},
     },
     datatypes::{ArrowPrimitiveType, DataType, Int32Type, Int64Type},
@@ -58,7 +58,13 @@ pub fn partition_record_batch<'a>(
             let array = record_batch
                 .column_by_name(field.source_name())
                 .ok_or(ArrowError::SchemaError("Column doesn't exist".to_string()))?;
-            transform_arrow(array.clone(), field.transform())
+            let transformed = transform_arrow(array.clone(), field.transform())?;
+            // Partition values are `Utf8` the whole way down from here.
+            if transformed.data_type() == &DataType::Utf8View {
+                cast(&transformed, &DataType::Utf8)
+            } else {
+                Ok(transformed)
+            }
         })
         .collect::<Result<_, ArrowError>>()?;
     let distinct_values: Vec<DistinctValues> = partition_columns
