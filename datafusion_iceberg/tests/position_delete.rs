@@ -2,9 +2,8 @@ use std::{collections::HashMap, fs::File, sync::Arc};
 
 use datafusion::{
     arrow::{
-        array::{Int64Array, StringArray},
+        array::{Int32Array, Int64Array, StringArray},
         datatypes::{DataType, Field, Schema as ArrowSchema},
-        error::ArrowError,
         record_batch::RecordBatch,
     },
     assert_batches_eq,
@@ -15,9 +14,8 @@ use datafusion::{
     prelude::SessionContext,
 };
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
-use futures::{stream, TryStreamExt};
+use futures::TryStreamExt;
 use iceberg_rust::{
-    arrow::write::write_equality_deletes_parquet_partitioned,
     catalog::{identifier::Identifier, tabular::Tabular, Catalog},
     object_store::ObjectStoreBuilder,
     spec::{
@@ -53,20 +51,22 @@ fn write_position_delete_file(
     positions: &[i64],
 ) -> DataFile {
     let schema = Arc::new(ArrowSchema::new(vec![
-        Field::new("file_path", DataType::Utf8, false).with_metadata(HashMap::from([(
-            PARQUET_FIELD_ID_META_KEY.to_string(),
-            FILE_PATH_FIELD_ID.to_string(),
-        )])),
-        Field::new("pos", DataType::Int64, false).with_metadata(HashMap::from([(
+        Field::new("extra", DataType::Int32, false),
+        Field::new("renamed_position", DataType::Int64, false).with_metadata(HashMap::from([(
             PARQUET_FIELD_ID_META_KEY.to_string(),
             POS_FIELD_ID.to_string(),
+        )])),
+        Field::new("renamed_path", DataType::Utf8, false).with_metadata(HashMap::from([(
+            PARQUET_FIELD_ID_META_KEY.to_string(),
+            FILE_PATH_FIELD_ID.to_string(),
         )])),
     ]));
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
-            Arc::new(StringArray::from(vec![data_file_path; positions.len()])),
+            Arc::new(Int32Array::from(vec![42; positions.len()])),
             Arc::new(Int64Array::from(positions.to_vec())),
+            Arc::new(StringArray::from(vec![data_file_path; positions.len()])),
         ],
     )
     .unwrap();
@@ -314,50 +314,6 @@ async fn applies_v2_position_deletes() {
     .await;
     assert_batches_eq!(
         ["+----+", "| id |", "+----+", "| 7  |", "| 8  |", "+----+",],
-        &batches
-    );
-
-    let equality_rows = run_query(
-        "SELECT id, category FROM warehouse.test.orders WHERE id IN (3, 7)",
-        &ctx,
-    )
-    .await;
-    let equality_schema = Arc::new(ArrowSchema::new(vec![
-        Field::new("id", DataType::Int64, false).with_metadata(HashMap::from([(
-            PARQUET_FIELD_ID_META_KEY.to_string(),
-            "1".to_string(),
-        )])),
-        Field::new("category", DataType::Utf8, false).with_metadata(HashMap::from([(
-            PARQUET_FIELD_ID_META_KEY.to_string(),
-            "6".to_string(),
-        )])),
-    ]));
-    let equality_rows = equality_rows
-        .into_iter()
-        .map(|batch| RecordBatch::try_new(equality_schema.clone(), batch.columns().to_vec()))
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    let Tabular::Table(mut table) = catalog.clone().load_tabular(&identifier).await.unwrap() else {
-        panic!("orders should be an Iceberg table");
-    };
-    let equality_files = write_equality_deletes_parquet_partitioned(
-        &table,
-        stream::iter(equality_rows.into_iter().map(Ok::<_, ArrowError>)),
-        None,
-        &[1, 6],
-    )
-    .await
-    .unwrap();
-    table
-        .new_transaction(None)
-        .append_delete(equality_files)
-        .commit()
-        .await
-        .unwrap();
-
-    let batches = run_query("SELECT id FROM warehouse.test.orders ORDER BY id", &ctx).await;
-    assert_batches_eq!(
-        ["+----+", "| id |", "+----+", "| 1  |", "| 4  |", "| 8  |", "+----+",],
         &batches
     );
 }

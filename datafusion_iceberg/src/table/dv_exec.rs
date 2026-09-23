@@ -35,6 +35,7 @@ use datafusion::{
     },
     common::{tree_node::TreeNodeRecursion, DataFusionError},
     execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext},
+    physical_expr::equivalence::ProjectionMapping,
     physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PhysicalExpr, PlanProperties},
 };
 use futures::{Stream, StreamExt};
@@ -94,6 +95,9 @@ impl IcebergDvExec {
         strip_indices.sort_unstable();
         strip_indices.dedup();
 
+        let retained_indices: Vec<_> = (0..input_schema.fields().len())
+            .filter(|i| !strip_indices.contains(i))
+            .collect();
         let fields: Vec<_> = input_schema
             .fields()
             .iter()
@@ -106,9 +110,27 @@ impl IcebergDvExec {
             input_schema.metadata().clone(),
         ));
 
-        // We preserve partitioning, ordering, and bounded/unbounded
-        // characteristics from the input — only rows are dropped.
-        let properties = Arc::new(input.properties().as_ref().clone());
+        // Project schema-dependent properties across the removed internal
+        // columns. Cloning the child's properties would retain its wider
+        // schema and fail DataFusion's physical-plan validation.
+        let input_properties = input.properties();
+        let projection = ProjectionMapping::from_indices(&retained_indices, &input_schema)?;
+        let eq_properties = input_properties
+            .equivalence_properties()
+            .project(&projection, output_schema.clone());
+        let partitioning = input_properties
+            .output_partitioning()
+            .project(&projection, input_properties.equivalence_properties());
+        let properties = Arc::new(
+            PlanProperties::new(
+                eq_properties,
+                partitioning,
+                input_properties.emission_type,
+                input_properties.boundedness,
+            )
+            .with_evaluation_type(input_properties.evaluation_type)
+            .with_scheduling_type(input_properties.scheduling_type),
+        );
         Ok(Self {
             input,
             dvs,

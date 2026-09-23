@@ -44,6 +44,7 @@ use crate::{
 pub mod deletion_vector;
 pub mod manifest;
 pub mod manifest_list;
+pub mod position_delete;
 pub mod transaction;
 
 #[derive(Debug, Clone)]

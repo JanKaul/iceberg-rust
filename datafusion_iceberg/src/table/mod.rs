@@ -120,6 +120,47 @@ static MANIFEST_FILE_PATH_COLUMN: &str = "__manifest_file_path";
 /// stripped from user-visible output.
 static ROW_NUMBER_COLUMN: &str = "__iceberg_file_row_position";
 
+fn unique_internal_column_name(
+    file_schema: &ArrowSchema,
+    partition_columns: &[Field],
+    base: &str,
+) -> String {
+    let is_available = |candidate: &str| {
+        file_schema
+            .fields()
+            .iter()
+            .all(|field| field.name() != candidate)
+            && partition_columns
+                .iter()
+                .all(|field| field.name() != candidate)
+    };
+
+    if is_available(base) {
+        return base.to_owned();
+    }
+
+    (1..)
+        .map(|suffix| format!("{base}_{suffix}"))
+        .find(|candidate| is_available(candidate))
+        .expect("an internal column name must be available")
+}
+
+fn is_v3_deletion_vector(entry: &ManifestEntry) -> Result<bool, DataFusionError> {
+    let data_file = entry.data_file();
+    let has_offset = data_file.content_offset().is_some();
+    let has_size = data_file.content_size_in_bytes().is_some();
+    let has_reference = data_file.referenced_data_file().is_some();
+    match (has_offset, has_size, has_reference) {
+        (false, false, _) => Ok(false),
+        (true, true, true) => Ok(true),
+        _ => Err(DataFusionIcebergError::from(Error::InvalidFormat(format!(
+            "position delete entry {} has inconsistent deletion-vector metadata",
+            data_file.file_path()
+        )))
+        .into()),
+    }
+}
+
 /// When the view tracks source arrow ids (the `overrides` map is non-empty),
 /// reshape each top-level field's `PARQUET:field_id` metadata so it matches
 /// what the underlying SELECT actually produces at run time:
@@ -545,11 +586,29 @@ async fn table_scan(
     // Whether it actually appears in the final output is decided by the
     // FileScanConfig projection and the IcebergDvExec strip flag below.
     let data_file_path_col_idx = file_schema.fields().len() + table_partition_cols.len();
-    table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
+    let data_file_path_column = if enable_data_file_path_column {
+        DATA_FILE_PATH_COLUMN.to_owned()
+    } else {
+        unique_internal_column_name(
+            file_schema.as_ref(),
+            &table_partition_cols,
+            DATA_FILE_PATH_COLUMN,
+        )
+    };
+    table_partition_cols.push(Field::new(
+        data_file_path_column.clone(),
+        DataType::Utf8,
+        false,
+    ));
 
     if enable_manifest_file_path_column {
         table_partition_cols.push(Field::new(MANIFEST_FILE_PATH_COLUMN, DataType::Utf8, false));
     }
+    let row_number_column = unique_internal_column_name(
+        file_schema.as_ref(),
+        &table_partition_cols,
+        ROW_NUMBER_COLUMN,
+    );
 
     // All files have to be grouped according to their partition values. This is done by using a HashMap with the partition values as the key.
     // This way data files with the same partition value are mapped to the same vector.
@@ -671,6 +730,8 @@ async fn table_scan(
     // we need them as a flat list later for the eager load, and they no
     // longer interact with the equality-delete plan path.
     let mut dv_entries: Vec<ManifestEntry> = Vec::new();
+    let mut position_delete_entries: Vec<ManifestEntry> = Vec::new();
+    let mut active_data_sequence_numbers: HashMap<String, Option<i64>> = HashMap::new();
     // Partition values that already have a DV entry, so we can reject the
     // unsupported "equality deletes + DVs on the same partition" case during
     // classification rather than walking the maps again.
@@ -705,16 +766,27 @@ async fn table_scan(
         };
         let mut data_files = Vec::new();
         let mut equality_deletes = Vec::new();
-        content_file_iter
-            .filter(|manifest| *manifest.1.status() != Status::Deleted)
-            .for_each(|manifest| match manifest.1.data_file().content() {
-                Content::Data => data_files.push(manifest),
+        for manifest in content_file_iter.filter(|manifest| *manifest.1.status() != Status::Deleted)
+        {
+            match manifest.1.data_file().content() {
+                Content::Data => {
+                    active_data_sequence_numbers.insert(
+                        util::strip_prefix(manifest.1.data_file().file_path()),
+                        *manifest.1.sequence_number(),
+                    );
+                    data_files.push(manifest);
+                }
                 Content::EqualityDeletes => equality_deletes.push(manifest),
                 Content::PositionDeletes => {
                     partitions_with_dvs.insert(empty_partition.clone());
-                    dv_entries.push(manifest.1.clone());
+                    if is_v3_deletion_vector(&manifest.1)? {
+                        dv_entries.push(manifest.1.clone());
+                    } else {
+                        position_delete_entries.push(manifest.1.clone());
+                    }
                 }
-            });
+            }
+        }
         if !data_files.is_empty() {
             data_file_groups.insert(empty_partition.clone(), data_files);
         }
@@ -726,11 +798,15 @@ async fn table_scan(
         }
         check_no_mix(&empty_partition, &delete_file_groups, &partitions_with_dvs)?;
     } else {
-        content_file_iter.for_each(|manifest| {
+        for manifest in content_file_iter {
             if *manifest.1.status() != Status::Deleted {
                 let partition = manifest.1.data_file().partition().clone();
                 match manifest.1.data_file().content() {
                     Content::Data => {
+                        active_data_sequence_numbers.insert(
+                            util::strip_prefix(manifest.1.data_file().file_path()),
+                            *manifest.1.sequence_number(),
+                        );
                         data_file_groups
                             .entry(partition)
                             .or_default()
@@ -745,11 +821,15 @@ async fn table_scan(
                     }
                     Content::PositionDeletes => {
                         partitions_with_dvs.insert(partition);
-                        dv_entries.push(manifest.1.clone());
+                        if is_v3_deletion_vector(&manifest.1)? {
+                            dv_entries.push(manifest.1.clone());
+                        } else {
+                            position_delete_entries.push(manifest.1.clone());
+                        }
                     }
                 }
             }
-        });
+        }
         for partition in &partitions_with_dvs {
             check_no_mix(partition, &delete_file_groups, &partitions_with_dvs)?;
         }
@@ -758,7 +838,7 @@ async fn table_scan(
     // Eagerly load each DV blob via a ranged object-store read. The index
     // is keyed by the normalized `referenced_data_file` path so it lines up
     // with the normalized `data_file.file_path()` we look up downstream.
-    let dv_index: HashMap<String, iceberg_rust::spec::deletion_vector::DeletionVector> =
+    let mut dv_index: HashMap<String, iceberg_rust::spec::deletion_vector::DeletionVector> =
         if dv_entries.is_empty() {
             HashMap::new()
         } else {
@@ -769,6 +849,27 @@ async fn table_scan(
             .await
             .map_err(DataFusionIcebergError::from)?
         };
+    if !position_delete_entries.is_empty() {
+        let position_delete_index = iceberg_rust::table::position_delete::load_position_deletes(
+            position_delete_entries,
+            Arc::new(active_data_sequence_numbers),
+            table.object_store(),
+        )
+        .await
+        .map_err(DataFusionIcebergError::from)?;
+        for (path, vector) in position_delete_index {
+            match dv_index.entry(path) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(vector);
+                }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    let mut merged = entry.get().clone().into_inner();
+                    merged.extend(vector.into_inner());
+                    entry.insert(merged.into());
+                }
+            }
+        }
+    }
     let dvs_present = !dv_index.is_empty();
     // Shared across the unattested and attested (sorted) scans below; both may
     // wrap their plan in an IcebergDvExec.
@@ -789,7 +890,8 @@ async fn table_scan(
     let row_number_col_idx = if dvs_present {
         let idx = file_schema.fields().len() + table_partition_cols.len();
         table_schema_builder = table_schema_builder.with_virtual_columns(vec![Arc::new(
-            Field::new(ROW_NUMBER_COLUMN, DataType::Int64, false).with_extension_type(RowNumber),
+            Field::new(row_number_column.clone(), DataType::Int64, false)
+                .with_extension_type(RowNumber),
         )]);
         // Keep `statistics` aligned with the widened schema.
         statistics
@@ -1167,8 +1269,8 @@ async fn table_scan(
             Arc::new(dv_exec::IcebergDvExec::try_new(
                 other_plan,
                 dv_index.clone(),
-                DATA_FILE_PATH_COLUMN,
-                ROW_NUMBER_COLUMN,
+                &data_file_path_column,
+                &row_number_column,
                 strip_path_col,
             )?)
         } else {
@@ -1200,8 +1302,8 @@ async fn table_scan(
             Arc::new(dv_exec::IcebergDvExec::try_new(
                 sorted_plan,
                 dv_index.clone(),
-                DATA_FILE_PATH_COLUMN,
-                ROW_NUMBER_COLUMN,
+                &data_file_path_column,
+                &row_number_column,
                 strip_path_col,
             )?)
         } else {
@@ -1845,6 +1947,54 @@ mod tests {
     use std::sync::Arc;
 
     use crate::{catalog::catalog::IcebergCatalog, table::fake_object_store_url, DataFusionTable};
+
+    #[test]
+    fn rejects_inconsistent_deletion_vector_metadata() {
+        use std::collections::BTreeMap;
+
+        use iceberg_rust::spec::{
+            manifest::{Content, DataFile, FileFormat, ManifestEntry, Status},
+            table_metadata::FormatVersion,
+            values::Struct,
+        };
+
+        let make_entry = |content_offset| {
+            let data_file = DataFile::builder()
+                .with_content(Content::PositionDeletes)
+                .with_file_path("/deletes/broken.puffin".to_string())
+                .with_file_format(FileFormat::Parquet)
+                .with_partition(Struct {
+                    fields: Vec::new(),
+                    lookup: BTreeMap::new(),
+                })
+                .with_record_count(1)
+                .with_file_size_in_bytes(1)
+                .with_column_sizes(None)
+                .with_value_counts(None)
+                .with_null_value_counts(None)
+                .with_nan_value_counts(None)
+                .with_distinct_counts(None)
+                .with_lower_bounds(None)
+                .with_upper_bounds(None)
+                .with_referenced_data_file(Some("/data/a.parquet".to_string()))
+                .with_content_offset(content_offset)
+                .build()
+                .unwrap();
+            ManifestEntry::builder()
+                .with_format_version(FormatVersion::V3)
+                .with_status(Status::Added)
+                .with_data_file(data_file)
+                .build()
+                .unwrap()
+        };
+
+        assert!(!super::is_v3_deletion_vector(&make_entry(None)).unwrap());
+
+        let error = super::is_v3_deletion_vector(&make_entry(Some(0))).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("inconsistent deletion-vector metadata"));
+    }
 
     /// End-to-end at the physical-plan level: a real `ParquetSource` scan
     /// configured exactly as `table_scan` does for the DV path — with the
