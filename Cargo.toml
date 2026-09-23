@@ -23,6 +23,7 @@ chrono = { version = "0.4", default-features = false, features = [
     "serde",
     "clock",
 ] }
+crc32fast = "1.4"
 datafusion = "55"
 datafusion-common = "55"
 datafusion-execution = "55"
@@ -43,6 +44,7 @@ murmur3 = { version = "0.5.2" }
 parquet = { version = "59", features = ["async", "object_store"] }
 pin-project-lite = "0.2"
 regex = "1.11.1"
+roaring = "0.10"
 serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"

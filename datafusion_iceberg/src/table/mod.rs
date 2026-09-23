@@ -2,6 +2,8 @@
  * Tableprovider to use iceberg table with datafusion.
 */
 
+mod dv_exec;
+
 use async_trait::async_trait;
 use chrono::DateTime;
 use datafusion::arrow::array::RecordBatch;
@@ -48,6 +50,7 @@ use crate::{
 use datafusion::arrow::compute::SortOptions;
 use datafusion::common::{NullEquality, Statistics};
 use datafusion::datasource::physical_plan::FileScanConfig;
+use datafusion::parquet::arrow::RowNumber;
 use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
 use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::physical_plan::ColumnStatistics;
@@ -112,6 +115,10 @@ use iceberg_rust::{
 
 static DATA_FILE_PATH_COLUMN: &str = "__data_file_path";
 static MANIFEST_FILE_PATH_COLUMN: &str = "__manifest_file_path";
+/// Internal Parquet row-number virtual column, used by [`dv_exec::IcebergDvExec`]
+/// to look up each row's absolute file position in a deletion vector. Always
+/// stripped from user-visible output.
+static ROW_NUMBER_COLUMN: &str = "__iceberg_file_row_position";
 
 /// When the view tracks source arrow ids (the `overrides` map is non-empty),
 /// reshape each top-level field's `PARQUET:field_id` metadata so it matches
@@ -532,9 +539,13 @@ async fn table_scan(
         })
         .collect();
 
-    if enable_data_file_path_column {
-        table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
-    }
+    // Always add the data-file-path partition column. It may be force-needed
+    // by the IcebergDvExec wrapper (DV-present path) even when the user did
+    // not opt in via `DataFusionTableConfig::enable_data_file_path_column`.
+    // Whether it actually appears in the final output is decided by the
+    // FileScanConfig projection and the IcebergDvExec strip flag below.
+    let data_file_path_col_idx = file_schema.fields().len() + table_partition_cols.len();
+    table_partition_cols.push(Field::new(DATA_FILE_PATH_COLUMN, DataType::Utf8, false));
 
     if enable_manifest_file_path_column {
         table_partition_cols.push(Field::new(MANIFEST_FILE_PATH_COLUMN, DataType::Utf8, false));
@@ -546,7 +557,7 @@ async fn table_scan(
     let mut delete_file_groups: HashMap<Struct, PartitionDeleteFileIndex> = HashMap::new();
 
     // Prune data & delete file and insert them into the according map
-    let (content_file_iter, statistics) = if let Some(physical_predicate) =
+    let (content_file_iter, mut statistics) = if let Some(physical_predicate) =
         physical_predicate.clone()
     {
         let partition_schema = Arc::new(ArrowSchema::new(table_partition_cols.clone()));
@@ -655,81 +666,161 @@ async fn table_scan(
         (itertools::Either::Right(iter), statistics)
     };
 
+    // Deletion-vector manifest entries are collected directly during the
+    // content split rather than parked on `PartitionDeleteFileIndex`:
+    // we need them as a flat list later for the eager load, and they no
+    // longer interact with the equality-delete plan path.
+    let mut dv_entries: Vec<ManifestEntry> = Vec::new();
+    // Partition values that already have a DV entry, so we can reject the
+    // unsupported "equality deletes + DVs on the same partition" case during
+    // classification rather than walking the maps again.
+    let mut partitions_with_dvs: HashSet<Struct> = HashSet::new();
+
+    fn check_no_mix(
+        partition: &Struct,
+        delete_file_groups: &HashMap<Struct, PartitionDeleteFileIndex>,
+        partitions_with_dvs: &HashSet<Struct>,
+    ) -> Result<(), DataFusionError> {
+        if partitions_with_dvs.contains(partition)
+            && delete_file_groups
+                .get(partition)
+                .map(|g| !g.equality_deletes.is_empty())
+                .unwrap_or(false)
+        {
+            // Equality deletes mixed with deletion vectors on the same partition
+            // is not supported: the equality plan reorders rows through a
+            // HashJoin so the absolute row positions a DV bitmap depends on
+            // are lost.
+            return plan_err!(
+                "scanning a partition with both equality deletes and deletion vectors is not yet supported"
+            );
+        }
+        Ok(())
+    }
+
     if partition_fields.is_empty() {
+        let empty_partition = Struct {
+            fields: Vec::new(),
+            lookup: BTreeMap::new(),
+        };
         let mut data_files = Vec::new();
         let mut equality_deletes = Vec::new();
-        let mut delete_vectors = Vec::new();
         content_file_iter
             .filter(|manifest| *manifest.1.status() != Status::Deleted)
             .for_each(|manifest| match manifest.1.data_file().content() {
                 Content::Data => data_files.push(manifest),
                 Content::EqualityDeletes => equality_deletes.push(manifest),
-                Content::PositionDeletes => delete_vectors.push(manifest),
+                Content::PositionDeletes => {
+                    partitions_with_dvs.insert(empty_partition.clone());
+                    dv_entries.push(manifest.1.clone());
+                }
             });
         if !data_files.is_empty() {
-            data_file_groups.insert(
-                Struct {
-                    fields: Vec::new(),
-                    lookup: BTreeMap::new(),
-                },
-                data_files,
-            );
+            data_file_groups.insert(empty_partition.clone(), data_files);
         }
-        if !equality_deletes.is_empty() || !delete_vectors.is_empty() {
+        if !equality_deletes.is_empty() {
             delete_file_groups.insert(
-                Struct {
-                    fields: Vec::new(),
-                    lookup: BTreeMap::new(),
-                },
-                PartitionDeleteFileIndex {
-                    equality_deletes,
-                    delete_vectors,
-                },
+                empty_partition.clone(),
+                PartitionDeleteFileIndex { equality_deletes },
             );
         }
+        check_no_mix(&empty_partition, &delete_file_groups, &partitions_with_dvs)?;
     } else {
         content_file_iter.for_each(|manifest| {
             if *manifest.1.status() != Status::Deleted {
+                let partition = manifest.1.data_file().partition().clone();
                 match manifest.1.data_file().content() {
                     Content::Data => {
                         data_file_groups
-                            .entry(manifest.1.data_file().partition().clone())
+                            .entry(partition)
                             .or_default()
                             .push(manifest);
                     }
                     Content::EqualityDeletes => {
                         delete_file_groups
-                            .entry(manifest.1.data_file().partition().clone())
+                            .entry(partition)
                             .or_default()
                             .equality_deletes
                             .push(manifest);
                     }
                     Content::PositionDeletes => {
-                        delete_file_groups
-                            .entry(manifest.1.data_file().partition().clone())
-                            .or_default()
-                            .delete_vectors
-                            .push(manifest);
+                        partitions_with_dvs.insert(partition);
+                        dv_entries.push(manifest.1.clone());
                     }
                 }
             }
         });
+        for partition in &partitions_with_dvs {
+            check_no_mix(partition, &delete_file_groups, &partitions_with_dvs)?;
+        }
     }
 
-    let table_schema = TableSchema::builder(file_schema.clone())
+    // Eagerly load each DV blob via a ranged object-store read. The index
+    // is keyed by the normalized `referenced_data_file` path so it lines up
+    // with the normalized `data_file.file_path()` we look up downstream.
+    let dv_index: HashMap<String, iceberg_rust::spec::deletion_vector::DeletionVector> =
+        if dv_entries.is_empty() {
+            HashMap::new()
+        } else {
+            iceberg_rust::table::deletion_vector::load_deletion_vectors(
+                &dv_entries,
+                table.object_store(),
+            )
+            .await
+            .map_err(DataFusionIcebergError::from)?
+        };
+    let dvs_present = !dv_index.is_empty();
+    // Shared across the unattested and attested (sorted) scans below; both may
+    // wrap their plan in an IcebergDvExec.
+    let dv_index = Arc::new(dv_index);
+
+    let mut table_schema_builder = TableSchema::builder(file_schema.clone())
         .with_table_partition_cols(
             table_partition_cols
                 .iter()
                 .cloned()
                 .map(Arc::new)
                 .collect::<Vec<_>>(),
-        )
-        .build();
+        );
+    // When deletion vectors are present, materialize each row's absolute file
+    // position via a Parquet row-number virtual column so `IcebergDvExec` can
+    // probe the bitmap by true position. Virtual columns follow the partition
+    // columns in the scan output, so its index is the current end of the schema.
+    let row_number_col_idx = if dvs_present {
+        let idx = file_schema.fields().len() + table_partition_cols.len();
+        table_schema_builder = table_schema_builder.with_virtual_columns(vec![Arc::new(
+            Field::new(ROW_NUMBER_COLUMN, DataType::Int64, false).with_extension_type(RowNumber),
+        )]);
+        // Keep `statistics` aligned with the widened schema.
+        statistics
+            .column_statistics
+            .push(ColumnStatistics::new_unknown());
+        Some(idx)
+    } else {
+        None
+    };
+    let table_schema = table_schema_builder.build();
     // File schema plus partition columns: what scan orderings are expressed on.
     let scan_schema: SchemaRef = table_schema.table_schema().clone();
-    let file_source = Arc::new(ParquetSource::new(table_schema));
+    // Push the query predicate into the Parquet reader when DVs are present.
+    // Row-group pruning / reader-level filtering is now safe because DV lookup
+    // is driven by the true Parquet row number rather than a running cursor, and
+    // correctness is still guaranteed by the `FilterExec` DataFusion retains
+    // above the scan (`supports_filters_pushdown` returns Inexact).
+    let file_source = {
+        let mut source = ParquetSource::new(table_schema);
+        if dvs_present {
+            if let Some(predicate) = physical_predicate.clone() {
+                source = source.with_predicate(predicate).with_pushdown_filters(true);
+            }
+        }
+        Arc::new(source)
+    };
 
-    // Create plan for every partition with delete files
+    // Create plan for every partition with equality delete files. Partitions
+    // whose only deletes are deletion vectors never reach `delete_file_groups`
+    // (DV entries go straight into `dv_entries`); they're handled by the
+    // data-file path below and wrapped with IcebergDvExec.
     let mut plans = stream::iter(delete_file_groups.into_iter())
         .then(|(partition_value, mut delete_files)| {
             let object_store_url = object_store_url.clone();
@@ -986,7 +1077,7 @@ async fn table_scan(
         .try_collect::<Vec<_>>()
         .await?;
 
-    // Create plan for partitions without delete files.
+    // Create plan for partitions without equality delete files.
     //
     // Files that attest the table's declared sort order (manifest
     // `sort_order_id`) are scanned separately from those that do not, so the
@@ -995,6 +1086,13 @@ async fn table_scan(
     // non-overlapping groups), the unattested scan claims nothing. A mixed
     // table therefore keeps its explicit sort while a fully attested one can
     // drop it — never the other way round.
+    //
+    // DV filtering is orthogonal to the sort-order split: it happens in a
+    // wrapping `IcebergDvExec` (added to both scans below) that keys lookups by
+    // the `__data_file_path` partition column carried in each batch, so it
+    // tolerates inter-file repartitioning by the optimizer. Parquet limit
+    // pushdown is disabled when DVs are present because a LIMIT applied before
+    // the DV filter would silently under-return rows.
     let mut attested_groups: Vec<FileGroup> = Vec::new();
     let mut unattested_groups: Vec<FileGroup> = Vec::new();
     for entries in data_file_groups.into_values() {
@@ -1031,13 +1129,31 @@ async fn table_scan(
         }
     }
 
+    // Force the parquet scan to emit `__data_file_path` and the row-number
+    // virtual column when DVs are present, so IcebergDvExec can look up the
+    // right bitmap by true position. Both are stripped from the output again
+    // — the row-number column always, the path column only when the user did
+    // not opt in via DataFusionTableConfig.
+    let internal_projection = if dvs_present {
+        let mut p = projection.clone();
+        if !p.contains(&data_file_path_col_idx) {
+            p.push(data_file_path_col_idx);
+        }
+        // The row-number column is always internal — never in the user projection.
+        p.push(row_number_col_idx.expect("row_number_col_idx is set when dvs_present"));
+        p
+    } else {
+        projection.clone()
+    };
+    let strip_path_col = dvs_present && !enable_data_file_path_column;
+
     if !unattested_groups.is_empty() {
         let file_scan_config =
             FileScanConfigBuilder::new(object_store_url.clone(), file_source.clone())
                 .with_file_groups(unattested_groups)
                 .with_statistics(statistics.clone())
-                .with_projection_indices(Some(projection.clone()))?
-                .with_limit(limit)
+                .with_projection_indices(Some(internal_projection.clone()))?
+                .with_limit(if dvs_present { None } else { limit })
                 .build();
 
         let other_plan = ParquetFormat::default()
@@ -1046,6 +1162,18 @@ async fn table_scan(
                 "datafusion_iceberg::create_physical_plan_scan_data_files"
             ))
             .await?;
+
+        let other_plan: Arc<dyn ExecutionPlan> = if dvs_present {
+            Arc::new(dv_exec::IcebergDvExec::try_new(
+                other_plan,
+                dv_index.clone(),
+                DATA_FILE_PATH_COLUMN,
+                ROW_NUMBER_COLUMN,
+                strip_path_col,
+            )?)
+        } else {
+            other_plan
+        };
 
         plans.push(other_plan);
     }
@@ -1057,8 +1185,8 @@ async fn table_scan(
             .with_file_groups(file_groups)
             .with_statistics(statistics)
             .with_output_ordering(vec![ordering.clone()])
-            .with_projection_indices(Some(projection.clone()))?
-            .with_limit(limit)
+            .with_projection_indices(Some(internal_projection.clone()))?
+            .with_limit(if dvs_present { None } else { limit })
             .build();
 
         let sorted_plan = ParquetFormat::default()
@@ -1067,6 +1195,18 @@ async fn table_scan(
                 "datafusion_iceberg::create_physical_plan_scan_sorted_data_files"
             ))
             .await?;
+
+        let sorted_plan: Arc<dyn ExecutionPlan> = if dvs_present {
+            Arc::new(dv_exec::IcebergDvExec::try_new(
+                sorted_plan,
+                dv_index.clone(),
+                DATA_FILE_PATH_COLUMN,
+                ROW_NUMBER_COLUMN,
+                strip_path_col,
+            )?)
+        } else {
+            sorted_plan
+        };
 
         plans.push(sorted_plan);
     }
@@ -1266,7 +1406,7 @@ fn generate_partitioned_file(
     schema: &Schema,
     manifest: &ManifestEntry,
     last_updated_ms: i64,
-    enable_data_file_path: bool,
+    _enable_data_file_path: bool,
     manifest_file_path: Option<ManifestPath>,
 ) -> Result<PartitionedFile, DataFusionError> {
     let manifest_statistics = manifest_statistics(schema, manifest);
@@ -1281,11 +1421,13 @@ fn generate_partitioned_file(
         })
         .collect::<Result<Vec<ScalarValue>, _>>()?;
 
-    if enable_data_file_path {
-        partition_values.push(ScalarValue::Utf8(Some(
-            manifest.data_file().file_path().clone(),
-        )));
-    }
+    // `__data_file_path` is always present in `table_partition_cols`; whether
+    // it's projected into the output is decided by the scan plan, not here.
+    // The `_enable_data_file_path` arg is retained for ABI stability with the
+    // existing call sites but is no longer load-bearing.
+    partition_values.push(ScalarValue::Utf8(Some(
+        manifest.data_file().file_path().clone(),
+    )));
 
     if let Some(manifest_file_path) = manifest_file_path {
         partition_values.push(ScalarValue::Utf8(Some(manifest_file_path)));
@@ -1670,7 +1812,6 @@ fn create_new_file_stream(
 #[derive(Debug, Default)]
 struct PartitionDeleteFileIndex {
     pub equality_deletes: Vec<(ManifestPath, ManifestEntry)>,
-    pub delete_vectors: Vec<(ManifestPath, ManifestEntry)>,
 }
 
 #[cfg(test)]
@@ -1704,6 +1845,181 @@ mod tests {
     use std::sync::Arc;
 
     use crate::{catalog::catalog::IcebergCatalog, table::fake_object_store_url, DataFusionTable};
+
+    /// End-to-end at the physical-plan level: a real `ParquetSource` scan
+    /// configured exactly as `table_scan` does for the DV path — with the
+    /// row-number virtual column and predicate pushdown — feeding
+    /// `IcebergDvExec`. Proves that (a) the Parquet reader materializes true
+    /// absolute row numbers even after pushdown drops rows, and (b) the DV
+    /// filter deletes by those true positions and strips the internal columns.
+    #[tokio::test]
+    async fn row_number_virtual_column_drives_dv_filter_with_pushdown() {
+        use datafusion::arrow::array::{Int64Array, RecordBatch};
+        use datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+        use datafusion::datasource::file_format::{parquet::ParquetFormat, FileFormat};
+        use datafusion::datasource::listing::PartitionedFile;
+        use datafusion::datasource::physical_plan::{
+            parquet::source::ParquetSource, FileGroup, FileScanConfigBuilder,
+        };
+        use datafusion::datasource::table_schema::TableSchema;
+        use datafusion::logical_expr::Operator;
+        use datafusion::parquet::arrow::{ArrowWriter, RowNumber};
+        use datafusion::parquet::file::properties::WriterProperties;
+        use datafusion::physical_expr::expressions::{BinaryExpr, Column, Literal};
+        use datafusion::physical_plan::{collect, PhysicalExpr};
+        use iceberg_rust::spec::{deletion_vector::DeletionVector, util};
+        use object_store::{memory::InMemory, path::Path as ObjPath, ObjectStoreExt, PutPayload};
+        use roaring::RoaringTreemap;
+        use std::collections::HashMap;
+
+        use super::{dv_exec, DATA_FILE_PATH_COLUMN, ROW_NUMBER_COLUMN};
+
+        // A single data file with 8 rows; row numbers are 0..8.
+        let file_schema = Arc::new(ArrowSchema::new(vec![Field::new(
+            "v",
+            DataType::Int64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            file_schema.clone(),
+            vec![Arc::new(Int64Array::from(vec![
+                0i64, 10, 20, 30, 40, 50, 60, 70,
+            ]))],
+        )
+        .unwrap();
+        // Two row groups of 4 rows each so a predicate can prune the first one
+        // by statistics, forcing the surviving rows to carry non-zero-based row
+        // numbers.
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let props = WriterProperties::builder()
+                .set_max_row_group_row_count(Some(4))
+                .build();
+            let mut writer =
+                ArrowWriter::try_new(&mut buf, file_schema.clone(), Some(props)).unwrap();
+            writer.write(&batch).unwrap();
+            writer.close().unwrap();
+        }
+        let size = buf.len() as u64;
+        let data_path = "data/f1.parquet";
+
+        let store = Arc::new(InMemory::new());
+        store
+            .put(&ObjPath::from(data_path), PutPayload::from(buf))
+            .await
+            .unwrap();
+
+        let object_store_url = fake_object_store_url("memory:///dv_row_number");
+        let ctx = SessionContext::new();
+        ctx.runtime_env()
+            .register_object_store(object_store_url.as_ref(), store);
+
+        // Builds a fresh scan plan configured exactly as the DV path does:
+        // file cols + `__data_file_path` partition col + row-number virtual col
+        // (index 2), with `v >= 40` pushed into the reader so the first row
+        // group (values 0..30) is pruned by statistics and only positions 4..8
+        // survive — carrying their true row numbers.
+        let build_scan = || async {
+            let table_schema = TableSchema::builder(file_schema.clone())
+                .with_table_partition_cols(vec![Arc::new(Field::new(
+                    DATA_FILE_PATH_COLUMN,
+                    DataType::Utf8,
+                    false,
+                ))])
+                .with_virtual_columns(vec![Arc::new(
+                    Field::new(ROW_NUMBER_COLUMN, DataType::Int64, false)
+                        .with_extension_type(RowNumber),
+                )])
+                .build();
+            let predicate: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("v", 0)),
+                Operator::GtEq,
+                Arc::new(Literal::new(ScalarValue::Int64(Some(40)))),
+            ));
+            let source = ParquetSource::new(table_schema)
+                .with_predicate(predicate)
+                .with_pushdown_filters(true);
+            let mut file = PartitionedFile::new(data_path.to_string(), size);
+            file.partition_values = vec![ScalarValue::Utf8(Some(data_path.to_string()))];
+            let file_scan_config =
+                FileScanConfigBuilder::new(object_store_url.clone(), Arc::new(source))
+                    .with_file_group(FileGroup::new(vec![file]))
+                    .with_projection_indices(Some(vec![0usize, 1, 2]))
+                    .unwrap()
+                    .build();
+            ParquetFormat::default()
+                .create_physical_plan(&ctx.state(), file_scan_config)
+                .await
+                .unwrap()
+        };
+
+        // (a) The raw scan emits the surviving rows with their TRUE row numbers.
+        let task_ctx = ctx.task_ctx();
+        let raw = collect(build_scan().await, task_ctx.clone()).await.unwrap();
+        let row_number_idx = raw[0].schema().index_of(ROW_NUMBER_COLUMN).unwrap();
+        let v: Vec<i64> = raw
+            .iter()
+            .flat_map(|b| {
+                b.column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let positions: Vec<i64> = raw
+            .iter()
+            .flat_map(|b| {
+                b.column(row_number_idx)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(v, vec![40, 50, 60, 70]);
+        assert_eq!(
+            positions,
+            vec![4, 5, 6, 7],
+            "row numbers must be the true file positions after the first row group is pruned"
+        );
+
+        // (b) The DV deletes absolute position 5 (value 50). The internal
+        // columns are stripped, leaving just `v`.
+        let mut dvs = HashMap::new();
+        let mut tm = RoaringTreemap::new();
+        tm.insert(5);
+        dvs.insert(util::strip_prefix(data_path), DeletionVector::from(tm));
+        let dv_plan = Arc::new(
+            dv_exec::IcebergDvExec::try_new(
+                build_scan().await,
+                Arc::new(dvs),
+                DATA_FILE_PATH_COLUMN,
+                ROW_NUMBER_COLUMN,
+                /* strip_path_col */ true,
+            )
+            .unwrap(),
+        );
+        let filtered = collect(dv_plan, task_ctx).await.unwrap();
+        assert_eq!(filtered[0].num_columns(), 1, "internal columns stripped");
+        let kept: Vec<i64> = filtered
+            .iter()
+            .flat_map(|b| {
+                b.column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(kept, vec![40, 60, 70]);
+    }
 
     #[tokio::test]
     pub async fn test_datafusion_table_insert() {
