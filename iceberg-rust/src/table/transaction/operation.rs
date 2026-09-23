@@ -273,9 +273,9 @@ impl Operation {
                 let snapshot = snapshot_builder.build()?;
 
                 Ok((
-                    old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
+                    Some(TableRequirement::AssertRefSnapshotId {
                         r#ref: branch.clone().unwrap_or("main".to_owned()),
-                        snapshot_id: *x.snapshot_id(),
+                        snapshot_id: old_snapshot.map(|snapshot| *snapshot.snapshot_id()),
                     }),
                     vec![
                         TableUpdate::AddSnapshot { snapshot },
@@ -441,9 +441,9 @@ impl Operation {
                 let snapshot = snapshot_builder.build()?;
 
                 Ok((
-                    old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
+                    Some(TableRequirement::AssertRefSnapshotId {
                         r#ref: branch.clone().unwrap_or("main".to_owned()),
-                        snapshot_id: *x.snapshot_id(),
+                        snapshot_id: old_snapshot.map(|snapshot| *snapshot.snapshot_id()),
                     }),
                     vec![
                         TableUpdate::AddSnapshot { snapshot },
@@ -610,9 +610,9 @@ impl Operation {
                 let snapshot = snapshot_builder.build()?;
 
                 Ok((
-                    old_snapshot.map(|x| TableRequirement::AssertRefSnapshotId {
+                    Some(TableRequirement::AssertRefSnapshotId {
                         r#ref: branch.clone().unwrap_or("main".to_owned()),
-                        snapshot_id: *x.snapshot_id(),
+                        snapshot_id: old_snapshot.map(|snapshot| *snapshot.snapshot_id()),
                     }),
                     vec![
                         TableUpdate::AddSnapshot { snapshot },
@@ -669,16 +669,17 @@ impl Operation {
                     .await??;
 
                 // Validate that all manifests specified in files_to_overwrite actually exist in the current snapshot
-                let current_manifest_paths: HashSet<String> = {
+                let current_manifests: HashMap<String, ManifestListContent> = {
                     let manifest_list_reader = ManifestListReader::new(&bytes[..], table_metadata)?;
                     manifest_list_reader
-                        .map(|entry| entry.map(|e| e.manifest_path.clone()))
-                        .collect::<Result<HashSet<_>, _>>()?
+                        .map(|entry| entry.map(|e| (e.manifest_path, e.content)))
+                        .collect::<Result<HashMap<_, _>, _>>()?
                 };
 
                 // Find any manifests that were requested to be overwritten but don't exist in the current snapshot
                 let non_existent_manifests: Vec<String> = manifests_to_overwrite
-                    .difference(&current_manifest_paths)
+                    .iter()
+                    .filter(|path| !current_manifests.contains_key(*path))
                     .cloned()
                     .collect();
 
@@ -686,6 +687,17 @@ impl Operation {
                     return Err(Error::NotFound(format!(
                         "Manifests to overwrite do not exist in current snapshot: {:?}",
                         non_existent_manifests
+                    )));
+                }
+
+                let non_data_manifests = manifests_to_overwrite
+                    .iter()
+                    .filter(|path| current_manifests.get(*path) != Some(&ManifestListContent::Data))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !non_data_manifests.is_empty() {
+                    return Err(Error::InvalidFormat(format!(
+                        "Overwrite can only target data manifests: {non_data_manifests:?}"
                     )));
                 }
 
@@ -760,36 +772,6 @@ impl Operation {
                     }
                 }
 
-                if !filtered_stats.filtered_entries.is_empty() {
-                    let filtered_entries = std::mem::take(&mut filtered_stats.filtered_entries);
-                    let n_filtered_files = filtered_entries.len();
-                    let filtered_iter = filtered_entries.into_iter().map(Ok);
-                    let n_filtered_splits =
-                        manifest_list_writer.n_splits(n_filtered_files, ManifestListContent::Data);
-
-                    if n_filtered_splits == 0 {
-                        manifest_list_writer
-                            .append(
-                                filtered_iter,
-                                snapshot_id,
-                                object_store.clone(),
-                                ManifestListContent::Data,
-                            )
-                            .await?;
-                    } else {
-                        manifest_list_writer
-                            .append_multiple_concurrently(
-                                filtered_iter,
-                                snapshot_id,
-                                n_filtered_splits,
-                                object_store.clone(),
-                                ManifestListContent::Data,
-                            )
-                            .await?
-                            .await?;
-                    }
-                }
-
                 let (new_manifest_list_location, next_row_id) = manifest_list_writer
                     .finish(snapshot_id, object_store)
                     .await?;
@@ -821,7 +803,7 @@ impl Operation {
                 Ok((
                     Some(TableRequirement::AssertRefSnapshotId {
                         r#ref: branch.clone().unwrap_or("main".to_owned()),
-                        snapshot_id: *old_snapshot.snapshot_id(),
+                        snapshot_id: Some(*old_snapshot.snapshot_id()),
                     }),
                     vec![
                         TableUpdate::AddSnapshot { snapshot },
@@ -853,13 +835,10 @@ impl Operation {
                     key, value
                 );
                 Ok((
-                    table_metadata
-                        .refs
-                        .get(&key)
-                        .map(|x| TableRequirement::AssertRefSnapshotId {
-                            r#ref: key.clone(),
-                            snapshot_id: x.snapshot_id,
-                        }),
+                    Some(TableRequirement::AssertRefSnapshotId {
+                        r#ref: key.clone(),
+                        snapshot_id: table_metadata.refs.get(&key).map(|x| x.snapshot_id),
+                    }),
                     vec![TableUpdate::SetSnapshotRef {
                         ref_name: key,
                         snapshot_reference: value,
@@ -1261,6 +1240,7 @@ mod tests {
     use crate::table::manifest::ManifestReader;
     use futures::{executor::block_on, TryStreamExt};
     use iceberg_rust_spec::manifest::FileFormat;
+    use iceberg_rust_spec::partition::{PartitionField, PartitionSpec, Transform};
     use iceberg_rust_spec::spec::schema::SchemaBuilder;
     use iceberg_rust_spec::spec::table_metadata::TableMetadataBuilder;
     use iceberg_rust_spec::spec::types::{PrimitiveType, StructField, Type};
@@ -1379,6 +1359,117 @@ mod tests {
             .with_lower_bounds(None)
             .with_upper_bounds(None)
             .with_first_row_id(first_row_id)
+            .build()
+            .unwrap()
+    }
+
+    fn partitioned_data_file(path: &str, rows: i64, partition: i64) -> DataFile {
+        partitioned_value_data_file(path, rows, Value::LongInt(partition))
+    }
+
+    fn partitioned_int_data_file(path: &str, rows: i64, partition: i32) -> DataFile {
+        partitioned_value_data_file(path, rows, Value::Int(partition))
+    }
+
+    fn partitioned_value_data_file(path: &str, rows: i64, partition: Value) -> DataFile {
+        DataFile::builder()
+            .with_content(Content::Data)
+            .with_file_path(path.to_string())
+            .with_file_format(FileFormat::Parquet)
+            .with_partition(Struct::from_iter(vec![(
+                "id_partition".to_string(),
+                Some(partition),
+            )]))
+            .with_record_count(rows)
+            .with_file_size_in_bytes(100)
+            .with_column_sizes(None)
+            .with_value_counts(None)
+            .with_null_value_counts(None)
+            .with_nan_value_counts(None)
+            .with_distinct_counts(None)
+            .with_lower_bounds(None)
+            .with_upper_bounds(None)
+            .build()
+            .unwrap()
+    }
+
+    fn partitioned_value_data_file_with_bounds(
+        path: &str,
+        rows: i64,
+        partition: Value,
+    ) -> DataFile {
+        DataFile::builder()
+            .with_content(Content::Data)
+            .with_file_path(path.to_string())
+            .with_file_format(FileFormat::Parquet)
+            .with_partition(Struct::from_iter(vec![(
+                "id_partition".to_string(),
+                Some(partition.clone()),
+            )]))
+            .with_record_count(rows)
+            .with_file_size_in_bytes(100)
+            .with_column_sizes(None)
+            .with_value_counts(None)
+            .with_null_value_counts(None)
+            .with_nan_value_counts(None)
+            .with_distinct_counts(None)
+            .with_lower_bounds(Some(HashMap::from([(1, partition.clone())])))
+            .with_upper_bounds(Some(HashMap::from([(1, partition)])))
+            .build()
+            .unwrap()
+    }
+
+    async fn current_manifest_path_for_file(
+        metadata: &TableMetadata,
+        store: &Arc<InMemory>,
+        file_path: &str,
+    ) -> String {
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        for manifest in manifests {
+            let bytes = store
+                .get(&strip_prefix(&manifest.manifest_path).into())
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            if ManifestReader::new(&bytes[..]).unwrap().any(|entry| {
+                entry.is_ok_and(|entry| {
+                    *entry.status() != Status::Deleted && entry.data_file().file_path() == file_path
+                })
+            }) {
+                return manifest.manifest_path;
+            }
+        }
+        panic!("live file {file_path} is not present in the current snapshot");
+    }
+
+    fn position_delete_file(path: &str, rows: i64) -> DataFile {
+        DataFile::builder()
+            .with_content(Content::PositionDeletes)
+            .with_file_path(path.to_string())
+            .with_file_format(FileFormat::Parquet)
+            .with_partition(Struct::from_iter(Vec::<(String, Option<Value>)>::new()))
+            .with_record_count(rows)
+            .with_file_size_in_bytes(100)
+            .with_column_sizes(None)
+            .with_value_counts(None)
+            .with_null_value_counts(None)
+            .with_nan_value_counts(None)
+            .with_distinct_counts(None)
+            .with_lower_bounds(None)
+            .with_upper_bounds(None)
             .build()
             .unwrap()
     }
@@ -1523,21 +1614,1358 @@ mod tests {
                 let entry = entry.unwrap();
                 lineage_by_path.insert(
                     entry.data_file().file_path().clone(),
-                    (*entry.data_file().first_row_id(), *entry.status()),
+                    (
+                        *entry.data_file().first_row_id(),
+                        *entry.status(),
+                        *entry.snapshot_id(),
+                    ),
                 );
             }
         }
         assert_eq!(
             lineage_by_path.get(old_path),
-            Some(&(Some(10), Status::Deleted))
+            Some(&(
+                Some(10),
+                Status::Deleted,
+                Some(*overwrite_snapshot.snapshot_id())
+            ))
         );
-        assert_eq!(
-            lineage_by_path.get("s3://tests/table/data/replacement.parquet"),
-            Some(&(Some(10), Status::Added))
-        );
+        let replacement = lineage_by_path
+            .get("s3://tests/table/data/replacement.parquet")
+            .unwrap();
+        assert_eq!(replacement.0, Some(10));
+        assert_eq!(replacement.1, Status::Added);
 
         crate::catalog::commit::apply_table_updates(&mut metadata, overwrite_updates).unwrap();
         assert_eq!(metadata.next_row_id, 20);
+    }
+
+    #[tokio::test]
+    async fn v3_partial_overwrite_preserves_source_spec_and_counts_deletes_once() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        metadata.format_version = FormatVersion::V3;
+        metadata.next_row_id = 10;
+        metadata.partition_specs.insert(
+            1,
+            PartitionSpec::builder()
+                .with_spec_id(1)
+                .with_partition_field(PartitionField::new(
+                    1,
+                    1000,
+                    "id_partition",
+                    Transform::Identity,
+                ))
+                .build()
+                .unwrap(),
+        );
+        metadata.default_spec_id = 1;
+        let store = Arc::new(InMemory::new());
+        let removed_path = "s3://tests/table/data/removed.parquet";
+        let surviving_path = "s3://tests/table/data/surviving.parquet";
+
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![
+                partitioned_data_file(removed_path, 3, 7),
+                partitioned_data_file(surviving_path, 4, 7),
+            ],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, append_updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, append_updates).unwrap();
+        assert_eq!(metadata.next_row_id, 17);
+
+        let old_snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let old_manifest_list = store
+            .get(&strip_prefix(old_snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let old_manifest = ManifestListReader::new(&old_manifest_list[..], &metadata)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        assert_eq!(old_manifest.partition_spec_id, 1);
+
+        // Evolve both schema and writer default. The current schema no longer contains the
+        // source column for spec 1, so rewriting the old manifest must resolve its historical
+        // snapshot schema rather than binding the spec to the current schema.
+        let evolved_schema = SchemaBuilder::default()
+            .with_schema_id(1)
+            .with_struct_field(StructField {
+                id: 2,
+                name: "new_id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        metadata.schemas.insert(1, evolved_schema);
+        metadata.current_schema_id = 1;
+        metadata.default_spec_id = 0;
+        let overwrite = Operation::Overwrite {
+            branch: None,
+            data_files: vec![data_file("s3://tests/table/data/replacement.parquet", 2)],
+            files_to_overwrite: HashMap::from([(
+                old_manifest.manifest_path,
+                vec![removed_path.to_string()],
+            )]),
+            additional_summary: None,
+        };
+        let (_, overwrite_updates) = overwrite.execute(&metadata, store.clone()).await.unwrap();
+        let overwrite_snapshot = overwrite_updates
+            .iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(*overwrite_snapshot.first_row_id(), Some(17));
+        assert_eq!(*overwrite_snapshot.added_rows(), Some(2));
+        assert_eq!(
+            overwrite_snapshot
+                .summary()
+                .other
+                .get("deleted-data-files")
+                .map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            overwrite_snapshot
+                .summary()
+                .other
+                .get("deleted-records")
+                .map(String::as_str),
+            Some("3")
+        );
+        assert_eq!(
+            overwrite_snapshot
+                .summary()
+                .other
+                .get("total-data-files")
+                .map(String::as_str),
+            Some("2")
+        );
+
+        let manifest_list = store
+            .get(&strip_prefix(overwrite_snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let rewritten = manifests
+            .iter()
+            .find(|manifest| manifest.partition_spec_id == 1)
+            .expect("rewritten manifest keeps its source partition spec");
+        assert_eq!(rewritten.existing_files_count, Some(1));
+        assert_eq!(rewritten.existing_rows_count, Some(4));
+        assert_eq!(rewritten.deleted_files_count, Some(1));
+        assert_eq!(rewritten.deleted_rows_count, Some(3));
+
+        let rewritten_bytes = store
+            .get(&strip_prefix(&rewritten.manifest_path).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let entries = ManifestReader::new(&rewritten_bytes[..])
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let removed = entries
+            .iter()
+            .find(|entry| entry.data_file().file_path() == removed_path)
+            .unwrap();
+        assert_eq!(*removed.status(), Status::Deleted);
+        assert_eq!(
+            *removed.snapshot_id(),
+            Some(*overwrite_snapshot.snapshot_id())
+        );
+        let surviving = entries
+            .iter()
+            .find(|entry| entry.data_file().file_path() == surviving_path)
+            .unwrap();
+        assert_eq!(*surviving.status(), Status::Existing);
+        assert_eq!(
+            surviving.data_file().partition().get("id_partition"),
+            Some(&Some(Value::LongInt(7)))
+        );
+    }
+
+    #[tokio::test]
+    async fn v2_overwrite_writes_replacement_to_current_partition_spec() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        metadata.partition_specs.insert(
+            1,
+            PartitionSpec::builder()
+                .with_spec_id(1)
+                .with_partition_field(PartitionField::new(
+                    1,
+                    1000,
+                    "id_partition",
+                    Transform::Identity,
+                ))
+                .build()
+                .unwrap(),
+        );
+        metadata.default_spec_id = 1;
+        let store = Arc::new(InMemory::new());
+        let old_path = "s3://tests/table/data/old-spec.parquet";
+
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![partitioned_data_file(old_path, 3, 7)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let old_snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let old_manifest_list = store
+            .get(&strip_prefix(old_snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let old_manifest = ManifestListReader::new(&old_manifest_list[..], &metadata)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+
+        metadata.default_spec_id = 0;
+        let replacement_path = "s3://tests/table/data/current-spec.parquet";
+        let overwrite = Operation::Overwrite {
+            branch: None,
+            data_files: vec![data_file(replacement_path, 3)],
+            files_to_overwrite: HashMap::from([(
+                old_manifest.manifest_path,
+                vec![old_path.to_string()],
+            )]),
+            additional_summary: None,
+        };
+        let (_, updates) = overwrite.execute(&metadata, store.clone()).await.unwrap();
+        let snapshot = updates
+            .iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(
+            manifests
+                .iter()
+                .any(|manifest| manifest.partition_spec_id == 0),
+            "replacement data must use the current partition spec"
+        );
+        assert!(
+            manifests
+                .iter()
+                .any(|manifest| manifest.partition_spec_id == 1),
+            "rewritten historical entries must retain their source partition spec"
+        );
+
+        let replacement_manifest = manifests
+            .iter()
+            .find(|manifest| manifest.partition_spec_id == 0)
+            .unwrap();
+        let bytes = store
+            .get(&strip_prefix(&replacement_manifest.manifest_path).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        assert!(ManifestReader::new(&bytes[..]).unwrap().any(|entry| {
+            entry.is_ok_and(|entry| entry.data_file().file_path() == replacement_path)
+        }));
+    }
+
+    #[tokio::test]
+    async fn v2_append_preserves_manifest_from_historical_partition_spec() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        metadata.partition_specs.insert(
+            1,
+            PartitionSpec::builder()
+                .with_spec_id(1)
+                .with_partition_field(PartitionField::new(
+                    1,
+                    1000,
+                    "id_partition",
+                    Transform::Identity,
+                ))
+                .build()
+                .unwrap(),
+        );
+        metadata.default_spec_id = 1;
+        let store = Arc::new(InMemory::new());
+        let historical_path = "s3://tests/table/data/historical-spec.parquet";
+        let current_path = "s3://tests/table/data/current-spec.parquet";
+
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![partitioned_data_file(historical_path, 3, 7)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let historical_manifest_path = {
+            let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+            let manifest_list = store
+                .get(&strip_prefix(snapshot.manifest_list()).into())
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            ManifestListReader::new(&manifest_list[..], &metadata)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .manifest_path
+        };
+
+        metadata.default_spec_id = 0;
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![data_file(current_path, 5)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        let snapshot = updates
+            .iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(manifests.len(), 2);
+        assert!(manifests.iter().any(|manifest| {
+            manifest.partition_spec_id == 1 && manifest.manifest_path == historical_manifest_path
+        }));
+        assert!(manifests
+            .iter()
+            .any(|manifest| manifest.partition_spec_id == 0));
+        let mut paths = crate::table::datafiles(store, &manifests, None, (None, None))
+            .await
+            .unwrap()
+            .map_ok(|(_, entry)| entry.data_file().file_path().clone())
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec![current_path.to_string(), historical_path.to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn v2_append_preserves_manifest_from_historical_partition_schema() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        let int_schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Int),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        metadata.schemas.insert(0, int_schema);
+        metadata.partition_specs.insert(
+            1,
+            PartitionSpec::builder()
+                .with_spec_id(1)
+                .with_partition_field(PartitionField::new(
+                    1,
+                    1000,
+                    "id_partition",
+                    Transform::Identity,
+                ))
+                .build()
+                .unwrap(),
+        );
+        metadata.default_spec_id = 1;
+        let store = Arc::new(InMemory::new());
+        let historical_path = "s3://tests/table/data/int-partition.parquet";
+        let current_path = "s3://tests/table/data/long-partition.parquet";
+
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![partitioned_int_data_file(historical_path, 3, 7)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let historical_manifest_path = {
+            let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+            let manifest_list = store
+                .get(&strip_prefix(snapshot.manifest_list()).into())
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            ManifestListReader::new(&manifest_list[..], &metadata)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .manifest_path
+        };
+
+        // Legacy V1/V2 snapshots may omit schema-id. Treat that as unknown rather than
+        // assuming the manifest was written with the current schema.
+        let snapshot_without_schema = {
+            let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+            SnapshotBuilder::default()
+                .with_snapshot_id(*snapshot.snapshot_id())
+                .with_sequence_number(*snapshot.sequence_number())
+                .with_timestamp_ms(*snapshot.timestamp_ms())
+                .with_manifest_list(snapshot.manifest_list().clone())
+                .with_summary(snapshot.summary().clone())
+                .build()
+                .unwrap()
+        };
+        metadata.snapshots.insert(
+            *snapshot_without_schema.snapshot_id(),
+            snapshot_without_schema,
+        );
+
+        let long_schema = SchemaBuilder::default()
+            .with_schema_id(1)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        metadata.schemas.insert(1, long_schema);
+        metadata.current_schema_id = 1;
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![partitioned_data_file(current_path, 5, 8)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        let snapshot = updates
+            .iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(manifests.len(), 2);
+        assert!(manifests
+            .iter()
+            .any(|manifest| manifest.manifest_path == historical_manifest_path));
+        let partition_bounds = manifests
+            .iter()
+            .filter_map(|manifest| {
+                manifest
+                    .partitions
+                    .as_ref()
+                    .and_then(|partitions| partitions.first())
+                    .and_then(|summary| summary.lower_bound.as_ref())
+            })
+            .collect::<Vec<_>>();
+        assert!(partition_bounds.contains(&&Value::LongInt(7)));
+        assert!(partition_bounds.contains(&&Value::LongInt(8)));
+        let mut paths = crate::table::datafiles(store, &manifests, None, (None, None))
+            .await
+            .unwrap()
+            .map_ok(|(_, entry)| entry.data_file().file_path().clone())
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec![historical_path.to_string(), current_path.to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn rewritten_manifest_bounds_follow_partition_type_promotion() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        let int_schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Int),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        metadata.schemas.insert(0, int_schema);
+        metadata.partition_specs.insert(
+            1,
+            PartitionSpec::builder()
+                .with_spec_id(1)
+                .with_partition_field(PartitionField::new(
+                    1,
+                    1000,
+                    "id_partition",
+                    Transform::Identity,
+                ))
+                .build()
+                .unwrap(),
+        );
+        metadata.default_spec_id = 1;
+        let store = Arc::new(InMemory::new());
+        let old_path = "s3://tests/table/data/int-partition.parquet";
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![partitioned_int_data_file(old_path, 3, 7)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let old_snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let old_manifest_list = store
+            .get(&strip_prefix(old_snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let old_manifest = ManifestListReader::new(&old_manifest_list[..], &metadata)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+
+        let long_schema = SchemaBuilder::default()
+            .with_schema_id(1)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Long),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        metadata.schemas.insert(1, long_schema);
+        metadata.current_schema_id = 1;
+
+        let overwrite = Operation::Overwrite {
+            branch: None,
+            data_files: vec![partitioned_data_file(
+                "s3://tests/table/data/long-partition.parquet",
+                3,
+                8,
+            )],
+            files_to_overwrite: HashMap::from([(
+                old_manifest.manifest_path,
+                vec![old_path.to_string()],
+            )]),
+            additional_summary: None,
+        };
+        let (_, updates) = overwrite.execute(&metadata, store.clone()).await.unwrap();
+        let snapshot = updates
+            .iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(manifests.len(), 2);
+        assert!(manifests.iter().all(|manifest| {
+            manifest
+                .partitions
+                .as_ref()
+                .and_then(|partitions| partitions.first())
+                .and_then(|summary| summary.lower_bound.as_ref())
+                .is_some_and(|bound| matches!(bound, Value::LongInt(7 | 8)))
+        }));
+    }
+
+    #[tokio::test]
+    async fn promoted_partition_survives_partial_overwrite_append_and_second_overwrite() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        let float_schema = SchemaBuilder::default()
+            .with_schema_id(0)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Float),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        metadata.schemas.insert(0, float_schema);
+        metadata.partition_specs.insert(
+            1,
+            PartitionSpec::builder()
+                .with_spec_id(1)
+                .with_partition_field(PartitionField::new(
+                    1,
+                    1000,
+                    "id_partition",
+                    Transform::Identity,
+                ))
+                .build()
+                .unwrap(),
+        );
+        metadata.default_spec_id = 1;
+        let store = Arc::new(InMemory::new());
+        let old_path = "s3://tests/table/data/old-float.parquet";
+        let survivor_path = "s3://tests/table/data/survivor-float.parquet";
+        let float_value = |value: f32| {
+            Value::try_from_bytes(&value.to_le_bytes(), &Type::Primitive(PrimitiveType::Float))
+                .unwrap()
+        };
+        let double_value = |value: f64| {
+            Value::try_from_bytes(
+                &value.to_le_bytes(),
+                &Type::Primitive(PrimitiveType::Double),
+            )
+            .unwrap()
+        };
+
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![
+                partitioned_value_data_file_with_bounds(old_path, 3, float_value(1.25)),
+                partitioned_value_data_file_with_bounds(survivor_path, 4, float_value(2.5)),
+            ],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let original_manifest = current_manifest_path_for_file(&metadata, &store, old_path).await;
+
+        let double_schema = SchemaBuilder::default()
+            .with_schema_id(1)
+            .with_struct_field(StructField {
+                id: 1,
+                name: "id".to_string(),
+                required: true,
+                field_type: Type::Primitive(PrimitiveType::Double),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
+            .build()
+            .unwrap();
+        metadata.schemas.insert(1, double_schema);
+        metadata.current_schema_id = 1;
+        let replacement_path = "s3://tests/table/data/replacement-old.parquet";
+        let overwrite = Operation::Overwrite {
+            branch: None,
+            data_files: vec![partitioned_value_data_file_with_bounds(
+                replacement_path,
+                3,
+                double_value(3.5),
+            )],
+            files_to_overwrite: HashMap::from([(original_manifest, vec![old_path.to_string()])]),
+            additional_summary: None,
+        };
+        let (_, updates) = overwrite.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+
+        let rewritten_manifest =
+            current_manifest_path_for_file(&metadata, &store, survivor_path).await;
+        let rewritten_bytes = store
+            .get(&strip_prefix(&rewritten_manifest).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let survivor = ManifestReader::new(&rewritten_bytes[..])
+            .unwrap()
+            .find_map(|entry| {
+                entry.ok().filter(|entry| {
+                    *entry.status() != Status::Deleted
+                        && entry.data_file().file_path() == survivor_path
+                })
+            })
+            .unwrap();
+        assert!(matches!(
+            survivor.data_file().partition().get("id_partition"),
+            Some(Some(Value::Double(value))) if value.0 == 2.5
+        ));
+        assert!(matches!(
+            survivor
+                .data_file()
+                .lower_bounds()
+                .as_ref()
+                .and_then(|bounds| bounds.get(&1)),
+            Some(Value::Double(value)) if value.0 == 2.5
+        ));
+        assert!(matches!(
+            survivor
+                .data_file()
+                .upper_bounds()
+                .as_ref()
+                .and_then(|bounds| bounds.get(&1)),
+            Some(Value::Double(value)) if value.0 == 2.5
+        ));
+
+        let appended_path = "s3://tests/table/data/appended-after-rewrite.parquet";
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![partitioned_value_data_file_with_bounds(
+                appended_path,
+                5,
+                double_value(4.5),
+            )],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+
+        let survivor_manifest =
+            current_manifest_path_for_file(&metadata, &store, survivor_path).await;
+        let second_replacement_path = "s3://tests/table/data/replacement-survivor.parquet";
+        let overwrite = Operation::Overwrite {
+            branch: None,
+            data_files: vec![partitioned_value_data_file_with_bounds(
+                second_replacement_path,
+                4,
+                double_value(5.5),
+            )],
+            files_to_overwrite: HashMap::from([(
+                survivor_manifest,
+                vec![survivor_path.to_string()],
+            )]),
+            additional_summary: None,
+        };
+        let (_, updates) = overwrite.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let mut paths = crate::table::datafiles(store, &manifests, None, (None, None))
+            .await
+            .unwrap()
+            .map_ok(|(_, entry)| entry.data_file().file_path().clone())
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec![
+                appended_path.to_string(),
+                replacement_path.to_string(),
+                second_replacement_path.to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn first_snapshot_requires_the_target_ref_to_remain_absent() {
+        let metadata = sample_metadata(&[], None, &[]);
+        let operation = Operation::Append {
+            branch: None,
+            data_files: vec![data_file("s3://tests/table/data/first.parquet", 1)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (requirement, _) = operation
+            .execute(&metadata, Arc::new(InMemory::new()))
+            .await
+            .unwrap();
+        assert_eq!(
+            requirement,
+            Some(TableRequirement::AssertRefSnapshotId {
+                r#ref: "main".to_string(),
+                snapshot_id: None,
+            })
+        );
+        assert!(crate::catalog::commit::check_table_requirements(
+            std::slice::from_ref(requirement.as_ref().unwrap()),
+            &metadata,
+        ));
+
+        let mut concurrently_committed = metadata;
+        concurrently_committed.refs.insert(
+            "main".to_string(),
+            SnapshotReference {
+                snapshot_id: 42,
+                retention: SnapshotRetention::default(),
+            },
+        );
+        assert!(!crate::catalog::commit::check_table_requirements(
+            std::slice::from_ref(requirement.as_ref().unwrap()),
+            &concurrently_committed,
+        ));
+    }
+
+    #[tokio::test]
+    async fn overwrite_rejects_missing_and_already_deleted_data_files() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        let store = Arc::new(InMemory::new());
+        let old_path = "s3://tests/table/data/old.parquet";
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![data_file(old_path, 2)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifest = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+
+        let missing = Operation::Overwrite {
+            branch: None,
+            data_files: Vec::new(),
+            files_to_overwrite: HashMap::from([(
+                manifest.manifest_path.clone(),
+                vec!["s3://tests/table/data/missing.parquet".to_string()],
+            )]),
+            additional_summary: None,
+        }
+        .execute(&metadata, store.clone())
+        .await
+        .unwrap_err();
+        assert!(matches!(missing, Error::NotFound(message) if message.contains("missing.parquet")));
+
+        let overwrite = Operation::Overwrite {
+            branch: None,
+            data_files: vec![data_file("s3://tests/table/data/replacement.parquet", 2)],
+            files_to_overwrite: HashMap::from([(
+                manifest.manifest_path,
+                vec![old_path.to_string()],
+            )]),
+            additional_summary: None,
+        };
+        let (_, updates) = overwrite.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let manifest_with_deleted_entry = manifests
+            .into_iter()
+            .find(|manifest| manifest.deleted_files_count.unwrap_or(0) > 0)
+            .unwrap();
+        assert_eq!(
+            manifest_with_deleted_entry.min_sequence_number,
+            *snapshot.sequence_number()
+        );
+        let already_deleted = Operation::Overwrite {
+            branch: None,
+            data_files: Vec::new(),
+            files_to_overwrite: HashMap::from([(
+                manifest_with_deleted_entry.manifest_path,
+                vec![old_path.to_string()],
+            )]),
+            additional_summary: None,
+        }
+        .execute(&metadata, store)
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(already_deleted, Error::NotFound(message) if message.contains("old.parquet"))
+        );
+    }
+
+    #[tokio::test]
+    async fn split_overwrite_rejects_missing_and_already_deleted_data_files() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        let store = Arc::new(InMemory::new());
+        let old_path = "s3://tests/table/data/split-old.parquet";
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![data_file(old_path, 2)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifest = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        let replacements = (0..20)
+            .map(|index| data_file(&format!("s3://tests/table/data/new-{index}.parquet"), 1))
+            .collect::<Vec<_>>();
+        let missing = Operation::Overwrite {
+            branch: None,
+            data_files: replacements.clone(),
+            files_to_overwrite: HashMap::from([(
+                manifest.manifest_path.clone(),
+                vec!["s3://tests/table/data/split-missing.parquet".to_string()],
+            )]),
+            additional_summary: None,
+        }
+        .execute(&metadata, store.clone())
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(missing, Error::NotFound(message) if message.contains("split-missing.parquet"))
+        );
+
+        let overwrite = Operation::Overwrite {
+            branch: None,
+            data_files: replacements,
+            files_to_overwrite: HashMap::from([(
+                manifest.manifest_path,
+                vec![old_path.to_string()],
+            )]),
+            additional_summary: None,
+        };
+        let (_, updates) = overwrite.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let manifest_with_deleted_entry = manifests
+            .into_iter()
+            .find(|manifest| manifest.deleted_files_count.unwrap_or(0) > 0)
+            .unwrap();
+        assert_eq!(
+            manifest_with_deleted_entry.min_sequence_number,
+            *snapshot.sequence_number()
+        );
+        let already_deleted = Operation::Overwrite {
+            branch: None,
+            data_files: (20..40)
+                .map(|index| data_file(&format!("s3://tests/table/data/new-{index}.parquet"), 1))
+                .collect(),
+            files_to_overwrite: HashMap::from([(
+                manifest_with_deleted_entry.manifest_path,
+                vec![old_path.to_string()],
+            )]),
+            additional_summary: None,
+        }
+        .execute(&metadata, store)
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(already_deleted, Error::NotFound(message) if message.contains("split-old.parquet"))
+        );
+    }
+
+    #[tokio::test]
+    async fn append_after_overwrite_does_not_resurrect_deleted_files() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        let store = Arc::new(InMemory::new());
+        let old_path = "s3://tests/table/data/a.parquet";
+        let replacement_path = "s3://tests/table/data/b.parquet";
+        let appended_path = "s3://tests/table/data/c.parquet";
+
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![data_file(old_path, 1)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifest = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+
+        let overwrite = Operation::Overwrite {
+            branch: None,
+            data_files: vec![data_file(replacement_path, 1)],
+            files_to_overwrite: HashMap::from([(
+                manifest.manifest_path,
+                vec![old_path.to_string()],
+            )]),
+            additional_summary: None,
+        };
+        let (_, updates) = overwrite.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let overwrite_snapshot_id = *metadata
+            .current_snapshot(None)
+            .unwrap()
+            .unwrap()
+            .snapshot_id();
+
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![data_file(appended_path, 1)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let append_snapshot_id = *snapshot.snapshot_id();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let manifests = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let mut statuses = HashMap::new();
+        for manifest in &manifests {
+            let bytes = store
+                .get(&strip_prefix(&manifest.manifest_path).into())
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            let entries = ManifestReader::new(&bytes[..])
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            let counts = entries.iter().fold([0_i32; 3], |mut counts, entry| {
+                let index = match *entry.status() {
+                    Status::Added => 0,
+                    Status::Existing => 1,
+                    Status::Deleted => 2,
+                };
+                counts[index] += 1;
+                counts
+            });
+            assert_eq!(manifest.added_files_count, Some(counts[0]));
+            assert_eq!(manifest.existing_files_count, Some(counts[1]));
+            assert_eq!(manifest.deleted_files_count, Some(counts[2]));
+            if entries
+                .iter()
+                .any(|entry| entry.data_file().file_path() == appended_path)
+            {
+                assert_eq!(manifest.added_snapshot_id, append_snapshot_id);
+            }
+            for entry in entries {
+                statuses.insert(
+                    entry.data_file().file_path().clone(),
+                    (*entry.status(), *entry.snapshot_id()),
+                );
+            }
+        }
+        assert_eq!(
+            statuses.get(old_path),
+            Some(&(Status::Deleted, Some(overwrite_snapshot_id)))
+        );
+
+        let mut live_files = crate::table::datafiles(store, &manifests, None, (None, None))
+            .await
+            .unwrap()
+            .map_ok(|(_, entry)| (entry.data_file().file_path().clone(), *entry.snapshot_id()))
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        live_files.sort_unstable();
+        assert_eq!(
+            live_files,
+            vec![
+                (replacement_path.to_string(), Some(overwrite_snapshot_id)),
+                (appended_path.to_string(), Some(append_snapshot_id)),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn overwrite_rejects_delete_manifests() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        let store = Arc::new(InMemory::new());
+        let delete_path = "s3://tests/table/data/position-delete.parquet";
+        let append = Operation::Append {
+            branch: None,
+            data_files: Vec::new(),
+            delete_files: vec![position_delete_file(delete_path, 1)],
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let manifest_list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let delete_manifest = ManifestListReader::new(&manifest_list[..], &metadata)
+            .unwrap()
+            .find_map(|manifest| {
+                manifest
+                    .ok()
+                    .filter(|manifest| manifest.content == ManifestListContent::Deletes)
+            })
+            .unwrap();
+        let error = Operation::Overwrite {
+            branch: None,
+            data_files: Vec::new(),
+            files_to_overwrite: HashMap::from([(
+                delete_manifest.manifest_path,
+                vec![delete_path.to_string()],
+            )]),
+            additional_summary: None,
+        }
+        .execute(&metadata, store)
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(error, Error::InvalidFormat(message) if message.contains("data manifests"))
+        );
+    }
+
+    #[tokio::test]
+    async fn overwrite_rejects_delete_files_as_replacement_data() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        let store = Arc::new(InMemory::new());
+        let append = Operation::Append {
+            branch: None,
+            data_files: vec![data_file("s3://tests/table/data/original.parquet", 1)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+
+        let error = Operation::Overwrite {
+            branch: None,
+            data_files: vec![position_delete_file(
+                "s3://tests/table/data/position-delete.parquet",
+                1,
+            )],
+            files_to_overwrite: HashMap::new(),
+            additional_summary: None,
+        }
+        .execute(&metadata, store)
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(error, Error::InvalidFormat(message) if message.contains("manifest content"))
+        );
+    }
+
+    #[tokio::test]
+    async fn v3_append_then_overwrite_uses_staged_row_id_state() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        metadata.format_version = FormatVersion::V3;
+        metadata.next_row_id = 10;
+        let store = Arc::new(InMemory::new());
+        let old_path = "s3://tests/table/data/old.parquet";
+
+        let initial_append = Operation::Append {
+            branch: None,
+            data_files: vec![data_file(old_path, 5)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, initial_updates) = initial_append
+            .execute(&metadata, store.clone())
+            .await
+            .unwrap();
+        crate::catalog::commit::apply_table_updates(&mut metadata, initial_updates).unwrap();
+
+        let old_snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let old_manifest_list = store
+            .get(&strip_prefix(old_snapshot.manifest_list()).into())
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        let old_manifest = ManifestListReader::new(&old_manifest_list[..], &metadata)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+
+        // TableTransaction applies these updates to staged metadata before executing overwrite.
+        let transaction_append = Operation::Append {
+            branch: None,
+            data_files: vec![data_file("s3://tests/table/data/appended.parquet", 2)],
+            delete_files: Vec::new(),
+            additional_summary: None,
+        };
+        let (_, append_updates) = transaction_append
+            .execute(&metadata, store.clone())
+            .await
+            .unwrap();
+        let append_snapshot = append_updates
+            .iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(*append_snapshot.first_row_id(), Some(15));
+        assert_eq!(*append_snapshot.added_rows(), Some(2));
+
+        let mut staged_metadata = metadata.clone();
+        crate::catalog::commit::apply_table_updates(&mut staged_metadata, append_updates).unwrap();
+        let overwrite = Operation::Overwrite {
+            branch: None,
+            data_files: vec![data_file("s3://tests/table/data/replacement.parquet", 3)],
+            files_to_overwrite: HashMap::from([(
+                old_manifest.manifest_path,
+                vec![old_path.to_string()],
+            )]),
+            additional_summary: None,
+        };
+        let (_, overwrite_updates) = overwrite
+            .execute(&staged_metadata, store.clone())
+            .await
+            .unwrap();
+        let overwrite_snapshot = overwrite_updates
+            .iter()
+            .find_map(|update| match update {
+                TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(*overwrite_snapshot.first_row_id(), Some(17));
+        assert_eq!(*overwrite_snapshot.added_rows(), Some(3));
+
+        crate::catalog::commit::apply_table_updates(&mut staged_metadata, overwrite_updates)
+            .unwrap();
+        assert_eq!(staged_metadata.next_row_id, 20);
     }
 
     #[tokio::test]

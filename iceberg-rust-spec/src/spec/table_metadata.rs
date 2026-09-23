@@ -281,6 +281,65 @@ impl TableMetadata {
         partition_fields(partition_spec, schema)
     }
 
+    /// Binds a partition spec to the schema that was active when a manifest was added.
+    ///
+    /// Current snapshots can retain manifests written with historical partition specs whose
+    /// source columns have since been dropped. Prefer the adding snapshot's schema, then fall
+    /// back to the newest retained schema that still contains every source field.
+    pub fn partition_fields_for_spec(
+        &self,
+        partition_spec_id: i32,
+        added_snapshot_id: Option<i64>,
+    ) -> Result<Vec<BoundPartitionField<'_>>, Error> {
+        let schema = self.schema_for_partition_spec(partition_spec_id, added_snapshot_id)?;
+        let partition_spec = self
+            .partition_specs
+            .get(&partition_spec_id)
+            .ok_or_else(|| {
+                Error::NotFound(format!("Partition spec with id {partition_spec_id}"))
+            })?;
+
+        partition_fields(partition_spec, schema)
+    }
+
+    /// Returns the schema that can bind a historical partition spec.
+    pub fn schema_for_partition_spec(
+        &self,
+        partition_spec_id: i32,
+        added_snapshot_id: Option<i64>,
+    ) -> Result<&Schema, Error> {
+        let partition_spec = self
+            .partition_specs
+            .get(&partition_spec_id)
+            .ok_or_else(|| {
+                Error::NotFound(format!("Partition spec with id {partition_spec_id}"))
+            })?;
+        let snapshot_schema_id = added_snapshot_id
+            .and_then(|snapshot_id| self.snapshots.get(&snapshot_id))
+            .and_then(|snapshot| *snapshot.schema_id());
+        if let Some(schema) = snapshot_schema_id.and_then(|id| self.schemas.get(&id)) {
+            if partition_fields(partition_spec, schema).is_ok() {
+                return Ok(schema);
+            }
+        }
+
+        let mut schema_ids = self.schemas.keys().copied().collect::<Vec<_>>();
+        schema_ids.sort_unstable_by(|left, right| right.cmp(left));
+        for schema_id in schema_ids {
+            if Some(schema_id) == snapshot_schema_id {
+                continue;
+            }
+            let schema = &self.schemas[&schema_id];
+            if partition_fields(partition_spec, schema).is_ok() {
+                return Ok(schema);
+            }
+        }
+
+        Err(Error::NotFound(format!(
+            "Schema containing all source fields for partition spec {partition_spec_id}"
+        )))
+    }
+
     /// Gets the partition fields for a specific snapshot, binding them to their source schema fields
     ///
     /// # Arguments

@@ -24,7 +24,13 @@ use iceberg_rust_spec::spec::{
 
 use crate::table::transaction::append::append_summary;
 use crate::table::transaction::operation::SequenceGroup;
-use crate::{catalog::commit::CommitTable, error::Error, table::Table};
+use crate::{
+    catalog::commit::{
+        apply_table_updates, check_table_requirements, CommitTable, TableRequirement,
+    },
+    error::Error,
+    table::Table,
+};
 
 use self::operation::Operation;
 
@@ -496,17 +502,24 @@ impl<'table> TableTransaction<'table> {
     pub async fn commit(self) -> Result<(), Error> {
         let catalog = self.table.catalog();
         let identifier = self.table.identifier.clone();
+        let base_metadata = self.table.metadata();
+        let mut staged_metadata = base_metadata.clone();
 
-        // Execute the table operations
+        // Each operation must observe earlier operations in the same transaction. Keep the
+        // catalog preconditions anchored to the committed base metadata; requirements against
+        // snapshots created by this transaction are internal and cannot be checked by the catalog.
         let (mut requirements, mut updates) = (Vec::new(), Vec::new());
         for operation in self.operations.into_iter().flatten() {
             let (requirement, update) = operation
-                .execute(self.table.metadata(), self.table.object_store())
+                .execute(&staged_metadata, self.table.object_store())
                 .await?;
 
-            if let Some(requirement) = requirement {
+            if let Some(requirement) = requirement.filter(|requirement| {
+                requirement_applies_to_base_metadata(requirement, base_metadata)
+            }) {
                 requirements.push(requirement);
             }
+            apply_table_updates(&mut staged_metadata, update.clone())?;
             updates.extend(update);
         }
 
@@ -536,9 +549,75 @@ impl<'table> TableTransaction<'table> {
     }
 }
 
+fn requirement_applies_to_base_metadata(
+    requirement: &TableRequirement,
+    base_metadata: &iceberg_rust_spec::table_metadata::TableMetadata,
+) -> bool {
+    check_table_requirements(std::slice::from_ref(requirement), base_metadata)
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::catalog::commit::TableRequirement;
+    use iceberg_rust_spec::{
+        snapshot::{SnapshotReference, SnapshotRetention},
+        table_metadata::TableMetadata,
+    };
     use rstest::rstest;
+
+    #[test]
+    fn staged_requirements_are_not_sent_to_catalog() {
+        let mut base = TableMetadata::default();
+        base.refs.insert(
+            "main".to_string(),
+            SnapshotReference {
+                snapshot_id: 10,
+                retention: SnapshotRetention::default(),
+            },
+        );
+
+        assert!(super::requirement_applies_to_base_metadata(
+            &TableRequirement::AssertRefSnapshotId {
+                r#ref: "main".to_string(),
+                snapshot_id: Some(10),
+            },
+            &base,
+        ));
+        assert!(!super::requirement_applies_to_base_metadata(
+            &TableRequirement::AssertRefSnapshotId {
+                r#ref: "main".to_string(),
+                snapshot_id: Some(11),
+            },
+            &base,
+        ));
+        assert!(!super::requirement_applies_to_base_metadata(
+            &TableRequirement::AssertRefSnapshotId {
+                r#ref: "main".to_string(),
+                snapshot_id: None,
+            },
+            &base,
+        ));
+        base.refs.remove("main");
+        assert!(super::requirement_applies_to_base_metadata(
+            &TableRequirement::AssertRefSnapshotId {
+                r#ref: "main".to_string(),
+                snapshot_id: None,
+            },
+            &base,
+        ));
+        assert!(super::requirement_applies_to_base_metadata(
+            &TableRequirement::AssertCurrentSchemaId {
+                current_schema_id: base.current_schema_id,
+            },
+            &base,
+        ));
+        assert!(!super::requirement_applies_to_base_metadata(
+            &TableRequirement::AssertCurrentSchemaId {
+                current_schema_id: base.current_schema_id + 1,
+            },
+            &base,
+        ));
+    }
 
     // -----------------------------------------------------------------------
     // Placeholders for table-operation + snapshot-producer + partition-spec

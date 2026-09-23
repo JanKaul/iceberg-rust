@@ -808,6 +808,40 @@ impl Value {
             }
         }
     }
+
+    /// Applies only schema promotions allowed by the Iceberg specification.
+    pub fn promote_iceberg(self, source_type: &Type, target_type: &Type) -> Result<Self, Error> {
+        if source_type == target_type {
+            return Ok(self);
+        }
+
+        match (self, source_type, target_type) {
+            (
+                Value::Int(input),
+                Type::Primitive(PrimitiveType::Int),
+                Type::Primitive(PrimitiveType::Long),
+            ) => Ok(Value::LongInt(i64::from(input))),
+            (
+                Value::Float(input),
+                Type::Primitive(PrimitiveType::Float),
+                Type::Primitive(PrimitiveType::Double),
+            ) => Ok(Value::Double(OrderedFloat(f64::from(input.0)))),
+            (
+                value @ Value::Decimal(_),
+                Type::Primitive(PrimitiveType::Decimal {
+                    precision: source_precision,
+                    scale: source_scale,
+                }),
+                Type::Primitive(PrimitiveType::Decimal {
+                    precision: target_precision,
+                    scale: target_scale,
+                }),
+            ) if source_scale == target_scale && source_precision <= target_precision => Ok(value),
+            _ => Err(Error::NotSupported(format!(
+                "Iceberg schema promotion from {source_type} to {target_type}"
+            ))),
+        }
+    }
 }
 
 /// Performs big endian sign extension
