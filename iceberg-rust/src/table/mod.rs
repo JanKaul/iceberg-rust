@@ -327,6 +327,7 @@ async fn datafiles(
             let object_store = object_store.clone();
             let manifest_path = file.manifest_path.clone();
             let manifest_sequence_number = file.sequence_number;
+            let manifest_snapshot_id = file.added_snapshot_id;
             let manifest_first_row_id = file.first_row_id;
             async move {
                 let path: Path = util::strip_prefix(&manifest_path).into();
@@ -352,6 +353,9 @@ async fn datafiles(
                         Ok(entry)
                     })
                     .filter_map_ok(|mut x| {
+                        if x.snapshot_id().is_none() {
+                            *x.snapshot_id_mut() = Some(manifest_snapshot_id);
+                        }
                         let sequence_number = if let Some(sequence_number) = x.sequence_number() {
                             *sequence_number
                         } else {

@@ -208,8 +208,8 @@ pub enum TableRequirement {
     AssertRefSnapshotId {
         /// Name of ref
         r#ref: String,
-        /// Snapshot id
-        snapshot_id: i64,
+        /// Snapshot id, or `None` when the ref must not exist
+        snapshot_id: Option<i64>,
     },
     /// The table's last assigned column id must match the requirement's `last-assigned-field-id`
     AssertLastAssignedFieldId {
@@ -348,11 +348,9 @@ pub fn check_table_requirements(
         // Assert create has to be check in another place
         TableRequirement::AssertCreate => true,
         TableRequirement::AssertTableUuid { uuid } => metadata.table_uuid == *uuid,
-        TableRequirement::AssertRefSnapshotId { r#ref, snapshot_id } => metadata
-            .refs
-            .get(r#ref)
-            .map(|id| id.snapshot_id == *snapshot_id)
-            .unwrap_or(false),
+        TableRequirement::AssertRefSnapshotId { r#ref, snapshot_id } => {
+            metadata.refs.get(r#ref).map(|id| id.snapshot_id) == *snapshot_id
+        }
         TableRequirement::AssertLastAssignedFieldId {
             last_assigned_field_id,
         } => metadata.last_column_id == *last_assigned_field_id,
@@ -626,4 +624,40 @@ pub fn apply_view_updates<T: Materialization + 'static>(
         };
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod requirement_tests {
+    use super::TableRequirement;
+
+    #[test]
+    fn assert_ref_snapshot_id_accepts_numeric_null_and_omitted_json() {
+        for (json, expected_snapshot_id) in [
+            (
+                r#"{"type":"assert-ref-snapshot-id","ref":"main","snapshot-id":7}"#,
+                Some(7),
+            ),
+            (
+                r#"{"type":"assert-ref-snapshot-id","ref":"main","snapshot-id":null}"#,
+                None,
+            ),
+            (r#"{"type":"assert-ref-snapshot-id","ref":"main"}"#, None),
+        ] {
+            let requirement: TableRequirement = serde_json::from_str(json).unwrap();
+            assert_eq!(
+                requirement,
+                TableRequirement::AssertRefSnapshotId {
+                    r#ref: "main".to_string(),
+                    snapshot_id: expected_snapshot_id,
+                }
+            );
+        }
+
+        let serialized = serde_json::to_value(TableRequirement::AssertRefSnapshotId {
+            r#ref: "main".to_string(),
+            snapshot_id: None,
+        })
+        .unwrap();
+        assert!(serialized.get("snapshot-id").unwrap().is_null());
+    }
 }
