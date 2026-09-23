@@ -152,9 +152,8 @@ fn parse_blob(bytes: &[u8]) -> Result<DeletionVector, Error> {
         )));
     }
 
-    let bitmap_count = i64::from_le_bytes(
-        bitmap_data[MAGIC_SIZE..MAGIC_SIZE + BITMAP_COUNT_SIZE].try_into()?,
-    );
+    let bitmap_count =
+        i64::from_le_bytes(bitmap_data[MAGIC_SIZE..MAGIC_SIZE + BITMAP_COUNT_SIZE].try_into()?);
     if !(0..=i32::MAX as i64).contains(&bitmap_count) {
         return Err(Error::InvalidFormat(format!(
             "deletion vector bitmap count {bitmap_count} out of range"

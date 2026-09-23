@@ -50,6 +50,7 @@ use crate::{
 use datafusion::arrow::compute::SortOptions;
 use datafusion::common::{NullEquality, Statistics};
 use datafusion::datasource::physical_plan::FileScanConfig;
+use datafusion::parquet::arrow::RowNumber;
 use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
 use datafusion::physical_plan::empty::EmptyExec;
 use datafusion::physical_plan::ColumnStatistics;
@@ -114,6 +115,10 @@ use iceberg_rust::{
 
 static DATA_FILE_PATH_COLUMN: &str = "__data_file_path";
 static MANIFEST_FILE_PATH_COLUMN: &str = "__manifest_file_path";
+/// Internal Parquet row-number virtual column, used by [`dv_exec::IcebergDvExec`]
+/// to look up each row's absolute file position in a deletion vector. Always
+/// stripped from user-visible output.
+static ROW_NUMBER_COLUMN: &str = "__iceberg_file_row_position";
 
 /// When the view tracks source arrow ids (the `overrides` map is non-empty),
 /// reshape each top-level field's `PARQUET:field_id` metadata so it matches
@@ -552,7 +557,7 @@ async fn table_scan(
     let mut delete_file_groups: HashMap<Struct, PartitionDeleteFileIndex> = HashMap::new();
 
     // Prune data & delete file and insert them into the according map
-    let (content_file_iter, statistics) = if let Some(physical_predicate) =
+    let (content_file_iter, mut statistics) = if let Some(physical_predicate) =
         physical_predicate.clone()
     {
         let partition_schema = Arc::new(ArrowSchema::new(table_partition_cols.clone()));
@@ -769,18 +774,48 @@ async fn table_scan(
     // wrap their plan in an IcebergDvExec.
     let dv_index = Arc::new(dv_index);
 
-    let table_schema = TableSchema::builder(file_schema.clone())
+    let mut table_schema_builder = TableSchema::builder(file_schema.clone())
         .with_table_partition_cols(
             table_partition_cols
                 .iter()
                 .cloned()
                 .map(Arc::new)
                 .collect::<Vec<_>>(),
-        )
-        .build();
+        );
+    // When deletion vectors are present, materialize each row's absolute file
+    // position via a Parquet row-number virtual column so `IcebergDvExec` can
+    // probe the bitmap by true position. Virtual columns follow the partition
+    // columns in the scan output, so its index is the current end of the schema.
+    let row_number_col_idx = if dvs_present {
+        let idx = file_schema.fields().len() + table_partition_cols.len();
+        table_schema_builder = table_schema_builder.with_virtual_columns(vec![Arc::new(
+            Field::new(ROW_NUMBER_COLUMN, DataType::Int64, false).with_extension_type(RowNumber),
+        )]);
+        // Keep `statistics` aligned with the widened schema.
+        statistics
+            .column_statistics
+            .push(ColumnStatistics::new_unknown());
+        Some(idx)
+    } else {
+        None
+    };
+    let table_schema = table_schema_builder.build();
     // File schema plus partition columns: what scan orderings are expressed on.
     let scan_schema: SchemaRef = table_schema.table_schema().clone();
-    let file_source = Arc::new(ParquetSource::new(table_schema));
+    // Push the query predicate into the Parquet reader when DVs are present.
+    // Row-group pruning / reader-level filtering is now safe because DV lookup
+    // is driven by the true Parquet row number rather than a running cursor, and
+    // correctness is still guaranteed by the `FilterExec` DataFusion retains
+    // above the scan (`supports_filters_pushdown` returns Inexact).
+    let file_source = {
+        let mut source = ParquetSource::new(table_schema);
+        if dvs_present {
+            if let Some(predicate) = physical_predicate.clone() {
+                source = source.with_predicate(predicate).with_pushdown_filters(true);
+            }
+        }
+        Arc::new(source)
+    };
 
     // Create plan for every partition with equality delete files. Partitions
     // whose only deletes are deletion vectors never reach `delete_file_groups`
@@ -1094,12 +1129,18 @@ async fn table_scan(
         }
     }
 
-    // Force the parquet scan to emit `__data_file_path` when DVs are present
-    // (so IcebergDvExec can look up the right bitmap). Strip it again from
-    // the output if the user did not opt in via DataFusionTableConfig.
-    let internal_projection = if dvs_present && !projection.contains(&data_file_path_col_idx) {
+    // Force the parquet scan to emit `__data_file_path` and the row-number
+    // virtual column when DVs are present, so IcebergDvExec can look up the
+    // right bitmap by true position. Both are stripped from the output again
+    // — the row-number column always, the path column only when the user did
+    // not opt in via DataFusionTableConfig.
+    let internal_projection = if dvs_present {
         let mut p = projection.clone();
-        p.push(data_file_path_col_idx);
+        if !p.contains(&data_file_path_col_idx) {
+            p.push(data_file_path_col_idx);
+        }
+        // The row-number column is always internal — never in the user projection.
+        p.push(row_number_col_idx.expect("row_number_col_idx is set when dvs_present"));
         p
     } else {
         projection.clone()
@@ -1127,6 +1168,7 @@ async fn table_scan(
                 other_plan,
                 dv_index.clone(),
                 DATA_FILE_PATH_COLUMN,
+                ROW_NUMBER_COLUMN,
                 strip_path_col,
             )?)
         } else {
@@ -1159,6 +1201,7 @@ async fn table_scan(
                 sorted_plan,
                 dv_index.clone(),
                 DATA_FILE_PATH_COLUMN,
+                ROW_NUMBER_COLUMN,
                 strip_path_col,
             )?)
         } else {
@@ -1802,6 +1845,181 @@ mod tests {
     use std::sync::Arc;
 
     use crate::{catalog::catalog::IcebergCatalog, table::fake_object_store_url, DataFusionTable};
+
+    /// End-to-end at the physical-plan level: a real `ParquetSource` scan
+    /// configured exactly as `table_scan` does for the DV path — with the
+    /// row-number virtual column and predicate pushdown — feeding
+    /// `IcebergDvExec`. Proves that (a) the Parquet reader materializes true
+    /// absolute row numbers even after pushdown drops rows, and (b) the DV
+    /// filter deletes by those true positions and strips the internal columns.
+    #[tokio::test]
+    async fn row_number_virtual_column_drives_dv_filter_with_pushdown() {
+        use datafusion::arrow::array::{Int64Array, RecordBatch};
+        use datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+        use datafusion::datasource::file_format::{parquet::ParquetFormat, FileFormat};
+        use datafusion::datasource::listing::PartitionedFile;
+        use datafusion::datasource::physical_plan::{
+            parquet::source::ParquetSource, FileGroup, FileScanConfigBuilder,
+        };
+        use datafusion::datasource::table_schema::TableSchema;
+        use datafusion::logical_expr::Operator;
+        use datafusion::parquet::arrow::{ArrowWriter, RowNumber};
+        use datafusion::parquet::file::properties::WriterProperties;
+        use datafusion::physical_expr::expressions::{BinaryExpr, Column, Literal};
+        use datafusion::physical_plan::{collect, PhysicalExpr};
+        use iceberg_rust::spec::{deletion_vector::DeletionVector, util};
+        use object_store::{memory::InMemory, path::Path as ObjPath, ObjectStoreExt, PutPayload};
+        use roaring::RoaringTreemap;
+        use std::collections::HashMap;
+
+        use super::{dv_exec, DATA_FILE_PATH_COLUMN, ROW_NUMBER_COLUMN};
+
+        // A single data file with 8 rows; row numbers are 0..8.
+        let file_schema = Arc::new(ArrowSchema::new(vec![Field::new(
+            "v",
+            DataType::Int64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            file_schema.clone(),
+            vec![Arc::new(Int64Array::from(vec![
+                0i64, 10, 20, 30, 40, 50, 60, 70,
+            ]))],
+        )
+        .unwrap();
+        // Two row groups of 4 rows each so a predicate can prune the first one
+        // by statistics, forcing the surviving rows to carry non-zero-based row
+        // numbers.
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let props = WriterProperties::builder()
+                .set_max_row_group_row_count(Some(4))
+                .build();
+            let mut writer =
+                ArrowWriter::try_new(&mut buf, file_schema.clone(), Some(props)).unwrap();
+            writer.write(&batch).unwrap();
+            writer.close().unwrap();
+        }
+        let size = buf.len() as u64;
+        let data_path = "data/f1.parquet";
+
+        let store = Arc::new(InMemory::new());
+        store
+            .put(&ObjPath::from(data_path), PutPayload::from(buf))
+            .await
+            .unwrap();
+
+        let object_store_url = fake_object_store_url("memory:///dv_row_number");
+        let ctx = SessionContext::new();
+        ctx.runtime_env()
+            .register_object_store(object_store_url.as_ref(), store);
+
+        // Builds a fresh scan plan configured exactly as the DV path does:
+        // file cols + `__data_file_path` partition col + row-number virtual col
+        // (index 2), with `v >= 40` pushed into the reader so the first row
+        // group (values 0..30) is pruned by statistics and only positions 4..8
+        // survive — carrying their true row numbers.
+        let build_scan = || async {
+            let table_schema = TableSchema::builder(file_schema.clone())
+                .with_table_partition_cols(vec![Arc::new(Field::new(
+                    DATA_FILE_PATH_COLUMN,
+                    DataType::Utf8,
+                    false,
+                ))])
+                .with_virtual_columns(vec![Arc::new(
+                    Field::new(ROW_NUMBER_COLUMN, DataType::Int64, false)
+                        .with_extension_type(RowNumber),
+                )])
+                .build();
+            let predicate: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
+                Arc::new(Column::new("v", 0)),
+                Operator::GtEq,
+                Arc::new(Literal::new(ScalarValue::Int64(Some(40)))),
+            ));
+            let source = ParquetSource::new(table_schema)
+                .with_predicate(predicate)
+                .with_pushdown_filters(true);
+            let mut file = PartitionedFile::new(data_path.to_string(), size);
+            file.partition_values = vec![ScalarValue::Utf8(Some(data_path.to_string()))];
+            let file_scan_config =
+                FileScanConfigBuilder::new(object_store_url.clone(), Arc::new(source))
+                    .with_file_group(FileGroup::new(vec![file]))
+                    .with_projection_indices(Some(vec![0usize, 1, 2]))
+                    .unwrap()
+                    .build();
+            ParquetFormat::default()
+                .create_physical_plan(&ctx.state(), file_scan_config)
+                .await
+                .unwrap()
+        };
+
+        // (a) The raw scan emits the surviving rows with their TRUE row numbers.
+        let task_ctx = ctx.task_ctx();
+        let raw = collect(build_scan().await, task_ctx.clone()).await.unwrap();
+        let row_number_idx = raw[0].schema().index_of(ROW_NUMBER_COLUMN).unwrap();
+        let v: Vec<i64> = raw
+            .iter()
+            .flat_map(|b| {
+                b.column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let positions: Vec<i64> = raw
+            .iter()
+            .flat_map(|b| {
+                b.column(row_number_idx)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(v, vec![40, 50, 60, 70]);
+        assert_eq!(
+            positions,
+            vec![4, 5, 6, 7],
+            "row numbers must be the true file positions after the first row group is pruned"
+        );
+
+        // (b) The DV deletes absolute position 5 (value 50). The internal
+        // columns are stripped, leaving just `v`.
+        let mut dvs = HashMap::new();
+        let mut tm = RoaringTreemap::new();
+        tm.insert(5);
+        dvs.insert(util::strip_prefix(data_path), DeletionVector::from(tm));
+        let dv_plan = Arc::new(
+            dv_exec::IcebergDvExec::try_new(
+                build_scan().await,
+                Arc::new(dvs),
+                DATA_FILE_PATH_COLUMN,
+                ROW_NUMBER_COLUMN,
+                /* strip_path_col */ true,
+            )
+            .unwrap(),
+        );
+        let filtered = collect(dv_plan, task_ctx).await.unwrap();
+        assert_eq!(filtered[0].num_columns(), 1, "internal columns stripped");
+        let kept: Vec<i64> = filtered
+            .iter()
+            .flat_map(|b| {
+                b.column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(kept, vec![40, 60, 70]);
+    }
 
     #[tokio::test]
     pub async fn test_datafusion_table_insert() {

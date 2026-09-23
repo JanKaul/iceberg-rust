@@ -63,7 +63,9 @@ async fn fetch_one(
 ) -> Result<(String, DeletionVector), Error> {
     let data_file = entry.data_file();
     let referenced = data_file.referenced_data_file().clone().ok_or_else(|| {
-        Error::InvalidFormat("deletion vector manifest entry is missing referenced_data_file".into())
+        Error::InvalidFormat(
+            "deletion vector manifest entry is missing referenced_data_file".into(),
+        )
     })?;
     let offset = data_file.content_offset().ok_or_else(|| {
         Error::InvalidFormat(format!(
@@ -103,7 +105,9 @@ mod tests {
 
     use iceberg_rust_spec::spec::{
         deletion_vector::DeletionVector,
-        manifest::{Content, DataFileBuilder, FileFormat, ManifestEntry, ManifestEntryBuilder, Status},
+        manifest::{
+            Content, DataFileBuilder, FileFormat, ManifestEntry, ManifestEntryBuilder, Status,
+        },
         puffin::{Blob, FileMetadata, PuffinWriter, STANDARD_BLOB_TYPE_DELETION_VECTOR_V1},
         table_metadata::FormatVersion,
         values::Struct,
@@ -113,12 +117,7 @@ mod tests {
 
     use super::load_deletion_vectors;
 
-    fn make_entry(
-        puffin_path: &str,
-        referenced: &str,
-        offset: i64,
-        size: i64,
-    ) -> ManifestEntry {
+    fn make_entry(puffin_path: &str, referenced: &str, offset: i64, size: i64) -> ManifestEntry {
         let data_file = DataFileBuilder::default()
             .with_content(Content::PositionDeletes)
             .with_file_path(puffin_path.to_string())
@@ -236,8 +235,18 @@ mod tests {
         let dv = dv_from(&[1]);
         let blobs = write_puffin(&*store, "/dvs/dup.puffin", &[&dv, &dv]).await;
         let entries = vec![
-            make_entry("/dvs/dup.puffin", "/data/same.parquet", blobs[0].0, blobs[0].1),
-            make_entry("/dvs/dup.puffin", "/data/same.parquet", blobs[1].0, blobs[1].1),
+            make_entry(
+                "/dvs/dup.puffin",
+                "/data/same.parquet",
+                blobs[0].0,
+                blobs[0].1,
+            ),
+            make_entry(
+                "/dvs/dup.puffin",
+                "/data/same.parquet",
+                blobs[1].0,
+                blobs[1].1,
+            ),
         ];
         let err = load_deletion_vectors(&entries, store).await.unwrap_err();
         match err {
