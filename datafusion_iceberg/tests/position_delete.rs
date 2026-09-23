@@ -23,9 +23,10 @@ use iceberg_rust::{
     spec::{
         manifest::{Content, DataFile, FileFormat, Status},
         namespace::Namespace,
+        partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         types::{PrimitiveType, StructField, Type},
-        values::{Struct, Value},
+        values::Struct,
     },
     table::Table,
 };
@@ -45,7 +46,12 @@ async fn run_query(query: &str, ctx: &SessionContext) -> Vec<RecordBatch> {
         .expect("query execution failed")
 }
 
-fn write_position_delete_file(path: &str, data_file_path: &str, positions: &[i64]) -> DataFile {
+fn write_position_delete_file(
+    path: &str,
+    data_file_path: &str,
+    partition: Struct,
+    positions: &[i64],
+) -> DataFile {
     let schema = Arc::new(ArrowSchema::new(vec![
         Field::new("file_path", DataType::Utf8, false).with_metadata(HashMap::from([(
             PARQUET_FIELD_ID_META_KEY.to_string(),
@@ -76,7 +82,7 @@ fn write_position_delete_file(path: &str, data_file_path: &str, positions: &[i64
         .with_content(Content::PositionDeletes)
         .with_file_path(path.to_string())
         .with_file_format(FileFormat::Parquet)
-        .with_partition(Struct::from_iter(Vec::<(String, Option<Value>)>::new()))
+        .with_partition(partition)
         .with_record_count(metadata.file_metadata().num_rows())
         .with_file_size_in_bytes(i64::try_from(file_size).unwrap())
         .with_column_sizes(None)
@@ -125,6 +131,52 @@ async fn applies_v2_position_deletes() {
             initial_default: None,
             write_default: None,
         })
+        .with_struct_field(StructField {
+            id: 3,
+            name: "__data_file_path".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+            initial_default: None,
+            write_default: None,
+        })
+        .with_struct_field(StructField {
+            id: 4,
+            name: "__iceberg_file_row_position".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::String),
+            doc: None,
+            initial_default: None,
+            write_default: None,
+        })
+        .with_struct_field(StructField {
+            id: 5,
+            name: "__iceberg_data_sequence_number".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::String),
+            doc: None,
+            initial_default: None,
+            write_default: None,
+        })
+        .with_struct_field(StructField {
+            id: 6,
+            name: "category".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::String),
+            doc: None,
+            initial_default: None,
+            write_default: None,
+        })
+        .build()
+        .unwrap();
+
+    let partition_spec = PartitionSpec::builder()
+        .with_partition_field(PartitionField::new(
+            6,
+            1000,
+            "category",
+            Transform::Identity,
+        ))
         .build()
         .unwrap();
 
@@ -132,6 +184,7 @@ async fn applies_v2_position_deletes() {
         .with_name("orders")
         .with_location(&table_dir)
         .with_schema(schema)
+        .with_partition_spec(partition_spec)
         .build(&["test".to_owned()], catalog.clone())
         .await
         .unwrap();
@@ -144,8 +197,12 @@ async fn applies_v2_position_deletes() {
 
     run_query(
         "INSERT INTO warehouse.test.orders VALUES
-            (1, 'one'), (2, 'two'), (3, 'three'),
-            (4, 'four'), (5, 'five'), (6, 'six')",
+            (1, 'one', 101, 'row-one', 'seq-one', 'a'),
+            (2, 'two', 102, 'row-two', 'seq-two', 'a'),
+            (3, 'three', 103, 'row-three', 'seq-three', 'a'),
+            (4, 'four', 104, 'row-four', 'seq-four', 'a'),
+            (5, 'five', 105, 'row-five', 'seq-five', 'a'),
+            (6, 'six', 106, 'row-six', 'seq-six', 'a')",
         &ctx,
     )
     .await;
@@ -169,6 +226,7 @@ async fn applies_v2_position_deletes() {
         })
         .unwrap();
     let data_file_path = data_manifest_entry.data_file().file_path().clone();
+    let partition = data_manifest_entry.data_file().partition().clone();
 
     let delete_dir = format!("{table_dir}/data");
     std::fs::create_dir_all(&delete_dir).unwrap();
@@ -176,11 +234,13 @@ async fn applies_v2_position_deletes() {
         write_position_delete_file(
             &format!("{delete_dir}/position-delete-1.parquet"),
             &data_file_path,
+            partition.clone(),
             &[1, 4],
         ),
         write_position_delete_file(
             &format!("{delete_dir}/position-delete-2.parquet"),
             &data_file_path,
+            partition,
             &[4, 5],
         ),
     ];
@@ -211,6 +271,26 @@ async fn applies_v2_position_deletes() {
     );
 
     let batches = run_query(
+        "SELECT __iceberg_data_sequence_number, id, __data_file_path,
+                __iceberg_file_row_position
+         FROM warehouse.test.orders ORDER BY id",
+        &ctx,
+    )
+    .await;
+    assert_batches_eq!(
+        [
+            "+--------------------------------+----+------------------+-----------------------------+",
+            "| __iceberg_data_sequence_number | id | __data_file_path | __iceberg_file_row_position |",
+            "+--------------------------------+----+------------------+-----------------------------+",
+            "| seq-one                        | 1  | 101              | row-one                     |",
+            "| seq-three                      | 3  | 103              | row-three                   |",
+            "| seq-four                       | 4  | 104              | row-four                    |",
+            "+--------------------------------+----+------------------+-----------------------------+",
+        ],
+        &batches
+    );
+
+    let batches = run_query(
         "SELECT id FROM warehouse.test.orders WHERE id IN (2, 3, 5) ORDER BY id",
         &ctx,
     )
@@ -221,7 +301,9 @@ async fn applies_v2_position_deletes() {
     );
 
     run_query(
-        "INSERT INTO warehouse.test.orders VALUES (7, 'seven'), (8, 'eight')",
+        "INSERT INTO warehouse.test.orders VALUES
+            (7, 'seven', 107, 'row-seven', 'seq-seven', 'a'),
+            (8, 'eight', 108, 'row-eight', 'seq-eight', 'a')",
         &ctx,
     )
     .await;
@@ -236,10 +318,25 @@ async fn applies_v2_position_deletes() {
     );
 
     let equality_rows = run_query(
-        "SELECT id FROM warehouse.test.orders WHERE id IN (3, 7)",
+        "SELECT id, category FROM warehouse.test.orders WHERE id IN (3, 7)",
         &ctx,
     )
     .await;
+    let equality_schema = Arc::new(ArrowSchema::new(vec![
+        Field::new("id", DataType::Int64, false).with_metadata(HashMap::from([(
+            PARQUET_FIELD_ID_META_KEY.to_string(),
+            "1".to_string(),
+        )])),
+        Field::new("category", DataType::Utf8, false).with_metadata(HashMap::from([(
+            PARQUET_FIELD_ID_META_KEY.to_string(),
+            "6".to_string(),
+        )])),
+    ]));
+    let equality_rows = equality_rows
+        .into_iter()
+        .map(|batch| RecordBatch::try_new(equality_schema.clone(), batch.columns().to_vec()))
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
     let Tabular::Table(mut table) = catalog.clone().load_tabular(&identifier).await.unwrap() else {
         panic!("orders should be an Iceberg table");
     };
@@ -247,7 +344,7 @@ async fn applies_v2_position_deletes() {
         &table,
         stream::iter(equality_rows.into_iter().map(Ok::<_, ArrowError>)),
         None,
-        &[1],
+        &[1, 6],
     )
     .await
     .unwrap();
