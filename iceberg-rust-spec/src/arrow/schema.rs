@@ -102,7 +102,7 @@ impl TryFrom<&Type> for DataType {
                     TimeUnit::Nanosecond,
                     Some(Arc::from("UTC")),
                 )),
-                PrimitiveType::String => Ok(DataType::Utf8),
+                PrimitiveType::String => Ok(DataType::Utf8View),
                 PrimitiveType::Uuid => Ok(DataType::Utf8),
                 PrimitiveType::Fixed(len) => Ok(DataType::FixedSizeBinary(*len as i32)),
                 PrimitiveType::Binary => Ok(DataType::Binary),
@@ -342,7 +342,7 @@ mod tests {
         assert!(!arrow_schema.field(0).is_nullable());
         assert_eq!(arrow_schema.field(1).name(), "field2");
         assert_eq!(get_field_id(arrow_schema.field(1)).unwrap(), 2);
-        assert_eq!(arrow_schema.field(1).data_type(), &DataType::Utf8);
+        assert_eq!(arrow_schema.field(1).data_type(), &DataType::Utf8View);
         assert!(arrow_schema.field(1).is_nullable());
     }
 
@@ -466,7 +466,7 @@ mod tests {
                 assert_eq!(entry_fields.len(), 2);
                 assert_eq!(entry_fields[0].name(), "key");
                 assert_eq!(get_field_id(&entry_fields[0]).unwrap(), 3);
-                assert_eq!(entry_fields[0].data_type(), &DataType::Utf8);
+                assert_eq!(entry_fields[0].data_type(), &DataType::Utf8View);
                 assert!(!entry_fields[0].is_nullable());
                 assert_eq!(entry_fields[1].name(), "value");
                 assert_eq!(get_field_id(&entry_fields[1]).unwrap(), 4);
@@ -603,7 +603,7 @@ mod tests {
                 assert_eq!(entry_fields.len(), 2);
                 assert_eq!(entry_fields[0].name(), "key");
                 assert_eq!(get_field_id(&entry_fields[0]).unwrap(), 7);
-                assert_eq!(entry_fields[0].data_type(), &DataType::Utf8);
+                assert_eq!(entry_fields[0].data_type(), &DataType::Utf8View);
                 assert!(!entry_fields[0].is_nullable());
 
                 // Check the value (list of structs)

@@ -278,6 +278,9 @@ fn any_iter_to_array(
         DataType::Utf8 => ScalarValue::iter_to_array(iter.map(|opt| {
             ScalarValue::Utf8(opt.and_then(|value| Some(*value.downcast::<String>().ok()?)))
         })),
+        DataType::Utf8View => ScalarValue::iter_to_array(iter.map(|opt| {
+            ScalarValue::Utf8View(opt.and_then(|value| Some(*value.downcast::<String>().ok()?)))
+        })),
         DataType::FixedSizeBinary(_) => ScalarValue::iter_to_array(iter.map(|opt| {
             ScalarValue::Binary(opt.and_then(|value| Some(*value.downcast::<Vec<u8>>().ok()?)))
         })),
