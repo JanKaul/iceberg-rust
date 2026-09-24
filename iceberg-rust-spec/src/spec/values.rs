@@ -269,8 +269,24 @@ impl Struct {
                     let datatype = map
                         .get(name)
                         .ok_or(Error::InvalidFormat("partition_struct".to_string()))?;
-                    // Cast the value to the datatype
-                    let value = field.map(|value| value.cast(datatype)).transpose()?;
+                    // Partition values follow schema promotions, while transform outputs such as
+                    // Int -> Date retain the existing value-cast behavior.
+                    let value = field
+                        .map(|value| {
+                            let source_type = value.datatype();
+                            match (&source_type, datatype) {
+                                (
+                                    Type::Primitive(PrimitiveType::Int),
+                                    Type::Primitive(PrimitiveType::Long),
+                                )
+                                | (
+                                    Type::Primitive(PrimitiveType::Float),
+                                    Type::Primitive(PrimitiveType::Double),
+                                ) => value.promote_iceberg(&source_type, datatype),
+                                _ => value.cast(datatype),
+                            }
+                        })
+                        .transpose()?;
                     Ok((name.clone(), value))
                 })
                 .collect::<Result<Vec<_>, Error>>()?,
@@ -784,6 +800,40 @@ impl Value {
                 }
                 _ => Err(Error::NotSupported("cast".to_string())),
             }
+        }
+    }
+
+    /// Applies only schema promotions allowed by the Iceberg specification.
+    pub fn promote_iceberg(self, source_type: &Type, target_type: &Type) -> Result<Self, Error> {
+        if source_type == target_type {
+            return Ok(self);
+        }
+
+        match (self, source_type, target_type) {
+            (
+                Value::Int(input),
+                Type::Primitive(PrimitiveType::Int),
+                Type::Primitive(PrimitiveType::Long),
+            ) => Ok(Value::LongInt(i64::from(input))),
+            (
+                Value::Float(input),
+                Type::Primitive(PrimitiveType::Float),
+                Type::Primitive(PrimitiveType::Double),
+            ) => Ok(Value::Double(OrderedFloat(f64::from(input.0)))),
+            (
+                value @ Value::Decimal(_),
+                Type::Primitive(PrimitiveType::Decimal {
+                    precision: source_precision,
+                    scale: source_scale,
+                }),
+                Type::Primitive(PrimitiveType::Decimal {
+                    precision: target_precision,
+                    scale: target_scale,
+                }),
+            ) if source_scale == target_scale && source_precision <= target_precision => Ok(value),
+            _ => Err(Error::NotSupported(format!(
+                "Iceberg schema promotion from {source_type} to {target_type}"
+            ))),
         }
     }
 }
@@ -1783,6 +1833,41 @@ mod tests {
                 target
             );
         }
+    }
+
+    #[test]
+    fn partition_struct_cast_uses_iceberg_float_promotion() {
+        let partition = Struct::from_iter([(
+            "id_partition".to_string(),
+            Some(Value::Float(OrderedFloat(34.11))),
+        )]);
+        let schema = StructType::new(vec![StructField {
+            id: 1,
+            name: "id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Double),
+            doc: None,
+            initial_default: None,
+            write_default: None,
+        }]);
+        let partition_spec = [PartitionField::new(
+            1,
+            1000,
+            "id_partition",
+            Transform::Identity,
+        )];
+
+        let promoted = partition.cast(&schema, &partition_spec).unwrap();
+        assert_eq!(
+            promoted.get("id_partition"),
+            Some(&Some(Value::Double(OrderedFloat(f64::from(34.11_f32)))))
+        );
+        assert!(
+            Value::Float(OrderedFloat(34.11))
+                .cast(&Type::Primitive(PrimitiveType::Double))
+                .is_err(),
+            "partition promotion must not widen the generic Value::cast API"
+        );
     }
 
     fn all_other_primitive_types(excluded: &[PrimitiveType]) -> Vec<Type> {

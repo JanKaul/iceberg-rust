@@ -24,6 +24,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use crate::{error::Error, partition::BoundPartitionField};
 
 use super::{
+    decimal::decimal_scale,
     partition::PartitionSpec,
     schema::Schema,
     table_metadata::FormatVersion,
@@ -84,6 +85,21 @@ impl ManifestEntry {
     /// Modifying this allows updating which snapshot this manifest entry belongs to.
     pub fn snapshot_id_mut(&mut self) -> &mut Option<i64> {
         &mut self.snapshot_id
+    }
+
+    /// Casts this entry's partition tuple to the output types of `partition_spec` under `schema`.
+    pub fn cast_partition(
+        mut self,
+        schema: &Schema,
+        partition_spec: &PartitionSpec,
+    ) -> Result<Self, Error> {
+        self.data_file.promote_bounds_to_schema(schema);
+        let partition = std::mem::replace(
+            &mut self.data_file.partition,
+            Struct::from_iter(Vec::<(String, Option<Value>)>::new()),
+        );
+        self.data_file.partition = partition.cast(schema.fields(), partition_spec.fields())?;
+        Ok(self)
     }
 }
 
@@ -718,6 +734,77 @@ pub struct DataFile {
 impl DataFile {
     pub fn builder() -> DataFileBuilder {
         DataFileBuilder::default()
+    }
+
+    /// Promotes column bounds to a rewritten manifest's schema.
+    ///
+    /// Incompatible metrics are discarded because bounds are optional pruning metadata.
+    pub fn promote_bounds_to_schema(&mut self, schema: &Schema) {
+        for bounds in [&mut self.lower_bounds, &mut self.upper_bounds]
+            .into_iter()
+            .flatten()
+        {
+            bounds.retain(|field_id, value| {
+                let Some(field_type) = field_type_by_id(schema.fields(), *field_id) else {
+                    return true;
+                };
+                let source_type = value.datatype();
+                if source_type == *field_type
+                    || matches!(
+                        (&*value, field_type),
+                        (
+                            Value::Decimal(decimal),
+                            Type::Primitive(PrimitiveType::Decimal { scale, .. })
+                        ) if decimal_scale(decimal) == *scale
+                    )
+                {
+                    return true;
+                }
+                match value.clone().promote_iceberg(&source_type, field_type) {
+                    Ok(promoted) => {
+                        *value = promoted;
+                        true
+                    }
+                    Err(_) => false,
+                }
+            });
+        }
+    }
+}
+
+fn field_type_by_id(fields: &StructType, field_id: i32) -> Option<&Type> {
+    if let Ok(field_id) = usize::try_from(field_id) {
+        if let Some(field) = fields.get(field_id) {
+            return Some(&field.field_type);
+        }
+    }
+
+    fields
+        .iter()
+        .find_map(|field| nested_type_by_id(&field.field_type, field_id))
+}
+
+fn nested_type_by_id(data_type: &Type, field_id: i32) -> Option<&Type> {
+    match data_type {
+        Type::Primitive(_) => None,
+        Type::Struct(fields) => field_type_by_id(fields, field_id),
+        Type::List(list) => {
+            if list.element_id == field_id {
+                Some(&list.element)
+            } else {
+                nested_type_by_id(&list.element, field_id)
+            }
+        }
+        Type::Map(map) => {
+            if map.key_id == field_id {
+                Some(&map.key)
+            } else if map.value_id == field_id {
+                Some(&map.value)
+            } else {
+                nested_type_by_id(&map.key, field_id)
+                    .or_else(|| nested_type_by_id(&map.value, field_id))
+            }
+        }
     }
 }
 
@@ -1945,6 +2032,7 @@ impl DataFileV2 {
 #[cfg(test)]
 mod tests {
     use crate::spec::{
+        decimal::decimal_from_i128_with_scale,
         partition::{PartitionField, Transform},
         table_metadata::TableMetadataBuilder,
         types::{PrimitiveType, StructField, Type},
@@ -1953,6 +2041,61 @@ mod tests {
 
     use super::*;
     use apache_avro::{self, types::Value as AvroValue};
+
+    #[test]
+    fn unchanged_decimal_and_string_bounds_survive_schema_normalization() {
+        let schema = Schema::from_struct_type(
+            StructType::new(vec![
+                StructField::new(
+                    1,
+                    "decimal_value",
+                    false,
+                    Type::Primitive(PrimitiveType::Decimal {
+                        precision: 10,
+                        scale: 2,
+                    }),
+                    None,
+                ),
+                StructField::new(
+                    2,
+                    "string_value",
+                    false,
+                    Type::Primitive(PrimitiveType::String),
+                    None,
+                ),
+            ]),
+            1,
+            None,
+        );
+        let bounds = HashMap::from([
+            (
+                1,
+                Value::Decimal(decimal_from_i128_with_scale(12_345, 2).unwrap()),
+            ),
+            (2, Value::String("unchanged".to_string())),
+        ]);
+        let mut data_file = DataFile::builder()
+            .with_content(Content::Data)
+            .with_file_path("data.parquet".to_string())
+            .with_file_format(FileFormat::Parquet)
+            .with_partition(Struct::from_iter(Vec::<(String, Option<Value>)>::new()))
+            .with_record_count(1)
+            .with_file_size_in_bytes(1)
+            .with_column_sizes(None)
+            .with_value_counts(None)
+            .with_null_value_counts(None)
+            .with_nan_value_counts(None)
+            .with_distinct_counts(None)
+            .with_lower_bounds(Some(bounds.clone()))
+            .with_upper_bounds(Some(bounds.clone()))
+            .build()
+            .unwrap();
+
+        data_file.promote_bounds_to_schema(&schema);
+
+        assert_eq!(data_file.lower_bounds(), &Some(bounds.clone()));
+        assert_eq!(data_file.upper_bounds(), &Some(bounds));
+    }
 
     fn row_id_entry(
         status: Status,
