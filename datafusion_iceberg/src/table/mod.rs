@@ -658,8 +658,11 @@ async fn table_scan(
                 let pruning_predicate = PruningPredicateBuilder::new()
                     .with_file_schema(partition_schema.clone())
                     .try_build(physical_partition_predicate)?;
-                let manifests_to_prune =
-                    pruning_predicate.prune(&PruneManifests::new(partition_fields, &manifests))?;
+                let manifests_to_prune = pruning_predicate.prune(&PruneManifests::new(
+                    partition_fields,
+                    table.metadata().default_spec_id,
+                    &manifests,
+                ))?;
 
                 table
                     .datafiles(&manifests, Some(manifests_to_prune), sequence_number_range)

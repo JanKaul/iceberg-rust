@@ -48,16 +48,19 @@ use iceberg_rust::{
 
 pub(crate) struct PruneManifests<'table, 'manifests> {
     partition_fields: &'table [BoundPartitionField<'table>],
+    partition_spec_id: i32,
     files: &'manifests [ManifestListEntry],
 }
 
 impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
     pub(crate) fn new(
         partition_fields: &'table [BoundPartitionField<'table>],
+        partition_spec_id: i32,
         files: &'manifests [ManifestListEntry],
     ) -> Self {
         Self {
             partition_fields,
+            partition_spec_id,
             files,
         }
     }
@@ -74,13 +77,14 @@ impl PruningStatistics for PruneManifests<'_, '_> {
             .field_type()
             .tranform(partition_field.transform())
             .ok()?;
-        let min_values = self.files.iter().filter_map(|manifest| {
-            manifest.partitions.as_ref().and_then(|partitions| {
-                partitions[index]
-                    .lower_bound
-                    .as_ref()
-                    .map(|min| Some(min.clone().into_any()))
-            })
+        let min_values = self.files.iter().map(|manifest| {
+            (manifest.partition_spec_id == self.partition_spec_id)
+                .then_some(manifest)
+                .and_then(|manifest| manifest.partitions.as_ref())
+                .and_then(|partitions| partitions.get(index))
+                .and_then(|partition| partition.lower_bound.as_ref())
+                .and_then(|min| min.clone().cast(&data_type).ok())
+                .map(Value::into_any)
         });
         any_iter_to_array(min_values, &(&data_type).try_into().ok()?).ok()
     }
@@ -94,13 +98,14 @@ impl PruningStatistics for PruneManifests<'_, '_> {
             .field_type()
             .tranform(partition_field.transform())
             .ok()?;
-        let max_values = self.files.iter().filter_map(|manifest| {
-            manifest.partitions.as_ref().and_then(|partitions| {
-                partitions[index]
-                    .upper_bound
-                    .as_ref()
-                    .map(|max| Some(max.clone().into_any()))
-            })
+        let max_values = self.files.iter().map(|manifest| {
+            (manifest.partition_spec_id == self.partition_spec_id)
+                .then_some(manifest)
+                .and_then(|manifest| manifest.partitions.as_ref())
+                .and_then(|partitions| partitions.get(index))
+                .and_then(|partition| partition.upper_bound.as_ref())
+                .and_then(|max| max.clone().cast(&data_type).ok())
+                .map(Value::into_any)
         });
         any_iter_to_array(max_values, &(&data_type).try_into().ok()?).ok()
     }
@@ -113,14 +118,12 @@ impl PruningStatistics for PruneManifests<'_, '_> {
             .iter()
             .enumerate()
             .find(|(_, field)| field.source_name() == column.name())?;
-        let contains_null = self.files.iter().filter_map(|manifest| {
-            manifest.partitions.as_ref().map(|partitions| {
-                if !partitions[index].contains_null {
-                    Some(0)
-                } else {
-                    None
-                }
-            })
+        let contains_null = self.files.iter().map(|manifest| {
+            (manifest.partition_spec_id == self.partition_spec_id)
+                .then_some(manifest)
+                .and_then(|manifest| manifest.partitions.as_ref())
+                .and_then(|partitions| partitions.get(index))
+                .and_then(|partition| (!partition.contains_null).then_some(0))
         });
         ScalarValue::iter_to_array(contains_null.map(ScalarValue::Int32)).ok()
     }
@@ -169,7 +172,8 @@ impl<'table, 'manifests> PruneDataFiles<'table, 'manifests> {
 
 impl PruningStatistics for PruneDataFiles<'_, '_> {
     fn min_values(&self, column: &Column) -> Option<ArrayRef> {
-        let column_id = self.schema.fields().get_name(&column.name)?.id;
+        let field = self.schema.fields().get_name(&column.name)?;
+        let column_id = field.id;
         let datatype = self
             .arrow_schema
             .field_with_name(&column.name)
@@ -179,15 +183,20 @@ impl PruningStatistics for PruneDataFiles<'_, '_> {
             self.files
                 .iter()
                 .map(|manifest| match &manifest.1.data_file().lower_bounds() {
-                    Some(map) => map
-                        .get(&{ column_id })
-                        .map(|value| value.clone().into_any()),
+                    Some(map) => map.get(&column_id).and_then(|value| {
+                        value
+                            .clone()
+                            .cast(&field.field_type)
+                            .ok()
+                            .map(Value::into_any)
+                    }),
                     None => None,
                 });
         any_iter_to_array(min_values, datatype).ok()
     }
     fn max_values(&self, column: &Column) -> Option<ArrayRef> {
-        let column_id = self.schema.fields().get_name(&column.name)?.id;
+        let field = self.schema.fields().get_name(&column.name)?;
+        let column_id = field.id;
         let datatype = self
             .arrow_schema
             .field_with_name(&column.name)
@@ -197,9 +206,13 @@ impl PruningStatistics for PruneDataFiles<'_, '_> {
             self.files
                 .iter()
                 .map(|manifest| match &manifest.1.data_file().upper_bounds() {
-                    Some(map) => map
-                        .get(&{ column_id })
-                        .map(|value| value.clone().into_any()),
+                    Some(map) => map.get(&column_id).and_then(|value| {
+                        value
+                            .clone()
+                            .cast(&field.field_type)
+                            .ok()
+                            .map(Value::into_any)
+                    }),
                     None => None,
                 });
         any_iter_to_array(max_values, datatype).ok()
@@ -513,12 +526,119 @@ fn value_to_scalarvalue(value: Value) -> Result<ScalarValue, Error> {
 mod tests {
     use super::*;
     use datafusion::arrow::array::{
-        Array, Date32Array, Decimal128Array, TimestampMicrosecondArray,
+        Array, Date32Array, Decimal128Array, Int64Array, TimestampMicrosecondArray,
     };
     use datafusion::arrow::datatypes::Field;
     use datafusion::common::config::ConfigOptions;
     use iceberg_rust::spec::decimal::decimal_from_i128_with_scale;
+    use iceberg_rust::spec::{
+        manifest::{Content, DataFile, FileFormat, Status},
+        manifest_list::{Content as ManifestContent, FieldSummary},
+        partition::PartitionField,
+        table_metadata::FormatVersion,
+        types::{PrimitiveType, StructField, StructType, Type},
+        values::Struct,
+    };
     use std::sync::Arc;
+
+    #[test]
+    fn manifest_pruning_does_not_compare_different_partition_specs() {
+        let source = StructField::new(2, "b", false, Type::Primitive(PrimitiveType::Long), None);
+        let partition = PartitionField::new(2, 1000, "b", Transform::Identity);
+        let fields = [BoundPartitionField::new(&partition, &source)];
+        let entry = |spec_id, lower: Value| ManifestListEntry {
+            format_version: FormatVersion::V2,
+            manifest_path: format!("/{spec_id}.avro"),
+            manifest_length: 1,
+            partition_spec_id: spec_id,
+            content: ManifestContent::Data,
+            sequence_number: 1,
+            min_sequence_number: 1,
+            added_snapshot_id: 1,
+            added_files_count: Some(1),
+            existing_files_count: Some(0),
+            deleted_files_count: Some(0),
+            added_rows_count: Some(1),
+            existing_rows_count: Some(0),
+            deleted_rows_count: Some(0),
+            partitions: Some(vec![FieldSummary {
+                contains_null: false,
+                contains_nan: None,
+                lower_bound: Some(lower.clone()),
+                upper_bound: Some(lower),
+            }]),
+            key_metadata: None,
+            first_row_id: None,
+        };
+        let manifests = vec![
+            entry(0, Value::Int(1000)),
+            entry(1, Value::LongInt(3)),
+            entry(1, Value::Int(-42)),
+        ];
+        let pruning = PruneManifests::new(&fields, 1, &manifests);
+        let minimums = pruning.min_values(&Column::from_name("b")).unwrap();
+        let minimums = minimums.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(minimums.len(), 3);
+        assert!(minimums.is_null(0));
+        assert_eq!(minimums.value(1), 3);
+        assert_eq!(minimums.value(2), -42);
+        let maximums = pruning.max_values(&Column::from_name("b")).unwrap();
+        let maximums = maximums.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert!(maximums.is_null(0));
+        assert_eq!(maximums.value(2), -42);
+        let null_counts = pruning.null_counts(&Column::from_name("b")).unwrap();
+        assert!(null_counts.is_null(0));
+    }
+
+    #[test]
+    fn data_file_pruning_promotes_old_numeric_bounds_and_keeps_unknowns() {
+        let schema = Schema::from_struct_type(
+            StructType::new(vec![StructField::new(
+                1,
+                "id",
+                false,
+                Type::Primitive(PrimitiveType::Long),
+                None,
+            )]),
+            1,
+            None,
+        );
+        let arrow_schema = ArrowSchema::new(vec![Field::new("id", DataType::Int64, true)]);
+        let entry = |lower: Value| {
+            let file = DataFile::builder()
+                .with_content(Content::Data)
+                .with_file_path("/data.parquet".into())
+                .with_file_format(FileFormat::Parquet)
+                .with_partition(Struct::from_iter(Vec::<(String, Option<Value>)>::new()))
+                .with_record_count(1)
+                .with_file_size_in_bytes(1)
+                .with_column_sizes(None)
+                .with_value_counts(None)
+                .with_null_value_counts(None)
+                .with_nan_value_counts(None)
+                .with_distinct_counts(None)
+                .with_lower_bounds(Some(std::collections::HashMap::from([(1, lower)])))
+                .with_upper_bounds(None)
+                .build()
+                .unwrap();
+            ManifestEntry::builder()
+                .with_format_version(FormatVersion::V2)
+                .with_status(Status::Added)
+                .with_data_file(file)
+                .build()
+                .unwrap()
+        };
+        let files = vec![
+            ("old".into(), entry(Value::Int(-42))),
+            ("unknown".into(), entry(Value::String("invalid".into()))),
+        ];
+        let pruning = PruneDataFiles::new(&schema, &arrow_schema, &files);
+        let min_values = pruning.min_values(&Column::from_name("id")).unwrap();
+        let min_values = min_values.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(min_values.len(), 2);
+        assert_eq!(min_values.value(0), -42);
+        assert!(min_values.is_null(1));
+    }
 
     /// Helper: invoke `DateTransform` directly with a transform name and scalar value.
     fn invoke_date_transform(

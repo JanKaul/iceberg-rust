@@ -119,6 +119,7 @@ pub(crate) fn manifest_statistics(schema: &Schema, manifest: &ManifestEntry) -> 
 }
 
 fn convert_value_to_scalar_value(value: Value, field_type: &Type) -> Result<ScalarValue, Error> {
+    let value = value.cast(field_type)?;
     match value {
         Value::Boolean(b) => Ok(ScalarValue::Boolean(Some(b))),
         Value::Int(i) => Ok(ScalarValue::Int32(Some(i))),
@@ -230,5 +231,39 @@ mod tests {
         .unwrap();
 
         assert_eq!(scalar, ScalarValue::Decimal128(Some(mantissa), 38, 0));
+    }
+
+    #[test]
+    fn promotes_numeric_bounds_to_scan_schema() {
+        assert_eq!(
+            convert_value_to_scalar_value(Value::Int(-42), &Type::Primitive(PrimitiveType::Long))
+                .unwrap(),
+            ScalarValue::Int64(Some(-42))
+        );
+        assert_eq!(
+            convert_value_to_scalar_value(
+                Value::try_from_bytes(
+                    &1.25_f32.to_le_bytes(),
+                    &Type::Primitive(PrimitiveType::Float),
+                )
+                .unwrap(),
+                &Type::Primitive(PrimitiveType::Double),
+            )
+            .unwrap(),
+            ScalarValue::Float64(Some(1.25))
+        );
+    }
+
+    #[test]
+    fn preserves_decimal_bound_with_declared_precision() {
+        let field_type = Type::Primitive(PrimitiveType::Decimal {
+            precision: 10,
+            scale: 2,
+        });
+        let value = Value::Decimal(decimal_from_i128_with_scale(1234, 2).unwrap());
+        assert_eq!(
+            convert_value_to_scalar_value(value, &field_type).unwrap(),
+            ScalarValue::Decimal128(Some(1234), 10, 2)
+        );
     }
 }

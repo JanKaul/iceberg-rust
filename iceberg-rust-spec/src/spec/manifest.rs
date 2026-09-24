@@ -645,9 +645,24 @@ impl AvroMap<ByteBuf> {
             .into_iter()
             .filter_map(|(k, v)| {
                 let field = schema.get(k as usize)?;
-                Some(Value::try_from_bytes(&v, &field.field_type).map(|val| (k, val)))
+                Some(decode_bound(&v, &field.field_type).map(|val| (k, val)))
             })
             .collect()
+    }
+}
+
+pub(crate) fn decode_bound(bytes: &[u8], data_type: &Type) -> Result<Value, Error> {
+    match (data_type, bytes.len()) {
+        (Type::Primitive(PrimitiveType::Long), 4) => Ok(Value::LongInt(i64::from(
+            i32::from_le_bytes(bytes.try_into()?),
+        ))),
+        (Type::Primitive(PrimitiveType::Double), 4) => Ok(Value::Double(
+            ordered_float::OrderedFloat(f64::from(f32::from_le_bytes(bytes.try_into()?))),
+        )),
+        (Type::Primitive(PrimitiveType::Timestamp), 4) => {
+            Value::Date(i32::from_le_bytes(bytes.try_into()?)).cast(data_type)
+        }
+        _ => Value::try_from_bytes(bytes, data_type),
     }
 }
 
@@ -1953,6 +1968,92 @@ mod tests {
 
     use super::*;
     use apache_avro::{self, types::Value as AvroValue};
+
+    #[test]
+    fn numeric_bounds_decode_against_manifest_schema() {
+        let old_schema = StructType::new(vec![
+            StructField::new(1, "id", false, Type::Primitive(PrimitiveType::Int), None),
+            StructField::new(
+                2,
+                "score",
+                false,
+                Type::Primitive(PrimitiveType::Float),
+                None,
+            ),
+        ]);
+        let promoted_schema = StructType::new(vec![
+            StructField::new(1, "id", false, Type::Primitive(PrimitiveType::Long), None),
+            StructField::new(
+                2,
+                "score",
+                false,
+                Type::Primitive(PrimitiveType::Double),
+                None,
+            ),
+        ]);
+        let bounds: AvroMap<ByteBuf> = HashMap::from([
+            (1, Value::Int(-42)),
+            (2, Value::Float(ordered_float::OrderedFloat(1.25))),
+        ])
+        .into();
+        assert_eq!(bounds.0[&1].len(), 4);
+        assert_eq!(bounds.0[&2].len(), 4);
+
+        let old = bounds.clone().into_value_map(&old_schema).unwrap();
+        assert_eq!(old.get(&1), Some(&Value::Int(-42)));
+        assert_eq!(
+            old.get(&2),
+            Some(&Value::Float(ordered_float::OrderedFloat(1.25)))
+        );
+        let round_trip: AvroMap<ByteBuf> = old.into();
+        assert_eq!(round_trip.0, bounds.0);
+
+        let promoted = bounds.into_value_map(&promoted_schema).unwrap();
+        assert_eq!(promoted.get(&1), Some(&Value::LongInt(-42)));
+        assert_eq!(
+            promoted.get(&2),
+            Some(&Value::Double(ordered_float::OrderedFloat(1.25)))
+        );
+    }
+
+    #[test]
+    fn numeric_bounds_reject_unknown_width_and_skip_unknown_fields() {
+        let schema = StructType::new(vec![StructField::new(
+            1,
+            "id",
+            false,
+            Type::Primitive(PrimitiveType::Long),
+            None,
+        )]);
+        let bounds = AvroMap(HashMap::from([
+            (1, ByteBuf::from((-7_i32).to_le_bytes())),
+            (999, ByteBuf::from([0_u8, 1_u8, 2_u8])),
+        ]));
+        let decoded = bounds.into_value_map(&schema).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded.get(&1), Some(&Value::LongInt(-7)));
+        assert!(decode_bound(&[0, 1, 2], &Type::Primitive(PrimitiveType::Long)).is_err());
+        assert!(decode_bound(&[0, 1, 2], &Type::Primitive(PrimitiveType::Double)).is_err());
+        assert!(decode_bound(&[0, 1, 2], &Type::Primitive(PrimitiveType::Timestamp)).is_err());
+    }
+
+    #[test]
+    fn date_bound_promotes_to_microsecond_timestamp() {
+        let days = 19_000_i32;
+        assert_eq!(
+            decode_bound(
+                &days.to_le_bytes(),
+                &Type::Primitive(PrimitiveType::Timestamp)
+            )
+            .unwrap(),
+            Value::Timestamp(i64::from(days) * 86_400_000_000)
+        );
+        assert!(decode_bound(
+            &i32::MAX.to_le_bytes(),
+            &Type::Primitive(PrimitiveType::Timestamp),
+        )
+        .is_err());
+    }
 
     fn row_id_entry(
         status: Status,
