@@ -29,10 +29,20 @@ use iceberg_rust_spec::spec::manifest::{FileFormat, ManifestEntry};
 // implementation never needs to fall back to suffix range requests to
 // locate the Parquet footer.
 // TODO: Consider wrapping this with `parquet::arrow::async_reader::SpawnedReader` at some point.
-struct DataFileReader {
+pub(crate) struct DataFileReader {
     object_store: Arc<dyn ObjectStore>,
     path: Path,
     file_size: u64,
+}
+
+impl DataFileReader {
+    pub(crate) fn new(object_store: Arc<dyn ObjectStore>, path: Path, file_size: u64) -> Self {
+        Self {
+            object_store,
+            path,
+            file_size,
+        }
+    }
 }
 
 impl AsyncFileReader for DataFileReader {
@@ -84,11 +94,11 @@ pub async fn read(
                 let data_file = manifest.data_file();
                 match data_file.file_format() {
                     FileFormat::Parquet => {
-                        let object_reader = DataFileReader {
+                        let object_reader = DataFileReader::new(
                             object_store,
-                            path: util::strip_prefix(data_file.file_path()).into(),
-                            file_size: (*data_file.file_size_in_bytes()) as u64,
-                        };
+                            util::strip_prefix(data_file.file_path()).into(),
+                            (*data_file.file_size_in_bytes()) as u64,
+                        );
                         Ok::<_, Error>(
                             ParquetRecordBatchStreamBuilder::new(object_reader)
                                 .await?
