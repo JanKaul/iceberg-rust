@@ -360,17 +360,11 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV3,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
-        let partition_types = table_metadata.default_partition_spec()?.data_types(
-            table_metadata
-                .current_schema()
-                .or(table_metadata
-                    .refs
-                    .values()
-                    .next()
-                    .ok_or(Error::NotFound("Current schema".to_string()))
-                    .and_then(|x| table_metadata.schema(x.snapshot_id)))
-                .unwrap()
-                .fields(),
+        let partitions = decode_partition_summaries(
+            entry.partitions,
+            entry.partition_spec_id,
+            entry.added_snapshot_id,
+            table_metadata,
         )?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V3,
@@ -387,15 +381,7 @@ impl ManifestListEntry {
             added_rows_count: Some(entry.added_rows_count),
             existing_rows_count: Some(entry.existing_rows_count),
             deleted_rows_count: Some(entry.deleted_rows_count),
-            partitions: entry
-                .partitions
-                .map(|v| {
-                    v.into_iter()
-                        .zip(partition_types.iter())
-                        .map(|(x, d)| FieldSummary::try_from(x, d))
-                        .collect::<Result<Vec<_>, Error>>()
-                })
-                .transpose()?,
+            partitions,
             key_metadata: entry.key_metadata,
             first_row_id: entry.first_row_id,
         })
@@ -405,17 +391,11 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV2,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
-        let partition_types = table_metadata.default_partition_spec()?.data_types(
-            table_metadata
-                .current_schema()
-                .or(table_metadata
-                    .refs
-                    .values()
-                    .next()
-                    .ok_or(Error::NotFound("Current schema".to_string()))
-                    .and_then(|x| table_metadata.schema(x.snapshot_id)))
-                .unwrap()
-                .fields(),
+        let partitions = decode_partition_summaries(
+            entry.partitions,
+            entry.partition_spec_id,
+            entry.added_snapshot_id,
+            table_metadata,
         )?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V2,
@@ -432,15 +412,7 @@ impl ManifestListEntry {
             added_rows_count: Some(entry.added_rows_count),
             existing_rows_count: Some(entry.existing_rows_count),
             deleted_rows_count: Some(entry.deleted_rows_count),
-            partitions: entry
-                .partitions
-                .map(|v| {
-                    v.into_iter()
-                        .zip(partition_types.iter())
-                        .map(|(x, d)| FieldSummary::try_from(x, d))
-                        .collect::<Result<Vec<_>, Error>>()
-                })
-                .transpose()?,
+            partitions,
             key_metadata: entry.key_metadata,
             first_row_id: None,
         })
@@ -450,17 +422,11 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV1,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
-        let partition_types = table_metadata.default_partition_spec()?.data_types(
-            table_metadata
-                .current_schema()
-                .or(table_metadata
-                    .refs
-                    .values()
-                    .next()
-                    .ok_or(Error::NotFound("Current schema".to_string()))
-                    .and_then(|x| table_metadata.schema(x.snapshot_id)))
-                .unwrap()
-                .fields(),
+        let partitions = decode_partition_summaries(
+            entry.partitions,
+            entry.partition_spec_id,
+            entry.added_snapshot_id,
+            table_metadata,
         )?;
         Ok(ManifestListEntry {
             format_version: FormatVersion::V1,
@@ -477,19 +443,43 @@ impl ManifestListEntry {
             added_rows_count: entry.added_rows_count,
             existing_rows_count: entry.existing_rows_count,
             deleted_rows_count: entry.deleted_rows_count,
-            partitions: entry
-                .partitions
-                .map(|v| {
-                    v.into_iter()
-                        .zip(partition_types.iter())
-                        .map(|(x, d)| FieldSummary::try_from(x, d))
-                        .collect::<Result<Vec<_>, Error>>()
-                })
-                .transpose()?,
+            partitions,
             key_metadata: entry.key_metadata,
             first_row_id: None,
         })
     }
+}
+
+fn decode_partition_summaries(
+    partitions: Option<Vec<_serde::FieldSummarySerde>>,
+    spec_id: i32,
+    snapshot_id: i64,
+    table_metadata: &TableMetadata,
+) -> Result<Option<Vec<FieldSummary>>, Error> {
+    let Some(partitions) = partitions else {
+        return Ok(None);
+    };
+    let spec = table_metadata
+        .partition_specs
+        .get(&spec_id)
+        .ok_or_else(|| Error::NotFound(format!("Partition spec {spec_id}")))?;
+    let Ok(schema) = table_metadata.schema(snapshot_id) else {
+        return Ok(None);
+    };
+    let types = match spec.data_types(schema.fields()) {
+        Ok(types) => types,
+        Err(Error::NotFound(_)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if partitions.len() != types.len() {
+        return Ok(None);
+    }
+    partitions
+        .into_iter()
+        .zip(types.iter())
+        .map(|(value, data_type)| FieldSummary::try_from(value, data_type))
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 impl FieldSummary {
@@ -499,11 +489,11 @@ impl FieldSummary {
             contains_nan: value.contains_nan,
             lower_bound: value
                 .lower_bound
-                .map(|x| Value::try_from_bytes(&x, data_type))
+                .map(|x| super::manifest::decode_bound(&x, data_type))
                 .transpose()?,
             upper_bound: value
                 .upper_bound
-                .map(|x| Value::try_from_bytes(&x, data_type))
+                .map(|x| super::manifest::decode_bound(&x, data_type))
                 .transpose()?,
         })
     }
@@ -844,7 +834,7 @@ mod tests {
         partition::{PartitionField, PartitionSpec, Transform},
         schema::Schema,
         table_metadata::TableMetadataBuilder,
-        types::{PrimitiveType, StructField},
+        types::{PrimitiveType, StructField, StructType},
     };
 
     fn schema_has_field(schema: &AvroSchema, name: &str) -> bool {
@@ -853,6 +843,111 @@ mod tests {
             .unwrap()
             .iter()
             .any(|field| field["name"] == name)
+    }
+
+    #[test]
+    fn partition_summaries_decode_pre_promotion_widths() {
+        let summary = _serde::FieldSummarySerde {
+            contains_null: false,
+            contains_nan: None,
+            lower_bound: Some(ByteBuf::from((-42_i32).to_le_bytes())),
+            upper_bound: Some(ByteBuf::from(7_i32.to_le_bytes())),
+        };
+        let decoded =
+            FieldSummary::try_from(summary, &Type::Primitive(PrimitiveType::Long)).unwrap();
+        assert_eq!(decoded.lower_bound, Some(Value::LongInt(-42)));
+        assert_eq!(decoded.upper_bound, Some(Value::LongInt(7)));
+    }
+
+    #[test]
+    fn manifest_list_entry_uses_its_own_partition_spec() {
+        let mut metadata = TableMetadataBuilder::default()
+            .location("/")
+            .current_schema_id(1)
+            .schemas(HashMap::from([(
+                1,
+                Schema::from_struct_type(
+                    StructType::new(vec![
+                        StructField::new(1, "a", false, Type::Primitive(PrimitiveType::Int), None),
+                        StructField::new(2, "b", false, Type::Primitive(PrimitiveType::Long), None),
+                    ]),
+                    1,
+                    None,
+                ),
+            )]))
+            .default_spec_id(1)
+            .partition_specs(HashMap::from([
+                (
+                    0,
+                    PartitionSpec::builder()
+                        .with_partition_field(PartitionField::new(
+                            1,
+                            1000,
+                            "a",
+                            Transform::Identity,
+                        ))
+                        .build()
+                        .unwrap(),
+                ),
+                (
+                    1,
+                    PartitionSpec::builder()
+                        .with_partition_field(PartitionField::new(
+                            2,
+                            1001,
+                            "b",
+                            Transform::Identity,
+                        ))
+                        .build()
+                        .unwrap(),
+                ),
+            ]))
+            .build()
+            .unwrap();
+        let old_entry = _serde::ManifestListEntryV2 {
+            manifest_path: "/old.avro".into(),
+            manifest_length: 1,
+            partition_spec_id: 0,
+            content: Content::Data,
+            sequence_number: 1,
+            min_sequence_number: 1,
+            added_snapshot_id: 1,
+            added_files_count: 1,
+            existing_files_count: 0,
+            deleted_files_count: 0,
+            added_rows_count: 1,
+            existing_rows_count: 0,
+            deleted_rows_count: 0,
+            partitions: Some(vec![_serde::FieldSummarySerde {
+                contains_null: false,
+                contains_nan: None,
+                lower_bound: Some(ByteBuf::from(7_i32.to_le_bytes())),
+                upper_bound: None,
+            }]),
+            key_metadata: None,
+        };
+        let decoded = ManifestListEntry::try_from_v2(old_entry.clone(), &metadata).unwrap();
+        assert_eq!(
+            decoded.partitions.unwrap()[0].lower_bound,
+            Some(Value::Int(7))
+        );
+
+        metadata.schemas.insert(
+            1,
+            Schema::from_struct_type(
+                StructType::new(vec![StructField::new(
+                    2,
+                    "b",
+                    false,
+                    Type::Primitive(PrimitiveType::Long),
+                    None,
+                )]),
+                1,
+                None,
+            ),
+        );
+        let decoded = ManifestListEntry::try_from_v2(old_entry, &metadata).unwrap();
+        assert!(decoded.partitions.is_none());
     }
 
     #[test]

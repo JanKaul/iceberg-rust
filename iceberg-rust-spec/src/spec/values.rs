@@ -45,13 +45,16 @@ use uuid::Uuid;
 use crate::error::Error;
 
 use super::{
-    decimal::{decimal_from_i128_with_scale, decimal_scale, decimal_to_be_bytes_min, Decimal},
+    decimal::{
+        decimal_from_i128_with_scale, decimal_mantissa, decimal_scale, decimal_to_be_bytes_min,
+        Decimal,
+    },
     partition::{PartitionField, Transform},
     types::{PrimitiveType, StructType, Type},
 };
 
 #[cfg(test)]
-use super::decimal::{decimal_from_str_exact, decimal_mantissa};
+use super::decimal::decimal_from_str_exact;
 
 pub static YEARS_BEFORE_UNIX_EPOCH: i32 = 1970;
 
@@ -772,6 +775,25 @@ impl Value {
                 (Value::Int(input), Type::Primitive(PrimitiveType::Long)) => {
                     Ok(Value::LongInt(input as i64))
                 }
+                (Value::Float(input), Type::Primitive(PrimitiveType::Double)) => {
+                    Ok(Value::Double(OrderedFloat(f64::from(input.0))))
+                }
+                (
+                    Value::Decimal(input),
+                    Type::Primitive(PrimitiveType::Decimal { precision, scale }),
+                ) if decimal_scale(&input) == *scale
+                    && decimal_mantissa(&input)?
+                        .unsigned_abs()
+                        .checked_ilog10()
+                        .unwrap_or(0)
+                        < *precision =>
+                {
+                    Ok(Value::Decimal(input))
+                }
+                (Value::Date(input), Type::Primitive(PrimitiveType::Timestamp)) => i64::from(input)
+                    .checked_mul(86_400_000_000)
+                    .map(Value::Timestamp)
+                    .ok_or_else(|| Error::InvalidFormat("date exceeds timestamp range".into())),
                 (Value::Int(input), Type::Primitive(PrimitiveType::Date)) => Ok(Value::Date(input)),
                 (Value::LongInt(input), Type::Primitive(PrimitiveType::Time)) => {
                     Ok(Value::Time(input))
@@ -1914,10 +1936,57 @@ mod tests {
     }
 
     #[test]
-    fn test_float_value_rejects_every_non_float_target_type() {
+    fn test_float_value_rejects_targets_outside_double() {
         let value = Value::Float(OrderedFloat(34.11_f32));
-        let targets = all_other_primitive_types(&[PrimitiveType::Float]);
+        let targets = all_other_primitive_types(&[PrimitiveType::Float, PrimitiveType::Double]);
         assert_invalid_casts(&value, &targets);
+    }
+
+    #[test]
+    fn test_numeric_value_promotions() {
+        assert_eq!(
+            Value::Int(-42)
+                .cast(&Type::Primitive(PrimitiveType::Long))
+                .unwrap(),
+            Value::LongInt(-42)
+        );
+        assert_eq!(
+            Value::Float(OrderedFloat(1.25))
+                .cast(&Type::Primitive(PrimitiveType::Double))
+                .unwrap(),
+            Value::Double(OrderedFloat(1.25))
+        );
+        assert_eq!(
+            Value::Date(19_000)
+                .cast(&Type::Primitive(PrimitiveType::Timestamp))
+                .unwrap(),
+            Value::Timestamp(19_000_i64 * 86_400_000_000)
+        );
+        assert!(Value::Date(i32::MAX)
+            .cast(&Type::Primitive(PrimitiveType::Timestamp))
+            .is_err());
+    }
+
+    #[test]
+    fn decimal_cast_rejects_value_exceeding_target_precision() {
+        let input = Value::Decimal(decimal_from_i128_with_scale(123_456, 0).unwrap());
+        assert!(input
+            .clone()
+            .cast(&Type::Primitive(PrimitiveType::Decimal {
+                precision: 3,
+                scale: 0,
+            }))
+            .is_err());
+        assert_eq!(
+            input
+                .clone()
+                .cast(&Type::Primitive(PrimitiveType::Decimal {
+                    precision: 6,
+                    scale: 0,
+                }))
+                .unwrap(),
+            input
+        );
     }
 
     #[test]
@@ -1928,9 +1997,9 @@ mod tests {
     }
 
     #[test]
-    fn test_date_value_rejects_every_non_date_target_type() {
+    fn test_date_value_rejects_targets_outside_timestamp() {
         let value = Value::Date(17396); // 2017-08-18
-        let targets = all_other_primitive_types(&[PrimitiveType::Date]);
+        let targets = all_other_primitive_types(&[PrimitiveType::Date, PrimitiveType::Timestamp]);
         assert_invalid_casts(&value, &targets);
     }
 
