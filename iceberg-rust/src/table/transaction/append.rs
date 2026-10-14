@@ -1,6 +1,6 @@
 use iceberg_rust_spec::{
     manifest::Content, manifest::DataFile, manifest::ManifestEntry,
-    manifest_list::ManifestListEntry,
+    manifest_list::ManifestListEntry, table_metadata::TableMetadata,
 };
 use smallvec::SmallVec;
 use std::cmp::Ordering;
@@ -110,9 +110,21 @@ pub(crate) fn split_datafiles(
 }
 
 pub(crate) struct SelectedManifest {
-    pub data_manifest: ManifestListEntry,
+    pub data_manifest: Option<ManifestListEntry>,
     pub delete_manifest: Option<ManifestListEntry>,
     pub file_count_all_entries: usize,
+}
+
+pub(crate) fn can_reuse_for_current_writes(
+    manifest: &ManifestListEntry,
+    table_metadata: &TableMetadata,
+) -> bool {
+    manifest.partition_spec_id == table_metadata.default_spec_id
+        && table_metadata
+            .snapshots
+            .get(&manifest.added_snapshot_id)
+            .and_then(|snapshot| *snapshot.schema_id())
+            .is_some_and(|schema_id| schema_id == table_metadata.current_schema_id)
 }
 
 /// Select the manifest that yields the smallest bounding rectangle after the
@@ -122,12 +134,23 @@ pub(crate) fn select_manifest_partitioned(
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
     mut row_id_assigner: Option<&mut RowIdAssigner>,
     bounding_partition_values: &Rectangle,
+    table_metadata: &TableMetadata,
 ) -> Result<SelectedManifest, Error> {
     let mut selected_data_state = None;
     let mut selected_delete_state = None;
     let mut file_count_all_entries = 0;
     for manifest_res in manifest_list_reader {
         let manifest = manifest_res?;
+
+        if !can_reuse_for_current_writes(&manifest, table_metadata) {
+            file_count_all_entries += manifest.added_files_count.unwrap_or(0) as usize;
+            append_manifest(
+                manifest_list_writer,
+                row_id_assigner.as_deref_mut(),
+                manifest,
+            )?;
+            continue;
+        }
 
         let mut bounds =
             summary_to_rectangle(manifest.partitions.as_ref().ok_or(Error::NotFound(format!(
@@ -206,11 +229,8 @@ pub(crate) fn select_manifest_partitioned(
             }
         }
     }
-    let (_, data_manifest) =
-        selected_data_state.ok_or(Error::NotFound("Manifest for insert".to_owned()))?;
-
     Ok(SelectedManifest {
-        data_manifest,
+        data_manifest: selected_data_state.map(|(_, manifest)| manifest),
         delete_manifest: selected_delete_state.map(|(_, x)| x),
         file_count_all_entries,
     })
@@ -221,6 +241,7 @@ pub(crate) fn select_manifest_unpartitioned(
     manifest_list_reader: ManifestListReader<&[u8]>,
     manifest_list_writer: &mut apache_avro::Writer<Vec<u8>>,
     mut row_id_assigner: Option<&mut RowIdAssigner>,
+    table_metadata: &TableMetadata,
 ) -> Result<SelectedManifest, Error> {
     let mut selected_data_state = None;
     let mut selected_delete_state = None;
@@ -230,6 +251,15 @@ pub(crate) fn select_manifest_unpartitioned(
         // TODO: should this also account for existing_rows_count / existing_files_count?
         let row_count = manifest.added_rows_count;
         file_count_all_entries += manifest.added_files_count.unwrap_or(0) as usize;
+
+        if !can_reuse_for_current_writes(&manifest, table_metadata) {
+            append_manifest(
+                manifest_list_writer,
+                row_id_assigner.as_deref_mut(),
+                manifest,
+            )?;
+            continue;
+        }
 
         match manifest.content {
             iceberg_rust_spec::manifest_list::Content::Data => {
@@ -300,11 +330,8 @@ pub(crate) fn select_manifest_unpartitioned(
             }
         }
     }
-    let (_, data_manifest) =
-        selected_data_state.ok_or(Error::NotFound("Manifest for insert".to_owned()))?;
-
     Ok(SelectedManifest {
-        data_manifest,
+        data_manifest: selected_data_state.map(|(_, manifest)| manifest),
         delete_manifest: selected_delete_state.map(|(_, x)| x),
         file_count_all_entries,
     })

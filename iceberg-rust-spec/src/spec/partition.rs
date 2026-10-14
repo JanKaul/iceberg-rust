@@ -197,6 +197,20 @@ impl PartitionSpec {
             })
             .collect::<Result<Vec<_>, Error>>()
     }
+
+    /// Per-field result types, using `None` for a field whose source column is absent from
+    /// `schema` (e.g. dropped). Unlike [`Self::data_types`], a missing source does not fail the
+    /// whole spec, so callers can decode the resolvable fields and skip the rest.
+    pub fn data_types_lenient(&self, schema: &StructType) -> Vec<Option<Type>> {
+        self.fields
+            .iter()
+            .map(|field| {
+                schema
+                    .get(field.source_id as usize)
+                    .and_then(|x| x.field_type.clone().tranform(&field.transform).ok())
+            })
+            .collect()
+    }
 }
 
 impl fmt::Display for PartitionSpec {

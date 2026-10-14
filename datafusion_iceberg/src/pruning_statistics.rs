@@ -38,7 +38,7 @@ use iceberg_rust::{
     spec::{
         decimal::{decimal_mantissa, decimal_scale, Decimal},
         manifest::ManifestEntry,
-        manifest_list::ManifestListEntry,
+        manifest_list::{Content as ManifestContent, ManifestListEntry},
         partition::{BoundPartitionField, Transform},
         schema::Schema,
         values::Value,
@@ -63,6 +63,11 @@ impl<'table, 'manifests> PruneManifests<'table, 'manifests> {
             partition_spec_id,
             files,
         }
+    }
+
+    fn compatible_data_manifest(&self, manifest: &ManifestListEntry) -> bool {
+        manifest.partition_spec_id == self.partition_spec_id
+            && manifest.content == ManifestContent::Data
     }
 }
 
@@ -137,14 +142,12 @@ impl PruningStatistics for PruneManifests<'_, '_> {
 
     fn row_counts(&self) -> Option<ArrayRef> {
         let row_counts = self.files.iter().map(|x| {
-            match (
-                x.added_rows_count,
-                x.existing_rows_count,
-                x.deleted_rows_count,
-            ) {
-                (Some(a), Some(e), Some(d)) => Some(a + e - d),
-                _ => None,
+            if !self.compatible_data_manifest(x) {
+                return None;
             }
+            x.added_rows_count
+                .zip(x.existing_rows_count)
+                .and_then(|(added, existing)| added.checked_add(existing))
         });
         ScalarValue::iter_to_array(row_counts.map(ScalarValue::Int64)).ok()
     }
@@ -540,6 +543,40 @@ mod tests {
         values::Struct,
     };
     use std::sync::Arc;
+
+    #[test]
+    fn manifest_row_counts_do_not_subtract_deleted_entries() {
+        let manifest = ManifestListEntry {
+            format_version: FormatVersion::V3,
+            manifest_path: "/partial-overwrite.avro".into(),
+            manifest_length: 1,
+            partition_spec_id: 0,
+            content: ManifestContent::Data,
+            sequence_number: 2,
+            min_sequence_number: 1,
+            added_snapshot_id: 2,
+            added_files_count: Some(0),
+            existing_files_count: Some(1),
+            deleted_files_count: Some(1),
+            added_rows_count: Some(0),
+            existing_rows_count: Some(5),
+            deleted_rows_count: Some(5),
+            partitions: None,
+            key_metadata: None,
+            first_row_id: Some(0),
+        };
+        let mut delete_manifest = manifest.clone();
+        delete_manifest.content = ManifestContent::Deletes;
+        let mut other_spec = manifest.clone();
+        other_spec.partition_spec_id = 1;
+        let manifests = [manifest, delete_manifest, other_spec];
+        let pruning = PruneManifests::new(&[], 0, &manifests);
+        let counts = pruning.row_counts().unwrap();
+        let counts = counts.as_any().downcast_ref::<Int64Array>().unwrap();
+        assert_eq!(counts.value(0), 5);
+        assert!(counts.is_null(1));
+        assert!(counts.is_null(2));
+    }
 
     #[test]
     fn manifest_pruning_does_not_compare_different_partition_specs() {

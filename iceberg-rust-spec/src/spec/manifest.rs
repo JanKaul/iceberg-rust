@@ -24,6 +24,7 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 use crate::{error::Error, partition::BoundPartitionField};
 
 use super::{
+    decimal::decimal_scale,
     partition::PartitionSpec,
     schema::Schema,
     table_metadata::FormatVersion,
@@ -84,6 +85,21 @@ impl ManifestEntry {
     /// Modifying this allows updating which snapshot this manifest entry belongs to.
     pub fn snapshot_id_mut(&mut self) -> &mut Option<i64> {
         &mut self.snapshot_id
+    }
+
+    /// Casts this entry's partition tuple to the output types of `partition_spec` under `schema`.
+    pub fn cast_partition(
+        mut self,
+        schema: &Schema,
+        partition_spec: &PartitionSpec,
+    ) -> Result<Self, Error> {
+        self.data_file.promote_bounds_to_schema(schema);
+        let partition = std::mem::replace(
+            &mut self.data_file.partition,
+            Struct::from_iter(Vec::<(String, Option<Value>)>::new()),
+        );
+        self.data_file.partition = partition.cast(schema.fields(), partition_spec.fields())?;
+        Ok(self)
     }
 }
 
@@ -651,6 +667,14 @@ impl AvroMap<ByteBuf> {
     }
 }
 
+/// Decodes a manifest bound from its single-value-serialized bytes against the current field type.
+///
+/// Type promotion does not rewrite existing bounds, so a bound may be encoded at a narrower
+/// write-time type than the current schema reports. Per the Iceberg spec, the write-time type is
+/// inferred from the byte length: a 4-byte bound for a current `long`/`double`/`timestamp` was
+/// written as `int`/`float`/`date` and is promoted here. All other cases (including decimals, which
+/// decode at any width from the scale in `data_type`) fall through to the plain single-value
+/// decoding.
 pub(crate) fn decode_bound(bytes: &[u8], data_type: &Type) -> Result<Value, Error> {
     match (data_type, bytes.len()) {
         (Type::Primitive(PrimitiveType::Long), 4) => Ok(Value::LongInt(i64::from(
@@ -733,6 +757,77 @@ pub struct DataFile {
 impl DataFile {
     pub fn builder() -> DataFileBuilder {
         DataFileBuilder::default()
+    }
+
+    /// Promotes column bounds to a rewritten manifest's schema.
+    ///
+    /// Incompatible metrics are discarded because bounds are optional pruning metadata.
+    pub fn promote_bounds_to_schema(&mut self, schema: &Schema) {
+        for bounds in [&mut self.lower_bounds, &mut self.upper_bounds]
+            .into_iter()
+            .flatten()
+        {
+            bounds.retain(|field_id, value| {
+                let Some(field_type) = field_type_by_id(schema.fields(), *field_id) else {
+                    return true;
+                };
+                let source_type = value.datatype();
+                if source_type == *field_type
+                    || matches!(
+                        (&*value, field_type),
+                        (
+                            Value::Decimal(decimal),
+                            Type::Primitive(PrimitiveType::Decimal { scale, .. })
+                        ) if decimal_scale(decimal) == *scale
+                    )
+                {
+                    return true;
+                }
+                match value.clone().promote_iceberg(&source_type, field_type) {
+                    Ok(promoted) => {
+                        *value = promoted;
+                        true
+                    }
+                    Err(_) => false,
+                }
+            });
+        }
+    }
+}
+
+fn field_type_by_id(fields: &StructType, field_id: i32) -> Option<&Type> {
+    if let Ok(field_id) = usize::try_from(field_id) {
+        if let Some(field) = fields.get(field_id) {
+            return Some(&field.field_type);
+        }
+    }
+
+    fields
+        .iter()
+        .find_map(|field| nested_type_by_id(&field.field_type, field_id))
+}
+
+fn nested_type_by_id(data_type: &Type, field_id: i32) -> Option<&Type> {
+    match data_type {
+        Type::Primitive(_) => None,
+        Type::Struct(fields) => field_type_by_id(fields, field_id),
+        Type::List(list) => {
+            if list.element_id == field_id {
+                Some(&list.element)
+            } else {
+                nested_type_by_id(&list.element, field_id)
+            }
+        }
+        Type::Map(map) => {
+            if map.key_id == field_id {
+                Some(&map.key)
+            } else if map.value_id == field_id {
+                Some(&map.value)
+            } else {
+                nested_type_by_id(&map.key, field_id)
+                    .or_else(|| nested_type_by_id(&map.value, field_id))
+            }
+        }
     }
 }
 
@@ -1960,6 +2055,7 @@ impl DataFileV2 {
 #[cfg(test)]
 mod tests {
     use crate::spec::{
+        decimal::decimal_from_i128_with_scale,
         partition::{PartitionField, Transform},
         table_metadata::TableMetadataBuilder,
         types::{PrimitiveType, StructField, Type},
@@ -1968,6 +2064,61 @@ mod tests {
 
     use super::*;
     use apache_avro::{self, types::Value as AvroValue};
+
+    const LONG: Type = Type::Primitive(PrimitiveType::Long);
+    const DOUBLE: Type = Type::Primitive(PrimitiveType::Double);
+    const TIMESTAMP: Type = Type::Primitive(PrimitiveType::Timestamp);
+
+    #[test]
+    fn decode_bound_widens_int_written_before_long_promotion() {
+        // A negative value also exercises sign extension, which a plain zero-pad would get wrong.
+        let decoded = decode_bound(&(-42_i32).to_le_bytes(), &LONG).unwrap();
+        assert_eq!(decoded, Value::LongInt(-42));
+    }
+
+    #[test]
+    fn decode_bound_reads_full_width_long() {
+        let decoded = decode_bound(&1_234_567_890_123_i64.to_le_bytes(), &LONG).unwrap();
+        assert_eq!(decoded, Value::LongInt(1_234_567_890_123));
+    }
+
+    #[test]
+    fn decode_bound_widens_float_written_before_double_promotion() {
+        let decoded = decode_bound(&2.5_f32.to_le_bytes(), &DOUBLE).unwrap();
+        assert_eq!(decoded, Value::Double(ordered_float::OrderedFloat(2.5_f64)));
+    }
+
+    #[test]
+    fn decode_bound_reads_full_width_double() {
+        let decoded = decode_bound(&2.5_f64.to_le_bytes(), &DOUBLE).unwrap();
+        assert_eq!(decoded, Value::Double(ordered_float::OrderedFloat(2.5_f64)));
+    }
+
+    #[test]
+    fn decode_bound_promotes_date_written_before_timestamp_promotion() {
+        // 4-byte date is upscaled to microseconds: 3 days * 86_400_000_000 us/day.
+        let decoded = decode_bound(&3_i32.to_le_bytes(), &TIMESTAMP).unwrap();
+        assert_eq!(decoded, Value::Timestamp(259_200_000_000));
+    }
+
+    #[test]
+    fn decode_bound_decodes_decimal_at_minimal_width() {
+        let data_type = Type::Primitive(PrimitiveType::Decimal {
+            precision: 9,
+            scale: 2,
+        });
+        // 1500 unscaled fits in two big-endian bytes.
+        let decoded = decode_bound(&[0x05, 0xDC], &data_type).unwrap();
+        assert_eq!(
+            decoded,
+            Value::Decimal(decimal_from_i128_with_scale(1500, 2).unwrap())
+        );
+    }
+
+    #[test]
+    fn decode_bound_rejects_malformed_length() {
+        assert!(decode_bound(&[0, 1, 2], &LONG).is_err());
+    }
 
     #[test]
     fn numeric_bounds_decode_against_manifest_schema() {

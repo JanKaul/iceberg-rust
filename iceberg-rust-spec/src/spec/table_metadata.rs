@@ -281,6 +281,65 @@ impl TableMetadata {
         partition_fields(partition_spec, schema)
     }
 
+    /// Binds a partition spec to the schema that was active when a manifest was added.
+    ///
+    /// Current snapshots can retain manifests written with historical partition specs whose
+    /// source columns have since been dropped. Prefer the adding snapshot's schema, then fall
+    /// back to the newest retained schema that still contains every source field.
+    pub fn partition_fields_for_spec(
+        &self,
+        partition_spec_id: i32,
+        added_snapshot_id: Option<i64>,
+    ) -> Result<Vec<BoundPartitionField<'_>>, Error> {
+        let schema = self.schema_for_partition_spec(partition_spec_id, added_snapshot_id)?;
+        let partition_spec = self
+            .partition_specs
+            .get(&partition_spec_id)
+            .ok_or_else(|| {
+                Error::NotFound(format!("Partition spec with id {partition_spec_id}"))
+            })?;
+
+        partition_fields(partition_spec, schema)
+    }
+
+    /// Returns the schema that can bind a historical partition spec.
+    pub fn schema_for_partition_spec(
+        &self,
+        partition_spec_id: i32,
+        added_snapshot_id: Option<i64>,
+    ) -> Result<&Schema, Error> {
+        let partition_spec = self
+            .partition_specs
+            .get(&partition_spec_id)
+            .ok_or_else(|| {
+                Error::NotFound(format!("Partition spec with id {partition_spec_id}"))
+            })?;
+        let snapshot_schema_id = added_snapshot_id
+            .and_then(|snapshot_id| self.snapshots.get(&snapshot_id))
+            .and_then(|snapshot| *snapshot.schema_id());
+        if let Some(schema) = snapshot_schema_id.and_then(|id| self.schemas.get(&id)) {
+            if partition_fields(partition_spec, schema).is_ok() {
+                return Ok(schema);
+            }
+        }
+
+        let mut schema_ids = self.schemas.keys().copied().collect::<Vec<_>>();
+        schema_ids.sort_unstable_by(|left, right| right.cmp(left));
+        for schema_id in schema_ids {
+            if Some(schema_id) == snapshot_schema_id {
+                continue;
+            }
+            let schema = &self.schemas[&schema_id];
+            if partition_fields(partition_spec, schema).is_ok() {
+                return Ok(schema);
+            }
+        }
+
+        Err(Error::NotFound(format!(
+            "Schema containing all source fields for partition spec {partition_spec_id}"
+        )))
+    }
+
     /// Gets the partition fields for a specific snapshot, binding them to their source schema fields
     ///
     /// # Arguments
@@ -920,6 +979,7 @@ pub mod _serde {
                     .into_iter()
                     .map(|x| (*x.spec_id(), x)),
             );
+            let current_snapshot_id = value.current_snapshot_id.filter(|id| *id != -1);
             Ok(TableMetadata {
                 format_version: FormatVersion::V1,
                 table_uuid: value.table_uuid.unwrap_or_default(),
@@ -940,15 +1000,7 @@ pub mod _serde {
                 schemas,
 
                 properties: value.properties,
-                current_snapshot_id: if let &Some(id) = &value.current_snapshot_id {
-                    if id == -1 {
-                        None
-                    } else {
-                        Some(id)
-                    }
-                } else {
-                    value.current_snapshot_id
-                },
+                current_snapshot_id,
                 snapshots: value
                     .snapshots
                     .map(|snapshots| {
@@ -970,17 +1022,21 @@ pub mod _serde {
                     None => HashMap::new(),
                 },
                 default_sort_order_id: value.default_sort_order_id.unwrap_or(DEFAULT_SORT_ORDER_ID),
-                refs: HashMap::from_iter(vec![(
-                    MAIN_BRANCH.to_string(),
-                    SnapshotReference {
-                        snapshot_id: value.current_snapshot_id.unwrap_or_default(),
-                        retention: SnapshotRetention::Branch {
-                            min_snapshots_to_keep: None,
-                            max_snapshot_age_ms: None,
-                            max_ref_age_ms: None,
-                        },
-                    },
-                )]),
+                refs: current_snapshot_id
+                    .map(|snapshot_id| {
+                        HashMap::from([(
+                            MAIN_BRANCH.to_string(),
+                            SnapshotReference {
+                                snapshot_id,
+                                retention: SnapshotRetention::Branch {
+                                    min_snapshots_to_keep: None,
+                                    max_snapshot_age_ms: None,
+                                    max_ref_age_ms: None,
+                                },
+                            },
+                        )])
+                    })
+                    .unwrap_or_default(),
                 next_row_id: 0,
             })
         }
@@ -2037,21 +2093,17 @@ mod tests {
             properties: HashMap::new(),
             snapshot_log: vec![],
             metadata_log: Vec::new(),
-            refs: HashMap::from_iter(vec![(
-                "main".to_string(),
-                SnapshotReference {
-                    snapshot_id: -1,
-                    retention: SnapshotRetention::Branch {
-                        min_snapshots_to_keep: None,
-                        max_snapshot_age_ms: None,
-                        max_ref_age_ms: None,
-                    },
-                },
-            )]),
+            refs: HashMap::new(),
             next_row_id: 0,
         };
 
         check_table_metadata_serde(&metadata, expected);
+
+        let mut null_snapshot: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+        null_snapshot["current-snapshot-id"] = serde_json::Value::Null;
+        let empty: TableMetadata = serde_json::from_value(null_snapshot).unwrap();
+        assert!(empty.current_snapshot_id.is_none());
+        assert!(empty.refs.is_empty());
     }
 
     #[test]

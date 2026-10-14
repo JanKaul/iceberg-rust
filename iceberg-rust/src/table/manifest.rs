@@ -24,12 +24,14 @@ use std::{
 };
 
 use apache_avro::{
-    to_value, types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema,
-    Writer as AvroWriter,
+    types::Value as AvroValue, Reader as AvroReader, Schema as AvroSchema, Writer as AvroWriter,
 };
 use futures::TryFutureExt;
 use iceberg_rust_spec::{
-    manifest::{Content, ManifestEntry, ManifestEntryV1, ManifestEntryV2, ManifestEntryV3, Status},
+    manifest::{
+        Content, FirstRowIdInheritance, ManifestEntry, ManifestEntryV1, ManifestEntryV2,
+        ManifestEntryV3, Status,
+    },
     manifest_list::{self, FieldSummary, ManifestListEntry},
     partition::{PartitionField, PartitionSpec},
     schema::{Schema, SchemaV1, SchemaV2},
@@ -293,6 +295,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// # Arguments
     /// * `bytes` - The raw bytes of the existing manifest file
     /// * `manifest` - The manifest list entry describing the existing manifest
+    /// * `snapshot_id` - ID of the snapshot that adds the rewritten manifest
     /// * `schema` - The Avro schema used for serializing manifest entries
     /// * `table_metadata` - The table metadata containing schema and partition information
     /// * `branch` - Optional branch name to get the current schema from
@@ -309,9 +312,14 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     pub(crate) fn from_existing(
         manifest_reader: impl Iterator<Item = Result<ManifestEntry, Error>>,
         mut manifest: ManifestListEntry,
+        snapshot_id: i64,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
     ) -> Result<Self, Error> {
+        let manifest_schema = table_metadata.schema_for_partition_spec(
+            manifest.partition_spec_id,
+            Some(manifest.added_snapshot_id),
+        )?;
         let mut writer = AvroWriter::new(schema, Vec::new());
         writer.add_user_metadata(
             "format-version".to_string(),
@@ -325,21 +333,21 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         writer.add_user_metadata(
             "schema".to_string(),
             match table_metadata.format_version {
-                FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
-                    table_metadata.current_schema()?.clone(),
-                ))?,
-                FormatVersion::V2 | FormatVersion::V3 => serde_json::to_string(
-                    &Into::<SchemaV2>::into(table_metadata.current_schema()?.clone()),
-                )?,
+                FormatVersion::V1 => {
+                    serde_json::to_string(&Into::<SchemaV1>::into(manifest_schema.clone()))?
+                }
+                FormatVersion::V2 | FormatVersion::V3 => {
+                    serde_json::to_string(&Into::<SchemaV2>::into(manifest_schema.clone()))?
+                }
             },
         )?;
 
         writer.add_user_metadata(
             "schema-id".to_string(),
-            serde_json::to_string(&table_metadata.current_schema()?.schema_id())?,
+            serde_json::to_string(&manifest_schema.schema_id())?,
         )?;
 
-        let spec_id = table_metadata.default_spec_id;
+        let spec_id = manifest.partition_spec_id;
 
         writer.add_user_metadata(
             "partition-spec".to_string(),
@@ -365,27 +373,22 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             },
         )?;
 
-        writer.extend(
-            manifest_reader
-                .map(|entry| {
-                    let mut entry = entry.map_err(|err| {
-                        apache_avro::Error::new(apache_avro::error::Details::DeserializeValue(
-                            err.to_string(),
-                        ))
-                    })?;
-                    *entry.status_mut() = Status::Existing;
-                    if entry.sequence_number().is_none() {
-                        *entry.sequence_number_mut() = Some(manifest.sequence_number);
-                    }
-                    if entry.snapshot_id().is_none() {
-                        *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
-                    }
-                    to_value(entry)
-                })
-                .filter_map(Result::ok),
-        )?;
+        for entry in manifest_reader {
+            let mut entry = entry?;
+            if *entry.status() != Status::Deleted {
+                *entry.status_mut() = Status::Existing;
+            }
+            if entry.sequence_number().is_none() {
+                *entry.sequence_number_mut() = Some(manifest.sequence_number);
+            }
+            if entry.snapshot_id().is_none() {
+                *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
+            }
+            writer.append_ser(entry)?;
+        }
 
         manifest.sequence_number = table_metadata.last_sequence_number + 1;
+        manifest.added_snapshot_id = snapshot_id;
 
         manifest.existing_files_count = Some(
             manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0),
@@ -414,9 +417,8 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// Creates a ManifestWriter from an existing manifest file with selective filtering of entries.
     ///
     /// This method reads an existing manifest file and creates a new writer that includes
-    /// only the entries whose file paths are NOT in the provided filter set. Entries that
-    /// pass the filter have their status updated to "Existing" and their sequence numbers
-    /// and snapshot IDs updated as needed.
+    /// the live entries from an existing manifest. Matching entries are marked as deleted by
+    /// the new snapshot; all other live entries are carried forward as existing.
     ///
     /// This is particularly useful for overwrite operations where specific files need to be
     /// excluded from the new manifest while preserving other existing entries.
@@ -440,7 +442,7 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * The partition spec ID is not found in table metadata
     ///
     /// # Behavior
-    /// - Entries whose file paths are in the `filter` set are excluded from the new manifest
+    /// - Entries whose file paths are in the `filter` set are marked as deleted
     /// - Remaining entries have their status set to `Status::Existing`
     /// - Sequence numbers are updated for entries that don't have them
     /// - Snapshot IDs are updated for entries that don't have them
@@ -450,13 +452,34 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         bytes: &[u8],
         mut manifest: ManifestListEntry,
         filter: &HashSet<String>,
+        snapshot_id: i64,
         schema: &'schema AvroSchema,
         table_metadata: &'metadata TableMetadata,
     ) -> Result<(Self, FilteredManifestStats), Error> {
+        let inherited_snapshot_id = manifest.added_snapshot_id;
+        let source_snapshot_id = (manifest.partition_spec_id != table_metadata.default_spec_id)
+            .then_some(inherited_snapshot_id);
+        let manifest_schema = table_metadata
+            .schema_for_partition_spec(manifest.partition_spec_id, source_snapshot_id)?;
+        let partition_spec = table_metadata
+            .partition_specs
+            .get(&manifest.partition_spec_id)
+            .ok_or_else(|| {
+                Error::NotFound(format!(
+                    "Partition spec with id {}",
+                    manifest.partition_spec_id
+                ))
+            })?;
         let manifest_reader = ManifestReader::new(bytes)?;
+        let mut row_id_inheritance =
+            FirstRowIdInheritance::for_committed_manifest(manifest.first_row_id);
 
         let mut writer = AvroWriter::new(schema, Vec::new());
         let mut filtered_stats = FilteredManifestStats::default();
+        let mut unmatched_files = filter.clone();
+        let mut existing_files = 0;
+        let mut existing_rows = 0;
+        let mut min_existing_sequence_number: Option<i64> = None;
 
         writer.add_user_metadata(
             "format-version".to_string(),
@@ -470,21 +493,21 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         writer.add_user_metadata(
             "schema".to_string(),
             match table_metadata.format_version {
-                FormatVersion::V1 => serde_json::to_string(&Into::<SchemaV1>::into(
-                    table_metadata.current_schema()?.clone(),
-                ))?,
-                FormatVersion::V2 | FormatVersion::V3 => serde_json::to_string(
-                    &Into::<SchemaV2>::into(table_metadata.current_schema()?.clone()),
-                )?,
+                FormatVersion::V1 => {
+                    serde_json::to_string(&Into::<SchemaV1>::into(manifest_schema.clone()))?
+                }
+                FormatVersion::V2 | FormatVersion::V3 => {
+                    serde_json::to_string(&Into::<SchemaV2>::into(manifest_schema.clone()))?
+                }
             },
         )?;
 
         writer.add_user_metadata(
             "schema-id".to_string(),
-            serde_json::to_string(&table_metadata.current_schema()?.schema_id())?,
+            serde_json::to_string(&manifest_schema.schema_id())?,
         )?;
 
-        let spec_id = table_metadata.default_spec_id;
+        let spec_id = manifest.partition_spec_id;
 
         writer.add_user_metadata(
             "partition-spec".to_string(),
@@ -510,43 +533,61 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             },
         )?;
 
-        writer.extend(manifest_reader.filter_map(|entry| {
-            let mut entry = entry
-                .map_err(|err| {
-                    apache_avro::Error::new(apache_avro::error::Details::DeserializeValue(
-                        err.to_string(),
-                    ))
-                })
-                .unwrap();
-            if !filter.contains(entry.data_file().file_path()) {
-                *entry.status_mut() = Status::Existing;
-                if entry.sequence_number().is_none() {
-                    *entry.sequence_number_mut() = Some(manifest.sequence_number);
+        for entry in manifest_reader {
+            let mut entry = entry?;
+            if *entry.status() == Status::Deleted {
+                continue;
+            }
+            row_id_inheritance.apply(&mut entry)?;
+            let mut entry = entry.cast_partition(manifest_schema, partition_spec)?;
+            if entry.sequence_number().is_none() {
+                *entry.sequence_number_mut() = Some(manifest.sequence_number);
+            }
+            if entry.snapshot_id().is_none() {
+                *entry.snapshot_id_mut() = Some(inherited_snapshot_id);
+            }
+
+            if filter.contains(entry.data_file().file_path()) {
+                if *entry.data_file().content() != Content::Data {
+                    return Err(Error::InvalidFormat(
+                        "overwrite can only remove data files".to_string(),
+                    ));
                 }
-                if entry.snapshot_id().is_none() {
-                    *entry.snapshot_id_mut() = Some(manifest.added_snapshot_id);
-                }
-                Some(to_value(entry).unwrap())
-            } else {
-                if *entry.data_file().content() == Content::Data {
-                    filtered_stats.removed_records += entry.data_file().record_count();
-                }
+                unmatched_files.remove(entry.data_file().file_path());
+                filtered_stats.removed_records += entry.data_file().record_count();
                 filtered_stats.removed_file_size_bytes += entry.data_file().file_size_in_bytes();
                 filtered_stats.removed_data_files += 1;
-                None
+                *entry.status_mut() = Status::Deleted;
+                *entry.snapshot_id_mut() = Some(snapshot_id);
+                writer.append_ser(entry)?;
+            } else {
+                existing_files += 1;
+                existing_rows += entry.data_file().record_count();
+                if let Some(sequence_number) = *entry.sequence_number() {
+                    min_existing_sequence_number = Some(
+                        min_existing_sequence_number
+                            .map_or(sequence_number, |current| current.min(sequence_number)),
+                    );
+                }
+                *entry.status_mut() = Status::Existing;
+                writer.append_ser(entry)?;
             }
-        }))?;
+        }
+
+        if !unmatched_files.is_empty() {
+            let mut unmatched_files = unmatched_files.into_iter().collect::<Vec<_>>();
+            unmatched_files.sort_unstable();
+            return Err(Error::NotFound(format!(
+                "Live data files to overwrite were not found in manifest: {unmatched_files:?}"
+            )));
+        }
 
         manifest.sequence_number = table_metadata.last_sequence_number + 1;
-
-        manifest.existing_files_count = Some(
-            manifest.existing_files_count.unwrap_or(0) + manifest.added_files_count.unwrap_or(0)
-                - filtered_stats.removed_data_files,
-        );
-        manifest.existing_rows_count = Some(
-            manifest.existing_rows_count.unwrap_or(0) + manifest.added_rows_count.unwrap_or(0)
-                - filtered_stats.removed_records,
-        );
+        manifest.added_snapshot_id = snapshot_id;
+        manifest.min_sequence_number =
+            min_existing_sequence_number.unwrap_or(manifest.sequence_number);
+        manifest.existing_files_count = Some(existing_files);
+        manifest.existing_rows_count = Some(existing_rows);
 
         // Zero, not absent: `added_files_count` / `added_rows_count` are
         // REQUIRED fields in the v2/v3 manifest-list schema, and
@@ -554,9 +595,11 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         // were all rewritten as Existing adds nothing, but it must still say
         // so explicitly — leaving these `None` panics as soon as the entry is
         // serialized back into the manifest list without an intervening
-        // `add_file` call to repopulate them.
+        // `append` call to repopulate them.
         manifest.added_files_count = Some(0);
         manifest.added_rows_count = Some(0);
+        manifest.deleted_files_count = Some(filtered_stats.removed_data_files);
+        manifest.deleted_rows_count = Some(filtered_stats.removed_records);
 
         Ok((
             ManifestWriter {
@@ -589,12 +632,33 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     /// * The default partition spec is not found
     pub(crate) fn append(&mut self, manifest_entry: ManifestEntry) -> Result<(), Error> {
         let mut added_rows_count = 0;
+        let mut existing_rows_count = 0;
         let mut deleted_rows_count = 0;
+        let entry_content = match manifest_entry.data_file().content() {
+            Content::Data => manifest_list::Content::Data,
+            Content::PositionDeletes | Content::EqualityDeletes => manifest_list::Content::Deletes,
+        };
+        if entry_content != self.manifest.content {
+            return Err(Error::InvalidFormat(format!(
+                "manifest content {:?} does not match file content {:?}",
+                self.manifest.content,
+                manifest_entry.data_file().content()
+            )));
+        }
 
         if self.manifest.partitions.is_none() {
+            let partition_spec = self
+                .table_metadata
+                .partition_specs
+                .get(&self.manifest.partition_spec_id)
+                .ok_or_else(|| {
+                    Error::NotFound(format!(
+                        "Partition spec with id {}",
+                        self.manifest.partition_spec_id
+                    ))
+                })?;
             self.manifest.partitions = Some(
-                self.table_metadata
-                    .default_partition_spec()?
+                partition_spec
                     .fields()
                     .iter()
                     .map(|_| FieldSummary {
@@ -607,28 +671,43 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
             );
         }
 
+        let status = *manifest_entry.status();
         match manifest_entry.data_file().content() {
-            Content::Data => {
-                added_rows_count += manifest_entry.data_file().record_count();
-            }
+            Content::Data => match status {
+                Status::Added => added_rows_count += manifest_entry.data_file().record_count(),
+                Status::Existing => {
+                    existing_rows_count += manifest_entry.data_file().record_count()
+                }
+                Status::Deleted => deleted_rows_count += manifest_entry.data_file().record_count(),
+            },
             Content::EqualityDeletes => {
                 deleted_rows_count += manifest_entry.data_file().record_count();
             }
             _ => (),
         }
-        let status = *manifest_entry.status();
 
         update_partitions(
             self.manifest.partitions.as_mut().unwrap(),
             manifest_entry.data_file().partition(),
-            self.table_metadata.default_partition_spec()?.fields(),
+            self.table_metadata
+                .partition_specs
+                .get(&self.manifest.partition_spec_id)
+                .ok_or_else(|| {
+                    Error::NotFound(format!(
+                        "Partition spec with id {}",
+                        self.manifest.partition_spec_id
+                    ))
+                })?
+                .fields(),
         )?;
 
-        if let Some(sequence_number) = manifest_entry.sequence_number() {
-            if self.manifest.min_sequence_number > *sequence_number {
-                self.manifest.min_sequence_number = *sequence_number;
+        if status != Status::Deleted {
+            if let Some(sequence_number) = manifest_entry.sequence_number() {
+                if self.manifest.min_sequence_number > *sequence_number {
+                    self.manifest.min_sequence_number = *sequence_number;
+                }
             }
-        };
+        }
 
         self.writer.append_ser(manifest_entry)?;
 
@@ -656,6 +735,11 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
         self.manifest.added_rows_count = match self.manifest.added_rows_count {
             Some(count) => Some(count + added_rows_count),
             None => Some(added_rows_count),
+        };
+
+        self.manifest.existing_rows_count = match self.manifest.existing_rows_count {
+            Some(count) => Some(count + existing_rows_count),
+            None => Some(existing_rows_count),
         };
 
         self.manifest.deleted_rows_count = match self.manifest.deleted_rows_count {
@@ -743,23 +827,6 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
                 .await
         };
         Ok((self.manifest, future))
-    }
-
-    pub(crate) fn apply_filtered_stats(&mut self, filtered_stats: &FilteredManifestStats) {
-        let removed_files = filtered_stats.removed_data_files;
-        if removed_files > 0 {
-            self.manifest.deleted_files_count = match self.manifest.deleted_files_count {
-                Some(count) => Some(count + removed_files),
-                None => Some(removed_files),
-            };
-        }
-
-        if filtered_stats.removed_records > 0 {
-            self.manifest.deleted_rows_count = match self.manifest.deleted_rows_count {
-                Some(count) => Some(count + filtered_stats.removed_records),
-                None => Some(filtered_stats.removed_records),
-            };
-        }
     }
 }
 

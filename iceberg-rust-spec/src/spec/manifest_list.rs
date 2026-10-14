@@ -26,6 +26,7 @@ use self::_serde::{
 };
 
 use super::{
+    schema::Schema,
     table_metadata::{FormatVersion, TableMetadata},
     types::Type,
     values::Value,
@@ -339,6 +340,47 @@ mod _serde {
 }
 
 impl ManifestListEntry {
+    /// Decodes one manifest-list entry from its Avro value for a known writer format version.
+    pub fn from_avro_value(
+        value: Result<AvroValue, apache_avro::Error>,
+        format_version: FormatVersion,
+        table_metadata: &TableMetadata,
+    ) -> Result<ManifestListEntry, Error> {
+        Self::from_avro_value_with_schema(
+            value,
+            format_version,
+            table_metadata,
+            table_metadata.current_schema()?,
+        )
+    }
+
+    /// Decodes an entry using the schema of the snapshot being scanned.
+    pub fn from_avro_value_with_schema(
+        value: Result<AvroValue, apache_avro::Error>,
+        format_version: FormatVersion,
+        table_metadata: &TableMetadata,
+        schema: &Schema,
+    ) -> Result<ManifestListEntry, Error> {
+        let entry = value?;
+        match format_version {
+            FormatVersion::V1 => Self::try_from_v1_with_schema(
+                apache_avro::from_value::<ManifestListEntryV1>(&entry)?,
+                table_metadata,
+                schema,
+            ),
+            FormatVersion::V2 => Self::try_from_v2_with_schema(
+                apache_avro::from_value::<ManifestListEntryV2>(&entry)?,
+                table_metadata,
+                schema,
+            ),
+            FormatVersion::V3 => Self::try_from_v3_with_schema(
+                apache_avro::from_value::<ManifestListEntryV3>(&entry)?,
+                table_metadata,
+                schema,
+            ),
+        }
+    }
+
     pub fn try_from_enum(
         entry: ManifestListEntryEnum,
         table_metadata: &TableMetadata,
@@ -360,12 +402,14 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV3,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
-        let partitions = decode_partition_summaries(
-            entry.partitions,
-            entry.partition_spec_id,
-            entry.added_snapshot_id,
-            table_metadata,
-        )?;
+        Self::try_from_v3_with_schema(entry, table_metadata, table_metadata.current_schema()?)
+    }
+
+    fn try_from_v3_with_schema(
+        entry: _serde::ManifestListEntryV3,
+        table_metadata: &TableMetadata,
+        schema: &Schema,
+    ) -> Result<ManifestListEntry, Error> {
         Ok(ManifestListEntry {
             format_version: FormatVersion::V3,
             manifest_path: entry.manifest_path,
@@ -381,7 +425,12 @@ impl ManifestListEntry {
             added_rows_count: Some(entry.added_rows_count),
             existing_rows_count: Some(entry.existing_rows_count),
             deleted_rows_count: Some(entry.deleted_rows_count),
-            partitions,
+            partitions: decode_partition_summaries(
+                entry.partitions,
+                entry.partition_spec_id,
+                table_metadata,
+                schema,
+            )?,
             key_metadata: entry.key_metadata,
             first_row_id: entry.first_row_id,
         })
@@ -391,12 +440,14 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV2,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
-        let partitions = decode_partition_summaries(
-            entry.partitions,
-            entry.partition_spec_id,
-            entry.added_snapshot_id,
-            table_metadata,
-        )?;
+        Self::try_from_v2_with_schema(entry, table_metadata, table_metadata.current_schema()?)
+    }
+
+    fn try_from_v2_with_schema(
+        entry: _serde::ManifestListEntryV2,
+        table_metadata: &TableMetadata,
+        schema: &Schema,
+    ) -> Result<ManifestListEntry, Error> {
         Ok(ManifestListEntry {
             format_version: FormatVersion::V2,
             manifest_path: entry.manifest_path,
@@ -412,7 +463,12 @@ impl ManifestListEntry {
             added_rows_count: Some(entry.added_rows_count),
             existing_rows_count: Some(entry.existing_rows_count),
             deleted_rows_count: Some(entry.deleted_rows_count),
-            partitions,
+            partitions: decode_partition_summaries(
+                entry.partitions,
+                entry.partition_spec_id,
+                table_metadata,
+                schema,
+            )?,
             key_metadata: entry.key_metadata,
             first_row_id: None,
         })
@@ -422,12 +478,14 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV1,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
-        let partitions = decode_partition_summaries(
-            entry.partitions,
-            entry.partition_spec_id,
-            entry.added_snapshot_id,
-            table_metadata,
-        )?;
+        Self::try_from_v1_with_schema(entry, table_metadata, table_metadata.current_schema()?)
+    }
+
+    fn try_from_v1_with_schema(
+        entry: _serde::ManifestListEntryV1,
+        table_metadata: &TableMetadata,
+        schema: &Schema,
+    ) -> Result<ManifestListEntry, Error> {
         Ok(ManifestListEntry {
             format_version: FormatVersion::V1,
             manifest_path: entry.manifest_path,
@@ -443,58 +501,72 @@ impl ManifestListEntry {
             added_rows_count: entry.added_rows_count,
             existing_rows_count: entry.existing_rows_count,
             deleted_rows_count: entry.deleted_rows_count,
-            partitions,
+            partitions: decode_partition_summaries(
+                entry.partitions,
+                entry.partition_spec_id,
+                table_metadata,
+                schema,
+            )?,
             key_metadata: entry.key_metadata,
             first_row_id: None,
         })
     }
 }
 
-fn decode_partition_summaries(
-    partitions: Option<Vec<_serde::FieldSummarySerde>>,
-    spec_id: i32,
-    snapshot_id: i64,
+/// Resolves each partition field's result type against the scan schema. A field whose source
+/// column is absent (e.g. dropped, but still referenced by a historical spec) is left untyped so
+/// its bounds are skipped — you cannot prune on a column that no longer exists.
+fn partition_field_types(
     table_metadata: &TableMetadata,
-) -> Result<Option<Vec<FieldSummary>>, Error> {
-    let Some(partitions) = partitions else {
-        return Ok(None);
-    };
-    let spec = table_metadata
+    partition_spec_id: i32,
+    schema: &Schema,
+) -> Result<Vec<Option<Type>>, Error> {
+    let partition_spec = table_metadata
         .partition_specs
-        .get(&spec_id)
-        .ok_or_else(|| Error::NotFound(format!("Partition spec {spec_id}")))?;
-    let Ok(schema) = table_metadata.schema(snapshot_id) else {
+        .get(&partition_spec_id)
+        .ok_or_else(|| Error::NotFound(format!("Partition spec with id {partition_spec_id}")))?;
+    Ok(partition_spec.data_types_lenient(schema.fields()))
+}
+
+/// Decodes an entry's partition field summaries, resolving types from the entry's own
+/// `partition_spec_id` against the scan schema and decoding each bound with the spec's
+/// width-inference rule ([`super::manifest::decode_bound`]).
+fn decode_partition_summaries(
+    partitions: Option<Vec<FieldSummarySerde>>,
+    partition_spec_id: i32,
+    table_metadata: &TableMetadata,
+    schema: &Schema,
+) -> Result<Option<Vec<FieldSummary>>, Error> {
+    let Some(summaries) = partitions else {
         return Ok(None);
     };
-    let types = match spec.data_types(schema.fields()) {
-        Ok(types) => types,
-        Err(Error::NotFound(_)) => return Ok(None),
-        Err(error) => return Err(error),
-    };
-    if partitions.len() != types.len() {
+    let types = partition_field_types(table_metadata, partition_spec_id, schema)?;
+    if summaries.len() != types.len() {
         return Ok(None);
     }
-    partitions
+    summaries
         .into_iter()
-        .zip(types.iter())
-        .map(|(value, data_type)| FieldSummary::try_from(value, data_type))
-        .collect::<Result<Vec<_>, _>>()
+        .zip(types)
+        .map(|(summary, data_type)| FieldSummary::from_serde(summary, data_type.as_ref()))
+        .collect::<Result<Vec<_>, Error>>()
         .map(Some)
 }
 
 impl FieldSummary {
-    fn try_from(value: _serde::FieldSummarySerde, data_type: &Type) -> Result<Self, Error> {
+    fn from_serde(value: FieldSummarySerde, data_type: Option<&Type>) -> Result<Self, Error> {
+        let decode = |bytes: Option<ByteBuf>| -> Result<Option<Value>, Error> {
+            match (bytes, data_type) {
+                (Some(bytes), Some(data_type)) => {
+                    super::manifest::decode_bound(&bytes, data_type).map(Some)
+                }
+                _ => Ok(None),
+            }
+        };
         Ok(FieldSummary {
             contains_null: value.contains_null,
             contains_nan: value.contains_nan,
-            lower_bound: value
-                .lower_bound
-                .map(|x| super::manifest::decode_bound(&x, data_type))
-                .transpose()?,
-            upper_bound: value
-                .upper_bound
-                .map(|x| super::manifest::decode_bound(&x, data_type))
-                .transpose()?,
+            lower_bound: decode(value.lower_bound)?,
+            upper_bound: decode(value.upper_bound)?,
         })
     }
 }
@@ -806,27 +878,15 @@ pub fn avro_value_to_manifest_list_entry(
     value: Result<AvroValue, apache_avro::Error>,
     table_metadata: &TableMetadata,
 ) -> Result<ManifestListEntry, Error> {
-    let entry = value?;
-    match table_metadata.format_version {
-        FormatVersion::V1 => ManifestListEntry::try_from_v1(
-            apache_avro::from_value::<_serde::ManifestListEntryV1>(&entry)?,
-            table_metadata,
-        ),
-        FormatVersion::V2 => ManifestListEntry::try_from_v2(
-            apache_avro::from_value::<_serde::ManifestListEntryV2>(&entry)?,
-            table_metadata,
-        ),
-        FormatVersion::V3 => ManifestListEntry::try_from_v3(
-            apache_avro::from_value::<_serde::ManifestListEntryV3>(&entry)?,
-            table_metadata,
-        ),
-    }
+    ManifestListEntry::from_avro_value(value, table_metadata.format_version, table_metadata)
 }
 
 #[cfg(test)]
 mod tests {
 
     use std::collections::HashMap;
+
+    use ordered_float::OrderedFloat;
 
     use super::*;
 
@@ -854,9 +914,21 @@ mod tests {
             upper_bound: Some(ByteBuf::from(7_i32.to_le_bytes())),
         };
         let decoded =
-            FieldSummary::try_from(summary, &Type::Primitive(PrimitiveType::Long)).unwrap();
+            FieldSummary::from_serde(summary, Some(&Type::Primitive(PrimitiveType::Long))).unwrap();
         assert_eq!(decoded.lower_bound, Some(Value::LongInt(-42)));
         assert_eq!(decoded.upper_bound, Some(Value::LongInt(7)));
+    }
+
+    #[test]
+    fn partition_bound_promotes_float_to_double() {
+        // A bound written as a 4-byte float before a float->double promotion decodes against the
+        // current `double` type via the spec's width-inference rule.
+        let decoded = crate::spec::manifest::decode_bound(
+            &1.5_f32.to_le_bytes(),
+            &Type::Primitive(PrimitiveType::Double),
+        )
+        .unwrap();
+        assert_eq!(decoded, Value::Double(OrderedFloat(1.5_f64)));
     }
 
     #[test]
@@ -932,8 +1004,45 @@ mod tests {
             Some(Value::Int(7))
         );
 
+        let mut mismatched = old_entry.clone();
+        let summaries = mismatched.partitions.as_mut().unwrap();
+        summaries.push(summaries[0].clone());
+        assert!(ManifestListEntry::try_from_v2(mismatched, &metadata)
+            .unwrap()
+            .partitions
+            .is_none());
+
         metadata.schemas.insert(
-            1,
+            2,
+            Schema::from_struct_type(
+                StructType::new(vec![
+                    StructField::new(1, "a", false, Type::Primitive(PrimitiveType::Long), None),
+                    StructField::new(2, "b", false, Type::Primitive(PrimitiveType::Long), None),
+                ]),
+                2,
+                None,
+            ),
+        );
+        metadata.current_schema_id = 2;
+        let promoted = ManifestListEntry::try_from_v2(old_entry.clone(), &metadata).unwrap();
+        assert_eq!(
+            promoted.partitions.unwrap()[0].lower_bound,
+            Some(Value::LongInt(7))
+        );
+        let original_schema = metadata.schemas.get(&1).unwrap();
+        let historical = ManifestListEntry::try_from_v2_with_schema(
+            old_entry.clone(),
+            &metadata,
+            original_schema,
+        )
+        .unwrap();
+        assert_eq!(
+            historical.partitions.unwrap()[0].lower_bound,
+            Some(Value::Int(7))
+        );
+
+        metadata.schemas.insert(
+            3,
             Schema::from_struct_type(
                 StructType::new(vec![StructField::new(
                     2,
@@ -942,12 +1051,47 @@ mod tests {
                     Type::Primitive(PrimitiveType::Long),
                     None,
                 )]),
-                1,
+                3,
                 None,
             ),
         );
-        let decoded = ManifestListEntry::try_from_v2(old_entry, &metadata).unwrap();
-        assert!(decoded.partitions.is_none());
+        metadata.current_schema_id = 3;
+        let decoded = ManifestListEntry::try_from_v2(old_entry.clone(), &metadata).unwrap();
+        let summary = &decoded.partitions.unwrap()[0];
+        assert!(!summary.contains_null);
+        assert_eq!(summary.lower_bound, None);
+        let historical = ManifestListEntry::try_from_v2_with_schema(
+            old_entry,
+            &metadata,
+            metadata.schemas.get(&1).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            historical.partitions.unwrap()[0].lower_bound,
+            Some(Value::Int(7))
+        );
+    }
+
+    #[test]
+    fn field_summary_without_resolvable_type_skips_bounds() {
+        // A partition field whose source column was dropped resolves to no type, so its bounds are
+        // skipped while the null/nan flags are preserved.
+        let serde = FieldSummarySerde {
+            contains_null: true,
+            contains_nan: Some(false),
+            lower_bound: Some(ByteBuf::from(1_i32.to_le_bytes().to_vec())),
+            upper_bound: Some(ByteBuf::from(9_i32.to_le_bytes().to_vec())),
+        };
+        let summary = FieldSummary::from_serde(serde, None).unwrap();
+        assert_eq!(
+            summary,
+            FieldSummary {
+                contains_null: true,
+                contains_nan: Some(false),
+                lower_bound: None,
+                upper_bound: None,
+            }
+        );
     }
 
     #[test]
@@ -968,17 +1112,41 @@ mod tests {
                         initial_default: None,
                         write_default: None,
                     })
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                        initial_default: None,
+                        write_default: None,
+                    })
                     .build()
                     .unwrap(),
             )]))
             .default_spec_id(0)
-            .partition_specs(HashMap::from_iter(vec![(
-                0,
-                PartitionSpec::builder()
-                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
-                    .build()
-                    .unwrap(),
-            )]))
+            .partition_specs(HashMap::from_iter(vec![
+                (
+                    0,
+                    PartitionSpec::builder()
+                        .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
+                        .build()
+                        .unwrap(),
+                ),
+                (
+                    1,
+                    PartitionSpec::builder()
+                        .with_spec_id(1)
+                        .with_partition_field(PartitionField::new(
+                            1,
+                            1001,
+                            "id",
+                            Transform::Identity,
+                        ))
+                        .build()
+                        .unwrap(),
+                ),
+            ]))
             .build()
             .unwrap();
 
@@ -986,7 +1154,7 @@ mod tests {
             format_version: FormatVersion::V2,
             manifest_path: "".to_string(),
             manifest_length: 1200,
-            partition_spec_id: 0,
+            partition_spec_id: 1,
             content: Content::Data,
             sequence_number: 566,
             min_sequence_number: 0,
@@ -1000,8 +1168,8 @@ mod tests {
             partitions: Some(vec![FieldSummary {
                 contains_null: true,
                 contains_nan: Some(false),
-                lower_bound: Some(Value::Int(1234)),
-                upper_bound: Some(Value::Int(76890)),
+                lower_bound: Some(Value::LongInt(1234)),
+                upper_bound: Some(Value::LongInt(76890)),
             }]),
             key_metadata: None,
             first_row_id: None,
@@ -1047,17 +1215,41 @@ mod tests {
                         initial_default: None,
                         write_default: None,
                     })
+                    .with_struct_field(StructField {
+                        id: 1,
+                        name: "id".to_string(),
+                        required: true,
+                        field_type: Type::Primitive(PrimitiveType::Long),
+                        doc: None,
+                        initial_default: None,
+                        write_default: None,
+                    })
                     .build()
                     .unwrap(),
             )]))
             .default_spec_id(0)
-            .partition_specs(HashMap::from_iter(vec![(
-                0,
-                PartitionSpec::builder()
-                    .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
-                    .build()
-                    .unwrap(),
-            )]))
+            .partition_specs(HashMap::from_iter(vec![
+                (
+                    0,
+                    PartitionSpec::builder()
+                        .with_partition_field(PartitionField::new(0, 1000, "day", Transform::Day))
+                        .build()
+                        .unwrap(),
+                ),
+                (
+                    1,
+                    PartitionSpec::builder()
+                        .with_spec_id(1)
+                        .with_partition_field(PartitionField::new(
+                            1,
+                            1001,
+                            "id",
+                            Transform::Identity,
+                        ))
+                        .build()
+                        .unwrap(),
+                ),
+            ]))
             .build()
             .unwrap();
 
@@ -1065,7 +1257,7 @@ mod tests {
             format_version: FormatVersion::V3,
             manifest_path: "".to_string(),
             manifest_length: 1200,
-            partition_spec_id: 0,
+            partition_spec_id: 1,
             content: Content::Data,
             sequence_number: 566,
             min_sequence_number: 0,
@@ -1079,8 +1271,8 @@ mod tests {
             partitions: Some(vec![FieldSummary {
                 contains_null: true,
                 contains_nan: Some(false),
-                lower_bound: Some(Value::Int(1234)),
-                upper_bound: Some(Value::Int(76890)),
+                lower_bound: Some(Value::LongInt(1234)),
+                upper_bound: Some(Value::LongInt(76890)),
             }]),
             key_metadata: None,
             first_row_id: Some(42),
