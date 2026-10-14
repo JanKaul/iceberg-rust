@@ -18,9 +18,10 @@ use roaring::RoaringTreemap;
 
 use crate::{arrow::read::DataFileReader, error::Error};
 
+use super::MAX_CONCURRENT_DELETE_FILE_READS;
+
 const FILE_PATH_FIELD_ID: i32 = i32::MAX - 101;
 const POSITION_FIELD_ID: i32 = i32::MAX - 102;
-const MAX_CONCURRENT_DELETE_FILE_READS: usize = 8;
 
 /// Load v2 position-delete files into the same path-keyed bitmap representation
 /// used by v3 deletion vectors.

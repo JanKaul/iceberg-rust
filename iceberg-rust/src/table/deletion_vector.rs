@@ -10,7 +10,7 @@
 
 use std::{collections::HashMap, ops::Range, sync::Arc};
 
-use futures::future::try_join_all;
+use futures::{stream::FuturesUnordered, StreamExt};
 use iceberg_rust_spec::{
     spec::{deletion_vector::DeletionVector, manifest::ManifestEntry},
     util,
@@ -18,6 +18,8 @@ use iceberg_rust_spec::{
 use object_store::{path::Path, ObjectStore, ObjectStoreExt};
 
 use crate::error::Error;
+
+use super::MAX_CONCURRENT_DELETE_FILE_READS;
 
 /// Fetch every deletion vector referenced by `entries` and return them keyed
 /// by the absolute path of the data file each vector applies to.
@@ -40,18 +42,22 @@ pub async fn load_deletion_vectors(
     entries: &[ManifestEntry],
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<HashMap<String, DeletionVector>, Error> {
-    let fetches = entries.iter().map(|entry| {
-        let object_store = object_store.clone();
-        async move { fetch_one(entry, object_store).await }
-    });
-    let results = try_join_all(fetches).await?;
+    let mut remaining = entries.iter();
+    let mut fetches = FuturesUnordered::new();
+    for entry in remaining.by_ref().take(MAX_CONCURRENT_DELETE_FILE_READS) {
+        fetches.push(fetch_one(entry, object_store.clone()));
+    }
 
-    let mut index = HashMap::with_capacity(results.len());
-    for (path, vector) in results {
+    let mut index = HashMap::with_capacity(entries.len());
+    while let Some(result) = fetches.next().await {
+        let (path, vector) = result?;
         if index.insert(path.clone(), vector).is_some() {
             return Err(Error::InvalidFormat(format!(
                 "more than one deletion vector references data file {path}"
             )));
+        }
+        if let Some(entry) = remaining.next() {
+            fetches.push(fetch_one(entry, object_store.clone()));
         }
     }
     Ok(index)
@@ -101,8 +107,17 @@ async fn fetch_one(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{
+        collections::BTreeMap,
+        fmt,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+    };
 
+    use async_trait::async_trait;
+    use futures::stream::BoxStream;
     use iceberg_rust_spec::spec::{
         deletion_vector::DeletionVector,
         manifest::{
@@ -112,10 +127,90 @@ mod tests {
         table_metadata::FormatVersion,
         values::Struct,
     };
-    use object_store::{memory::InMemory, path::Path, ObjectStore, ObjectStoreExt, PutPayload};
+    use object_store::{
+        memory::InMemory, path::Path, CopyOptions, GetOptions, GetResult, ListResult,
+        MultipartUpload, ObjectMeta, ObjectStore, ObjectStoreExt, PutMultipartOptions, PutOptions,
+        PutPayload, PutResult,
+    };
     use roaring::RoaringTreemap;
 
-    use super::load_deletion_vectors;
+    use super::{load_deletion_vectors, MAX_CONCURRENT_DELETE_FILE_READS};
+
+    #[derive(Debug, Default)]
+    struct CountingStore {
+        inner: InMemory,
+        active: AtomicUsize,
+        peak: AtomicUsize,
+    }
+
+    impl fmt::Display for CountingStore {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "CountingStore")
+        }
+    }
+
+    #[async_trait]
+    impl ObjectStore for CountingStore {
+        async fn put_opts(
+            &self,
+            location: &Path,
+            payload: PutPayload,
+            opts: PutOptions,
+        ) -> object_store::Result<PutResult> {
+            self.inner.put_opts(location, payload, opts).await
+        }
+
+        async fn put_multipart_opts(
+            &self,
+            location: &Path,
+            opts: PutMultipartOptions,
+        ) -> object_store::Result<Box<dyn MultipartUpload>> {
+            self.inner.put_multipart_opts(location, opts).await
+        }
+
+        async fn get_opts(
+            &self,
+            location: &Path,
+            opts: GetOptions,
+        ) -> object_store::Result<GetResult> {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(active, Ordering::SeqCst);
+            tokio::task::yield_now().await;
+            let result = self.inner.get_opts(location, opts).await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            result
+        }
+
+        fn delete_stream(
+            &self,
+            locations: BoxStream<'static, object_store::Result<Path>>,
+        ) -> BoxStream<'static, object_store::Result<Path>> {
+            self.inner.delete_stream(locations)
+        }
+
+        fn list(
+            &self,
+            prefix: Option<&Path>,
+        ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
+            self.inner.list(prefix)
+        }
+
+        async fn list_with_delimiter(
+            &self,
+            prefix: Option<&Path>,
+        ) -> object_store::Result<ListResult> {
+            self.inner.list_with_delimiter(prefix).await
+        }
+
+        async fn copy_opts(
+            &self,
+            from: &Path,
+            to: &Path,
+            opts: CopyOptions,
+        ) -> object_store::Result<()> {
+            self.inner.copy_opts(from, to, opts).await
+        }
+    }
 
     fn make_entry(puffin_path: &str, referenced: &str, offset: i64, size: i64) -> ManifestEntry {
         let data_file = DataFileBuilder::default()
@@ -227,6 +322,38 @@ mod tests {
         let index = load_deletion_vectors(&entries, store).await.unwrap();
         assert_eq!(*index.get("/data/a.parquet").unwrap(), dv_a);
         assert_eq!(*index.get("/data/b.parquet").unwrap(), dv_b);
+    }
+
+    #[tokio::test]
+    async fn bounds_concurrent_vector_reads() {
+        let store = Arc::new(CountingStore::default());
+        let vectors = (0..32).map(|i| dv_from(&[i])).collect::<Vec<_>>();
+        let vector_refs = vectors.iter().collect::<Vec<_>>();
+        let blobs = write_puffin(&store.inner, "/dvs/many.puffin", &vector_refs).await;
+        let entries = blobs
+            .iter()
+            .enumerate()
+            .map(|(i, (offset, size))| {
+                make_entry(
+                    "/dvs/many.puffin",
+                    &format!("/data/{i}.parquet"),
+                    *offset,
+                    *size,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let index = load_deletion_vectors(&entries, store.clone())
+            .await
+            .unwrap();
+        assert_eq!(index.len(), entries.len());
+        assert_eq!(store.active.load(Ordering::SeqCst), 0);
+        let peak = store.peak.load(Ordering::SeqCst);
+        assert!(peak > 1, "test did not exercise concurrent reads");
+        assert!(
+            peak <= MAX_CONCURRENT_DELETE_FILE_READS,
+            "peak reads: {peak}"
+        );
     }
 
     #[tokio::test]

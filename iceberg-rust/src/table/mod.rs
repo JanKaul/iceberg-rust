@@ -47,6 +47,8 @@ pub mod manifest_list;
 pub mod position_delete;
 pub mod transaction;
 
+const MAX_CONCURRENT_DELETE_FILE_READS: usize = 8;
+
 #[derive(Debug, Clone)]
 /// Iceberg table
 pub struct Table {
