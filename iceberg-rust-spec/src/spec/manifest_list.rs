@@ -26,6 +26,7 @@ use self::_serde::{
 };
 
 use super::{
+    schema::Schema,
     table_metadata::{FormatVersion, TableMetadata},
     types::Type,
     values::Value,
@@ -345,19 +346,37 @@ impl ManifestListEntry {
         format_version: FormatVersion,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
+        Self::from_avro_value_with_schema(
+            value,
+            format_version,
+            table_metadata,
+            table_metadata.current_schema()?,
+        )
+    }
+
+    /// Decodes an entry using the schema of the snapshot being scanned.
+    pub fn from_avro_value_with_schema(
+        value: Result<AvroValue, apache_avro::Error>,
+        format_version: FormatVersion,
+        table_metadata: &TableMetadata,
+        schema: &Schema,
+    ) -> Result<ManifestListEntry, Error> {
         let entry = value?;
         match format_version {
-            FormatVersion::V1 => Self::try_from_v1(
+            FormatVersion::V1 => Self::try_from_v1_with_schema(
                 apache_avro::from_value::<ManifestListEntryV1>(&entry)?,
                 table_metadata,
+                schema,
             ),
-            FormatVersion::V2 => Self::try_from_v2(
+            FormatVersion::V2 => Self::try_from_v2_with_schema(
                 apache_avro::from_value::<ManifestListEntryV2>(&entry)?,
                 table_metadata,
+                schema,
             ),
-            FormatVersion::V3 => Self::try_from_v3(
+            FormatVersion::V3 => Self::try_from_v3_with_schema(
                 apache_avro::from_value::<ManifestListEntryV3>(&entry)?,
                 table_metadata,
+                schema,
             ),
         }
     }
@@ -383,6 +402,14 @@ impl ManifestListEntry {
         entry: _serde::ManifestListEntryV3,
         table_metadata: &TableMetadata,
     ) -> Result<ManifestListEntry, Error> {
+        Self::try_from_v3_with_schema(entry, table_metadata, table_metadata.current_schema()?)
+    }
+
+    fn try_from_v3_with_schema(
+        entry: _serde::ManifestListEntryV3,
+        table_metadata: &TableMetadata,
+        schema: &Schema,
+    ) -> Result<ManifestListEntry, Error> {
         Ok(ManifestListEntry {
             format_version: FormatVersion::V3,
             manifest_path: entry.manifest_path,
@@ -402,6 +429,7 @@ impl ManifestListEntry {
                 entry.partitions,
                 entry.partition_spec_id,
                 table_metadata,
+                schema,
             )?,
             key_metadata: entry.key_metadata,
             first_row_id: entry.first_row_id,
@@ -411,6 +439,14 @@ impl ManifestListEntry {
     pub fn try_from_v2(
         entry: _serde::ManifestListEntryV2,
         table_metadata: &TableMetadata,
+    ) -> Result<ManifestListEntry, Error> {
+        Self::try_from_v2_with_schema(entry, table_metadata, table_metadata.current_schema()?)
+    }
+
+    fn try_from_v2_with_schema(
+        entry: _serde::ManifestListEntryV2,
+        table_metadata: &TableMetadata,
+        schema: &Schema,
     ) -> Result<ManifestListEntry, Error> {
         Ok(ManifestListEntry {
             format_version: FormatVersion::V2,
@@ -431,6 +467,7 @@ impl ManifestListEntry {
                 entry.partitions,
                 entry.partition_spec_id,
                 table_metadata,
+                schema,
             )?,
             key_metadata: entry.key_metadata,
             first_row_id: None,
@@ -440,6 +477,14 @@ impl ManifestListEntry {
     pub fn try_from_v1(
         entry: _serde::ManifestListEntryV1,
         table_metadata: &TableMetadata,
+    ) -> Result<ManifestListEntry, Error> {
+        Self::try_from_v1_with_schema(entry, table_metadata, table_metadata.current_schema()?)
+    }
+
+    fn try_from_v1_with_schema(
+        entry: _serde::ManifestListEntryV1,
+        table_metadata: &TableMetadata,
+        schema: &Schema,
     ) -> Result<ManifestListEntry, Error> {
         Ok(ManifestListEntry {
             format_version: FormatVersion::V1,
@@ -460,6 +505,7 @@ impl ManifestListEntry {
                 entry.partitions,
                 entry.partition_spec_id,
                 table_metadata,
+                schema,
             )?,
             key_metadata: entry.key_metadata,
             first_row_id: None,
@@ -467,33 +513,34 @@ impl ManifestListEntry {
     }
 }
 
-/// Resolves each partition field's result type against the current schema. A field whose source
+/// Resolves each partition field's result type against the scan schema. A field whose source
 /// column is absent (e.g. dropped, but still referenced by a historical spec) is left untyped so
 /// its bounds are skipped — you cannot prune on a column that no longer exists.
 fn partition_field_types(
     table_metadata: &TableMetadata,
     partition_spec_id: i32,
+    schema: &Schema,
 ) -> Result<Vec<Option<Type>>, Error> {
     let partition_spec = table_metadata
         .partition_specs
         .get(&partition_spec_id)
         .ok_or_else(|| Error::NotFound(format!("Partition spec with id {partition_spec_id}")))?;
-    let schema = table_metadata.current_schema()?;
     Ok(partition_spec.data_types_lenient(schema.fields()))
 }
 
 /// Decodes an entry's partition field summaries, resolving types from the entry's own
-/// `partition_spec_id` against the current schema and decoding each bound with the spec's
+/// `partition_spec_id` against the scan schema and decoding each bound with the spec's
 /// width-inference rule ([`super::manifest::decode_bound`]).
 fn decode_partition_summaries(
     partitions: Option<Vec<FieldSummarySerde>>,
     partition_spec_id: i32,
     table_metadata: &TableMetadata,
+    schema: &Schema,
 ) -> Result<Option<Vec<FieldSummary>>, Error> {
     let Some(summaries) = partitions else {
         return Ok(None);
     };
-    let types = partition_field_types(table_metadata, partition_spec_id)?;
+    let types = partition_field_types(table_metadata, partition_spec_id, schema)?;
     if summaries.len() != types.len() {
         return Ok(None);
     }
@@ -966,7 +1013,36 @@ mod tests {
             .is_none());
 
         metadata.schemas.insert(
-            1,
+            2,
+            Schema::from_struct_type(
+                StructType::new(vec![
+                    StructField::new(1, "a", false, Type::Primitive(PrimitiveType::Long), None),
+                    StructField::new(2, "b", false, Type::Primitive(PrimitiveType::Long), None),
+                ]),
+                2,
+                None,
+            ),
+        );
+        metadata.current_schema_id = 2;
+        let promoted = ManifestListEntry::try_from_v2(old_entry.clone(), &metadata).unwrap();
+        assert_eq!(
+            promoted.partitions.unwrap()[0].lower_bound,
+            Some(Value::LongInt(7))
+        );
+        let original_schema = metadata.schemas.get(&1).unwrap();
+        let historical = ManifestListEntry::try_from_v2_with_schema(
+            old_entry.clone(),
+            &metadata,
+            original_schema,
+        )
+        .unwrap();
+        assert_eq!(
+            historical.partitions.unwrap()[0].lower_bound,
+            Some(Value::Int(7))
+        );
+
+        metadata.schemas.insert(
+            3,
             Schema::from_struct_type(
                 StructType::new(vec![StructField::new(
                     2,
@@ -975,14 +1051,25 @@ mod tests {
                     Type::Primitive(PrimitiveType::Long),
                     None,
                 )]),
-                1,
+                3,
                 None,
             ),
         );
-        let decoded = ManifestListEntry::try_from_v2(old_entry, &metadata).unwrap();
+        metadata.current_schema_id = 3;
+        let decoded = ManifestListEntry::try_from_v2(old_entry.clone(), &metadata).unwrap();
         let summary = &decoded.partitions.unwrap()[0];
         assert!(!summary.contains_null);
         assert_eq!(summary.lower_bound, None);
+        let historical = ManifestListEntry::try_from_v2_with_schema(
+            old_entry,
+            &metadata,
+            metadata.schemas.get(&1).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            historical.partitions.unwrap()[0].lower_bound,
+            Some(Value::Int(7))
+        );
     }
 
     #[test]

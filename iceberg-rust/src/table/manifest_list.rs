@@ -14,6 +14,7 @@ use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, FirstRowIdInheritance, ManifestEntry, Status},
     manifest_list::{Content, ManifestListEntry},
+    schema::Schema,
     snapshot::Snapshot,
     table_metadata::{FormatVersion, TableMetadata},
     util::strip_prefix,
@@ -72,6 +73,7 @@ fn manifest_schema_for_spec(
 pub(crate) struct ManifestListReader<'a, 'metadata, R: Read> {
     reader: AvroReader<'a, R>,
     table_metadata: &'metadata TableMetadata,
+    schema: &'metadata Schema,
     writer_format_version: FormatVersion,
 }
 
@@ -79,10 +81,11 @@ impl<R: Read> Iterator for ManifestListReader<'_, '_, R> {
     type Item = Result<ManifestListEntry, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next().map(|value| {
-            ManifestListEntry::from_avro_value(
+            ManifestListEntry::from_avro_value_with_schema(
                 value,
                 self.writer_format_version,
                 self.table_metadata,
+                self.schema,
             )
             .map_err(Error::from)
         })
@@ -133,6 +136,14 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
     /// * The Avro reader cannot be created with the schema
     /// * The manifest list format is invalid
     pub(crate) fn new(reader: R, table_metadata: &'metadata TableMetadata) -> Result<Self, Error> {
+        Self::new_with_schema(reader, table_metadata, table_metadata.current_schema()?)
+    }
+
+    fn new_with_schema(
+        reader: R,
+        table_metadata: &'metadata TableMetadata,
+        schema: &'metadata Schema,
+    ) -> Result<Self, Error> {
         // We intentionally read without a reader schema so that the embedded writer schema is used.
         // Some query engines (e.g. AWS Athena) write legacy field names such as
         // `added_data_files_count` instead of the spec-correct `added_files_count` (see
@@ -150,6 +161,7 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
         Ok(Self {
             reader,
             table_metadata,
+            schema,
             writer_format_version,
         })
     }
@@ -188,7 +200,11 @@ pub(crate) async fn read_snapshot<'metadata>(
             .await?
             .into(),
     );
-    ManifestListReader::new(bytes, table_metadata)
+    ManifestListReader::new_with_schema(
+        bytes,
+        table_metadata,
+        table_metadata.schema(*snapshot.snapshot_id())?,
+    )
 }
 
 /// Computes the overall partition bounds for all data files in a snapshot.
@@ -245,7 +261,12 @@ pub async fn snapshot_partition_bounds(
             .into(),
     );
 
-    ManifestListReader::new(bytes, table_metadata)?.try_fold(None::<Rectangle>, |acc, x| {
+    ManifestListReader::new_with_schema(
+        bytes,
+        table_metadata,
+        table_metadata.schema(*snapshot.snapshot_id())?,
+    )?
+    .try_fold(None::<Rectangle>, |acc, x| {
         if let Some(partitions) = x?.partitions {
             let rect = summary_to_rectangle(&partitions)?;
             if let Some(mut acc) = acc {
@@ -1633,6 +1654,126 @@ impl<'schema, 'metadata> ManifestListWriter<'schema, 'metadata> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iceberg_rust_spec::{
+        manifest_list::{manifest_list_schema_v2, FieldSummary},
+        partition::{PartitionField, PartitionSpec, Transform},
+        schema::Schema,
+        snapshot::SnapshotBuilder,
+        table_metadata::TableMetadataBuilder,
+        types::{PrimitiveType, StructField, StructType, Type},
+        values::Value,
+    };
+    use object_store::memory::InMemory;
+
+    #[tokio::test]
+    async fn historical_manifest_list_uses_snapshot_schema_for_bounds() {
+        let schema = |id, field_type| {
+            Schema::from_struct_type(
+                StructType::new(vec![StructField::new(1, "id", false, field_type, None)]),
+                id,
+                None,
+            )
+        };
+        let snapshot = SnapshotBuilder::default()
+            .with_snapshot_id(1)
+            .with_sequence_number(1)
+            .with_manifest_list("historical.avro".to_string())
+            .with_schema_id(1)
+            .build()
+            .unwrap();
+        let mut metadata = TableMetadataBuilder::default()
+            .format_version(FormatVersion::V2)
+            .location("memory:///table")
+            .current_schema_id(2)
+            .schemas(HashMap::from([
+                (1, schema(1, Type::Primitive(PrimitiveType::Int))),
+                (2, schema(2, Type::Primitive(PrimitiveType::Long))),
+            ]))
+            .default_spec_id(0)
+            .partition_specs(HashMap::from([(
+                0,
+                PartitionSpec::builder()
+                    .with_partition_field(PartitionField::new(1, 1000, "id", Transform::Identity))
+                    .build()
+                    .unwrap(),
+            )]))
+            .snapshots(HashMap::from([(1, snapshot.clone())]))
+            .current_snapshot_id(Some(1))
+            .build()
+            .unwrap();
+        let entry = ManifestListEntry {
+            format_version: FormatVersion::V2,
+            manifest_path: "data.avro".into(),
+            manifest_length: 1,
+            partition_spec_id: 0,
+            content: Content::Data,
+            sequence_number: 1,
+            min_sequence_number: 1,
+            added_snapshot_id: 1,
+            added_files_count: Some(1),
+            existing_files_count: Some(0),
+            deleted_files_count: Some(0),
+            added_rows_count: Some(1),
+            existing_rows_count: Some(0),
+            deleted_rows_count: Some(0),
+            partitions: Some(vec![FieldSummary {
+                contains_null: false,
+                contains_nan: None,
+                lower_bound: Some(Value::Int(7)),
+                upper_bound: Some(Value::Int(7)),
+            }]),
+            key_metadata: None,
+            first_row_id: None,
+        };
+        let mut writer = AvroWriter::new(manifest_list_schema_v2(), Vec::new());
+        writer.append_ser(entry).unwrap();
+        let bytes = writer.into_inner().unwrap();
+        let store = Arc::new(InMemory::new());
+        store
+            .put(&"historical.avro".into(), bytes.clone().into())
+            .await
+            .unwrap();
+
+        let historical = read_snapshot(&snapshot, &metadata, store.clone())
+            .await
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            historical.partitions.unwrap()[0].lower_bound,
+            Some(Value::Int(7))
+        );
+        let current = ManifestListReader::new(bytes.as_slice(), &metadata)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            current.partitions.unwrap()[0].lower_bound,
+            Some(Value::LongInt(7))
+        );
+
+        metadata.schemas.insert(
+            3,
+            Schema::from_struct_type(
+                StructType::new(vec![StructField::new(
+                    2,
+                    "replacement",
+                    false,
+                    Type::Primitive(PrimitiveType::Long),
+                    None,
+                )]),
+                3,
+                None,
+            ),
+        );
+        metadata.current_schema_id = 3;
+        assert!(snapshot_partition_bounds(&snapshot, &metadata, store)
+            .await
+            .unwrap()
+            .is_some());
+    }
 
     fn manifest(
         path: &str,
