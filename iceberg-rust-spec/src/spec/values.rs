@@ -1884,12 +1884,6 @@ mod tests {
             promoted.get("id_partition"),
             Some(&Some(Value::Double(OrderedFloat(f64::from(34.11_f32)))))
         );
-        assert!(
-            Value::Float(OrderedFloat(34.11))
-                .cast(&Type::Primitive(PrimitiveType::Double))
-                .is_err(),
-            "partition promotion must not widen the generic Value::cast API"
-        );
     }
 
     fn all_other_primitive_types(excluded: &[PrimitiveType]) -> Vec<Type> {

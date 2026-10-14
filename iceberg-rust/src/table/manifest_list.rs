@@ -13,7 +13,7 @@ use apache_avro::{Reader as AvroReader, Schema as AvroSchema, Writer as AvroWrit
 use futures::{stream, StreamExt, TryFutureExt, TryStreamExt};
 use iceberg_rust_spec::{
     manifest::{partition_value_schema, DataFile, FirstRowIdInheritance, ManifestEntry, Status},
-    manifest_list::{Content, ManifestListEntry, ManifestListEntryDecoder},
+    manifest_list::{Content, ManifestListEntry},
     snapshot::Snapshot,
     table_metadata::{FormatVersion, TableMetadata},
     util::strip_prefix,
@@ -71,7 +71,7 @@ fn manifest_schema_for_spec(
 /// * `R` - The type implementing `Read` that provides the manifest list data
 pub(crate) struct ManifestListReader<'a, 'metadata, R: Read> {
     reader: AvroReader<'a, R>,
-    decoder: ManifestListEntryDecoder<'metadata>,
+    table_metadata: &'metadata TableMetadata,
     writer_format_version: FormatVersion,
 }
 
@@ -79,9 +79,12 @@ impl<R: Read> Iterator for ManifestListReader<'_, '_, R> {
     type Item = Result<ManifestListEntry, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next().map(|value| {
-            self.decoder
-                .decode(value, self.writer_format_version)
-                .map_err(Error::from)
+            ManifestListEntry::from_avro_value(
+                value,
+                self.writer_format_version,
+                self.table_metadata,
+            )
+            .map_err(Error::from)
         })
     }
 }
@@ -146,7 +149,7 @@ impl<'metadata, R: Read> ManifestListReader<'_, 'metadata, R> {
             manifest_list_format_version(reader.writer_schema(), table_metadata.format_version)?;
         Ok(Self {
             reader,
-            decoder: ManifestListEntryDecoder::new(table_metadata),
+            table_metadata,
             writer_format_version,
         })
     }
