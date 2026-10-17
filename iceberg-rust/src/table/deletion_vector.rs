@@ -15,9 +15,12 @@ use iceberg_rust_spec::{
     spec::{deletion_vector::DeletionVector, manifest::ManifestEntry},
     util,
 };
-use object_store::{path::Path, ObjectStore, ObjectStoreExt};
+use object_store::{ObjectStore, ObjectStoreExt};
 
-use crate::error::Error;
+use crate::{
+    error::Error,
+    object_store::{legacy_object_store_path_from_metadata, object_store_path_from_metadata},
+};
 
 use super::MAX_CONCURRENT_DELETE_FILE_READS;
 
@@ -99,8 +102,20 @@ async fn fetch_one(
     // `dv_index.get(strip_prefix(data_file.file_path()))` — finds this entry
     // even when writer normalization differs from reader normalization
     // (e.g. scheme variations or trailing slashes).
-    let puffin_path: Path = util::strip_prefix(data_file.file_path()).into();
-    let bytes = object_store.get_range(&puffin_path, range).await?;
+    let location = data_file.file_path();
+    let puffin_path = object_store_path_from_metadata(location)
+        .map_err(|error| Error::InvalidFormat(error.to_string()))?;
+    let bytes = match object_store.get_range(&puffin_path, range.clone()).await {
+        Ok(bytes) => bytes,
+        Err(error @ object_store::Error::NotFound { .. }) => {
+            let Some(legacy) = legacy_object_store_path_from_metadata(location, &puffin_path)
+            else {
+                return Err(error.into());
+            };
+            object_store.get_range(&legacy, range).await?
+        }
+        Err(error) => return Err(error.into()),
+    };
     let vector = DeletionVector::try_from(bytes.as_ref())?;
     Ok((util::strip_prefix(&referenced), vector))
 }
@@ -296,6 +311,35 @@ mod tests {
         assert_eq!(index.len(), 1);
         let loaded = index.get("/data/f1.parquet").unwrap();
         assert_eq!(*loaded, dv);
+    }
+
+    #[tokio::test]
+    async fn loads_encoded_and_legacy_puffin_paths() {
+        let store = Arc::new(InMemory::new());
+        let encoded_dv = dv_from(&[1, 5]);
+        let legacy_dv = dv_from(&[2, 6]);
+        let (encoded_offset, encoded_size) =
+            write_puffin(store.as_ref(), "/dvs/name=日😀/new.puffin", &[&encoded_dv]).await[0];
+        let (legacy_offset, legacy_size) =
+            write_puffin(store.as_ref(), "/dvs/name=a%2Fb/old.puffin", &[&legacy_dv]).await[0];
+        let entries = vec![
+            make_entry(
+                "s3://bucket/dvs/name=%E6%97%A5%F0%9F%98%80/new.puffin",
+                "/data/a.parquet",
+                encoded_offset,
+                encoded_size,
+            ),
+            make_entry(
+                "s3://bucket/dvs/name=a%2Fb/old.puffin",
+                "/data/b.parquet",
+                legacy_offset,
+                legacy_size,
+            ),
+        ];
+
+        let index = load_deletion_vectors(&entries, store).await.unwrap();
+        assert_eq!(index["/data/a.parquet"], encoded_dv);
+        assert_eq!(index["/data/b.parquet"], legacy_dv);
     }
 
     #[tokio::test]
