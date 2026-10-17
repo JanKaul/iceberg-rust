@@ -302,19 +302,17 @@ impl Table {
 /// Path of a Manifest file
 pub type ManifestPath = String;
 
+#[instrument(name = "iceberg_rust::table::datafiles", level = "debug", skip(object_store, manifests, filter), fields(
+    manifest_count = manifests.len(),
+    filter_provided = filter.is_some(),
+    sequence_range = ?sequence_number_range
+))]
 async fn datafiles(
     object_store: Arc<dyn ObjectStore>,
     manifests: &'_ [ManifestListEntry],
     filter: Option<Vec<bool>>,
     sequence_number_range: (Option<i64>, Option<i64>),
 ) -> Result<impl Stream<Item = Result<(ManifestPath, ManifestEntry), Error>> + '_, Error> {
-    let span = tracing::debug_span!(
-        "iceberg_rust::table::datafiles",
-        manifest_count = manifests.len(),
-        filter_provided = filter.is_some(),
-        sequence_range = ?sequence_number_range
-    );
-    let _guard = span.enter();
     // filter manifest files according to filter vector
     let iter: Box<dyn Iterator<Item = &ManifestListEntry> + Send + Sync> = match filter {
         Some(predicate) => {
@@ -492,6 +490,19 @@ mod tests {
                 .expect("read stream")
                 .is_empty());
         }
+    }
+
+    #[tokio::test]
+    async fn datafiles_does_not_clone_store_for_unpolled_manifests() {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let manifests: Vec<_> = (0..100).map(test_manifest).collect();
+        let stream = datafiles(store.clone(), &manifests, None, (None, None))
+            .await
+            .expect("construct manifest stream");
+
+        assert_eq!(Arc::strong_count(&store), 2);
+        drop(stream);
+        assert_eq!(Arc::strong_count(&store), 1);
     }
 
     // -----------------------------------------------------------------------
