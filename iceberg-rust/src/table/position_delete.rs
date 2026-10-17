@@ -12,11 +12,15 @@ use iceberg_rust_spec::{
     },
     util,
 };
-use object_store::{path::Path, ObjectStore};
+use object_store::ObjectStore;
 use parquet::arrow::{async_reader::ParquetRecordBatchStreamBuilder, ProjectionMask};
 use roaring::RoaringTreemap;
 
-use crate::{arrow::read::DataFileReader, error::Error};
+use crate::{
+    arrow::read::DataFileReader,
+    error::Error,
+    object_store::{legacy_object_store_path_from_metadata, object_store_path_from_metadata},
+};
 
 use super::MAX_CONCURRENT_DELETE_FILE_READS;
 
@@ -83,11 +87,11 @@ async fn load_one_position_delete_file(
         ))
     })?;
 
-    let reader = DataFileReader::new(
-        object_store,
-        Path::from(util::strip_prefix(data_file.file_path())),
-        file_size,
-    );
+    let location = data_file.file_path();
+    let path = object_store_path_from_metadata(location)
+        .map_err(|error| Error::InvalidFormat(error.to_string()))?;
+    let legacy_path = legacy_object_store_path_from_metadata(location, &path);
+    let reader = DataFileReader::new(object_store, path, file_size).with_legacy_path(legacy_path);
     let builder = ParquetRecordBatchStreamBuilder::new(reader).await?;
     let file_path_index = field_index_by_id(builder.schema(), FILE_PATH_FIELD_ID)?;
     let position_index = field_index_by_id(builder.schema(), POSITION_FIELD_ID)?;
@@ -287,15 +291,25 @@ mod tests {
         sequence_number: i64,
         rows: &[(&str, i64)],
     ) -> ManifestEntry {
+        write_delete_entry_with_location(store, path, path, sequence_number, rows).await
+    }
+
+    async fn write_delete_entry_with_location(
+        store: &dyn ObjectStore,
+        stored_path: &str,
+        metadata_location: &str,
+        sequence_number: i64,
+        rows: &[(&str, i64)],
+    ) -> ManifestEntry {
         let bytes = position_delete_parquet(rows);
         let file_size = i64::try_from(bytes.len()).unwrap();
         store
-            .put(&Path::from(path), PutPayload::from(bytes))
+            .put(&Path::from(stored_path), PutPayload::from(bytes))
             .await
             .unwrap();
         let data_file = DataFileBuilder::default()
             .with_content(Content::PositionDeletes)
-            .with_file_path(path.to_string())
+            .with_file_path(metadata_location.to_string())
             .with_file_format(FileFormat::Parquet)
             .with_partition(Struct {
                 fields: Vec::new(),
@@ -368,5 +382,33 @@ mod tests {
         assert!(!index["/data/a.parquet"].is_deleted(1));
         assert!(index["/data/a.parquet"].is_deleted(2));
         assert!(index["/data/b.parquet"].is_deleted(3));
+    }
+
+    #[tokio::test]
+    async fn reads_encoded_and_legacy_delete_file_paths() {
+        let store = Arc::new(InMemory::new());
+        let encoded = write_delete_entry_with_location(
+            store.as_ref(),
+            "/deletes/name=日😀/new.parquet",
+            "s3://bucket/deletes/name=%E6%97%A5%F0%9F%98%80/new.parquet",
+            8,
+            &[("/data/a.parquet", 1)],
+        )
+        .await;
+        let legacy = write_delete_entry_with_location(
+            store.as_ref(),
+            "/deletes/name=a%2Fb/old.parquet",
+            "s3://bucket/deletes/name=a%2Fb/old.parquet",
+            8,
+            &[("/data/a.parquet", 2)],
+        )
+        .await;
+        let active = Arc::new(HashMap::from([("/data/a.parquet".to_string(), Some(7))]));
+
+        let index = load_position_deletes(vec![encoded, legacy], active, store)
+            .await
+            .unwrap();
+        assert!(index["/data/a.parquet"].is_deleted(1));
+        assert!(index["/data/a.parquet"].is_deleted(2));
     }
 }
