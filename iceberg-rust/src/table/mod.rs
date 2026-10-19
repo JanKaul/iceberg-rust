@@ -302,7 +302,7 @@ impl Table {
 /// Path of a Manifest file
 pub type ManifestPath = String;
 
-#[instrument(name = "iceberg_rust::table::datafiles", level = "debug", skip(object_store, manifests), fields(
+#[instrument(name = "iceberg_rust::table::datafiles", level = "debug", skip(object_store, manifests, filter), fields(
     manifest_count = manifests.len(),
     filter_provided = filter.is_some(),
     sequence_range = ?sequence_number_range
@@ -318,7 +318,7 @@ async fn datafiles(
         Some(predicate) => {
             let iter = manifests
                 .iter()
-                .zip(predicate.into_iter())
+                .zip(predicate)
                 .filter(|(_, predicate)| *predicate)
                 .map(|(manifest, _)| manifest);
             Box::new(iter)
@@ -326,61 +326,59 @@ async fn datafiles(
         None => Box::new(manifests.iter()),
     };
 
-    let futures: Vec<_> = iter
-        .map(|file| {
-            let object_store = object_store.clone();
-            let manifest_path = file.manifest_path.clone();
-            let manifest_sequence_number = file.sequence_number;
-            let manifest_snapshot_id = file.added_snapshot_id;
-            let manifest_first_row_id = file.first_row_id;
-            async move {
-                let path: Path = util::strip_prefix(&manifest_path).into();
-                let bytes = Cursor::new(Vec::from(
-                    object_store
-                        .get(&path)
-                        .and_then(|file| file.bytes())
-                        .instrument(tracing::trace_span!("iceberg_rust::get_manifest"))
-                        .await?,
-                ));
+    let futures = iter.map(move |file| {
+        let object_store = object_store.clone();
+        let manifest_path = file.manifest_path.clone();
+        let manifest_sequence_number = file.sequence_number;
+        let manifest_snapshot_id = file.added_snapshot_id;
+        let manifest_first_row_id = file.first_row_id;
+        async move {
+            let path: Path = util::strip_prefix(&manifest_path).into();
+            let bytes = Cursor::new(Vec::from(
+                object_store
+                    .get(&path)
+                    .and_then(|file| file.bytes())
+                    .instrument(tracing::trace_span!("iceberg_rust::get_manifest"))
+                    .await?,
+            ));
 
-                let mut first_row_id_inheritance =
-                    FirstRowIdInheritance::for_committed_manifest(manifest_first_row_id);
+            let mut first_row_id_inheritance =
+                FirstRowIdInheritance::for_committed_manifest(manifest_first_row_id);
 
-                ManifestReader::new(bytes)?
-                    .filter_map(|entry| match entry {
-                        Ok(entry) if *entry.status() == Status::Deleted => None,
-                        entry => Some(entry),
-                    })
-                    .map(move |entry| {
-                        let mut entry = entry?;
-                        first_row_id_inheritance.apply(&mut entry)?;
-                        Ok(entry)
-                    })
-                    .filter_map_ok(|mut x| {
-                        if x.snapshot_id().is_none() {
-                            *x.snapshot_id_mut() = Some(manifest_snapshot_id);
+            ManifestReader::new(bytes)?
+                .filter_map(|entry| match entry {
+                    Ok(entry) if *entry.status() == Status::Deleted => None,
+                    entry => Some(entry),
+                })
+                .map(move |entry| {
+                    let mut entry = entry?;
+                    first_row_id_inheritance.apply(&mut entry)?;
+                    Ok(entry)
+                })
+                .filter_map_ok(|mut x| {
+                    if x.snapshot_id().is_none() {
+                        *x.snapshot_id_mut() = Some(manifest_snapshot_id);
+                    }
+                    let sequence_number = if let Some(sequence_number) = x.sequence_number() {
+                        *sequence_number
+                    } else {
+                        *x.sequence_number_mut() = Some(manifest_sequence_number);
+                        manifest_sequence_number
+                    };
+
+                    let keep = match sequence_number_range {
+                        (Some(start), Some(end)) => {
+                            start < sequence_number && sequence_number <= end
                         }
-                        let sequence_number = if let Some(sequence_number) = x.sequence_number() {
-                            *sequence_number
-                        } else {
-                            *x.sequence_number_mut() = Some(manifest_sequence_number);
-                            manifest_sequence_number
-                        };
-
-                        let keep = match sequence_number_range {
-                            (Some(start), Some(end)) => {
-                                start < sequence_number && sequence_number <= end
-                            }
-                            (Some(start), None) => start < sequence_number,
-                            (None, Some(end)) => sequence_number <= end,
-                            _ => true,
-                        };
-                        keep.then(|| (manifest_path.clone(), x))
-                    })
-                    .collect::<Result<Vec<_>, Error>>()
-            }
-        })
-        .collect();
+                        (Some(start), None) => start < sequence_number,
+                        (None, Some(end)) => sequence_number <= end,
+                        _ => true,
+                    };
+                    keep.then(|| (manifest_path.clone(), x))
+                })
+                .collect::<Result<Vec<_>, Error>>()
+        }
+    });
 
     // `buffered` keeps at most `concurrent_manifest_ops` fetch+decode futures in flight, bounding
     // request fan-out and the raw manifest bytes held at once (each future drops its bytes once
@@ -449,7 +447,63 @@ pub(crate) async fn delete_all_table_files(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use iceberg_rust_spec::spec::{
+        manifest_list::Content as ManifestContent, table_metadata::FormatVersion,
+    };
+    use object_store::memory::InMemory;
     use rstest::rstest;
+
+    fn test_manifest(index: usize) -> ManifestListEntry {
+        ManifestListEntry {
+            format_version: FormatVersion::V2,
+            manifest_path: format!("/{index}.avro"),
+            manifest_length: 0,
+            partition_spec_id: 0,
+            content: ManifestContent::Data,
+            sequence_number: 0,
+            min_sequence_number: 0,
+            added_snapshot_id: 0,
+            added_files_count: Some(1),
+            existing_files_count: Some(0),
+            deleted_files_count: Some(0),
+            added_rows_count: Some(1),
+            existing_rows_count: Some(0),
+            deleted_rows_count: Some(0),
+            partitions: None,
+            key_metadata: None,
+            first_row_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn datafiles_skips_filtered_manifests_without_reading_them() {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let manifests = [test_manifest(0), test_manifest(1)];
+        for filter in [vec![], vec![false, false]] {
+            let stream = datafiles(store.clone(), &manifests, Some(filter), (None, None))
+                .await
+                .expect("construct manifest stream");
+            assert!(stream
+                .try_collect::<Vec<_>>()
+                .await
+                .expect("read stream")
+                .is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn datafiles_does_not_clone_store_for_unpolled_manifests() {
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let manifests: Vec<_> = (0..100).map(test_manifest).collect();
+        let stream = datafiles(store.clone(), &manifests, None, (None, None))
+            .await
+            .expect("construct manifest stream");
+
+        assert_eq!(Arc::strong_count(&store), 2);
+        drop(stream);
+        assert_eq!(Arc::strong_count(&store), 1);
+    }
 
     // -----------------------------------------------------------------------
     // Placeholders for upstream scan + planning + metadata-table tests.
