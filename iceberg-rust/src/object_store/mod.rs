@@ -10,6 +10,7 @@ use object_store::{
     gcp::{GoogleCloudStorageBuilder, GoogleConfigKey},
     local::LocalFileSystem,
     memory::InMemory,
+    path::Path as ObjectPath,
     ObjectStore,
 };
 
@@ -17,6 +18,144 @@ use crate::error::Error;
 
 pub mod parse;
 pub mod store;
+
+/// Parse an Iceberg metadata location without percent-encoding it a second time.
+pub fn object_store_path_from_metadata(
+    location: &str,
+) -> Result<ObjectPath, object_store::path::Error> {
+    let uri = url::Url::parse(location).ok();
+    let path = uri.as_ref().map_or(location, url::Url::path);
+    if !path.is_ascii() || has_invalid_percent_escape(path) {
+        Ok(ObjectPath::from(path))
+    } else {
+        match ObjectPath::parse(path) {
+            Ok(path) => Ok(path),
+            Err(object_store::path::Error::EmptySegment { .. }) => Ok(ObjectPath::from(path)),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+pub(crate) fn legacy_object_store_path_from_metadata(
+    location: &str,
+    preferred: &ObjectPath,
+) -> Option<ObjectPath> {
+    let legacy = ObjectPath::from(iceberg_rust_spec::util::strip_prefix(location));
+    (legacy != *preferred).then_some(legacy)
+}
+
+fn has_invalid_percent_escape(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len()
+                || !bytes[i + 1].is_ascii_hexdigit()
+                || !bytes[i + 2].is_ascii_hexdigit()
+            {
+                return true;
+            }
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod metadata_path_tests {
+    use super::{object_store_path_from_metadata, ObjectPath};
+    use object_store::{memory::InMemory, ObjectStoreExt};
+
+    #[test]
+    fn preserves_percent_encoded_metadata_paths() {
+        let written = ObjectPath::from("data/name=日😀/part.parquet");
+        assert_eq!(
+            object_store_path_from_metadata(
+                "s3://bucket/data/name=%E6%97%A5%F0%9F%98%80/part.parquet"
+            )
+            .unwrap(),
+            written
+        );
+        assert_eq!(
+            object_store_path_from_metadata("file:///data/name=50%25/part.parquet").unwrap(),
+            ObjectPath::from("data/name=50%/part.parquet")
+        );
+        assert_eq!(
+            object_store_path_from_metadata("s3://bucket/data/name=a%2Fb/part.parquet").unwrap(),
+            ObjectPath::parse("data/name=a%2Fb/part.parquet").unwrap()
+        );
+        assert_eq!(
+            object_store_path_from_metadata("/data/name=日😀/part.parquet").unwrap(),
+            ObjectPath::from("/data/name=日😀/part.parquet")
+        );
+        assert_eq!(
+            object_store_path_from_metadata("/data/name=50%25/part.parquet").unwrap(),
+            ObjectPath::from("/data/name=50%/part.parquet")
+        );
+        assert_eq!(
+            object_store_path_from_metadata("/data/name=50%/part.parquet").unwrap(),
+            ObjectPath::from("/data/name=50%/part.parquet")
+        );
+        assert_eq!(
+            object_store_path_from_metadata("/data/name=%E6%97%A5%F0%9F%98%80/part.parquet")
+                .unwrap(),
+            ObjectPath::from("/data/name=日😀/part.parquet")
+        );
+        assert_eq!(
+            object_store_path_from_metadata("s3://bucket/table//data/part.parquet").unwrap(),
+            ObjectPath::from("/table//data/part.parquet")
+        );
+    }
+
+    #[tokio::test]
+    async fn reads_unicode_key_written_before_metadata_round_trip() {
+        let store = InMemory::new();
+        let written = ObjectPath::from("data/name=日😀/part.parquet");
+        store
+            .put(&written, bytes::Bytes::from_static(b"parquet").into())
+            .await
+            .expect("write data file");
+
+        let from_metadata = object_store_path_from_metadata(
+            "s3://bucket/data/name=%E6%97%A5%F0%9F%98%80/part.parquet",
+        )
+        .expect("parse metadata path");
+        let bytes = store
+            .get(&from_metadata)
+            .await
+            .expect("read data file")
+            .bytes()
+            .await
+            .expect("load data file");
+        assert_eq!(bytes.as_ref(), b"parquet");
+
+        store
+            .delete(&from_metadata)
+            .await
+            .expect("delete data file");
+        assert!(store.get(&written).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn reads_bare_local_keys_written_by_arrow_writer() {
+        let store = InMemory::new();
+        for raw in [
+            "/data/name=日😀/part.parquet",
+            "/data/name=50%/part.parquet",
+        ] {
+            let written = ObjectPath::from(raw);
+            store
+                .put(&written, bytes::Bytes::from_static(b"parquet").into())
+                .await
+                .expect("write data file");
+            let from_metadata = object_store_path_from_metadata(raw).expect("parse local path");
+            assert_eq!(from_metadata, written);
+            assert!(store.get(&from_metadata).await.is_ok());
+        }
+    }
+}
 
 /// Azure endpoint types
 #[derive(Debug)]
