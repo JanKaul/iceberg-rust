@@ -1061,7 +1061,7 @@ mod tests {
             .unwrap();
 
         let field_name = schema.get_name("nested_object.key1");
-        assert!(field_name.is_some());
+        assert_eq!(field_name.map(|field| field.id), Some(2));
     }
 
     fn field_id(field: &Field) -> Option<i32> {
