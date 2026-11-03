@@ -147,6 +147,7 @@ pub(crate) fn delta_transform_down(
                             join_constraint: JoinConstraint::On,
                             null_equality: NullEquality::NullEqualsNothing,
                             null_aware: false,
+                            null_aware_value_keys: 0,
                         }));
 
                         let storage_table_aggregate_exprs = storage_table_aggregate_expressions(
@@ -187,6 +188,7 @@ pub(crate) fn delta_transform_down(
                             join_constraint: JoinConstraint::On,
                             null_equality: NullEquality::NullEqualsNothing,
                             null_aware: false,
+                            null_aware_value_keys: 0,
                         }));
 
                         let inputs = vec![aggregate_projection, anti_join];
@@ -255,6 +257,7 @@ pub(crate) fn delta_transform_down(
                             join_constraint: join.join_constraint,
                             null_equality: join.null_equality,
                             null_aware: join.null_aware,
+                            null_aware_value_keys: join.null_aware_value_keys,
                         });
                         let left_delta = LogicalPlan::Join(Join {
                             left: join.left.clone(),
@@ -266,6 +269,7 @@ pub(crate) fn delta_transform_down(
                             join_constraint: join.join_constraint,
                             null_equality: join.null_equality,
                             null_aware: join.null_aware,
+                            null_aware_value_keys: join.null_aware_value_keys,
                         });
                         let right_delta = LogicalPlan::Join(Join {
                             left: delta_left.clone(),
@@ -277,6 +281,7 @@ pub(crate) fn delta_transform_down(
                             join_constraint: join.join_constraint,
                             null_equality: join.null_equality,
                             null_aware: join.null_aware,
+                            null_aware_value_keys: join.null_aware_value_keys,
                         });
                         let inputs = vec![
                             Arc::new(delta_delta),
@@ -334,6 +339,7 @@ pub(crate) fn delta_transform_down(
                             join_constraint: JoinConstraint::On,
                             null_equality: NullEquality::NullEqualsNothing,
                             null_aware: false,
+                            null_aware_value_keys: 0,
                         }));
 
                         Ok(Transformed::yes(LogicalPlan::Projection(
@@ -441,6 +447,7 @@ fn transform_join(
             join_constraint: join.join_constraint,
             null_equality: join.null_equality,
             null_aware: join.null_aware,
+            null_aware_value_keys: join.null_aware_value_keys,
         });
         let left_delta = LogicalPlan::Join(Join {
             left: left.clone(),
@@ -452,6 +459,7 @@ fn transform_join(
             join_constraint: join.join_constraint,
             null_equality: join.null_equality,
             null_aware: join.null_aware,
+            null_aware_value_keys: join.null_aware_value_keys,
         });
         let right_delta = LogicalPlan::Join(Join {
             left: delta_left_two,
@@ -463,6 +471,7 @@ fn transform_join(
             join_constraint: join.join_constraint,
             null_equality: join.null_equality,
             null_aware: join.null_aware,
+            null_aware_value_keys: join.null_aware_value_keys,
         });
         inputs.push(Arc::new(delta_delta));
         inputs.push(Arc::new(left_delta));
@@ -478,6 +487,7 @@ fn transform_join(
         join_constraint: join.join_constraint,
         null_equality: join.null_equality,
         null_aware: join.null_aware,
+        null_aware_value_keys: join.null_aware_value_keys,
     });
     Ok((inputs, Arc::new(left_right)))
 }

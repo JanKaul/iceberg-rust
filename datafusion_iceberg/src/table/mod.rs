@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use chrono::DateTime;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::config::ConfigField;
+use datafusion::datasource::file_format::write::demux::FileMetadata;
 use datafusion::datasource::table_schema::TableSchema;
 use datafusion::execution::RecordBatchStream;
 use datafusion_expr::{dml::InsertOp, utils::conjunction, JoinType};
@@ -31,6 +32,7 @@ use object_store::path::Path;
 use object_store::ObjectMeta;
 use object_store::ObjectStoreExt;
 use std::collections::BTreeMap;
+use std::sync::atomic::AtomicU64;
 use std::thread::available_parallelism;
 use std::{
     collections::{HashMap, HashSet},
@@ -344,7 +346,7 @@ impl TableProvider for DataFusionTable {
     async fn scan(
         &self,
         session: &dyn Session,
-        projection: Option<&Vec<usize>>,
+        projection: Option<&[usize]>,
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
@@ -504,7 +506,7 @@ async fn table_scan(
     arrow_schema: SchemaRef,
     config: Option<&DataFusionTableConfig>,
     session: &SessionState,
-    projection: Option<&Vec<usize>>,
+    projection: Option<&[usize]>,
     filters: &[Expr],
     limit: Option<usize>,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
@@ -565,7 +567,7 @@ async fn table_scan(
 
     // If no projection was specified default to projecting all the fields
     let projection = projection
-        .cloned()
+        .map(|p| p.to_vec())
         .unwrap_or((0..arrow_schema.fields().len()).collect_vec());
 
     let projection_expr: Vec<_> = projection
@@ -1801,7 +1803,7 @@ pub(crate) fn start_demuxer_task(
 }
 
 async fn partitions_demuxer(
-    partition_sender: mpsc::UnboundedSender<(Path, mpsc::Receiver<RecordBatch>)>,
+    partition_sender: mpsc::UnboundedSender<(FileMetadata, mpsc::Receiver<RecordBatch>)>,
     mut data: SendableRecordBatchStream,
     partition_fields: &[BoundPartitionField<'_>],
     table_properties: &HashMap<String, String>,
@@ -1844,7 +1846,7 @@ async fn partitions_demuxer(
                 let data_location = table_location.trim_end_matches('/').to_string() + "/data/";
                 let path = generate_file_path(&data_location, partition_path);
                 partition_sender
-                    .send((path.into(), reciever))
+                    .send((file_metadata(path.into()), reciever))
                     .map_err(DataFusionIcebergError::from)?;
             };
         }
@@ -1860,7 +1862,7 @@ async fn partitions_demuxer(
 
 async fn row_count_demuxer(
     mut tx: mpsc::UnboundedSender<(
-        object_store::path::Path,
+        FileMetadata,
         mpsc::Receiver<datafusion::arrow::array::RecordBatch>,
     )>,
     mut data: std::pin::Pin<Box<dyn RecordBatchStream + Send + 'static>>,
@@ -1901,16 +1903,25 @@ async fn row_count_demuxer(
     Ok(())
 }
 
+/// Wrap a file path into the metadata DataFusion's file sink expects, with a fresh byte counter
+fn file_metadata(path: Path) -> FileMetadata {
+    FileMetadata {
+        path,
+        size: Arc::new(AtomicU64::new(0)),
+    }
+}
+
 /// Helper for row count demuxer
 fn create_new_file_stream(
     data_location: &str,
-    tx: &mut mpsc::UnboundedSender<(Path, mpsc::Receiver<RecordBatch>)>,
+    tx: &mut mpsc::UnboundedSender<(FileMetadata, mpsc::Receiver<RecordBatch>)>,
 ) -> Result<mpsc::Sender<RecordBatch>, DataFusionError> {
     let file_path = generate_file_path(data_location, None);
     let (tx_file, rx_file) = mpsc::channel(1);
-    tx.send((file_path.into(), rx_file)).map_err(|_| {
-        DataFusionError::Execution("Error sending RecordBatch to file stream!".into())
-    })?;
+    tx.send((file_metadata(file_path.into()), rx_file))
+        .map_err(|_| {
+            DataFusionError::Execution("Error sending RecordBatch to file stream!".into())
+        })?;
     Ok(tx_file)
 }
 

@@ -59,7 +59,7 @@ pub enum Error {
     TokioSend(
         #[from]
         tokio::sync::mpsc::error::SendError<(
-            object_store::path::Path,
+            datafusion::datasource::file_format::write::demux::FileMetadata,
             tokio::sync::mpsc::Receiver<RecordBatch>,
         )>,
     ),

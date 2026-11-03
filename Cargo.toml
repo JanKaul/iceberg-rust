@@ -15,8 +15,8 @@ resolver = "2"
 
 [workspace.dependencies]
 apache-avro = "0.21"
-arrow = "59"
-arrow-schema = "59"
+arrow = "60"
+arrow-schema = "60"
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = [
@@ -24,13 +24,13 @@ chrono = { version = "0.4", default-features = false, features = [
     "clock",
 ] }
 crc32fast = "1.4"
-datafusion = "55"
-datafusion-common = "55"
-datafusion-execution = "55"
-datafusion-expr = "55"
-datafusion-functions = { version = "55", features = ["crypto_expressions"] }
-datafusion-functions-aggregate = "55"
-datafusion-sql = "55"
+datafusion = "56.0"
+datafusion-common = "56.0"
+datafusion-execution = "56.0"
+datafusion-expr = "56.0"
+datafusion-functions = { version = "56.0", features = ["crypto_expressions"] }
+datafusion-functions-aggregate = "56.0"
+datafusion-sql = "56.0"
 derive-getters = "0.5.0"
 derive_builder = "0.20"
 futures = "0.3.31"
@@ -38,16 +38,16 @@ fastnum = { version = "0.7", default-features = false, features = ["std", "serde
 getrandom = { version = "0.4.2", features = ["std"] }
 itertools = "0.14.0"
 lru = "0.18.0"
-object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
+object_store = { version = "0.14", features = ["aws", "gcp", "azure"] }
 murmur3 = { version = "0.5.2" }
-parquet = { version = "59", features = ["async", "object_store"] }
+parquet = { version = "60", features = ["async", "object_store"] }
 pin-project-lite = "0.2"
 regex = "1.11.1"
 roaring = "0.11"
 serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"
-sqlparser = { version = "0.62", features = ["visitor"] }
+sqlparser = { version = "0.63", features = ["visitor"] }
 thiserror = "2"
 tracing = "0.1"
 url = "^2.5"
