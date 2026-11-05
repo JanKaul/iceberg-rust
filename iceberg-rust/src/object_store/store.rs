@@ -11,9 +11,9 @@ use crate::error::Error;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use lazy_static::lazy_static;
 use regex::Regex;
 use std::io::{Read, Write};
+use std::sync::LazyLock;
 
 /// Simplify interaction with iceberg files
 #[async_trait]
@@ -87,8 +87,8 @@ fn version_hint_path(original: &str) -> Option<String> {
     )
 }
 
-lazy_static! {
-    static ref SUPPORTED_METADATA_FILE_FORMATS: Vec<Regex> = vec![
+static SUPPORTED_METADATA_FILE_FORMATS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    vec![
         // The standard metastore format https://iceberg.apache.org/spec/#metastore-tables
         Regex::new(
             r"^(?<version>[0-9]{5}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}).(?:gz.)?metadata.json$"
@@ -96,8 +96,8 @@ lazy_static! {
         .unwrap(),
         // The legacy file-system format https://iceberg.apache.org/spec/#file-system-tables
         Regex::new(r"^v(?<version>[0-9]+).(?:gz.)?metadata.json$").unwrap(),
-    ];
-}
+    ]
+});
 
 /// Given a full path to a metadata file, extract an appropriate version hint that other readers
 /// without access to the catalog can parse.

@@ -21,7 +21,6 @@ serde_json.workspace = true
 serde_repr = "^0.1"
 serde_with = { version = "^3", default-features = false, features = ["base64", "std", "macros"] }
 tracing.workspace = true
-tracing-futures.workspace = true
 url.workspace = true
 uuid.workspace = true
 
