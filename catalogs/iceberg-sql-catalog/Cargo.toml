@@ -20,7 +20,7 @@ futures.workspace = true
 iceberg-rust = { path = "../../iceberg-rust", version = "0.10.0" }
 object_store.workspace = true
 serde_json.workspace = true
-sqlx = { version = "0.8", features = ["tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
+sqlx = { version = "0.9", features = ["tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 thiserror.workspace = true
 url.workspace = true
 uuid = { version = "1.23.1", features = ["v4"] }
@@ -29,7 +29,7 @@ uuid = { version = "1.23.1", features = ["v4"] }
 datafusion.workspace = true
 datafusion_iceberg = { path = "../../datafusion_iceberg", version = "0.10.0" }
 iceberg-rust = { path = "../../iceberg-rust", version = "0.10.0", features = ["test-utils"] }
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "any", "sqlite", "postgres", "mysql"], default-features = false }
 testcontainers = "0.26"
 testcontainers-modules = { version = "0.14", features = ["localstack", "postgres"] }
 tokio = "1"
