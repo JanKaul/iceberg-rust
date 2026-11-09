@@ -114,10 +114,9 @@ pub fn parquet_to_datafile(
         for column in row_group.columns() {
             let column_name = column.column_descr().name();
             let column_path = column.column_path().parts().join(".");
-            let id = schema
-                .get_name(&column_path)
-                .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
-                .id;
+            let (id, data_type, in_list_or_map) = schema
+                .get_leaf(column.column_path().parts())
+                .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?;
 
             let top_level_index = column_path
                 .split('.')
@@ -150,11 +149,10 @@ pub fn parquet_to_datafile(
                         .or_insert(null_count as i64);
                 }
 
-                let data_type = &schema
-                    .fields()
-                    .get(id as usize)
-                    .ok_or_else(|| Error::Schema(column_name.to_string(), "".to_string()))?
-                    .field_type;
+                // Bounds and distinct counts of list and map children are not tracked, as in the Iceberg spec.
+                if in_list_or_map {
+                    continue;
+                }
 
                 // Parquet's physical type can encode a logical type differently than
                 // the Iceberg spec: INT32/INT64 stats are native little-endian
@@ -576,11 +574,11 @@ mod metrics_mode_tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use arrow::array::{ArrayRef, StringArray};
+    use arrow::array::{ArrayRef, ListBuilder, StringArray, StringBuilder};
     use arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
     use arrow::record_batch::RecordBatch;
     use iceberg_rust_spec::spec::schema::Schema;
-    use iceberg_rust_spec::spec::types::{PrimitiveType, StructField, Type};
+    use iceberg_rust_spec::spec::types::{ListType, PrimitiveType, StructField, Type};
     use iceberg_rust_spec::spec::values::Value;
     use iceberg_rust_spec::table_metadata::{
         WRITE_METADATA_METRICS_COLUMN_PREFIX, WRITE_METADATA_METRICS_DEFAULT,
@@ -590,7 +588,7 @@ mod metrics_mode_tests {
 
     use super::parquet_to_datafile;
 
-    /// A two-column table whose values are far longer than any sane bound.
+    /// A three-column table (the third is a list) whose values are far longer than any sane bound.
     fn schema() -> Schema {
         Schema::builder()
             .with_struct_field(StructField {
@@ -611,6 +609,19 @@ mod metrics_mode_tests {
                 initial_default: None,
                 write_default: None,
             })
+            .with_struct_field(StructField {
+                id: 2,
+                name: "tags".to_string(),
+                required: false,
+                field_type: Type::List(ListType {
+                    element_id: 3,
+                    element_required: false,
+                    element: Box::new(Type::Primitive(PrimitiveType::String)),
+                }),
+                doc: None,
+                initial_default: None,
+                write_default: None,
+            })
             .build()
             .unwrap()
     }
@@ -620,9 +631,15 @@ mod metrics_mode_tests {
     fn datafile_with(
         properties: HashMap<String, String>,
     ) -> iceberg_rust_spec::spec::manifest::DataFile {
+        // One NULL element per row.
+        let mut tags = ListBuilder::new(StringBuilder::new());
+        tags.append_value([Some("a"), None]);
+        tags.append_value([None, Some("b")]);
+        let tags: ArrayRef = Arc::new(tags.finish());
         let arrow_schema = Arc::new(ArrowSchema::new(vec![
             Field::new("body", DataType::Utf8, false),
             Field::new("trace_id", DataType::Utf8, false),
+            Field::new("tags", tags.data_type().clone(), true),
         ]));
 
         let bodies: ArrayRef = Arc::new(StringArray::from(vec![
@@ -633,7 +650,8 @@ mod metrics_mode_tests {
             "00000000000000000000000000000001",
             "ffffffffffffffffffffffffffffffff",
         ]));
-        let batch = RecordBatch::try_new(arrow_schema.clone(), vec![bodies, trace_ids]).unwrap();
+        let batch =
+            RecordBatch::try_new(arrow_schema.clone(), vec![bodies, trace_ids, tags]).unwrap();
 
         let mut buffer = Vec::new();
         let mut writer = ArrowWriter::try_new(&mut buffer, arrow_schema, None).unwrap();
@@ -724,6 +742,15 @@ mod metrics_mode_tests {
         // `counts` gives the other column counts but no bounds.
         assert_eq!(bound(datafile.lower_bounds(), 0), None);
         assert!(datafile.value_counts().as_ref().unwrap().get(&0).is_some());
+    }
+
+    // A list's NULL element count equal to the row count must not be taken for the count of the list column, which
+    // a reader would read as all lists being NULL.
+    #[test]
+    fn list_element_statistics_are_recorded_under_the_element() {
+        let datafile = datafile_with(HashMap::new());
+        let nulls = datafile.null_value_counts().as_ref().unwrap();
+        assert_eq!((nulls.get(&2), nulls.get(&3)), (None, Some(&2)));
     }
 }
 

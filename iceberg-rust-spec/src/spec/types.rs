@@ -473,30 +473,61 @@ impl StructType {
         if res.is_some() {
             return res;
         }
-        let parts: Vec<&str> = name.split('.').collect();
-        let mut current_struct = self;
-        let mut current_field = None;
+        let mut parts = name.split('.');
+        let first = parts.next()?;
+        let mut current_field = self.fields.iter().find(|field| field.name == first)?;
+        for part in parts {
+            let Type::Struct(struct_type) = &current_field.field_type else {
+                return None;
+            };
+            current_field = struct_type.fields.iter().find(|field| field.name == part)?;
+        }
+        Some(current_field)
+    }
 
-        for (i, part) in parts.iter().enumerate() {
-            current_field = current_struct
-                .fields
-                .iter()
-                .find(|field| field.name == *part);
-
-            if i == parts.len() - 1 || current_field.is_some() {
-                return current_field;
-            }
-
-            if let Some(field) = current_field {
-                if let Type::Struct(struct_type) = &field.field_type {
-                    current_struct = struct_type;
-                } else {
-                    return None;
+    // Resolves the path of a parquet leaf column to the id and type of the field it holds the values of, and
+    // whether that field is a child of a list or map. The path goes through the physical layout of nested types:
+    // `<list column>.list.<element>` and `<map column>.key_value.<key|value>`.
+    pub fn get_leaf(&self, path: &[String]) -> Option<(i32, &Type, bool)> {
+        let (first, mut rest) = path.split_first()?;
+        let field = self.fields.iter().find(|field| field.name == *first)?;
+        let (mut id, mut data_type, mut repeated) = (field.id, &field.field_type, false);
+        while !rest.is_empty() {
+            match data_type {
+                Type::Struct(inner) => {
+                    let field = inner.fields.iter().find(|field| field.name == rest[0])?;
+                    (id, data_type) = (field.id, &field.field_type);
+                    rest = &rest[1..];
                 }
+                Type::List(list) => {
+                    (id, data_type, repeated) = (list.element_id, &*list.element, true);
+                    // Skip the repeated group, when the writer used the 3-level layout.
+                    rest = if rest.len() > 1 {
+                        &rest[2..]
+                    } else {
+                        &rest[1..]
+                    };
+                }
+                Type::Map(map) => {
+                    let is_key = rest
+                        .get(1)
+                        .or(rest.first())
+                        .is_some_and(|part| part == "key");
+                    (id, data_type, repeated) = if is_key {
+                        (map.key_id, &*map.key, true)
+                    } else {
+                        (map.value_id, &*map.value, true)
+                    };
+                    rest = if rest.len() > 1 {
+                        &rest[2..]
+                    } else {
+                        &rest[1..]
+                    };
+                }
+                Type::Primitive(_) => return None,
             }
         }
-
-        current_field
+        Some((id, data_type, repeated))
     }
 
     /// Returns the number of fields in this struct
@@ -1721,5 +1752,43 @@ mod tests {
         ]);
 
         assert_eq!(roundtrip(&top), top);
+    }
+
+    #[test]
+    fn test_get_name_and_get_leaf_resolve_nested_columns() {
+        let fields: Vec<StructField> = serde_json::from_str(
+            r#"[
+                {"id":1,"name":"id","required":true,"type":"int"},
+                {"id":2,"name":"tags","required":false,"type":
+                    {"type":"list","element-id":6,"element":"string","element-required":false}},
+                {"id":3,"name":"point","required":false,"type":
+                    {"type":"struct","fields":[{"id":7,"name":"x","required":false,"type":"double"}]}},
+                {"id":4,"name":"attrs","required":false,"type":
+                    {"type":"map","key-id":8,"key":"string","value-id":9,"value":"long","value-required":false}}
+            ]"#,
+        )
+        .unwrap();
+        let schema = StructType::new(fields);
+
+        let name = |name: &str| schema.get_name(name).map(|field| field.id);
+        assert_eq!(name("id"), Some(1));
+        assert_eq!(name("point.x"), Some(7));
+        assert_eq!(name("point.y"), None);
+        assert_eq!(name("tags.list.item"), None);
+
+        let leaf = |parts: &[&str]| {
+            let path: Vec<String> = parts.iter().map(|part| part.to_string()).collect();
+            schema
+                .get_leaf(&path)
+                .map(|(id, _, repeated)| (id, repeated))
+        };
+        assert_eq!(leaf(&["id"]), Some((1, false)));
+        assert_eq!(leaf(&["tags", "list", "element"]), Some((6, true)));
+        assert_eq!(leaf(&["tags", "list", "item"]), Some((6, true)));
+        assert_eq!(leaf(&["point", "x"]), Some((7, false)));
+        assert_eq!(leaf(&["attrs", "key_value", "key"]), Some((8, true)));
+        assert_eq!(leaf(&["attrs", "key_value", "value"]), Some((9, true)));
+        assert_eq!(leaf(&["missing"]), None);
+        assert_eq!(leaf(&["id", "more"]), None);
     }
 }
