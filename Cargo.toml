@@ -37,20 +37,18 @@ futures = "0.3.31"
 fastnum = { version = "0.7", default-features = false, features = ["std", "serde"] }
 getrandom = { version = "0.4.2", features = ["std"] }
 itertools = "0.14.0"
-lazy_static = "1.5.0"
 lru = "0.18.0"
 object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
 murmur3 = { version = "0.5.2" }
 parquet = { version = "59", features = ["async", "object_store"] }
 pin-project-lite = "0.2"
 regex = "1.11.1"
-roaring = "0.10"
+roaring = "0.11"
 serde = "^1.0"
 serde_derive = "^1.0"
 serde_json = "^1.0"
 sqlparser = { version = "0.62", features = ["visitor"] }
 thiserror = "2"
 tracing = "0.1"
-tracing-futures = "0.2"
 url = "^2.5"
 uuid = { version = "1.23.1", features = ["serde", "v4"] }

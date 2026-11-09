@@ -52,9 +52,6 @@ pub enum Error {
     /// Avro error
     #[error(transparent)]
     Avro(Box<apache_avro::Error>),
-    /// Thrift error
-    #[error(transparent)]
-    Thrift(#[from] thrift::Error),
     /// sql parser error
     #[error(transparent)]
     SQLParser(#[from] sqlparser::parser::ParserError),

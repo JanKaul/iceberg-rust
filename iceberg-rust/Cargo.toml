@@ -21,7 +21,6 @@ futures = { workspace = true }
 getrandom = { workspace = true }
 iceberg-rust-spec = { path = "../iceberg-rust-spec", version = "0.10.0" }
 itertools = { workspace = true }
-lazy_static = { workspace = true }
 lru = { workspace = true }
 murmur3 = { workspace = true }
 object_store = { workspace = true }
@@ -35,7 +34,6 @@ serde_json = { workspace = true }
 smallvec = { version = "1.14.0", features = ["const_generics"] }
 sqlparser = { workspace = true }
 thiserror = { workspace = true }
-thrift = { version = "0.17.0", default-features = false }
 tracing = { workspace = true }
 tokio = { version = "1.50", features = ["sync"] }
 url = { workspace = true }

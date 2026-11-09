@@ -18,8 +18,7 @@ use iceberg_rust_spec::{
     },
     table_metadata::WRITE_METADATA_METRICS_DISTINCT_COUNTS_ENABLED,
 };
-use parquet::file::{metadata::ParquetMetaData, writer::TrackedWrite};
-use thrift::protocol::{TCompactOutputProtocol, TSerializable};
+use parquet::file::metadata::ParquetMetaData;
 use tracing::instrument;
 
 use crate::error::Error;
@@ -449,14 +448,6 @@ pub fn parquet_to_datafile(
 
     let content = builder.build()?;
     Ok(content)
-}
-
-/// Get parquet metadata size
-pub fn thrift_size<T: TSerializable>(metadata: &T) -> Result<usize, Error> {
-    let mut buffer = TrackedWrite::new(Vec::<u8>::new());
-    let mut protocol = TCompactOutputProtocol::new(&mut buffer);
-    metadata.write_to_out_protocol(&mut protocol)?;
-    Ok(buffer.bytes_written())
 }
 
 fn range_overlap<T: Ord + Sub + Copy>(
