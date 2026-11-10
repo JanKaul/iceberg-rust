@@ -29,6 +29,9 @@ pub enum Error {
     /// Not supported
     #[error("Feature {0} is not supported.")]
     NotSupported(String),
+    /// A snapshot summary entry is already set and cannot be overwritten
+    #[error("Snapshot summary entry {0} is already set and cannot be overwritten.")]
+    SummaryEntryConflict(String),
     /// Not found in catalog
     #[error("Entity not found in catalog")]
     CatalogNotFound,
