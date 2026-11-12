@@ -22,6 +22,7 @@ use iceberg_rust_spec::spec::{
     manifest::DataFile, schema::Schema, snapshot::SnapshotReference, sort::SortOrder,
 };
 
+use crate::catalog::commit::TableUpdate;
 use crate::table::transaction::append::append_summary;
 use crate::table::transaction::operation::SequenceGroup;
 use crate::{
@@ -73,6 +74,7 @@ pub struct TableTransaction<'table> {
     table: &'table mut Table,
     operations: Vec<Option<Operation>>,
     branch: Option<String>,
+    custom_summary: Option<HashMap<String, String>>,
 }
 
 impl<'table> TableTransaction<'table> {
@@ -82,6 +84,7 @@ impl<'table> TableTransaction<'table> {
             table,
             operations: (0..NUM_OPERATIONS).map(|_| None).collect(), // 6 operation types
             branch: branch.map(ToString::to_string),
+            custom_summary: None,
         }
     }
     /// Adds a new schema to the table
@@ -471,6 +474,47 @@ impl<'table> TableTransaction<'table> {
         self
     }
 
+    /// Adds custom entries to the summary of the snapshots that this transaction creates
+    ///
+    /// The entries are added to the summary of the snapshot of every append, append sequence
+    /// group, overwrite and replace operation of the transaction, whatever the order in which
+    /// the methods are called. When the transaction creates several snapshots, they all get the
+    /// entries. Without an operation that creates a snapshot, the entries are not used.
+    ///
+    /// Entries never overwrite entries that are already set in the summary: the ones computed
+    /// by the library (`added-records`, `total-records`, ...) and the ones given to
+    /// [`TableTransaction::replace_with_lineage`].
+    ///
+    /// Calling this method again adds to the entries, and an entry with the same key is
+    /// replaced.
+    ///
+    /// # Arguments
+    /// * `entries` - The key/value pairs to add to the snapshot summaries
+    ///
+    /// # Returns
+    /// * `Self` - The transaction, for chaining
+    ///
+    /// # Errors
+    /// [`TableTransaction::commit`] returns [`Error::SummaryEntryConflict`] when a key is
+    /// already set in the summary of a snapshot. Nothing is committed in that case, but the
+    /// manifest files that were already written for the snapshots stay in the table location
+    /// unreferenced, like after any other failed commit. Orphan file removal cleans them up.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// let transaction = table.new_transaction(None)
+    ///     .append_data(data_files)
+    ///     .with_custom_summary(HashMap::from([("alice".to_string(), "1".to_string())]))
+    ///     .commit()
+    ///     .await?;
+    /// ```
+    pub fn with_custom_summary(mut self, entries: HashMap<String, String>) -> Self {
+        self.custom_summary
+            .get_or_insert_with(HashMap::new)
+            .extend(entries);
+        self
+    }
+
     /// Commits all operations in this transaction atomically
     ///
     /// This method executes all operations in the transaction and updates the table
@@ -510,9 +554,21 @@ impl<'table> TableTransaction<'table> {
         // snapshots created by this transaction are internal and cannot be checked by the catalog.
         let (mut requirements, mut updates) = (Vec::new(), Vec::new());
         for operation in self.operations.into_iter().flatten() {
-            let (requirement, update) = operation
+            let (requirement, mut update) = operation
                 .execute(&staged_metadata, self.table.object_store())
                 .await?;
+            if let Some(entries) = &self.custom_summary {
+                for snapshot in update.iter_mut().filter_map(|update| match update {
+                    TableUpdate::AddSnapshot { snapshot } => Some(snapshot),
+                    _ => None,
+                }) {
+                    let summary = &mut snapshot.summary_mut().other;
+                    if let Some(key) = entries.keys().find(|key| summary.contains_key(*key)) {
+                        return Err(Error::SummaryEntryConflict(key.clone()));
+                    }
+                    summary.extend(entries.clone());
+                }
+            }
 
             if let Some(requirement) = requirement.filter(|requirement| {
                 requirement_applies_to_base_metadata(requirement, base_metadata)

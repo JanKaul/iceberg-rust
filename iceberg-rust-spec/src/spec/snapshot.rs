@@ -65,6 +65,13 @@ pub struct Snapshot {
     added_rows: Option<i64>,
 }
 
+impl Snapshot {
+    /// Mutable access to the summary of the snapshot
+    pub fn summary_mut(&mut self) -> &mut Summary {
+        &mut self.summary
+    }
+}
+
 /// Generates a random snapshot ID using a cryptographically secure random number generator.
 ///
 /// The function generates 8 random bytes and converts them to a positive i64 value.
