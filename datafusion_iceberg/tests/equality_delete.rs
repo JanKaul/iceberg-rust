@@ -1,7 +1,7 @@
 use datafusion::common::test_util::batches_to_string;
 use datafusion::{
     arrow::{error::ArrowError, record_batch::RecordBatch},
-    assert_batches_eq,
+    assert_batches_eq, assert_batches_sorted_eq,
     prelude::SessionContext,
 };
 use datafusion_iceberg::catalog::catalog::IcebergCatalog;
@@ -269,4 +269,115 @@ pub async fn test_equality_delete() {
     // Ensure we only pushed down predicates that have matching columns with delete file schemas (i.e. amount was not pushed down).
     let batches = run_query(&format!("explain {query}"), &ctx).await;
     assert!(batches_to_string(&batches).contains("projection=[id, customer_id, product_id, date], file_type=parquet, predicate=product_id@2 = 1,"));
+}
+
+/// LIMIT must not be pushed into the scans feeding the equality-delete anti-join:
+/// truncating the data scan drops surviving rows before the join (under-return),
+/// and truncating the delete scan lets deleted rows through.
+#[tokio::test]
+pub async fn test_equality_delete_with_limit() {
+    let temp_dir = TempDir::new().unwrap();
+    let table_dir = format!("{}/test/items", temp_dir.path().to_str().unwrap());
+    let object_store = ObjectStoreBuilder::Filesystem(Arc::new(LocalFileSystem::new()));
+
+    let catalog: Arc<dyn Catalog> = Arc::new(
+        SqlCatalog::new("sqlite://", "warehouse", object_store.clone())
+            .await
+            .unwrap(),
+    );
+
+    catalog
+        .create_namespace(&Namespace::try_new(&["test".to_string()]).unwrap(), None)
+        .await
+        .unwrap();
+
+    let schema = Schema::builder()
+        .with_struct_field(StructField {
+            id: 1,
+            name: "id".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Long),
+            doc: None,
+            initial_default: None,
+            write_default: None,
+        })
+        .with_struct_field(StructField {
+            id: 2,
+            name: "amount".to_string(),
+            required: true,
+            field_type: Type::Primitive(PrimitiveType::Int),
+            doc: None,
+            initial_default: None,
+            write_default: None,
+        })
+        .build()
+        .unwrap();
+
+    let table = Table::builder()
+        .with_name("items")
+        .with_location(&table_dir)
+        .with_schema(schema)
+        .build(&["test".to_owned()], catalog.clone())
+        .await
+        .expect("Failed to create table");
+
+    let ctx = SessionContext::new();
+    let datafusion_catalog = Arc::new(IcebergCatalog::new(catalog.clone(), None).await.unwrap());
+    ctx.register_catalog("warehouse", datafusion_catalog);
+
+    run_query(
+        "INSERT INTO warehouse.test.items (id, amount) VALUES
+                (1, 10), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60);",
+        &ctx,
+    )
+    .await;
+
+    // Delete the first four rows of the data file.
+    let delete_batches = run_query(
+        "SELECT id FROM warehouse.test.items WHERE id <= 4 ORDER BY id",
+        &ctx,
+    )
+    .await;
+    let files = write_equality_deletes_parquet_partitioned(
+        &table,
+        stream::iter(delete_batches.into_iter().map(Ok::<_, ArrowError>)),
+        None,
+        &[1],
+    )
+    .await
+    .unwrap();
+
+    let Tabular::Table(mut table) = catalog
+        .clone()
+        .load_tabular(&Identifier::new(&["test".to_string()], "items"))
+        .await
+        .unwrap()
+    else {
+        panic!("Tabular should be a table");
+    };
+    table
+        .new_transaction(None)
+        .append_delete(files)
+        .commit()
+        .await
+        .unwrap();
+
+    // Only ids 5 and 6 survive. A data scan truncated to 2 rows would read ids 1, 2
+    // (both deleted) and return nothing; a delete scan truncated to 2 rows would only
+    // delete ids 1, 2 and could return the deleted ids 3, 4.
+    let batches = run_query("SELECT id FROM warehouse.test.items LIMIT 2", &ctx).await;
+    #[rustfmt::skip]
+    let expected = [
+        "+----+",
+        "| id |",
+        "+----+",
+        "| 5  |",
+        "| 6  |",
+        "+----+",
+    ];
+    assert_batches_sorted_eq!(expected, &batches);
+
+    // The LIMIT is still enforced.
+    let batches = run_query("SELECT * FROM warehouse.test.items LIMIT 1", &ctx).await;
+    assert_eq!(batches.iter().map(|b| b.num_rows()).sum::<usize>(), 1);
 }
