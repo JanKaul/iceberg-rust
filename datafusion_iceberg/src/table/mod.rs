@@ -1078,7 +1078,6 @@ async fn table_scan(
                             )
                             .with_file_group(FileGroup::new(vec![delete_file]))
                             .with_statistics(statistics.clone())
-                            .with_limit(limit)
                             .build();
 
                             let left = ParquetFormat::default()
@@ -1090,7 +1089,6 @@ async fn table_scan(
                                     .with_file_group(FileGroup::new(data_files))
                                     .with_statistics(statistics)
                                     .with_projection_indices(Some(equality_projection))?
-                                    .with_limit(limit)
                                     .build();
 
                             let data_files_scan = ParquetFormat::default()
