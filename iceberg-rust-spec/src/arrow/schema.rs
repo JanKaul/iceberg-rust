@@ -20,7 +20,10 @@ impl TryInto<ArrowSchema> for &StructType {
     fn try_into(self) -> Result<ArrowSchema, Self::Error> {
         let fields = self.try_into()?;
         let metadata = HashMap::new();
-        Ok(ArrowSchema { fields, metadata })
+        Ok(ArrowSchema {
+            fields,
+            metadata: metadata.into(),
+        })
     }
 }
 
