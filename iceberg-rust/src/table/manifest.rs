@@ -773,9 +773,9 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     ) -> Result<ManifestListEntry, Error> {
         let manifest_bytes = self.writer.into_inner()?;
 
-        let manifest_length: i64 = manifest_bytes.len() as i64;
-
-        self.manifest.manifest_length += manifest_length;
+        // Assign, don't add: a writer created by `from_existing*` starts from the
+        // old manifest's list entry, whose length is that of the file being replaced.
+        self.manifest.manifest_length = manifest_bytes.len() as i64;
 
         object_store
             .put(
@@ -814,9 +814,9 @@ impl<'schema, 'metadata> ManifestWriter<'schema, 'metadata> {
     ) -> Result<(ManifestListEntry, impl Future<Output = Result<(), Error>>), Error> {
         let manifest_bytes = self.writer.into_inner()?;
 
-        let manifest_length: i64 = manifest_bytes.len() as i64;
-
-        self.manifest.manifest_length += manifest_length;
+        // Assign, don't add: a writer created by `from_existing*` starts from the
+        // old manifest's list entry, whose length is that of the file being replaced.
+        self.manifest.manifest_length = manifest_bytes.len() as i64;
 
         let path = strip_prefix(&self.manifest.manifest_path).as_str().into();
         let future = async move {
