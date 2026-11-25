@@ -1475,6 +1475,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn appends_record_actual_manifest_lengths() {
+        let mut metadata = sample_metadata(&[], None, &[]);
+        let store = Arc::new(InMemory::new());
+        for i in 0..2 {
+            let path = format!("s3://tests/table/data/{i}.parquet");
+            let append = Operation::Append {
+                branch: None,
+                data_files: vec![data_file(&path, 1)],
+                delete_files: Vec::new(),
+                additional_summary: None,
+            };
+            let (_, updates) = append.execute(&metadata, store.clone()).await.unwrap();
+            crate::catalog::commit::apply_table_updates(&mut metadata, updates).unwrap();
+        }
+        let snapshot = metadata.current_snapshot(None).unwrap().unwrap();
+        let list = store
+            .get(&strip_prefix(snapshot.manifest_list()).into())
+            .await;
+        let list = list.unwrap().bytes().await.unwrap();
+        for entry in ManifestListReader::new(&list[..], &metadata).unwrap() {
+            let entry = entry.unwrap();
+            let actual = store.head(&strip_prefix(&entry.manifest_path).into()).await;
+            assert_eq!(entry.manifest_length, actual.unwrap().size as i64);
+        }
+    }
+
+    #[tokio::test]
     async fn v3_appends_assign_contiguous_row_ranges() {
         let mut metadata = sample_metadata(&[], None, &[]);
         metadata.format_version = FormatVersion::V3;
@@ -1524,10 +1551,19 @@ mod tests {
             .bytes()
             .await
             .unwrap();
-        let mut first_row_ids = ManifestListReader::new(&manifest_list_bytes[..], &metadata)
+        let entries = ManifestListReader::new(&manifest_list_bytes[..], &metadata)
             .unwrap()
-            .map(|entry| entry.unwrap().first_row_id)
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        // The recorded length must match the actual manifest file, including the rewritten one.
+        for entry in &entries {
+            let meta = store
+                .head(&strip_prefix(&entry.manifest_path).into())
+                .await
+                .unwrap();
+            assert_eq!(entry.manifest_length, meta.size as i64);
+        }
+        let mut first_row_ids = entries.iter().map(|e| e.first_row_id).collect::<Vec<_>>();
         first_row_ids.sort();
         assert_eq!(first_row_ids, vec![Some(10), Some(15)]);
 
